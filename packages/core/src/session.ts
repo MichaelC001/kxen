@@ -27,7 +27,7 @@ export class KxenSession {
 		const bus = opts.bus ?? new EventBus();
 		const { session } = await createAgentSession({
 			cwd: opts.cwd,
-			agentDir: opts.agentDir ?? ensureAgentDir(),
+			agentDir: opts.agentDir ?? (await ensureAgentDir()),
 			customTools: opts.tools,
 			...(opts.allowedTools ? { tools: opts.allowedTools } : {}),
 		});

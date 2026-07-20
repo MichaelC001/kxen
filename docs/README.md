@@ -48,6 +48,7 @@ kxen 是一个开源的终端原生 Coding Agent Harness：混用 Claude / Codex
 | `08-config-interop.md` | 配置互通：std-agent 需求还原、canonical 格式、kxen import、Agent Skills 对齐 |
 | `09-agents-directory.md` | `.agents/` + AGENTS.md 规范：rules / references 类型路由、OKF 引入、多层目录解析 |
 | `10-env-vars.md` | 环境变量约定：kxen 自有 / 穿透 pi / provider 凭证、反侧信道 |
+| `11-config-boundary.md` | 配置边界：pi SettingsManager vs kxen config.toml、Bun 原生 API 约定 |
 | `06-monorepo.md` | monorepo 工程结构：bun workspaces + catalog 决策、包 layout 映射、版本与发布策略、工具链、crates/ 预留 |
 
 ## 当前状态

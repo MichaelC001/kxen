@@ -67,14 +67,14 @@ describe('agents-dir', () => {
 		expect(docs.filter((d) => d.type === 'reference')).toHaveLength(1);
 	});
 
-	test('loadAgentsDir 递归扫描并生成 index', () => {
+	test('loadAgentsDir 递归扫描并生成 index', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'kxen-agents-'));
 		try {
 			mkdirSync(join(dir, 'rules'), { recursive: true });
 			mkdirSync(join(dir, 'references'), { recursive: true });
 			writeFileSync(join(dir, 'rules', 'a.md'), RULE_MD);
 			writeFileSync(join(dir, 'references', 'b.md'), REF_MD);
-			const docs = loadAgentsDir(dir);
+			const docs = await loadAgentsDir(dir);
 			expect(docs).toHaveLength(2);
 			const index = generateIndex(dir, docs);
 			expect(index).toContain('## rule');

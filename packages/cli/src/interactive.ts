@@ -24,7 +24,7 @@ function readFlags(): RuntimeFlags {
 }
 
 async function buildRuntime(cwd: string) {
-	const agentDir = ensureAgentDir();
+	const agentDir = await ensureAgentDir();
 	const flags = readFlags();
 	const services = await createAgentSessionServices({ cwd, agentDir });
 	const sessionManager = SessionManager.create(cwd);

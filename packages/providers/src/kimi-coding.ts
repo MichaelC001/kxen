@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { httpFetch, readJson } from '@kxen/core';
@@ -14,12 +13,13 @@ interface KimiCliCredentials {
 }
 
 // kimi CLI 的 OAuth 凭证（~/.kimi-code/credentials/kimi-code.json）
-function readKimiCliCredentials(credPath: string): Credential | undefined {
-	if (!existsSync(credPath)) return undefined;
+async function readKimiCliCredentials(
+	credPath: string,
+): Promise<Credential | undefined> {
+	const file = Bun.file(credPath);
+	if (!(await file.exists())) return undefined;
 	try {
-		const parsed = JSON.parse(
-			readFileSync(credPath, 'utf8'),
-		) as KimiCliCredentials;
+		const parsed = (await file.json()) as KimiCliCredentials;
 		if (parsed.access_token) {
 			return {
 				type: 'oauth',
@@ -44,7 +44,7 @@ registerProviderAuth({
 	displayName: 'Kimi Code (Kimi 会员)',
 	async resolve({ authPath, env, cliAuthPaths }) {
 		// kimi CLI 会轮换 OAuth token，存储副本极易过期：优先用 CLI 文件里的新鲜凭证
-		const imported = readKimiCliCredentials(
+		const imported = await readKimiCliCredentials(
 			cliAuthPaths?.['kimi-coding'] ??
 				join(homedir(), '.kimi-code', 'credentials', 'kimi-code.json'),
 		);
@@ -54,24 +54,24 @@ registerProviderAuth({
 				imported.type === 'oauth'
 					? { type: 'api_key', key: imported.access }
 					: imported;
-			const existing = readCredential(authPath, 'kimi-coding');
+			const existing = await readCredential(authPath, 'kimi-coding');
 			if (
 				existing?.type === 'api_key' &&
 				existing.key === (asKey as { key?: string }).key
 			) {
 				return existing;
 			}
-			writeCredential(authPath, 'kimi-coding', asKey);
+			await writeCredential(authPath, 'kimi-coding', asKey);
 			return asKey;
 		}
 
-		const existing = readCredential(authPath, 'kimi-coding');
+		const existing = await readCredential(authPath, 'kimi-coding');
 		if (existing) return existing;
 
 		const key = env.MOONSHOT_API_KEY ?? env.KIMI_API_KEY;
 		if (key) {
 			const cred: Credential = { type: 'api_key', key };
-			writeCredential(authPath, 'kimi-coding', cred);
+			await writeCredential(authPath, 'kimi-coding', cred);
 			return cred;
 		}
 		return undefined;

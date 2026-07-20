@@ -1,65 +1,39 @@
 #!/usr/bin/env bun
 
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { parseArgs } from 'node:util';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { kxenExtension } from './extensions/kxen';
 
 // KXEN_VERSION 由 scripts/build.ts 在编译期 define 注入
 const version = process.env.KXEN_VERSION ?? '0.0.0';
 
-const { values, positionals } = parseArgs({
-	args: Bun.argv.slice(2),
-	options: {
-		help: { type: 'boolean', short: 'h' },
-		version: { type: 'boolean', short: 'v' },
-	},
-	strict: false,
-	allowPositionals: true,
-});
+// pi 官方换牌机制：piConfig（packages/cli/package.json）+ PI_PACKAGE_DIR
+// 此后 APP_NAME=kxen、退出提示为 kxen --session、agent 目录变量为 KXEN_CODING_AGENT_DIR
+const sourcePkgDir = dirname(dirname(fileURLToPath(import.meta.url)));
+if (existsSync(join(sourcePkgDir, 'package.json'))) {
+	process.env.PI_PACKAGE_DIR ??= sourcePkgDir;
+}
+process.env.KXEN_CODING_AGENT_DIR ??= join(homedir(), '.kxen', 'agent');
 
 async function main(): Promise<void> {
-	if (values.help) {
-		console.log(`kxen ${version}
-终端 Coding Agent Harness（基于 pi 增强，pi 的全部 CLI 参数直接可用）
+	const [, , command, ...rest] = Bun.argv;
 
-用法: kxen [pi 原生参数] [command]
-
-kxen 特有命令:
-  doctor    环境自检
-  upgrade   自更新（GitHub Releases）
-
-kxen 特有 slash 命令（会话内）:
-  /write-goal   交互式创建 goal（收集 -> 确认 -> 自动执行）
-  /goal         查看 / 执行 goal
-  /workflow     运行 workflow 编排脚本
-
-pi 原生参数示例:
-  -p "<prompt>"            单发模式
-  --model <provider/id>    指定模型
-  --resume / --continue    恢复会话
-  -e, --extension <path>   加载扩展
-  --no-extensions 等       详见 pi 文档
-`);
-		return;
-	}
-
-	if (values.version) {
+	if (command === 'version' || command === '--version' || command === '-v') {
 		console.log(version);
 		return;
 	}
 
-	if (positionals[0] === 'doctor') {
+	if (command === 'doctor') {
 		console.log(`kxen ${version}`);
 		console.log(`bun ${Bun.version}`);
 		console.log(`platform ${process.platform}/${process.arch}`);
-		console.log(
-			`agent dir: ${process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.kxen', 'agent')}`,
-		);
+		console.log(`agent dir: ${process.env.KXEN_CODING_AGENT_DIR}`);
 		return;
 	}
 
-	if (positionals[0] === 'upgrade') {
+	if (command === 'upgrade') {
 		const { runUpgrade } = await import('./upgrade');
 		try {
 			await runUpgrade();
@@ -72,8 +46,7 @@ pi 原生参数示例:
 		return;
 	}
 
-	// 其余参数全部穿透给 pi 的 main()；agent dir 统一指到 kxen 目录
-	process.env.PI_CODING_AGENT_DIR ??= join(homedir(), '.kxen', 'agent');
+	// 其余一切（含 --help、-p、--model、--resume 等）全部交给 pi 自己处理
 	const { main: piMain } = await import('@earendil-works/pi-coding-agent');
 	await piMain(Bun.argv.slice(2), { extensionFactories: [kxenExtension] });
 }

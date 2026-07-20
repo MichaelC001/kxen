@@ -8,6 +8,8 @@ kxen 是终端 Coding Agent Harness（纯 TypeScript + Bun）。本文件是给�
 - pi-ai 内置 provider（anthropic / openai / openai-codex / xai / kimi-coding / moonshotai(-cn) / amazon-bedrock / google-vertex / zai-coding-cn 等）与 OAuth（anthropic / openai-codex / xai / device-code），一律复用，禁止另起端点
 - TUI 一律用 pi 的 InteractiveMode / runPrintMode，禁止自造 readline 循环
 - LSP 协议用 vscode-jsonrpc，禁止手写 JSON-RPC
+- 文件 API 一律 Bun 原生（Bun.file / Bun.write / Bun.Glob / Bun.TOML / Bun.spawn），node: 仅在无等价物时（chmod / rename / 流式 createWriteStream / vscode-jsonrpc 需要的 child_process / 测试辅助）
+- 配置边界：pi 域设置走 pi SettingsManager，kxen 域设置（roles / limits / budgets）走 config.toml（见 docs/design/11）
 
 ## 技术栈
 

@@ -4,6 +4,14 @@ import pkg from '../package.json';
 
 const version: string = pkg.version;
 
+// 换牌随二进制走：pi 在 Bun 二进制场景读 execPath 同目录的 package.json
+const distPkg = {
+	name: 'kxen',
+	version,
+	piConfig: { name: 'kxen', configDir: '.kxen' },
+};
+await Bun.write('dist/package.json', JSON.stringify(distPkg, null, 2));
+
 const targets = [
 	['darwin-arm64', 'kxen-darwin-arm64'],
 	['darwin-x64', 'kxen-darwin-x64'],

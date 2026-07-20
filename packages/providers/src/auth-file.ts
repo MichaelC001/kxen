@@ -1,6 +1,3 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
-
 // kxen auth.json 与 pi 同构：Record<providerId, Credential>
 export type Credential =
 	| { type: 'api_key'; key?: string }
@@ -11,32 +8,31 @@ export type Credential =
 			expires: number;
 	  } & Record<string, unknown>);
 
-export function readAuthFile(authPath: string): Record<string, Credential> {
-	if (!existsSync(authPath)) return {};
+export async function readAuthFile(
+	authPath: string,
+): Promise<Record<string, Credential>> {
+	const file = Bun.file(authPath);
+	if (!(await file.exists())) return {};
 	try {
-		return JSON.parse(readFileSync(authPath, 'utf8')) as Record<
-			string,
-			Credential
-		>;
+		return (await file.json()) as Record<string, Credential>;
 	} catch {
 		return {};
 	}
 }
 
-export function readCredential(
+export async function readCredential(
 	authPath: string,
 	providerId: string,
-): Credential | undefined {
-	return readAuthFile(authPath)[providerId];
+): Promise<Credential | undefined> {
+	return (await readAuthFile(authPath))[providerId];
 }
 
-export function writeCredential(
+export async function writeCredential(
 	authPath: string,
 	providerId: string,
 	cred: Credential,
-): void {
-	const data = readAuthFile(authPath);
+): Promise<void> {
+	const data = await readAuthFile(authPath);
 	data[providerId] = cred;
-	mkdirSync(dirname(authPath), { recursive: true });
-	writeFileSync(authPath, JSON.stringify(data, null, 2));
+	await Bun.write(Bun.file(authPath), JSON.stringify(data, null, 2));
 }

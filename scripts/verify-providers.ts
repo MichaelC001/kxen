@@ -120,7 +120,7 @@ const checkers: Record<
 	'kimi-coding': checkKimi,
 };
 
-ensureAgentDir();
+await ensureAgentDir();
 const results: { id: string; status: string; detail: string }[] = [];
 
 for (const auth of listProviderAuths()) {

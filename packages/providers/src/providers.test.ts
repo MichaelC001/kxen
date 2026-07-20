@@ -20,7 +20,7 @@ describe('openai-codex provider', () => {
 				cliAuthPaths: { 'openai-codex': join(dir, 'nonexistent.json') },
 			});
 			expect(cred).toEqual({ type: 'api_key', key: 'sk-test' });
-			expect(readCredential(kxenAuth, 'openai-codex')).toEqual(cred);
+			expect(await readCredential(kxenAuth, 'openai-codex')).toEqual(cred);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { type Credential, readCredential, writeCredential } from './auth-file';
@@ -15,10 +14,13 @@ interface CodexAuthFile {
 }
 
 // 只负责把官方 CLI 的现有凭证搬进 pi 的 auth.json；OAuth 刷新与请求由 pi-ai 内置的 openai-codex 处理
-function readCodexCliCredentials(credPath: string): Credential | undefined {
-	if (!existsSync(credPath)) return undefined;
+async function readCodexCliCredentials(
+	credPath: string,
+): Promise<Credential | undefined> {
+	const file = Bun.file(credPath);
+	if (!(await file.exists())) return undefined;
 	try {
-		const parsed = JSON.parse(readFileSync(credPath, 'utf8')) as CodexAuthFile;
+		const parsed = (await file.json()) as CodexAuthFile;
 		if (parsed.tokens?.access_token) {
 			return {
 				type: 'oauth',
@@ -41,20 +43,20 @@ registerProviderAuth({
 	id: 'openai-codex',
 	displayName: 'Codex (ChatGPT Plus/Pro)',
 	async resolve({ authPath, env, cliAuthPaths }) {
-		const existing = readCredential(authPath, 'openai-codex');
+		const existing = await readCredential(authPath, 'openai-codex');
 		if (existing) return existing;
 
-		const imported = readCodexCliCredentials(
+		const imported = await readCodexCliCredentials(
 			cliAuthPaths?.['openai-codex'] ?? join(homedir(), '.codex', 'auth.json'),
 		);
 		if (imported) {
-			writeCredential(authPath, 'openai-codex', imported);
+			await writeCredential(authPath, 'openai-codex', imported);
 			return imported;
 		}
 
 		if (env.OPENAI_API_KEY) {
 			const cred: Credential = { type: 'api_key', key: env.OPENAI_API_KEY };
-			writeCredential(authPath, 'openai-codex', cred);
+			await writeCredential(authPath, 'openai-codex', cred);
 			return cred;
 		}
 		return undefined;

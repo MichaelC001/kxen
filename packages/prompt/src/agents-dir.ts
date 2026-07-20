@@ -1,5 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, join, relative } from 'node:path';
+import { basename, relative } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
 export type AgentsDocType =
@@ -46,26 +45,20 @@ export function parseAgentsDoc(
 	};
 }
 
-// 递归扫描 .agents/ 目录
-export function loadAgentsDir(dir: string): AgentsDoc[] {
-	if (!existsSync(dir)) return [];
+// 递归扫描 .agents/ 目录（Bun.Glob 原生）
+export async function loadAgentsDir(dir: string): Promise<AgentsDoc[]> {
+	const glob = new Bun.Glob('**/*.md');
 	const docs: AgentsDoc[] = [];
-	const walk = (current: string) => {
-		for (const entry of readdirSync(current)) {
-			const full = join(current, entry);
-			if (statSync(full).isDirectory()) {
-				walk(full);
-			} else if (
-				entry.endsWith('.md') &&
-				entry !== 'index.md' &&
-				entry !== 'log.md'
-			) {
-				const doc = parseAgentsDoc(full, readFileSync(full, 'utf8'));
-				if (doc) docs.push(doc);
-			}
-		}
-	};
-	walk(dir);
+	for await (const path of glob.scan({ cwd: dir, absolute: true })) {
+		if (
+			path.endsWith('/index.md') ||
+			path.endsWith('/log.md') ||
+			path.endsWith('index.md')
+		)
+			continue;
+		const doc = parseAgentsDoc(path, await Bun.file(path).text());
+		if (doc) docs.push(doc);
+	}
 	return docs;
 }
 

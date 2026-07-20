@@ -16,5 +16,9 @@
 		"@kxen/tools": "workspace:*",
 		"@kxen/tui": "workspace:*",
 		"typebox": "catalog:"
+	},
+	"piConfig": {
+		"name": "kxen",
+		"configDir": ".kxen"
 	}
 }
