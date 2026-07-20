@@ -21,6 +21,8 @@ kxen 是终端 Coding Agent Harness（纯 TypeScript + Bun）。本文件是给�
 - `bun run build` / `build:all`：二进制打包（本机 / 五平台）
 - `bun run scripts/verify-providers.ts`：四订阅真实调用验证
 - `bun run scripts/e2e-goal.ts` / `e2e-workflow.ts` / `e2e-multi.ts`：端到端验证
+- `bun run scripts/release.ts <版本> [--publish]`：构建 + sha256 + 可选发布
+- `kxen upgrade`：自更新（GitHub Releases + sha256 + 原子替换）
 
 ## 文档
 

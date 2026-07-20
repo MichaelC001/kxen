@@ -54,6 +54,17 @@ if (positionals[0] === 'doctor') {
 	process.exit(0);
 }
 
+if (positionals[0] === 'upgrade') {
+	const { runUpgrade } = await import('./upgrade');
+	try {
+		await runUpgrade();
+	} catch (err) {
+		console.error(`升级失败: ${err instanceof Error ? err.message : String(err)}`);
+		process.exitCode = 1;
+	}
+	process.exit(process.exitCode ?? 0);
+}
+
 process.env.KXEN_PLAN = values.plan ? '1' : '';
 process.env.KXEN_DISABLE_PLAN = values['disable-plan'] ? '1' : '';
 process.env.KXEN_YOLO = values.yolo ? '1' : '';

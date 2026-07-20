@@ -1,5 +1,8 @@
 import type { EventBus } from '@kxen/core';
 
+// 边界约定：shell command hooks 与 HTTP hooks 是 kxen 特有（pi 无此能力，对齐 Claude Code 语义）；
+// builtin TS hook 仅限 kxen 自身内置逻辑，用户级 TS 扩展一律走 pi 的 extension 体系（不重复造）;
+
 export const HOOK_EVENTS = [
 	'SessionStart',
 	'SessionEnd',
