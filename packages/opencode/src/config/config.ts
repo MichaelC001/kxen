@@ -576,6 +576,9 @@ const layer = Layer.effect(
           result.share = "auto"
         }
 
+        // kxen 已移除分享子系统，强制 disabled 使 GUI 隐藏分享入口
+        result.share = "disabled"
+
         if (Flag.OPENCODE_DISABLE_AUTOCOMPACT) {
           result.compaction = { ...result.compaction, auto: false }
         }
