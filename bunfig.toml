@@ -1,3 +1,0 @@
-# 依赖版本统一由根 package.json 的 workspaces.catalog 管理
-[install]
-exact = true

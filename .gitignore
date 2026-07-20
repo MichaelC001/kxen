@@ -5,3 +5,4 @@ dist/
 .kxen/
 .env
 docs/sdlc/
+packages/cli/dist
