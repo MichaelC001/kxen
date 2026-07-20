@@ -150,7 +150,8 @@
     "@kxen/mrm": "workspace:*",
     "@kxen/subagent": "workspace:*",
     "@kxen/agents": "workspace:*",
-    "@kxen/goal": "workspace:*"
+    "@kxen/goal": "workspace:*",
+    "@kxen/workflow": "workspace:*"
   },
   "overrides": {
     "drizzle-orm": "catalog:"

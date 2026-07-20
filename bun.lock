@@ -323,6 +323,13 @@
         "typescript": "catalog:",
       },
     },
+    "packages/kxen-workflow": {
+      "name": "@kxen/workflow",
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/llm": {
       "name": "@kxen/llm",
       "version": "1.18.4",
@@ -389,6 +396,7 @@
         "@kxen/sdk": "workspace:*",
         "@kxen/server": "workspace:*",
         "@kxen/subagent": "workspace:*",
+        "@kxen/workflow": "workspace:*",
         "@modelcontextprotocol/sdk": "1.29.0",
         "@octokit/graphql": "9.0.2",
         "@octokit/rest": "catalog:",
@@ -1218,6 +1226,8 @@
     "@kxen/subagent": ["@kxen/subagent@workspace:packages/kxen-subagent"],
 
     "@kxen/ui": ["@kxen/ui@workspace:packages/ui"],
+
+    "@kxen/workflow": ["@kxen/workflow@workspace:packages/kxen-workflow"],
 
     "@leichtgewicht/ip-codec": ["@leichtgewicht/ip-codec@2.0.5", "", {}, "sha512-Vo+PSpZG2/fmgmiNzYK9qWRh8h/CHrwD0mo1h1DzL4yzHNSfWYujGTYsWGreD000gcgmZ7K4Ys6Tx9TxtsKdDw=="],
 
