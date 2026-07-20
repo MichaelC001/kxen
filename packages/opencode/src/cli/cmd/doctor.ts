@@ -3,6 +3,7 @@ import { effectCmd } from "../effect-cmd"
 import { Global } from "@kxen/core/global"
 import path from "path"
 import { portReady, readState, SERVE_PORT, WEB_PORT } from "./start"
+import { importSubscriptions } from "../../auth/import"
 
 type AuthEntry = {
   type: string
@@ -24,7 +25,11 @@ export const DoctorCommand = effectCmd({
     push("data dir", Global.Path.data)
     push("config dir", Global.Path.config)
 
-    // 凭证状态
+    // 凭证状态（先执行订阅导入：官方 CLI 的新鲜副本优先）
+    const imported = yield* Effect.promise(() => importSubscriptions().catch(() => []))
+    for (const r of imported) {
+      if (r.action === "imported") push(`import ${r.provider}`, "updated from official CLI")
+    }
     const authFile = Bun.file(path.join(Global.Path.data, "auth.json"))
     if (yield* Effect.promise(() => authFile.exists())) {
       const auths = (yield* Effect.promise(() => authFile.json().catch(() => ({})))) as Record<string, AuthEntry>

@@ -10,6 +10,7 @@ import { Config } from "@/config/config"
 import { createOpencodeClient } from "@kxen/sdk"
 import { ServerAuth } from "@/server/auth"
 import { CodexAuthPlugin } from "./openai/codex"
+import { ClaudeAuthPlugin } from "./anthropic/claude"
 import { Session } from "@/session/session"
 import { NamedError } from "@kxen/core/util/error"
 import { CopilotAuthPlugin } from "./github-copilot/copilot"
@@ -67,6 +68,7 @@ function internalPlugins(flags: RuntimeFlags.Info): PluginInstance[] {
       CodexAuthPlugin(input, {
         experimentalWebSockets: experimentalWebSocketsEnabled({ enabled: flags.experimentalWebSockets }),
       }),
+    ClaudeAuthPlugin,
     CopilotAuthPlugin,
     CloudflareWorkersAuthPlugin,
     CloudflareAIGatewayAuthPlugin,
