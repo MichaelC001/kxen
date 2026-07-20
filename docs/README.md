@@ -51,11 +51,18 @@ kxen 是一个开源的终端原生 Coding Agent Harness：混用 Claude / Codex
 | `11-config-boundary.md` | 配置边界：pi SettingsManager vs kxen config.toml、Bun 原生 API 约定 |
 | `06-monorepo.md` | monorepo 工程结构：bun workspaces + catalog 决策、包 layout 映射、版本与发布策略、工具链、crates/ 预留 |
 
+## plan/
+
+| 文件 | 内容 |
+| --- | --- |
+| `01-opencode-migration.md` | OpenCode 源码迁移总规划：包取舍清单、重构调整项、kxen 编排层落点、上游同步策略、里程碑 M1-M7、验证标准 |
+
 ## 当前状态
 
-- 已落地: 调研（research/）、核心维度分析（analysis/）、PRD v1.1、架构与设计初稿（design/）
-- 进行中: 设计评审
-- 未开始: M0 骨架（Bun 工程 + pi SDK 接入）
+- 已落地: 调研（research/）、核心维度分析（analysis/）、PRD v1.1、架构与设计初稿（design/）、迁移规划（plan/01）
+- 方向变更: 放弃自研 + pi 底座方案，改为 OpenCode 源码迁移 + daemon/浏览器 GUI 形态（2026-07-20 定）
+- 进行中: 迁移执行准备
+- 未开始: M1 源码迁移
 
 ## 事实核实说明
 
