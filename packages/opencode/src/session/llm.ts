@@ -18,6 +18,7 @@ import type { MessageV2 } from "./message-v2"
 import { Plugin } from "@/plugin"
 import { Permission } from "@/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { mrmInstance } from "@/kxen/mrm"
 import { EventV2 } from "@kxen/core/event"
 import { Wildcard } from "@/util/wildcard"
 import { SessionID } from "@/session/schema"
@@ -361,6 +362,18 @@ const live: Layer.Layer<
             const ctrl = yield* Effect.acquireRelease(
               Effect.sync(() => new AbortController()),
               (ctrl) => Effect.sync(() => ctrl.abort()),
+            )
+
+            // kxen-mrm：全局资源调度。并发槽随流 scope 自动释放；RPM 超限先等待。
+            const mrmSvc = yield* Effect.promise(() => mrmInstance())
+            const rpmWait = mrmSvc.rpmWaitMs(input.model.providerID)
+            if (rpmWait > 0) {
+              yield* Effect.logInfo("mrm rpm limited", { providerID: input.model.providerID, waitMs: rpmWait })
+              yield* Effect.sleep(rpmWait)
+            }
+            yield* Effect.acquireRelease(
+              Effect.promise(() => mrmSvc.acquire(input.model.providerID)),
+              (release) => Effect.sync(() => release()),
             )
 
             const result = yield* run({ ...input, abort: ctrl.signal })

@@ -281,8 +281,25 @@
         "@typescript/native-preview": "catalog:",
       },
     },
+    "packages/kxen-mrm": {
+      "name": "@kxen/mrm",
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/kxen-safety": {
       "name": "@kxen/safety",
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/kxen-subagent": {
+      "name": "@kxen/subagent",
+      "dependencies": {
+        "@kxen/mrm": "workspace:*",
+      },
       "devDependencies": {
         "@types/bun": "catalog:",
         "typescript": "catalog:",
@@ -343,6 +360,7 @@
         "@ff-labs/fff-bun": "0.9.4",
         "@kxen/codemode": "workspace:*",
         "@kxen/llm": "workspace:*",
+        "@kxen/mrm": "workspace:*",
         "@kxen/plugin": "workspace:*",
         "@kxen/protocol": "workspace:*",
         "@kxen/safety": "workspace:*",
@@ -350,6 +368,7 @@
         "@kxen/script": "workspace:*",
         "@kxen/sdk": "workspace:*",
         "@kxen/server": "workspace:*",
+        "@kxen/subagent": "workspace:*",
         "@modelcontextprotocol/sdk": "1.29.0",
         "@octokit/graphql": "9.0.2",
         "@octokit/rest": "catalog:",
@@ -1152,6 +1171,8 @@
 
     "@kxen/llm": ["@kxen/llm@workspace:packages/llm"],
 
+    "@kxen/mrm": ["@kxen/mrm@workspace:packages/kxen-mrm"],
+
     "@kxen/plugin": ["@kxen/plugin@workspace:packages/plugin"],
 
     "@kxen/protocol": ["@kxen/protocol@workspace:packages/protocol"],
@@ -1169,6 +1190,8 @@
     "@kxen/server": ["@kxen/server@workspace:packages/server"],
 
     "@kxen/session-ui": ["@kxen/session-ui@workspace:packages/session-ui"],
+
+    "@kxen/subagent": ["@kxen/subagent@workspace:packages/kxen-subagent"],
 
     "@kxen/ui": ["@kxen/ui@workspace:packages/ui"],
 

@@ -1,5 +1,6 @@
 import { LayerNode } from "@kxen/core/effect/layer-node"
 import { PermissionV1 } from "@kxen/core/v1/permission"
+import { ConfigPermissionV1 } from "@kxen/core/v1/config/permission"
 import { Config } from "@/config/config"
 import { serviceUse } from "@kxen/core/effect/service-use"
 import { Provider } from "@/provider/provider"
@@ -20,6 +21,8 @@ import { Global } from "@kxen/core/global"
 import path from "path"
 import { Plugin } from "@/plugin"
 import { Skill } from "../skill"
+import { roleAgents, permissionConfig } from "@kxen/subagent"
+import { loadConfig as loadMrmConfig } from "@kxen/mrm"
 import { Effect, Context, Layer, Schema } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import * as Option from "effect/Option"
@@ -262,6 +265,23 @@ const layer = Layer.effect(
             ),
             prompt: PROMPT_SUMMARY,
           },
+        }
+
+        // kxen：角色化 subagent 注入（kxen-<role>，cfg.agent 仍可覆盖）
+        const mrmConfig = yield* Effect.promise(() =>
+          loadMrmConfig({ user: path.join(Global.Path.config, "config.toml") }),
+        )
+        for (const def of roleAgents(mrmConfig)) {
+          agents[def.name] = {
+            name: def.name,
+            description: def.description,
+            mode: "subagent",
+            model: Provider.parseModel(`${def.model.providerID}/${def.model.modelID}`),
+            permission: Permission.merge(defaults, Permission.fromConfig(permissionConfig(def.permissionProfile) as ConfigPermissionV1.Info), user),
+            prompt: def.prompt,
+            options: {},
+            native: false,
+          }
         }
 
         for (const [key, value] of Object.entries(cfg.agent ?? {})) {
