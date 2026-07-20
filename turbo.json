@@ -8,26 +8,14 @@
       "dependsOn": [],
       "outputs": ["dist/**"]
     },
-    "opencode#test": {
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "kxen#test": {
       "dependsOn": ["^build"],
       "outputs": [],
       "passThroughEnv": ["*"]
-    },
-    "@kxen/core#test": {
-      "dependsOn": ["^build"],
-      "outputs": []
-    },
-    "@kxen/app#test": {
-      "dependsOn": ["^build"],
-      "outputs": []
-    },
-    "@kxen/ui#test": {
-      "dependsOn": ["^build"],
-      "outputs": []
-    },
-    "@kxen/session-ui#test": {
-      "dependsOn": ["^build"],
-      "outputs": []
     }
   }
 }

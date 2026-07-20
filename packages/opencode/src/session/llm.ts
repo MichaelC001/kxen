@@ -365,16 +365,18 @@ const live: Layer.Layer<
             )
 
             // kxen-mrm：全局资源调度。并发槽随流 scope 自动释放；RPM 超限先等待。
-            const mrmSvc = yield* Effect.promise(() => mrmInstance())
-            const rpmWait = mrmSvc.rpmWaitMs(input.model.providerID)
-            if (rpmWait > 0) {
-              yield* Effect.logInfo("mrm rpm limited", { providerID: input.model.providerID, waitMs: rpmWait })
-              yield* Effect.sleep(rpmWait)
+            if (process.env.KXEN_MRM_DISABLED !== "1") {
+              const mrmSvc = yield* Effect.promise(() => mrmInstance())
+              const rpmWait = mrmSvc.rpmWaitMs(input.model.providerID)
+              if (rpmWait > 0) {
+                yield* Effect.logInfo("mrm rpm limited", { providerID: input.model.providerID, waitMs: rpmWait })
+                yield* Effect.sleep(rpmWait)
+              }
+              yield* Effect.acquireRelease(
+                Effect.promise(() => mrmSvc.acquire(input.model.providerID)),
+                (release) => Effect.sync(() => release()),
+              )
             }
-            yield* Effect.acquireRelease(
-              Effect.promise(() => mrmSvc.acquire(input.model.providerID)),
-              (release) => Effect.sync(() => release()),
-            )
 
             const result = yield* run({ ...input, abort: ctrl.signal })
 

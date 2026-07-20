@@ -8,7 +8,9 @@ export type Verdict =
 
 const HOME = process.env.HOME ?? "~"
 
-// F1 系统路径（命中即 forbidden）
+// F1 系统路径（命中即 forbidden）。
+// 注意 macOS：/tmp 是 /private/tmp 软链，临时区必须放行；
+// /private 不能整目录拦，只拦系统区子路径。
 const SYSTEM_PATHS = [
   "/",
   "/System",
@@ -18,7 +20,11 @@ const SYSTEM_PATHS = [
   "/etc",
   "/var",
   "/Library",
-  "/private",
+  "/private/etc",
+  "/private/var",
+  "/private/bin",
+  "/private/sbin",
+  "/private/System",
   "/boot",
   "/proc",
   "/sys",
@@ -98,9 +104,17 @@ export function normalizePath(p: string, cwd: string): string {
   return "/" + parts.join("/")
 }
 
+// 豁免前缀：系统区里的常规可写位置，优先于保护清单放行。
+// macOS 用户临时区在 /private/var/folders；/dev/null 等是常规重定向目标。
+const EXEMPT_PREFIXES = ["/private/var/folders", "/private/tmp", "/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"]
+
 /** 路径命中判定：返回命中的保护条目与规则族 */
 export function classifyPath(p: string, cwd: string): { hit: string; family: "F1" | "F2" | "F3" } | undefined {
   const norm = normalizePath(p, cwd)
+
+  for (const exempt of EXEMPT_PREFIXES) {
+    if (norm === exempt || norm.startsWith(exempt + "/")) return undefined
+  }
 
   // F3: .git 目录及其内容（正则精确到段，避免误伤 foo.git）
   if (/(^|\/)\.git(\/|$)/.test(norm)) return { hit: ".git", family: "F3" }

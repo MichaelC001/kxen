@@ -2461,6 +2461,10 @@ export type QuestionNotFoundError = {
   message: string
 }
 
+export type GoalNotFound = {
+  _tag: "NotFound"
+}
+
 export type PermissionRequest = {
   id: string
   sessionID: string
@@ -9228,6 +9232,413 @@ export type QuestionRejectResponses = {
 }
 
 export type QuestionRejectResponse = QuestionRejectResponses[keyof QuestionRejectResponses]
+
+export type GoalListData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/goal"
+}
+
+export type GoalListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GoalListError = GoalListErrors[keyof GoalListErrors]
+
+export type GoalListResponses = {
+  /**
+   * List of goals
+   */
+  200: Array<{
+    id: string
+    contract: {
+      objective: string
+      completionCriteria: string
+      constraints?: string
+      budget?: {
+        tokens?: number
+        turns?: number
+        wallClockMs?: number
+      }
+    }
+    status: string
+    createdAt: number
+    updatedAt: number
+    turnsUsed: number
+    tokensUsed: number
+    consecutiveBlocks: number
+    blockReason?: string
+    verificationEvidence?: string
+  }>
+}
+
+export type GoalListResponse = GoalListResponses[keyof GoalListResponses]
+
+export type GoalCreateData = {
+  body?: {
+    objective: string
+    completionCriteria: string
+    constraints?: string
+    budget?: {
+      tokens?: number
+      turns?: number
+      wallClockMs?: number
+    }
+  }
+  path?: never
+  query?: never
+  url: "/goal"
+}
+
+export type GoalCreateErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type GoalCreateError = GoalCreateErrors[keyof GoalCreateErrors]
+
+export type GoalCreateResponses = {
+  /**
+   * Created goal
+   */
+  200: {
+    id: string
+    contract: {
+      objective: string
+      completionCriteria: string
+      constraints?: string
+      budget?: {
+        tokens?: number
+        turns?: number
+        wallClockMs?: number
+      }
+    }
+    status: string
+    createdAt: number
+    updatedAt: number
+    turnsUsed: number
+    tokensUsed: number
+    consecutiveBlocks: number
+    blockReason?: string
+    verificationEvidence?: string
+  }
+}
+
+export type GoalCreateResponse = GoalCreateResponses[keyof GoalCreateResponses]
+
+export type GoalGetData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/goal/{id}"
+}
+
+export type GoalGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type GoalGetError = GoalGetErrors[keyof GoalGetErrors]
+
+export type GoalGetResponses = {
+  /**
+   * Goal detail
+   */
+  200: {
+    id: string
+    contract: {
+      objective: string
+      completionCriteria: string
+      constraints?: string
+      budget?: {
+        tokens?: number
+        turns?: number
+        wallClockMs?: number
+      }
+    }
+    status: string
+    createdAt: number
+    updatedAt: number
+    turnsUsed: number
+    tokensUsed: number
+    consecutiveBlocks: number
+    blockReason?: string
+    verificationEvidence?: string
+  }
+}
+
+export type GoalGetResponse = GoalGetResponses[keyof GoalGetResponses]
+
+export type GoalActivateData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/goal/{id}/activate"
+}
+
+export type GoalActivateErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type GoalActivateError = GoalActivateErrors[keyof GoalActivateErrors]
+
+export type GoalActivateResponses = {
+  /**
+   * Goal activated
+   */
+  200: {
+    id: string
+    contract: {
+      objective: string
+      completionCriteria: string
+      constraints?: string
+      budget?: {
+        tokens?: number
+        turns?: number
+        wallClockMs?: number
+      }
+    }
+    status: string
+    createdAt: number
+    updatedAt: number
+    turnsUsed: number
+    tokensUsed: number
+    consecutiveBlocks: number
+    blockReason?: string
+    verificationEvidence?: string
+  }
+}
+
+export type GoalActivateResponse = GoalActivateResponses[keyof GoalActivateResponses]
+
+export type GoalPauseData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/goal/{id}/pause"
+}
+
+export type GoalPauseErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type GoalPauseError = GoalPauseErrors[keyof GoalPauseErrors]
+
+export type GoalPauseResponses = {
+  /**
+   * Goal paused
+   */
+  200: {
+    id: string
+    contract: {
+      objective: string
+      completionCriteria: string
+      constraints?: string
+      budget?: {
+        tokens?: number
+        turns?: number
+        wallClockMs?: number
+      }
+    }
+    status: string
+    createdAt: number
+    updatedAt: number
+    turnsUsed: number
+    tokensUsed: number
+    consecutiveBlocks: number
+    blockReason?: string
+    verificationEvidence?: string
+  }
+}
+
+export type GoalPauseResponse = GoalPauseResponses[keyof GoalPauseResponses]
+
+export type GoalResumeData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/goal/{id}/resume"
+}
+
+export type GoalResumeErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type GoalResumeError = GoalResumeErrors[keyof GoalResumeErrors]
+
+export type GoalResumeResponses = {
+  /**
+   * Goal resumed
+   */
+  200: {
+    id: string
+    contract: {
+      objective: string
+      completionCriteria: string
+      constraints?: string
+      budget?: {
+        tokens?: number
+        turns?: number
+        wallClockMs?: number
+      }
+    }
+    status: string
+    createdAt: number
+    updatedAt: number
+    turnsUsed: number
+    tokensUsed: number
+    consecutiveBlocks: number
+    blockReason?: string
+    verificationEvidence?: string
+  }
+}
+
+export type GoalResumeResponse = GoalResumeResponses[keyof GoalResumeResponses]
+
+export type GoalCompleteData = {
+  body?: {
+    evidence: string
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/goal/{id}/complete"
+}
+
+export type GoalCompleteErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type GoalCompleteError = GoalCompleteErrors[keyof GoalCompleteErrors]
+
+export type GoalCompleteResponses = {
+  /**
+   * Goal completed
+   */
+  200: {
+    id: string
+    contract: {
+      objective: string
+      completionCriteria: string
+      constraints?: string
+      budget?: {
+        tokens?: number
+        turns?: number
+        wallClockMs?: number
+      }
+    }
+    status: string
+    createdAt: number
+    updatedAt: number
+    turnsUsed: number
+    tokensUsed: number
+    consecutiveBlocks: number
+    blockReason?: string
+    verificationEvidence?: string
+  }
+}
+
+export type GoalCompleteResponse = GoalCompleteResponses[keyof GoalCompleteResponses]
+
+export type GoalCancelData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/goal/{id}/cancel"
+}
+
+export type GoalCancelErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type GoalCancelError = GoalCancelErrors[keyof GoalCancelErrors]
+
+export type GoalCancelResponses = {
+  /**
+   * Goal canceled
+   */
+  200: {
+    id: string
+    contract: {
+      objective: string
+      completionCriteria: string
+      constraints?: string
+      budget?: {
+        tokens?: number
+        turns?: number
+        wallClockMs?: number
+      }
+    }
+    status: string
+    createdAt: number
+    updatedAt: number
+    turnsUsed: number
+    tokensUsed: number
+    consecutiveBlocks: number
+    blockReason?: string
+    verificationEvidence?: string
+  }
+}
+
+export type GoalCancelResponse = GoalCancelResponses[keyof GoalCancelResponses]
 
 export type PermissionListData = {
   body?: never

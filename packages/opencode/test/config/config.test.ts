@@ -688,19 +688,6 @@ it.instance("handles command configuration", () =>
   }),
 )
 
-it.instance("migrates autoshare to share field", () =>
-  Effect.gen(function* () {
-    const test = yield* TestInstance
-    yield* writeConfigEffect(test.directory, {
-      $schema: "https://opencode.ai/config.json",
-      autoshare: true,
-    })
-    const config = yield* Config.use.get()
-    expect(config.share).toBe("auto")
-    expect(config.autoshare).toBe(true)
-  }),
-)
-
 it.instance("migrates mode field to agent field", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance

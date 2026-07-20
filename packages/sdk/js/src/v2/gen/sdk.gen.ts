@@ -88,6 +88,22 @@ import type {
   GlobalHealthResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
+  GoalActivateErrors,
+  GoalActivateResponses,
+  GoalCancelErrors,
+  GoalCancelResponses,
+  GoalCompleteErrors,
+  GoalCompleteResponses,
+  GoalCreateErrors,
+  GoalCreateResponses,
+  GoalGetErrors,
+  GoalGetResponses,
+  GoalListErrors,
+  GoalListResponses,
+  GoalPauseErrors,
+  GoalPauseResponses,
+  GoalResumeErrors,
+  GoalResumeResponses,
   InstanceDisposeErrors,
   InstanceDisposeResponses,
   LocationRef,
@@ -3072,6 +3088,177 @@ export class Question extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<QuestionRejectResponses, QuestionRejectErrors, ThrowOnError>({
       url: "/question/{requestID}/reject",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Goal extends HeyApiClient {
+  /**
+   * List goals
+   */
+  public list<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GoalListResponses, GoalListErrors, ThrowOnError>({
+      url: "/goal",
+      ...options,
+    })
+  }
+
+  /**
+   * Create goal
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      objective?: string
+      completionCriteria?: string
+      constraints?: string
+      budget?: {
+        tokens?: number
+        turns?: number
+        wallClockMs?: number
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "objective" },
+            { in: "body", key: "completionCriteria" },
+            { in: "body", key: "constraints" },
+            { in: "body", key: "budget" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GoalCreateResponses, GoalCreateErrors, ThrowOnError>({
+      url: "/goal",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get goal
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).get<GoalGetResponses, GoalGetErrors, ThrowOnError>({
+      url: "/goal/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Activate goal
+   */
+  public activate<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).post<GoalActivateResponses, GoalActivateErrors, ThrowOnError>({
+      url: "/goal/{id}/activate",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Pause goal
+   */
+  public pause<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).post<GoalPauseResponses, GoalPauseErrors, ThrowOnError>({
+      url: "/goal/{id}/pause",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Resume goal
+   */
+  public resume<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).post<GoalResumeResponses, GoalResumeErrors, ThrowOnError>({
+      url: "/goal/{id}/resume",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Complete goal
+   */
+  public complete<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      evidence?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "body", key: "evidence" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GoalCompleteResponses, GoalCompleteErrors, ThrowOnError>({
+      url: "/goal/{id}/complete",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Cancel goal
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).post<GoalCancelResponses, GoalCancelErrors, ThrowOnError>({
+      url: "/goal/{id}/cancel",
       ...options,
       ...params,
     })
@@ -7112,6 +7299,11 @@ export class OpencodeClient extends HeyApiClient {
   private _question?: Question
   get question(): Question {
     return (this._question ??= new Question({ client: this.client }))
+  }
+
+  private _goal?: Goal
+  get goal(): Goal {
+    return (this._goal ??= new Goal({ client: this.client }))
   }
 
   private _permission?: Permission

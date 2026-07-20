@@ -38,6 +38,18 @@ describe("F1 系统毁灭", () => {
   ])("deny: %s", (cmd) => {
     expect(evaluateShellCommand(cmd, cwd).verdict).toBe("deny")
   })
+  test("macOS 临时区放行", () => {
+    expect(evaluateShellCommand("rm -rf /private/tmp/opencode-test-x", cwd).verdict).toBe("allow")
+    expect(evaluateShellCommand("rm -rf /tmp/foo", cwd).verdict).toBe("allow")
+  })
+  test("macOS 用户临时区豁免", () => {
+    expect(evaluateShellCommand("rm -rf /private/var/folders/qb/xxx/T/opencode-test", cwd).verdict).toBe("allow")
+    expect(evaluateShellCommand("echo ok > /dev/null", cwd).verdict).toBe("allow")
+  })
+  test("macOS 系统区细化拦截", () => {
+    expect(evaluateShellCommand("rm -rf /private/etc", cwd).verdict).toBe("deny")
+    expect(evaluateShellCommand("rm -rf /private/var/db", cwd).verdict).toBe("deny")
+  })
   test("允许: 删除工作区文件", () => {
     expect(evaluateShellCommand("rm -rf ./dist", cwd).verdict).toBe("allow")
     expect(evaluateShellCommand("rm /tmp/foo.log", cwd).verdict).toBe("allow")
