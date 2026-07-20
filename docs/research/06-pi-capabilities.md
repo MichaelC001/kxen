@@ -13,7 +13,7 @@
 | `pi-tui` | 0.80.10 | TUI 组件库：differential rendering、编辑器（自动补全 / 模糊文件搜索 / 拖拽图片 / 多行粘贴）、markdown 渲染 | 用（InteractiveMode 承载） |
 | `pi-web-ui` | 0.75.3 | Web 聊天 UI 组件（浏览器侧） | 未用（kxen 是终端工具，后续 web 面板可用） |
 | `pi-radius` | 0.1.7 | Radius provider、web tools、skills | 未用 |
-| `gondolin` (+runner) | 0.12.0 | Alpine Linux 沙箱（不可信代码执行，文件系统 / 网络受控） | 未用（沙箱后置，首选它而不是自研） |
+| `gondolin` (+runner) | 0.12.0 | Alpine Linux 沙箱（不可信代码执行，文件系统 / 网络受控） | 不用（kxen 不做沙箱） |
 
 ## 2. pi-coding-agent 产品级能力（docs/ 25 篇对应）
 
@@ -46,7 +46,7 @@
 | 项目 | 说明 | kxen 可用性 |
 | --- | --- | --- |
 | pi（monorepo） | 上述全部 | 底座 |
-| gondolin | Linux microvm / Alpine 沙箱（TS 控制面） | 沙箱首选（M5+） |
+| gondolin | Linux microvm / Alpine 沙箱（TS 控制面） | 不用（kxen 不做沙箱） |
 | pi-review | 官方 review 扩展 | 可装作 review 能力参考 |
 | pi-chat | 聊天相关 | 参考 |
 | pi-tutorial | 交互式教程模式 | 可作 kxen 新手引导参考 |
@@ -56,6 +56,5 @@
 ## 4. 立即该做（对照出的缺口）
 
 1. kxen 的扩展（/write-goal、/goal、/workflow）打包成 pi package（npm/git 分发），而不是只内联在 cli 里
-2. 沙箱选型直接评估 gondolin，不自研
 3. themes / keybindings 提供 kxen 默认配置而不是另做系统
 4. pi-review / pi-tutorial 评估后作为官方扩展示范接入

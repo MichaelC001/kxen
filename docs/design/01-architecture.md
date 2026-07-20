@@ -54,7 +54,7 @@
 
 - `core/`: 会话与 agent loop 封装（基于 pi-agent-core），plan / build 权限模式
 - `goal/`: 状态机、contract、queue、验证循环（见 `design/03-goal-and-workflow.md`）
-- `workflow/`: 脚本解析、沙箱执行、agent/pipeline API、结果缓存与恢复、命令保存
+- `workflow/`: 脚本解析、受限执行、agent/pipeline API、结果缓存与恢复、命令保存
 - `subagent/`: spawn、隔离（先 worktree，后接 pi-iso 思路）、typed 结果、steering
 - `router/`: 角色注册表、fallback 链、thinking level（见 `design/02-model-routing.md`）
 - `resources/`: 并发信号量、速率窗口、配额感知、预算账户、状态导出
@@ -77,4 +77,4 @@
 3. M2 subagent：spawn / worktree 隔离 / typed 结果 / TUI 下钻；provider 中立 IR 存储 + composeContext 规则（DCP）；subagent 内存约束 + telemetry
 4. M3 Goal：状态机 + contract + 验证循环 + queue + 检查点回滚（shadow git）
 5. M4 Workflow：脚本 runtime + 缓存恢复 + 进度视图 + 保存命令 + probe gate（DCP）
-6. M5 打磨：snapcompact、TTSR、hashline、CoW 隔离、离线记忆管线、沙箱、mermaid、配额感知增强、性能热点评估（按需 Rust N-API）、发布管线
+6. M5 打磨：snapcompact、TTSR、hashline、CoW 隔离、离线记忆管线、mermaid、配额感知增强、性能热点评估（按需 Rust N-API）、发布管线

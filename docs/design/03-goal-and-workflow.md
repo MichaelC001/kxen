@@ -37,7 +37,7 @@ blocked / budget_limited -> （用户补充信息后）active
 
 ### 脚本模型（对齐 Claude，见 research/04）
 
-- 顶层 `await` 的 JavaScript，沙箱执行（无直接 fs / shell）
+- 顶层 `await` 的 JavaScript，受限执行（无直接 fs / shell）
 - API：
   - `agent(prompt, { role, schema, label })` 派一个 subagent，按角色路由模型
   - `pipeline(items, fn, { concurrency })` 逐项 fan-out，并发受 MRM 控制

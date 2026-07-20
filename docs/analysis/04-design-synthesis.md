@@ -31,7 +31,6 @@
 | 渐进披露 | Anthropic tool search + grok-build + Pi | 非常驻工具（MCP / 低频）走 search -> append schema；skills 懒加载；能力优先做成带 README 的 CLI | - |
 | 权限规则 | Codex execpolicy | DSL 三档 allow / prompt / forbidden 取最严；match / not_match 自测；项目级规则文件进 git；批准后提议固化 | - |
 | 安全边界 | 用户决策（prd 3.7） | 灾难操作机器拒绝（毁系统 / 毁用户目录 / 删 git 仓库 / 毁数据与基础设施，完整规则集见 design/05），执行层三重拦截（命令解析 + 路径守卫 + 审计）；内容类话题（逆向 / 破解 / 外挂等）不做提示词级风控，prompt 不内置拒绝清单 | - |
-| 沙箱 | Codex | macOS Seatbelt / Linux Landlock 后置（首版不默认开） | workspace-write 档位（M5） |
 | 模式权限 | OpenCode + OpenDev | plan / build 双模式: plan 只读 + 研究 subagent，write 工具从 schema 移除而不只是 deny | - |
 | 检查点回滚 | Gemini CLI + Claude Code | 文件修改前 shadow git 快照 + `/rewind` 恢复（含会话状态） | - |
 | Subagent | OMP + kimi-code | typed 结构化结果 + worktree 隔离 + 前后台双模式 + swarm 批量派发 | CoW 隔离（APFS / overlayfs，M5） |
@@ -69,7 +68,7 @@
 - 不把 MCP 作为默认扩展路径：优先 CLI + README 与原生扩展，MCP 走 search -> use_tool 渐进披露（Pi 哲学 + grok-build 实现）
 - 不做云同步与账号体系：记忆、会话、规则全在本地文件
 - 不做 IDE：TUI 为主，ACP / RPC 后置
-- 不在首版内置沙箱：权限规则先行，Seatbelt / Landlock 后置
+- 不做沙箱：权限规则（execpolicy + 路径守卫）即全部执行边界
 - 不为单一模型写死任何阈值、提示词或工具集（多模型是前提，不是适配）
 - 不做提示词级内容风控：硬性保护为灾难操作规则集（F1-F5，见 design/05）且全在执行层；安全边界靠机制不靠说教
 
@@ -79,4 +78,4 @@
 - M2: subagent typed 结果 + worktree 隔离 + IR 存储与 compose 规则、swarm
 - M3: goal 引擎、检查点回滚
 - M4: workflow runtime、保存命令、probe gate
-- M5: snapcompact、TTSR、hashline、CoW 隔离、离线记忆管线、沙箱、mermaid、发布管线
+- M5: snapcompact、TTSR、hashline、CoW 隔离、离线记忆管线、mermaid、发布管线
