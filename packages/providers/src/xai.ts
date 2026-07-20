@@ -33,16 +33,25 @@ registerProviderAuth({
 	id: 'xai',
 	displayName: 'Grok (SuperGrok / X Premium+)',
 	async resolve({ authPath, env, cliAuthPaths }) {
-		const existing = readCredential(authPath, 'xai');
-		if (existing) return existing;
-
+		// grok CLI 会轮换 token：优先用官方文件里的新鲜凭证
 		const imported = readGrokCliCredentials(
 			cliAuthPaths?.xai ?? join(homedir(), '.grok', 'auth.json'),
 		);
 		if (imported) {
-			writeCredential(authPath, 'xai', imported);
-			return imported;
+			const existing = readCredential(authPath, 'xai');
+			const fresh =
+				!existing ||
+				existing.type !== 'oauth' ||
+				(imported.type === 'oauth' && (imported.expires ?? 0) > (existing.expires ?? 0));
+			if (fresh) {
+				writeCredential(authPath, 'xai', imported);
+				return imported;
+			}
+			return existing;
 		}
+
+		const existing = readCredential(authPath, 'xai');
+		if (existing) return existing;
 
 		if (env.XAI_API_KEY) {
 			const cred: Credential = { type: 'api_key', key: env.XAI_API_KEY };

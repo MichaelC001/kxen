@@ -41,6 +41,7 @@
         "@kxen/resources": "workspace:*",
         "@kxen/tools": "workspace:*",
         "@kxen/tui": "workspace:*",
+        "typebox": "catalog:",
       },
     },
     "packages/context": {

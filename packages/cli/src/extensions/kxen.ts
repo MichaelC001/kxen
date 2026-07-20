@@ -1,5 +1,6 @@
-import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { existsSync, mkdirSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
@@ -11,6 +12,19 @@ import { ModelResourceManager } from '@kxen/resources';
 import { SubagentManager } from '@kxen/subagent';
 import { createKxenTools } from '@kxen/tools';
 import { WorkflowRuntime } from '@kxen/workflow';
+import { Type } from 'typebox';
+
+// 从模型输出中提取脚本（容忍 markdown 围栏）
+function extractScript(text: string): string {
+	const fenced = text.match(/```(?:js|javascript)?\n([\s\S]*?)```/);
+	if (fenced?.[1]) return fenced[1].trim();
+	const trimmed = text.trim();
+	return trimmed.startsWith('agent(') ||
+		trimmed.includes('await agent(') ||
+		trimmed.includes('pipeline(')
+		? trimmed
+		: '';
+}
 
 interface GoalDraft {
 	objective: string;
@@ -130,6 +144,14 @@ function buildStack(cwd: string) {
 	const bus = new EventBus();
 	const mrm = new ModelResourceManager({
 		roles: {
+			thinking: {
+				model: 'anthropic/claude-fable-5',
+				fallbacks: ['openai-codex/gpt-5.5'],
+			},
+			planning: {
+				model: 'anthropic/claude-fable-5',
+				fallbacks: ['kimi-coding/k3'],
+			},
 			execution: { model: 'xai/grok-4.5', fallbacks: ['kimi-coding/k3'] },
 			review: {
 				model: 'kimi-coding/k3',
@@ -163,6 +185,127 @@ export const kxenExtension: InlineExtension = {
 	name: 'kxen-core',
 	factory: (pi: ExtensionAPI) => {
 		const engine = new GoalEngine({ bus: new EventBus() });
+
+		// 模型自主调用的工具：子代理与 workflow 是模型行为，不是用户命令
+		pi.registerTool({
+			name: 'subagent',
+			label: 'Subagent',
+			description:
+				'派发子代理执行独立子任务，返回 typed 结果。适合：并行探索多个方向、把互不冲突的子任务 fan-out 出去保持主上下文干净。单个任务传 task；批量并行传 items。',
+			promptGuidelines: [
+				'多个互不冲突的子任务时用 items 一次 fan-out，不要逐个串行调用',
+				'子代理只拿最终结果，过程不进主上下文',
+			],
+			parameters: Type.Object({
+				task: Type.Optional(Type.String({ description: '单个子任务描述' })),
+				items: Type.Optional(
+					Type.Array(Type.String(), { description: '批量子任务（并行）' }),
+				),
+				role: Type.Optional(
+					Type.Union(
+						[
+							Type.Literal('execution'),
+							Type.Literal('review'),
+							Type.Literal('research'),
+							Type.Literal('planning'),
+						],
+						{
+							description: '子代理角色（模型路由用），默认 execution',
+						},
+					),
+				),
+			}),
+			async execute(_id, params, _signal, _onUpdate, ctx) {
+				const { manager } = buildStack(ctx.cwd);
+				const role = params.role ?? 'execution';
+				const spec = { name: role, description: `${role} subagent`, role };
+				if (params.items && params.items.length > 0) {
+					const handles = await manager.swarm(spec, params.items);
+					const results = await Promise.all(handles.map((h) => h.result));
+					const text = results
+						.map((r, i) => `[${i + 1}] ${r.summary}`)
+						.join('\n\n');
+					return {
+						content: [{ type: 'text' as const, text }],
+						details: undefined,
+					};
+				}
+				if (!params.task) {
+					return {
+						content: [
+							{ type: 'text' as const, text: '需要 task 或 items 参数' },
+						],
+						details: undefined,
+					};
+				}
+				const handle = await manager.spawn(spec, params.task);
+				const result = await handle.result;
+				return {
+					content: [{ type: 'text' as const, text: result.summary }],
+					details: undefined,
+				};
+			},
+		});
+
+		pi.registerTool({
+			name: 'workflow_run',
+			label: 'Workflow Run',
+			description:
+				'执行你编写的 workflow 编排脚本。你（模型）根据任务自己写脚本：agent()/pipeline()/constraints()/phase() 可用，顶层 return 汇总结果。适合大规模 fan-out（多文件审计、批量迁移、多角度交叉研究）。中间结果留在脚本变量，只有 return 值进上下文。',
+			promptGuidelines: [
+				'任务需要超过 3 个并行子代理时，写 workflow 脚本调用本工具，而不是多次调用 subagent',
+				'脚本内用 pipeline 做逐项 fan-out，用 constraints() 感知资源后定规模',
+				'脚本内不能读写文件、不能起进程；读写让 agent() 去做',
+			],
+			parameters: Type.Object({
+				script: Type.String({
+					description: 'workflow 编排脚本（JavaScript，顶层 await 可用）',
+				}),
+			}),
+			async execute(_id, params, _signal, _onUpdate, ctx) {
+				const { manager } = buildStack(ctx.cwd);
+				const runtime = new WorkflowRuntime({
+					bus: new EventBus(),
+					executeAgent: async (prompt, _spec, opts) => {
+						const handle = await manager.spawn(
+							{
+								name: 'execute',
+								description: 'workflow agent',
+								role: opts.role ?? 'execution',
+							},
+							prompt,
+						);
+						return handle.result;
+					},
+					constraintsProvider: () => ({}),
+				});
+				const state = await runtime.run(params.script);
+				if (state.status !== 'completed') {
+					return {
+						content: [
+							{
+								type: 'text' as const,
+								text: `workflow ${state.status}: ${state.error ?? ''}`,
+							},
+						],
+						details: undefined,
+					};
+				}
+				const result =
+					typeof state.result === 'string'
+						? state.result
+						: JSON.stringify(state.result);
+				return {
+					content: [
+						{
+							type: 'text' as const,
+							text: `workflow 完成（${state.agentCalls} 次调用）:\n${result}`,
+						},
+					],
+					details: undefined,
+				};
+			},
+		});
 
 		pi.registerCommand('write-goal', {
 			description: '交互式创建 goal 并自动开始执行',
@@ -206,18 +349,105 @@ export const kxenExtension: InlineExtension = {
 		});
 
 		pi.registerCommand('workflow', {
-			description: '运行 workflow 脚本（/workflow <脚本路径.js>）',
+			description:
+				'AI 为任务生成并运行 workflow（/workflow <自然语言任务>，/workflow list，/workflow run <名字>）',
 			handler: async (args, ctx) => {
-				const path = args.trim();
-				if (!path || !existsSync(path)) {
+				const workflowsDir = join(ctx.cwd, '.agents', 'workflows');
+				const { manager } = buildStack(ctx.cwd);
+
+				// /workflow list：列出已保存的 workflow
+				if (args.trim() === 'list') {
+					if (!existsSync(workflowsDir)) {
+						ctx.ui.notify('还没有保存的 workflow', 'info');
+						return;
+					}
+					const { readdirSync } = await import('node:fs');
+					const files = readdirSync(workflowsDir).filter((f) =>
+						f.endsWith('.js'),
+					);
 					ctx.ui.notify(
-						'用法: /workflow <脚本路径.js>（脚本用 agent()/pipeline() 编排）',
-						'warning',
+						files.length > 0
+							? `已保存:\n${files.join('\n')}`
+							: '还没有保存的 workflow',
+						'info',
 					);
 					return;
 				}
-				const script = await readFile(path, 'utf8');
-				const { manager } = buildStack(ctx.cwd);
+
+				// /workflow run <名字>：运行已保存的脚本
+				const runSaved = args.trim().startsWith('run ');
+				const savedName = runSaved ? args.trim().slice(4).trim() : undefined;
+
+				let script: string;
+				if (savedName) {
+					const path = join(
+						workflowsDir,
+						savedName.endsWith('.js') ? savedName : `${savedName}.js`,
+					);
+					if (!existsSync(path)) {
+						ctx.ui.notify(
+							`workflow 不存在: ${savedName}（用 /workflow list 查看）`,
+							'warning',
+						);
+						return;
+					}
+					script = await readFile(path, 'utf8');
+				} else {
+					// 正确链路：AI 根据自然语言任务自己写编排脚本
+					let task = args.trim();
+					if (!task) {
+						task =
+							(await ctx.ui.input('描述要让 workflow 完成的任务'))?.trim() ??
+							'';
+					}
+					if (!task) {
+						ctx.ui.notify('未提供任务，已取消', 'warning');
+						return;
+					}
+					ctx.ui.notify('planning 模型正在生成 workflow 脚本...', 'info');
+					const genHandle = await manager.spawn(
+						{
+							name: 'plan',
+							description: 'workflow 脚本生成',
+							role: 'planning',
+							tools: [],
+						},
+						`你是 workflow 编排脚本生成器。为以下任务写一个 JavaScript 脚本（只输出代码，不要解释）。
+
+可用 API（已注入全局，不要用 import）：
+- agent(prompt, { role?, label? }) -> Promise<{ summary, filesChanged, usage }> 派一个子代理；role 可选 execution（执行）/ review（审查）/ research（研究）
+- pipeline(items, async (item, i) => {...}, { concurrency? }) -> Promise<数组> 逐项 fan-out
+- constraints() -> 资源状态快照（用于决定 fan-out 规模）
+- phase(name) 标记阶段
+- 顶层用 return 返回最终结果（字符串或可 JSON 序列化对象）
+- args 是调用方传入的结构化输入（可能 undefined）
+
+要求：fan-out 规模合理（3-8 个 agent 为宜）；脚本内不要读写文件、不要起进程；中间结果放脚本变量，最后只 return 汇总。
+
+任务：${task}`,
+					);
+					const genResult = await genHandle.result;
+					script = extractScript(genResult.summary);
+					if (!script) {
+						ctx.ui.notify(
+							`脚本生成失败: ${genResult.summary.slice(0, 200)}`,
+							'error',
+						);
+						return;
+					}
+
+					const preview =
+						script.length > 1500 ? `${script.slice(0, 1500)}\n...` : script;
+					const approved = await ctx.ui.confirm(
+						'workflow 脚本已生成，确认运行？',
+						preview,
+					);
+					if (!approved) {
+						ctx.ui.notify('已取消', 'info');
+						return;
+					}
+				}
+
 				const runtime = new WorkflowRuntime({
 					bus: new EventBus(),
 					executeAgent: async (prompt, _spec, opts) => {
@@ -233,22 +463,38 @@ export const kxenExtension: InlineExtension = {
 					},
 					constraintsProvider: () => ({}),
 				});
-				ctx.ui.notify(`workflow 启动: ${path}`, 'info');
+				ctx.ui.notify('workflow 执行中...', 'info');
 				const state = await runtime.run(script);
-				if (state.status === 'completed') {
-					const result =
-						typeof state.result === 'string'
-							? state.result
-							: JSON.stringify(state.result);
-					ctx.ui.notify(
-						`workflow 完成（${state.agentCalls} 次调用）:\n${result?.slice(0, 800)}`,
-						'info',
-					);
-				} else {
+				if (state.status !== 'completed') {
 					ctx.ui.notify(
 						`workflow ${state.status}: ${state.error ?? ''}`,
 						'error',
 					);
+					return;
+				}
+				const result =
+					typeof state.result === 'string'
+						? state.result
+						: JSON.stringify(state.result);
+				ctx.ui.notify(
+					`workflow 完成（${state.agentCalls} 次调用）:\n${result?.slice(0, 800)}`,
+					'info',
+				);
+
+				// 可保存复用（design/03：.agents/workflows/）
+				if (!savedName) {
+					const save = await ctx.ui.confirm(
+						'保存为可复用命令？',
+						'保存到 .agents/workflows/ 供 /workflow run 复用',
+					);
+					if (save) {
+						const name =
+							(await ctx.ui.input('workflow 名称（英文小写）'))?.trim() ||
+							`wf-${Date.now()}`;
+						mkdirSync(workflowsDir, { recursive: true });
+						await writeFile(join(workflowsDir, `${name}.js`), script);
+						ctx.ui.notify(`已保存: /workflow run ${name}`, 'info');
+					}
 				}
 			},
 		});
