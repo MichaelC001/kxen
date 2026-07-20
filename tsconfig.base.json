@@ -1,0 +1,16 @@
+{
+	"$schema": "https://json.schemastore.org/tsconfig",
+	"compilerOptions": {
+		"target": "ESNext",
+		"lib": ["ESNext"],
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"types": ["bun"],
+		"strict": true,
+		"verbatimModuleSyntax": true,
+		"noUncheckedIndexedAccess": true,
+		"noEmit": true,
+		"skipLibCheck": true
+	},
+	"exclude": ["node_modules", "dist", ".artifacts"]
+}

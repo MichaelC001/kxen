@@ -1,0 +1,19 @@
+{
+	"name": "@kxen/cli",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"bin": {
+		"kxen": "./src/index.ts"
+	},
+	"dependencies": {
+		"@earendil-works/pi-coding-agent": "catalog:",
+		"@kxen/core": "workspace:*",
+		"@kxen/providers": "workspace:*",
+		"@kxen/prompt": "workspace:*",
+		"@kxen/resources": "workspace:*",
+		"@kxen/tools": "workspace:*",
+		"@kxen/tui": "workspace:*"
+	}
+}
