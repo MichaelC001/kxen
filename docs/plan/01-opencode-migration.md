@@ -57,7 +57,7 @@ StringKe/opencode    fork：跟踪 anomalyco/opencode，仅用于生成同步 pa
 
 | 包 | 删除理由 |
 | --- | --- |
-| packages/tui | 不要终端 UI |
+| packages/tui | 不要终端 UI；主包 run/attach/config/plugin 的 tui 渲染链路依赖它，M1 暂留保 install 绿，M4 随 CLI 精简一起切除 |
 | packages/cli | TUI 入口（bin lildax），依赖 tui |
 | packages/desktop | 不要 Electron 桌面版 |
 | packages/web | Astro 官网/文档站 |
