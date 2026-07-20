@@ -59,7 +59,9 @@ if (positionals[0] === 'upgrade') {
 	try {
 		await runUpgrade();
 	} catch (err) {
-		console.error(`升级失败: ${err instanceof Error ? err.message : String(err)}`);
+		console.error(
+			`升级失败: ${err instanceof Error ? err.message : String(err)}`,
+		);
 		process.exitCode = 1;
 	}
 	process.exit(process.exitCode ?? 0);

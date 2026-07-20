@@ -10,6 +10,11 @@ import {
 } from './agents-dir';
 import { composePrompt, renderConditionals, renderTemplate } from './composer';
 
+const must = <T>(v: T | undefined): T => {
+	if (v === undefined) throw new Error('unexpected undefined');
+	return v;
+};
+
 const RULE_MD = `---
 type: rule
 title: 构建命令
@@ -49,9 +54,9 @@ describe('agents-dir', () => {
 
 	test('selectRules 分流 alwaysApply / applyTo / reference', () => {
 		const docs = [
-			parseAgentsDoc('a.md', RULE_MD)!,
-			parseAgentsDoc('b.md', SCOPED_MD)!,
-			parseAgentsDoc('c.md', REF_MD)!,
+			must(parseAgentsDoc('a.md', RULE_MD)),
+			must(parseAgentsDoc('b.md', SCOPED_MD)),
+			must(parseAgentsDoc('c.md', REF_MD)),
 		];
 		const { always, scoped } = selectRules(docs, 'src/tools/exec.ts');
 		expect(always).toHaveLength(1);

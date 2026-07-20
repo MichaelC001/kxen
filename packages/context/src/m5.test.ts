@@ -13,7 +13,7 @@ describe('hashline', () => {
 		const content = 'aaa\nbbb\nccc';
 		const lines = toHashlines(content);
 		const out = applyHashlineEdits(content, [
-			{ anchor: lines[1]!.hash, action: 'replace', text: 'BBB' },
+			{ anchor: lines[1]?.hash ?? '', action: 'replace', text: 'BBB' },
 		]);
 		expect(out).toBe('aaa\nBBB\nccc');
 	});
@@ -28,8 +28,8 @@ describe('hashline', () => {
 		const content = 'a\nb';
 		const lines = toHashlines(content);
 		const out = applyHashlineEdits(content, [
-			{ anchor: lines[0]!.hash, action: 'insert_after', text: 'x' },
-			{ anchor: lines[1]!.hash, action: 'delete' },
+			{ anchor: lines[0]?.hash ?? '', action: 'insert_after', text: 'x' },
+			{ anchor: lines[1]?.hash ?? '', action: 'delete' },
 		]);
 		expect(out).toBe('a\nx');
 	});
@@ -108,7 +108,7 @@ describe('snapcompact', () => {
 				},
 			);
 			expect(frames.length).toBeGreaterThan(0);
-			const file = Bun.file(frames[0]!.path);
+			const file = Bun.file(frames[0]?.path ?? '');
 			expect(await file.exists()).toBe(true);
 			const bytes = await file.arrayBuffer();
 			// PNG 魔数

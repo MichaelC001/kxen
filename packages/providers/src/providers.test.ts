@@ -14,7 +14,7 @@ describe('openai-codex provider', () => {
 			const kxenAuth = join(dir, 'auth.json');
 			const auth = getProviderAuth('openai-codex');
 			expect(auth).toBeDefined();
-			const cred = await auth!.resolve({
+			const cred = await auth?.resolve({
 				authPath: kxenAuth,
 				env: { OPENAI_API_KEY: 'sk-test' },
 				cliAuthPaths: { 'openai-codex': join(dir, 'nonexistent.json') },
@@ -33,7 +33,7 @@ describe('xai provider', () => {
 		try {
 			const kxenAuth = join(dir, 'auth.json');
 			const auth = getProviderAuth('xai');
-			const cred = await auth!.resolve({
+			const cred = await auth?.resolve({
 				authPath: kxenAuth,
 				env: { XAI_API_KEY: 'xai-test' },
 				cliAuthPaths: { xai: join(dir, 'nonexistent.json') },

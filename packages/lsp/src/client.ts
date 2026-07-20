@@ -7,6 +7,10 @@ import {
 } from 'vscode-jsonrpc/node';
 import type { ResolvedServer } from './detect';
 
+function failStream(name: string): never {
+	throw new Error(`LSP server 缺少 ${name} 流`);
+}
+
 export interface LspPosition {
 	line: number;
 	character: number;
@@ -40,8 +44,8 @@ export class LspClient {
 			stdio: ['pipe', 'pipe', 'pipe'],
 		});
 		this.conn = createMessageConnection(
-			new StreamMessageReader(this.proc.stdout!),
-			new StreamMessageWriter(this.proc.stdin!),
+			new StreamMessageReader(this.proc.stdout ?? failStream('stdout')),
+			new StreamMessageWriter(this.proc.stdin ?? failStream('stdin')),
 		);
 		this.conn.onNotification(
 			'textDocument/publishDiagnostics',
