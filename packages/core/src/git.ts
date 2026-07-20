@@ -860,7 +860,7 @@ const layer = Layer.effect(
       cwd = repository.worktree,
     ) {
       const result = yield* proc
-        .run(ChildProcess.make("git", args, { cwd, extendEnv: true, stdin: "ignore" }))
+        .run(ChildProcess.make("git", args, { cwd, extendEnv: true, stdin: "ignore", env: { LC_ALL: "C" } }))
         .pipe(
           Effect.mapError(
             (cause) => new WorktreeError({ operation, directory: worktreeDirectory, message: cause.message, cause }),
