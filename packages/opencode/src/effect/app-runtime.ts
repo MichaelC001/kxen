@@ -52,6 +52,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { LayerNode } from "@kxen/core/effect/layer-node"
 import { AppNodeBuilderV1 } from "./app-node-builder-v1"
 import { SessionProjector } from "@kxen/core/session/projector"
+import * as KxenAgentsContext from "@/kxen/agents-context"
 
 export const AppLayer = AppNodeBuilderV1.build(
   LayerNode.group([
@@ -87,6 +88,7 @@ export const AppLayer = AppNodeBuilderV1.build(
     SessionSummary.node,
     SessionPrompt.node,
     Instruction.node,
+    KxenAgentsContext.node,
     LLM.node,
     LSP.node,
     MCP.node,
