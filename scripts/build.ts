@@ -22,7 +22,6 @@ async function compile(args: string[], outfile: string): Promise<void> {
 			'packages/cli/src/index.ts',
 			'--compile',
 			'--minify',
-			'--bytecode',
 			'--define',
 			`process.env.KXEN_VERSION="${version}"`,
 			...args,
