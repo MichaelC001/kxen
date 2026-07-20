@@ -40,3 +40,6 @@ tsconfig.tsbuildinfo
 .artifacts/
 *.log
 docs/sdlc/
+
+# e2e 截图
+packages/app/gui-*.png
