@@ -55,15 +55,24 @@ registerProviderAuth({
 	id: 'anthropic',
 	displayName: 'Claude (Anthropic Pro/Max)',
 	async resolve({ authPath, env }) {
-		const existing = readCredential(authPath, 'anthropic');
-		if (existing) return existing;
-
-		// 导入 Claude Code 现有凭证并持久化到 kxen auth.json
+		// Claude Code 会自动轮换 OAuth token，存储副本极易过期：优先用官方存储里的新鲜凭证
 		const imported = await readClaudeCodeCredentials();
 		if (imported) {
-			writeCredential(authPath, 'anthropic', imported);
-			return imported;
+			const existing = readCredential(authPath, 'anthropic');
+			const fresh =
+				!existing ||
+				existing.type !== 'oauth' ||
+				(imported.type === 'oauth' &&
+					(imported.expires ?? 0) > (existing.expires ?? 0));
+			if (fresh) {
+				writeCredential(authPath, 'anthropic', imported);
+				return imported;
+			}
+			return existing;
 		}
+
+		const existing = readCredential(authPath, 'anthropic');
+		if (existing) return existing;
 
 		if (env.ANTHROPIC_API_KEY) {
 			const cred: Credential = { type: 'api_key', key: env.ANTHROPIC_API_KEY };

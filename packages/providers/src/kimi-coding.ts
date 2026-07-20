@@ -43,17 +43,30 @@ registerProviderAuth({
 	id: 'kimi-coding',
 	displayName: 'Kimi Code (Kimi 会员)',
 	async resolve({ authPath, env, cliAuthPaths }) {
-		const existing = readCredential(authPath, 'kimi-coding');
-		if (existing) return existing;
-
+		// kimi CLI 会轮换 OAuth token，存储副本极易过期：优先用 CLI 文件里的新鲜凭证
 		const imported = readKimiCliCredentials(
 			cliAuthPaths?.['kimi-coding'] ??
 				join(homedir(), '.kimi-code', 'credentials', 'kimi-code.json'),
 		);
 		if (imported) {
-			writeCredential(authPath, 'kimi-coding', imported);
-			return imported;
+			// pi 对 OpenAI 兼容 provider 只认 api_key 型凭证；kimi access token 可直接作 Bearer key
+			const asKey: Credential =
+				imported.type === 'oauth'
+					? { type: 'api_key', key: imported.access }
+					: imported;
+			const existing = readCredential(authPath, 'kimi-coding');
+			if (
+				existing?.type === 'api_key' &&
+				existing.key === (asKey as { key?: string }).key
+			) {
+				return existing;
+			}
+			writeCredential(authPath, 'kimi-coding', asKey);
+			return asKey;
 		}
+
+		const existing = readCredential(authPath, 'kimi-coding');
+		if (existing) return existing;
 
 		const key = env.MOONSHOT_API_KEY ?? env.KIMI_API_KEY;
 		if (key) {

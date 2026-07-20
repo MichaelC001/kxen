@@ -3,5 +3,11 @@
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
-	"main": "./src/index.ts"
+	"main": "./src/index.ts",
+	"dependencies": {
+		"@kxen/core": "workspace:*",
+		"@kxen/resources": "workspace:*",
+		"@kxen/router": "workspace:*",
+		"@kxen/subagent": "workspace:*"
+	}
 }

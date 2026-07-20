@@ -3,5 +3,10 @@
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
-	"main": "./src/index.ts"
+	"main": "./src/index.ts",
+	"dependencies": {
+		"@kxen/core": "workspace:*",
+		"vscode-jsonrpc": "catalog:",
+		"vscode-languageserver-protocol": "catalog:"
+	}
 }

@@ -3,5 +3,14 @@
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
-	"main": "./src/index.ts"
+	"main": "./src/index.ts",
+	"dependencies": {
+		"@earendil-works/pi-coding-agent": "catalog:",
+		"@kxen/core": "workspace:*",
+		"@kxen/git": "workspace:*",
+		"@kxen/resources": "workspace:*",
+		"@kxen/router": "workspace:*",
+		"@kxen/tools": "workspace:*",
+		"typebox": "catalog:"
+	}
 }

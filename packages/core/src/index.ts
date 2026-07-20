@@ -1,3 +1,4 @@
+export * from './checkpoint';
 export * from './config';
 export * from './events';
 export * from './http';

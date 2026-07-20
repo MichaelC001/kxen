@@ -43,23 +43,4 @@ describe('xai provider', () => {
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
-
-	test('device code 轮询返回 oauth 凭证', async () => {
-		const mockFetch = (async () =>
-			new Response(
-				JSON.stringify({
-					access_token: 'at-1',
-					refresh_token: 'rt-1',
-					expires_in: 3600,
-				}),
-				{ status: 200 },
-			)) as unknown as typeof fetch;
-		const { pollDeviceToken } = await import('./xai');
-		const cred = await pollDeviceToken('dc-1', mockFetch);
-		expect(cred.type).toBe('oauth');
-		if (cred.type === 'oauth') {
-			expect(cred.access).toBe('at-1');
-			expect(cred.refresh).toBe('rt-1');
-		}
-	});
 });

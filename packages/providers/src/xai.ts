@@ -4,8 +4,7 @@ import { join } from 'node:path';
 import { type Credential, readCredential, writeCredential } from './auth-file';
 import { registerProviderAuth } from './registry';
 
-// grok-build 会话 token 存放于 ~/.grok/auth.json
-// 结构为 issuer 键控 map: { "https://auth.x.ai::<client_id>": { key, refresh_token, expires_at, ... } }
+// 只负责把官方 CLI 的现有凭证搬进 pi 的 auth.json；OAuth 流程由 pi-ai 内置的 xai 处理
 function readGrokCliCredentials(credPath: string): Credential | undefined {
 	if (!existsSync(credPath)) return undefined;
 	try {
@@ -28,67 +27,6 @@ function readGrokCliCredentials(credPath: string): Credential | undefined {
 		return undefined;
 	}
 	return undefined;
-}
-
-export const XAI_OAUTH_ENDPOINTS = {
-	authorize: 'https://auth.x.ai/oauth2/authorize',
-	token: 'https://auth.x.ai/oauth2/token',
-	deviceCode: 'https://auth.x.ai/oauth2/device/code',
-	// xAI 公开的 grok-cli desktop OAuth client（OpenCode 同样复用，见 research/03）
-	clientId: 'b1a00492-073a-47ea-816f-4c329264a828',
-	scope: 'openid profile email offline_access grok-cli:access api:access',
-} as const;
-
-export interface DeviceCodeResponse {
-	device_code: string;
-	user_code: string;
-	verification_uri: string;
-	verification_uri_complete?: string;
-	expires_in: number;
-	interval?: number;
-}
-
-// RFC 8628 device code 流程（headless 场景）；fetch 可注入便于测试
-export async function requestDeviceCode(
-	fetchImpl: typeof fetch = fetch,
-): Promise<DeviceCodeResponse> {
-	const res = await fetchImpl(XAI_OAUTH_ENDPOINTS.deviceCode, {
-		method: 'POST',
-		headers: { 'content-type': 'application/x-www-form-urlencoded' },
-		body: new URLSearchParams({
-			client_id: XAI_OAUTH_ENDPOINTS.clientId,
-			scope: XAI_OAUTH_ENDPOINTS.scope,
-		}).toString(),
-	});
-	if (!res.ok) throw new Error(`xAI device code 请求失败 (${res.status})`);
-	return (await res.json()) as DeviceCodeResponse;
-}
-
-export async function pollDeviceToken(
-	deviceCode: string,
-	fetchImpl: typeof fetch = fetch,
-): Promise<Credential> {
-	const res = await fetchImpl(XAI_OAUTH_ENDPOINTS.token, {
-		method: 'POST',
-		headers: { 'content-type': 'application/x-www-form-urlencoded' },
-		body: new URLSearchParams({
-			client_id: XAI_OAUTH_ENDPOINTS.clientId,
-			grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-			device_code: deviceCode,
-		}).toString(),
-	});
-	if (!res.ok) throw new Error(`xAI token 轮询失败 (${res.status})`);
-	const data = (await res.json()) as {
-		access_token: string;
-		refresh_token?: string;
-		expires_in?: number;
-	};
-	return {
-		type: 'oauth',
-		access: data.access_token,
-		refresh: data.refresh_token ?? '',
-		expires: Date.now() + (data.expires_in ?? 3600) * 1000,
-	};
 }
 
 registerProviderAuth({

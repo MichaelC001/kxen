@@ -15,12 +15,31 @@
 			"@earendil-works/pi-tui": "^0.80.10",
 			"@types/bun": "^1.3.14",
 			"@types/node": "^26.1.1",
+			"pureimage": "^0.4.20",
 			"typebox": "^1.1.38",
-			"typescript": "^7.0.2"
+			"typescript": "^7.0.2",
+			"vscode-jsonrpc": "^9.0.1",
+			"vscode-languageserver-protocol": "^3.18.2"
 		}
 	},
 	"devDependencies": {
 		"@biomejs/biome": "catalog:",
+		"@earendil-works/pi-coding-agent": "catalog:",
+		"@kxen/cli": "workspace:*",
+		"@kxen/context": "workspace:*",
+		"@kxen/core": "workspace:*",
+		"@kxen/ext-api": "workspace:*",
+		"@kxen/git": "workspace:*",
+		"@kxen/goal": "workspace:*",
+		"@kxen/lsp": "workspace:*",
+		"@kxen/prompt": "workspace:*",
+		"@kxen/providers": "workspace:*",
+		"@kxen/resources": "workspace:*",
+		"@kxen/router": "workspace:*",
+		"@kxen/subagent": "workspace:*",
+		"@kxen/tools": "workspace:*",
+		"@kxen/tui": "workspace:*",
+		"@kxen/workflow": "workspace:*",
 		"@types/bun": "catalog:",
 		"@types/node": "catalog:",
 		"typescript": "catalog:"
