@@ -1110,5 +1110,4 @@ export const dict = {
   "session.header.reveal.finder": "Reveal in Finder",
   "session.header.reveal.fileExplorer": "Reveal in File Explorer",
   "session.header.reveal.containingFolder": "Open containing folder",
-  "settings.general.row.releaseNotes.description": "Show What's New popups after updates",
 }

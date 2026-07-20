@@ -73,9 +73,14 @@ StringKe/opencode    fork：跟踪 anomalyco/opencode，仅用于生成同步 pa
 
 ### 3.3 主引擎内部子系统取舍（packages/opencode/src）
 
-删除: `acp/`（Agent Client Protocol）、`ide/`（IDE 集成）、`share/`（会话分享）、`desktop` 相关引用、`control-plane/`（云端控制面，需确认依赖后删）、`sync/`（云端同步，需确认依赖后删）。
+删除: `acp/`（Agent Client Protocol，含 cli/cmd/acp.ts 与 test/acp/）、`ide/`（单文件无引用）、`sync/`（单文件无引用）。
 
 保留: `server/`、`session/`、`tool/`、`agent/`、`provider/`、`mcp/`、`lsp/`、`config/`、`auth/`、`cli/`（精简）、`worktree/`、`snapshot/`、`permission/`、`skill/`、`command/`、`storage/`、`git/`、`background/`、`question/`、`bus/`、`project/`、`plugin/`、`patch/`、`format/`、`image/`、`env/`、`id/`、`installation/`、`util/`、`account/`（本地账号层，裁剪云功能后保留凭证部分）。
+
+保留但禁用/修正（M3 实地定性后调整）:
+
+- `control-plane/` 保留。实地定性为 workspace 抽象层（WorkspaceAdapter / 多 workspace 路由），不是云端控制台，worktree 与 server 路由依赖它。
+- `share/` 保留代码，运行时禁用。上游自带 `OPENCODE_DISABLE_SHARE` 开关（share-next.ts），M4 在启动入口默认注入；删除会动 server 路由与 SDK 契约，成本高于收益。
 
 ### 3.4 根目录取舍
 
