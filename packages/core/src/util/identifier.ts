@@ -1,1 +1,1 @@
-export * as Identifier from "@opencode-ai/schema/identifier"
+export * as Identifier from "@kxen/schema/identifier"

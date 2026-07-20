@@ -1,5 +1,14 @@
 import { Config } from "effect"
 
+// KXEN_* 优先；回写 OPENCODE_* 兼容下游读取。kxen 默认禁用会话分享。
+for (const [k, v] of Object.entries(process.env)) {
+  if (k.startsWith("KXEN_") && v !== undefined) {
+    const oc = k.replace(/^KXEN_/, "OPENCODE_")
+    if (process.env[oc] === undefined) process.env[oc] = v
+  }
+}
+process.env.OPENCODE_DISABLE_SHARE ??= "1"
+
 export function truthy(key: string) {
   const value = process.env[key]?.toLowerCase()
   return value === "true" || value === "1"

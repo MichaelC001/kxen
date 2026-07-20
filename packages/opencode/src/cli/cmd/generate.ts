@@ -4,6 +4,7 @@ type Args = {}
 
 export const GenerateCommand = {
   command: "generate",
+  describe: false,
   builder: (yargs) => yargs,
   handler: async () => {
     const { Server } = await import("../../server/server")
@@ -18,7 +19,7 @@ export const GenerateCommand = {
           {
             lang: "js",
             source: [
-              `import { createOpencodeClient } from "@opencode-ai/sdk`,
+              `import { createOpencodeClient } from "@kxen/sdk`,
               ``,
               `const client = createOpencodeClient()`,
               `await client.${operation.operationId}({`,

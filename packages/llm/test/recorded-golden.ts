@@ -1,4 +1,4 @@
-import type { HttpRecorder } from "@opencode-ai/http-recorder"
+import type { HttpRecorder } from "@kxen/http-recorder"
 import { describe } from "bun:test"
 import { Effect } from "effect"
 import type { Model } from "../src"

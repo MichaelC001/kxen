@@ -3,7 +3,7 @@ import fs from "fs/promises"
 import path from "path"
 import { promisify } from "util"
 import { pathToFileURL } from "url"
-import { Repository } from "@opencode-ai/core/repository"
+import { Repository } from "@kxen/core/repository"
 
 const exec = promisify(execFile)
 
@@ -45,5 +45,6 @@ export async function branch(source: string, name: string, content: string) {
 }
 
 export async function git(cwd: string, ...args: string[]) {
-  await exec("git", args, { cwd })
+  // 关闭签名，避免开发机的 gpg/ssh 签名配置（如 1Password agent）阻塞测试
+  await exec("git", ["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", ...args], { cwd })
 }
