@@ -149,7 +149,8 @@
     "@kxen/safety": "workspace:*",
     "@kxen/mrm": "workspace:*",
     "@kxen/subagent": "workspace:*",
-    "@kxen/agents": "workspace:*"
+    "@kxen/agents": "workspace:*",
+    "@kxen/goal": "workspace:*"
   },
   "overrides": {
     "drizzle-orm": "catalog:"

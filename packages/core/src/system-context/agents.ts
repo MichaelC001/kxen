@@ -1,10 +1,10 @@
 import os from "os"
 import path from "path"
 import { Effect, Layer, Schema } from "effect"
-import { makeLocationNode } from "@kxen/core/effect/app-node"
-import { Location } from "@kxen/core/location"
-import { SystemContext } from "@kxen/core/system-context"
-import { SystemContextRegistry } from "@kxen/core/system-context/registry"
+import { makeLocationNode } from "../effect/app-node"
+import { Location } from "../location"
+import { SystemContext } from "./index"
+import { SystemContextRegistry } from "./registry"
 import { scanAgentsDir, renderInjection } from "@kxen/agents"
 
 // .agents/（项目级 + 用户级）作为 Context Source 注入 system-context。

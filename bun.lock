@@ -162,6 +162,7 @@
         "@effect/platform-node": "catalog:",
         "@effect/sql-sqlite-bun": "catalog:",
         "@ff-labs/fff-bun": "0.9.4",
+        "@kxen/agents": "workspace:*",
         "@kxen/effect-drizzle-sqlite": "workspace:*",
         "@kxen/effect-sqlite-node": "workspace:*",
         "@kxen/llm": "workspace:*",
@@ -291,6 +292,13 @@
         "typescript": "catalog:",
       },
     },
+    "packages/kxen-goal": {
+      "name": "@kxen/goal",
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/kxen-mrm": {
       "name": "@kxen/mrm",
       "devDependencies": {
@@ -370,6 +378,7 @@
         "@ff-labs/fff-bun": "0.9.4",
         "@kxen/agents": "workspace:*",
         "@kxen/codemode": "workspace:*",
+        "@kxen/goal": "workspace:*",
         "@kxen/llm": "workspace:*",
         "@kxen/mrm": "workspace:*",
         "@kxen/plugin": "workspace:*",
@@ -1177,6 +1186,8 @@
     "@kxen/effect-drizzle-sqlite": ["@kxen/effect-drizzle-sqlite@workspace:packages/effect-drizzle-sqlite"],
 
     "@kxen/effect-sqlite-node": ["@kxen/effect-sqlite-node@workspace:packages/effect-sqlite-node"],
+
+    "@kxen/goal": ["@kxen/goal@workspace:packages/kxen-goal"],
 
     "@kxen/http-recorder": ["@kxen/http-recorder@workspace:packages/http-recorder"],
 
