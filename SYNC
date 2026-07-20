@@ -1,5 +1,5 @@
 upstream = "https://github.com/anomalyco/opencode"
 fork = "https://github.com/StringKe/opencode"
-upstream-sha = "5a8ee27254c61da27a99c78beebe69557f12c8e3"
+upstream-sha = "849c2598abc7d2b40261e74b5826bc74ffc78308"
 synced-at = "2026-07-20"
 note = "源码迁移起点：kxen 主仓库代码对应该上游提交；同步流程见 docs/upstream-sync.md"
