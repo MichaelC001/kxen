@@ -42,7 +42,8 @@ registerProviderAuth({
 			const fresh =
 				!existing ||
 				existing.type !== 'oauth' ||
-				(imported.type === 'oauth' && (imported.expires ?? 0) > (existing.expires ?? 0));
+				(imported.type === 'oauth' &&
+					(imported.expires ?? 0) > (existing.expires ?? 0));
 			if (fresh) {
 				writeCredential(authPath, 'xai', imported);
 				return imported;

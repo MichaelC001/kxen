@@ -44,7 +44,7 @@ export interface HookOutput {
 
 export type BuiltinHookHandler = (
 	input: HookInput,
-) => Promise<HookOutput | void> | HookOutput | void;
+) => Promise<HookOutput | undefined> | HookOutput | undefined;
 
 export interface CommandHook {
 	kind: 'command';
@@ -149,7 +149,7 @@ export class HookRegistry {
 	private async execute(
 		hook: RegisteredHook,
 		input: HookInput,
-	): Promise<HookOutput | void> {
+	): Promise<HookOutput | undefined> {
 		if (hook.hook.kind === 'builtin') {
 			return hook.hook.handler(input);
 		}
@@ -162,7 +162,7 @@ export class HookRegistry {
 	private async executeCommand(
 		hook: CommandHook,
 		input: HookInput,
-	): Promise<HookOutput | void> {
+	): Promise<HookOutput | undefined> {
 		const proc = Bun.spawn(['/bin/zsh', '-c', hook.command], {
 			stdin: 'pipe',
 			stdout: 'pipe',
@@ -190,7 +190,7 @@ export class HookRegistry {
 	private async executeHttp(
 		hook: HttpHook,
 		input: HookInput,
-	): Promise<HookOutput | void> {
+	): Promise<HookOutput | undefined> {
 		try {
 			const res = await fetch(hook.url, {
 				method: 'POST',
