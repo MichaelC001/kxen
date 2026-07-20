@@ -18,6 +18,7 @@ kxen 是一个开源的终端原生 Coding Agent Harness：混用 Claude / Codex
 | `03-subscription-auth.md` | 四大订阅的第三方接入路径、官方态度、风险分级、配额可探测性 |
 | `04-claude-workflows.md` | Claude Code Dynamic Workflows 机制全解 + kxen 的取舍 |
 | `05-kimi-goal.md` | Kimi Code Goal 生命周期（一手语义）+ kxen 的扩展点 |
+| `06-pi-capabilities.md` | pi 官方能力全清单（包 / 产品能力 / 关联项目）+ kxen 使用状态对照 |
 
 ## analysis/
 
