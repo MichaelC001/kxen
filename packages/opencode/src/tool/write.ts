@@ -14,6 +14,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { trimDiff } from "./edit"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import * as Bom from "@/util/bom"
+import { guardPath } from "@kxen/safety"
 
 const MAX_PROJECT_DIAGNOSTICS_FILES = 5
 
@@ -41,6 +42,13 @@ export const WriteTool = Tool.define(
           const filepath = path.isAbsolute(params.filePath)
             ? params.filePath
             : path.join(instance.directory, params.filePath)
+          // kxen-safety：路径守卫（最终防线）
+          const verdict = guardPath(filepath, instance.directory)
+          if (verdict.verdict === "deny") {
+            throw new Error(
+              `Blocked by safety rule ${verdict.ruleId}: ${verdict.reason}${verdict.suggestion ? ` Suggestion: ${verdict.suggestion}` : ""}`,
+            )
+          }
           yield* assertExternalDirectoryEffect(ctx, filepath)
 
           const exists = yield* fs.existsSafe(filepath)

@@ -18,6 +18,7 @@ import { Snapshot } from "@/snapshot"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { FSUtil } from "@kxen/core/fs-util"
 import * as Bom from "@/util/bom"
+import { guardPath } from "@kxen/safety"
 
 function normalizeLineEndings(text: string): string {
   return text.replaceAll("\r\n", "\n")
@@ -80,6 +81,13 @@ export const EditTool = Tool.define(
           const filePath = path.isAbsolute(params.filePath)
             ? params.filePath
             : path.join(instance.directory, params.filePath)
+          // kxen-safety：路径守卫（最终防线）
+          const verdict = guardPath(filePath, instance.directory)
+          if (verdict.verdict === "deny") {
+            throw new Error(
+              `Blocked by safety rule ${verdict.ruleId}: ${verdict.reason}${verdict.suggestion ? ` Suggestion: ${verdict.suggestion}` : ""}`,
+            )
+          }
           yield* assertExternalDirectoryEffect(ctx, filePath)
 
           let diff = ""

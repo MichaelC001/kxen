@@ -21,6 +21,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
+import { evaluateShellCommand } from "@kxen/safety"
 
 export { Parameters } from "./shell/prompt"
 
@@ -612,6 +613,13 @@ export const ShellTool = Tool.define(
               const cwd = params.workdir
                 ? yield* resolvePath(params.workdir, instanceCtx.directory, shell)
                 : instanceCtx.directory
+              // kxen-safety：灾难操作硬拦截（不可被 prompt/配置覆盖）
+              const verdict = evaluateShellCommand(params.command, cwd)
+              if (verdict.verdict === "deny") {
+                throw new Error(
+                  `Blocked by safety rule ${verdict.ruleId}: ${verdict.reason}${verdict.suggestion ? ` Suggestion: ${verdict.suggestion}` : ""}`,
+                )
+              }
               if (params.timeout !== undefined && params.timeout < 0) {
                 throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
               }

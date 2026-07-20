@@ -281,6 +281,13 @@
         "@typescript/native-preview": "catalog:",
       },
     },
+    "packages/kxen-safety": {
+      "name": "@kxen/safety",
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/llm": {
       "name": "@kxen/llm",
       "version": "1.18.4",
@@ -338,6 +345,7 @@
         "@kxen/llm": "workspace:*",
         "@kxen/plugin": "workspace:*",
         "@kxen/protocol": "workspace:*",
+        "@kxen/safety": "workspace:*",
         "@kxen/schema": "workspace:*",
         "@kxen/script": "workspace:*",
         "@kxen/sdk": "workspace:*",
@@ -1147,6 +1155,8 @@
     "@kxen/plugin": ["@kxen/plugin@workspace:packages/plugin"],
 
     "@kxen/protocol": ["@kxen/protocol@workspace:packages/protocol"],
+
+    "@kxen/safety": ["@kxen/safety@workspace:packages/kxen-safety"],
 
     "@kxen/schema": ["@kxen/schema@workspace:packages/schema"],
 
