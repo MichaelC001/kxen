@@ -439,7 +439,6 @@ export const dict = {
   "dialog.project.edit.worktree.startup.description": "在建立新的工作區 (worktree) 後執行。",
   "dialog.project.edit.worktree.startup.placeholder": "例如 bun install",
   "context.breakdown.title": "上下文拆分",
-  "context.breakdown.note": "輸入 token 的大致拆分。「其他」包含工具定義和額外開銷。",
   "context.breakdown.system": "系統",
   "context.breakdown.user": "使用者",
   "context.breakdown.assistant": "助手",
@@ -1071,4 +1070,10 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "建立持續性專案圖示失敗",
   "error.childStore.storeCreateFailed": "建立儲存區失敗",
   "terminal.connectionLost.abnormalClose": "WebSocket 異常關閉：{{code}}",
-} satisfies Partial<Record<Keys, string>>
+  "dialog.provider.custom.label": "Custom OpenAI-compatible provider",
+  "dialog.model.unpaid.viewMoreProviders": "See 70+ more providers",
+  "session.header.reveal.finder": "Reveal in Finder",
+  "session.header.reveal.fileExplorer": "Reveal in File Explorer",
+  "session.header.reveal.containingFolder": "Open containing folder",
+  "context.breakdown.note": 'Approximate breakdown of input tokens. "Other" includes tool definitions and overhead.',
+}satisfies Partial<Record<Keys, string>>
