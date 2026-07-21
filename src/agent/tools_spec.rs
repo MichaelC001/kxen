@@ -109,6 +109,42 @@ pub fn core_tools() -> Vec<ToolDefinition> {
             }),
         ),
         ToolDefinition::function(
+            "glob",
+            "Find files by glob pattern (respects .gitignore), sorted by recency. Examples: `**/*.rs`, `src/**/*.toml`.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string" },
+                    "path": { "type": "string", "description": "Base directory, defaults to working directory" }
+                },
+                "required": ["pattern"]
+            }),
+        ),
+        ToolDefinition::function(
+            "grep",
+            "Search file contents with a regex (respects .gitignore). Returns `path:line: content` matches.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string", "description": "Regex pattern" },
+                    "path": { "type": "string", "description": "Base directory, defaults to working directory" },
+                    "glob": { "type": "string", "description": "Optional file filter, e.g. `*.rs`" }
+                },
+                "required": ["pattern"]
+            }),
+        ),
+        ToolDefinition::function(
+            "tool_search",
+            "Discover additional tools that are not loaded by default (progressive disclosure). Returns matching tool cards; matched tools become callable for the rest of this session.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "What you need, e.g. 'todo list' or 'fetch url'" }
+                },
+                "required": ["query"]
+            }),
+        ),
+        ToolDefinition::function(
             "agent",
             "Dispatch a subagent by role: thinking (deep analysis), planning (task decomposition), execution (fast execution), review (adversarial review), research (external research). Each runs on a model chosen for the role.",
             json!({
@@ -129,6 +165,36 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                     "script": { "type": "string", "description": "JavaScript body wrapped in an async function; use return for the result" }
                 },
                 "required": ["script"]
+            }),
+        ),
+    ]
+}
+
+/// deferred 工具目录：默认不进上下文，经 tool_search 挂载到会话。
+pub fn deferred_tools() -> Vec<ToolDefinition> {
+    vec![
+        ToolDefinition::function(
+            "todo",
+            "Session todo list for tracking multi-step work: add items, list, complete by id, clear completed.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["add", "list", "complete", "clear"] },
+                    "content": { "type": "string", "description": "Required for add" },
+                    "id": { "type": "integer", "description": "Required for complete" }
+                },
+                "required": ["action"]
+            }),
+        ),
+        ToolDefinition::function(
+            "webfetch",
+            "Fetch a URL and return the page as plain text (scripts/styles stripped, capped at 50k chars).",
+            json!({
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "https:// or http:// URL" }
+                },
+                "required": ["url"]
             }),
         ),
     ]

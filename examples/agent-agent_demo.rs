@@ -25,6 +25,7 @@ async fn main() {
         max_turns: 8,
         mrm: None,
         allowed_tools: None,
+        extras: None,
         loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
         on_event: Arc::new(|event| match event {
             AgentEvent::Text { text } => print!("{text}"),

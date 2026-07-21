@@ -39,9 +39,9 @@ impl PermissionProfile {
     /// 允许的工具名（空 = 全部）。注意与 tools_spec 的实际工具名对齐。
     pub fn allowed_tools(&self) -> &'static [&'static str] {
         match self {
-            PermissionProfile::Readonly => &["read"],
-            // todo 工具未落地前与 readonly 同集
-            PermissionProfile::ReadonlyTodo => &["read"],
+            PermissionProfile::Readonly => &["read", "glob", "grep"],
+            // todo 经 tool_search 挂载且会话态不继承，与 readonly 同集
+            PermissionProfile::ReadonlyTodo => &["read", "glob", "grep"],
             PermissionProfile::Full => &[],
         }
     }
@@ -96,6 +96,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps) -> Result
         max_turns: 6,
         mrm: None,
         allowed_tools: if allowed.is_empty() { None } else { Some(allowed) },
+        extras: None,
         loop_detector: crate::agent::loop_detect::LoopDetector::new(),
         on_event: {
             let role_owned = agent.name.clone();

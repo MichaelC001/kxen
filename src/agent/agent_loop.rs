@@ -31,6 +31,14 @@ pub struct AgentOutcome {
     pub turns: u32,
 }
 
+/// 会话级共享态：tool_search 挂载的 deferred 工具 + todo 清单。
+/// 放 AppState，跨 send_message 存续；子代理不继承（各自独立）。
+#[derive(Default)]
+pub struct SessionExtras {
+    pub extra_tools: std::sync::Mutex<std::collections::HashSet<String>>,
+    pub todos: crate::tools::todo::TodoStore,
+}
+
 pub struct AgentContext {
     pub registry: Arc<TaskRegistry>,
     pub tracker: FileTracker,
@@ -41,12 +49,13 @@ pub struct AgentContext {
     pub mrm: Option<Arc<crate::llm::mrm::ModelResourceManager>>,
     /// 子代理工具白名单（None = 全部常驻工具）。
     pub allowed_tools: Option<&'static [&'static str]>,
+    pub extras: Option<Arc<SessionExtras>>,
     pub loop_detector: crate::agent::loop_detect::LoopDetector,
     pub on_event: Arc<dyn Fn(AgentEvent) + Send + Sync>,
 }
 
 pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> AgentOutcome {
-    let tools = match ctx.allowed_tools {
+    let base_tools = match ctx.allowed_tools {
         Some(allowed) => crate::agent::tools_spec::core_tools()
             .into_iter()
             .filter(|t| allowed.contains(&t.function.name.as_str()))
@@ -66,6 +75,13 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
         if turns > ctx.max_turns {
             (ctx.on_event)(AgentEvent::Error { message: format!("max turns ({}) reached", ctx.max_turns) });
             break;
+        }
+
+        // 渐进披露：每轮重建，tool_search 本轮挂载的工具下一轮即对模型可见
+        let mut tools = base_tools.clone();
+        if let Some(extras) = &ctx.extras {
+            let enabled = crate::core::shared::lock(&extras.extra_tools);
+            tools.extend(crate::agent::tools_spec::deferred_tools().into_iter().filter(|t| enabled.contains(&t.function.name)));
         }
 
         let mut acc = ToolCallAccumulator::default();
@@ -189,6 +205,71 @@ async fn execute_tool(name: &str, arguments: &str, ctx: &mut AgentContext) -> Re
         }
         "task" => execute_task_tool(&args, ctx).await,
         "goal" => execute_goal_tool(&args).await,
+        "glob" => {
+            let base = resolve_path(args.get("path").and_then(Value::as_str).unwrap_or(&cwd), &ctx.workdir);
+            let pattern = args.get("pattern").and_then(Value::as_str).ok_or("missing pattern")?;
+            crate::tools::search::glob_files(pattern, &base).map(|hits| {
+                if hits.is_empty() { "no matches".into() } else { hits.join("\n") }
+            }).map_err(|e| e.to_string())
+        }
+        "grep" => {
+            let base = resolve_path(args.get("path").and_then(Value::as_str).unwrap_or(&cwd), &ctx.workdir);
+            let pattern = args.get("pattern").and_then(Value::as_str).ok_or("missing pattern")?;
+            let filter = args.get("glob").and_then(Value::as_str);
+            crate::tools::search::grep_files(pattern, &base, filter).map(|hits| {
+                if hits.is_empty() { "no matches".into() } else { hits.join("\n") }
+            }).map_err(|e| e.to_string())
+        }
+        "tool_search" => {
+            let query = args.get("query").and_then(Value::as_str).ok_or("missing query")?.to_lowercase();
+            let Some(extras) = &ctx.extras else {
+                return Err("tool_search unavailable in this context".into());
+            };
+            let matches: Vec<_> = crate::agent::tools_spec::deferred_tools()
+                .into_iter()
+                .filter(|t| {
+                    let hay = format!("{} {}", t.function.name, t.function.description).to_lowercase();
+                    query.split_whitespace().any(|w| hay.contains(w))
+                })
+                .collect();
+            if matches.is_empty() {
+                return Ok("no deferred tools match the query".into());
+            }
+            let mut enabled = crate::core::shared::lock(&extras.extra_tools);
+            let mut names = Vec::with_capacity(matches.len());
+            for tool in &matches {
+                enabled.insert(tool.function.name.clone());
+                names.push(tool.function.name.clone());
+            }
+            Ok(format!(
+                "mounted for this session: {}\n{}",
+                names.join(", "),
+                serde_json::to_string_pretty(&matches).unwrap_or_default()
+            ))
+        }
+        "todo" => {
+            let Some(extras) = &ctx.extras else {
+                return Err("todo unavailable in this context".into());
+            };
+            match args.get("action").and_then(Value::as_str).ok_or("missing action")? {
+                "add" => {
+                    let content = args.get("content").and_then(Value::as_str).ok_or("missing content")?;
+                    let item = extras.todos.add(content.to_string());
+                    Ok(format!("added #{} {}", item.id, item.content))
+                }
+                "list" => Ok(extras.todos.render()),
+                "complete" => {
+                    let id = args.get("id").and_then(Value::as_u64).ok_or("missing id")? as u32;
+                    Ok(if extras.todos.complete(id) { format!("completed #{id}") } else { format!("todo not found: #{id}") })
+                }
+                "clear" => Ok(format!("cleared {} completed", extras.todos.clear_done())),
+                other => Err(format!("unknown todo action: {other}")),
+            }
+        }
+        "webfetch" => {
+            let url = args.get("url").and_then(Value::as_str).ok_or("missing url")?;
+            crate::tools::webfetch::fetch_text(url).await
+        }
         "agent" => {
             let role = args.get("role").and_then(Value::as_str).ok_or("missing role")?.to_string();
             let prompt = args.get("prompt").and_then(Value::as_str).ok_or("missing prompt")?.to_string();

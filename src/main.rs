@@ -12,6 +12,7 @@ pub struct AppState {
     pub bus: kxen_app::core::event::EventBus,
     pub registry: std::sync::Arc<kxen_app::tools::task::TaskRegistry>,
     pub mrm: std::sync::Arc<kxen_app::llm::mrm::ModelResourceManager>,
+    pub extras: std::sync::Arc<kxen_app::agent::agent_loop::SessionExtras>,
     pub workdir: std::sync::Arc<std::path::Path>,
 }
 
@@ -35,6 +36,7 @@ impl AppState {
             model: Mutex::new(ModelRef::new("xai", "grok-build-0.1")),
             bus: kxen_app::core::event::EventBus::default(),
             registry: std::sync::Arc::new(kxen_app::tools::task::TaskRegistry::new()),
+            extras: std::sync::Arc::new(kxen_app::agent::agent_loop::SessionExtras::default()),
             mrm: std::sync::Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(config)),
             workdir: std::sync::Arc::from(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))),
         }

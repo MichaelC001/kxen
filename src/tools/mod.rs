@@ -5,7 +5,10 @@ pub mod exec;
 pub mod fs_tool;
 pub mod hashline;
 pub mod safety;
+pub mod search;
 pub mod shell;
 pub mod task;
+pub mod todo;
+pub mod webfetch;
 
 pub use safety::{evaluate_shell_command, guard_path, Verdict};
