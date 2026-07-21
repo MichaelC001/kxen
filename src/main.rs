@@ -16,6 +16,7 @@ pub struct AppState {
     pub extras: std::sync::Arc<kxen_app::agent::agent_loop::SessionExtras>,
     pub hooks: std::sync::Arc<kxen_app::tools::hooks::HookRunner>,
     pub team: std::sync::Arc<kxen_app::agent::team::TeamManager>,
+    pub agents: std::sync::Arc<kxen_app::agent::activity::AgentRegistry>,
     /// session_id -> 进行中 run 的取消令牌（session.abort 用；run 结束自行移除）
     pub active_runs: std::sync::Mutex<std::collections::HashMap<String, kxen_app::agent::cancel::CancelToken>>,
     /// session_id -> (input, output) tokens 累计（状态栏用量段）
@@ -50,6 +51,7 @@ impl AppState {
         let workdir: std::sync::Arc<std::path::Path> =
             std::sync::Arc::from(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
         let bus = kxen_app::core::event::EventBus::default();
+        let agents = std::sync::Arc::new(kxen_app::agent::activity::AgentRegistry::default());
         let team = kxen_app::agent::team::TeamManager::new(
             kxen_app::core::paths::data_dir().join("teams"),
             kxen_app::agent::team::SpawnDeps {
@@ -59,6 +61,7 @@ impl AppState {
                 mrm: mrm.clone(),
                 hooks: Some(hooks.clone()),
                 extras: extras.clone(),
+                agents: agents.clone(),
             },
             bus.clone(),
         );
@@ -70,6 +73,7 @@ impl AppState {
             extras,
             hooks,
             team,
+            agents,
             active_runs: std::sync::Mutex::new(std::collections::HashMap::new()),
             mrm: std::sync::RwLock::new(mrm),
             session_tokens: std::sync::Mutex::new(std::collections::HashMap::new()),

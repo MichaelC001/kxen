@@ -193,6 +193,17 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
             let state = app.state::<Arc<AppState>>();
             state.team.lead_action(session_id, &json!({ "action": "message", "name": name, "text": text })).await.map(Value::String)
         }
+        "agents.list" => {
+            let session_id = params.get("session_id").and_then(Value::as_str).unwrap_or("");
+            let state = app.state::<Arc<AppState>>();
+            Ok(json!(state.agents.list(session_id)))
+        }
+        "agents.transcript" => {
+            let session_id = params.get("session_id").and_then(Value::as_str).unwrap_or("");
+            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
+            let state = app.state::<Arc<AppState>>();
+            Ok(json!(state.agents.transcript(session_id, name)))
+        }
         "statusline" => {
             let session_id = params.get("session_id").and_then(Value::as_str).unwrap_or("");
             let state = app.state::<Arc<AppState>>();
@@ -402,6 +413,8 @@ async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent:
         team: Some(state.team.clone()),
         team_identity: None,
         session_id: Some(session_id.clone()),
+        agents: Some(state.agents.clone()),
+        bus: Some(bus.clone()),
         on_event: Arc::new(move |event| {
             use kxen_app::agent::agent_loop::AgentEvent as AE;
             match &event {

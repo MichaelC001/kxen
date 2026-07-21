@@ -231,6 +231,33 @@ export async function teamMessage(sessionId: string, name: string, text: string)
   return rpc("team.message", { session_id: sessionId, name, text });
 }
 
+export interface AgentActivity {
+  name: string;
+  kind: "teammate" | "subagent" | "workflow";
+  model: { provider: string; model: string };
+  status: "working" | "idle" | "done" | "failed" | "shutdown";
+  started_at: number;
+}
+
+export async function agentsList(sessionId: string): Promise<AgentActivity[]> {
+  return rpc<AgentActivity[]>("agents.list", { session_id: sessionId });
+}
+
+export interface TranscriptEntry {
+  kind?: string;
+  text?: string;
+  name?: string;
+  summary?: string;
+  message?: string;
+}
+
+export async function agentsTranscript(
+  sessionId: string,
+  name: string,
+): Promise<TranscriptEntry[]> {
+  return rpc<TranscriptEntry[]>("agents.transcript", { session_id: sessionId, name });
+}
+
 // ---------------- 事件订阅（goal.update / task.update） ----------------
 
 export function onTopic(

@@ -74,6 +74,7 @@ pub struct SpawnDeps {
     pub mrm: Arc<ModelResourceManager>,
     pub hooks: Option<Arc<crate::tools::hooks::HookRunner>>,
     pub extras: Arc<crate::agent::agent_loop::SessionExtras>,
+    pub agents: Arc<crate::agent::activity::AgentRegistry>,
 }
 
 pub(crate) struct TeamState {
@@ -179,6 +180,7 @@ impl TeamManager {
         if lock(&state.members).iter().any(|m| m.name == name) {
             return Err(format!("teammate already exists: {name}"));
         }
+        state.deps.agents.register(&state.session_id, &name, crate::agent::activity::AgentKind::Teammate, &model_ref);
         let cancel = CancelToken::new();
         let notify = Arc::new(Notify::new());
         lock(&state.cancels).insert(name.clone(), cancel.clone());
@@ -480,6 +482,9 @@ fn build_ctx(state: &Arc<TeamState>, name: &str, _role: &str, model: &ModelRef, 
     let session_id = state.session_id.clone();
     let session_id_event = session_id.clone();
     let bus = state.bus.clone();
+    let agents = state.deps.agents.clone();
+    let agent_name_tx = name.to_string();
+    let session_id_tx = session_id.clone();
     AgentContext {
         registry: state.deps.registry.clone(),
         tracker: crate::tools::fs_tool::FileTracker::default(),
@@ -496,6 +501,8 @@ fn build_ctx(state: &Arc<TeamState>, name: &str, _role: &str, model: &ModelRef, 
         team: state.manager.upgrade(),
         team_identity: Some((session_id.clone(), agent_name.clone())),
         session_id: Some(session_id),
+        agents: Some(state.deps.agents.clone()),
+        bus: Some(state.bus.clone()),
         on_event: Arc::new(move |event| {
             let mut payload = match serde_json::to_value(&event) {
                 Ok(v) => v,
@@ -505,6 +512,7 @@ fn build_ctx(state: &Arc<TeamState>, name: &str, _role: &str, model: &ModelRef, 
                 obj.insert("agent".into(), json!(agent_name));
                 obj.insert("session_id".into(), json!(session_id_event));
             }
+            agents.push_transcript(&session_id_tx, &agent_name_tx, payload.clone());
             bus.publish(crate::core::event::Event::LlmDelta(payload));
         }),
     }
@@ -527,6 +535,14 @@ fn set_status(state: &Arc<TeamState>, name: &str, status: MemberStatus) {
     if let Some(m) = lock(&state.members).iter_mut().find(|m| m.name == name) {
         m.status = status;
     }
+    let activity_status = match status {
+        MemberStatus::Working => crate::agent::activity::ActivityStatus::Working,
+        MemberStatus::Idle => crate::agent::activity::ActivityStatus::Idle,
+        MemberStatus::AwaitingPlanApproval => crate::agent::activity::ActivityStatus::Working,
+        MemberStatus::Failed => crate::agent::activity::ActivityStatus::Failed,
+        MemberStatus::Shutdown => crate::agent::activity::ActivityStatus::Shutdown,
+    };
+    state.deps.agents.set_status(&state.session_id, name, activity_status);
     let config = json!({ "session_id": state.session_id, "members": *lock(&state.members) });
     let _ = std::fs::write(state.dir.join("config.json"), serde_json::to_string_pretty(&config).unwrap_or_default());
     let label = match status {
@@ -561,6 +577,7 @@ mod tests {
             mrm: Arc::new(ModelResourceManager::new(config)),
             hooks: None,
             extras: Arc::new(crate::agent::agent_loop::SessionExtras::default()),
+            agents: Arc::new(crate::agent::activity::AgentRegistry::default()),
         }
     }
 

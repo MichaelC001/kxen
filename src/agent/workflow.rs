@@ -113,7 +113,7 @@ async fn run_script(
                     if n >= MAX_AGENTS_PER_WORKFLOW {
                         return Err(workflow_err(format!("workflow agent budget exhausted ({MAX_AGENTS_PER_WORKFLOW})")));
                     }
-                    dispatch(&role, prompt, &deps).await.map_err(workflow_err)
+                    dispatch(&role, prompt, &deps, crate::agent::activity::AgentKind::Workflow).await.map_err(workflow_err)
                 }
             }));
             globals.set("agent", agent_fn).catch(&ctx).map_err(|e| e.to_string())?;
@@ -192,6 +192,9 @@ mod tests {
             mrm: Arc::new(ModelResourceManager::new(config)),
             hooks: None,
             cancel: None,
+            agents: Arc::new(crate::agent::activity::AgentRegistry::default()),
+            session_id: None,
+            bus: crate::core::event::EventBus::default(),
         }
     }
 

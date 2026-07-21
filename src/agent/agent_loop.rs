@@ -77,6 +77,10 @@ pub struct AgentContext {
     pub team_identity: Option<(String, String)>,
     /// lead 的 session id（team 工具路由用）。
     pub session_id: Option<String>,
+    /// 子代理活动注册表（teammate/subagent/workflow 统一视图）。
+    pub agents: Option<Arc<crate::agent::activity::AgentRegistry>>,
+    /// 事件总线（子代理流式事件上 UI 用）。
+    pub bus: Option<crate::core::event::EventBus>,
     pub on_event: Arc<dyn Fn(AgentEvent) + Send + Sync>,
 }
 
@@ -453,7 +457,7 @@ fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a mut 
                 note = format!("\n[worktree: {} (branch {})]", info.path.display(), info.branch);
                 deps.workdir = Arc::from(info.path.as_path());
             }
-            let result = Box::pin(crate::agent::subagent::dispatch(&role, prompt, &deps)).await?;
+            let result = Box::pin(crate::agent::subagent::dispatch(&role, prompt, &deps, crate::agent::activity::AgentKind::Subagent)).await?;
             Ok(format!("{result}{note}"))
         }
         "worktree" => {

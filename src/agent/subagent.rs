@@ -1,7 +1,7 @@
 //! 角色化 subagent：角色预设（model 经 mrm 路由 + 权限预设 + brief）+ 派发。
 //! 角色 brief 全部英文（提示词规则），UI 文案不走这里。
 
-use crate::agent::agent_loop::{run_turn, AgentContext, AgentEvent};
+use crate::agent::agent_loop::{run_turn, AgentContext};
 use crate::llm::mrm::ModelResourceManager;
 use crate::llm::Message;
 use serde::Serialize;
@@ -17,6 +17,9 @@ pub struct SubagentDeps {
     pub mrm: Arc<ModelResourceManager>,
     pub hooks: Option<Arc<crate::tools::hooks::HookRunner>>,
     pub cancel: Option<crate::agent::cancel::CancelToken>,
+    pub agents: Arc<crate::agent::activity::AgentRegistry>,
+    pub session_id: Option<String>,
+    pub bus: crate::core::event::EventBus,
 }
 
 impl SubagentDeps {
@@ -28,6 +31,9 @@ impl SubagentDeps {
             mrm: ctx.mrm.clone()?,
             hooks: ctx.hooks.clone(),
             cancel: ctx.cancel.clone(),
+            agents: ctx.agents.clone()?,
+            session_id: ctx.session_id.clone(),
+            bus: ctx.bus.clone()?,
         })
     }
 }
@@ -84,18 +90,23 @@ pub fn role_agent(role: &str) -> RoleAgent {
 }
 
 /// agent 派发：角色 -> mrm 路由 model -> 独立子 loop -> 结果回传。
-pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps) -> Result<String, String> {
+/// kind 区分来源（agent 工具 / workflow 的 agent()），统一进活动注册表供 UI 多窗格展示。
+pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: crate::agent::activity::AgentKind) -> Result<String, String> {
     let agent = role_agent(role);
     let resolved = deps.mrm.resolve(role).await.ok_or_else(|| format!("no available model for role {role}"))?;
     let slot = deps.mrm.acquire(&resolved.provider).await;
 
     let model = crate::llm::ModelRef::new(resolved.provider, resolved.model);
     let allowed = agent.permission.allowed_tools();
+    let session_id = deps.session_id.clone().unwrap_or_else(|| "default".into());
+    let name = deps.agents.unique_name(&session_id, role);
+    deps.agents.register(&session_id, &name, kind, &model);
+
     let mut child = AgentContext {
         registry: deps.registry.clone(),
         tracker: crate::tools::fs_tool::FileTracker::default(),
         workdir: deps.workdir.clone(),
-        model,
+        model: model.clone(),
         store: deps.store.clone(),
         max_turns: 6,
         mrm: None,
@@ -105,14 +116,27 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps) -> Result
         cancel: deps.cancel.clone(),
         team: None,
         team_identity: None,
-        session_id: None,
+        session_id: Some(session_id.clone()),
+        agents: Some(deps.agents.clone()),
+        bus: Some(deps.bus.clone()),
         loop_detector: crate::agent::loop_detect::LoopDetector::new(),
         on_event: {
-            let role_owned = agent.name.clone();
+            let bus = deps.bus.clone();
+            let agents = deps.agents.clone();
+            let name_event = name.clone();
+            let sid = session_id.clone();
             Arc::new(move |event| {
-                if let AgentEvent::Error { message } = event {
-                    tracing::warn!(role = %role_owned, error = %message, "subagent error");
+                use serde_json::json;
+                let mut payload = match serde_json::to_value(&event) {
+                    Ok(v) => v,
+                    Err(_) => return,
+                };
+                if let Some(obj) = payload.as_object_mut() {
+                    obj.insert("agent".into(), json!(name_event));
+                    obj.insert("session_id".into(), json!(sid));
                 }
+                agents.push_transcript(&sid, &name_event, payload.clone());
+                bus.publish(crate::core::event::Event::LlmDelta(payload));
             })
         },
     };
@@ -122,6 +146,11 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps) -> Result
         Message::user(prompt),
     ];
     let outcome = run_turn(&mut child, messages).await;
+    deps.agents.set_status(
+        &session_id,
+        &name,
+        if outcome.aborted { crate::agent::activity::ActivityStatus::Shutdown } else { crate::agent::activity::ActivityStatus::Done },
+    );
     drop(slot);
     Ok(outcome.final_text)
 }

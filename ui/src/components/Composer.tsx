@@ -5,11 +5,14 @@ import {
   Folder,
   Globe,
   Image as ImageIcon,
+  Mic,
+  MicOff,
   Plus,
   Send,
   Square,
   X,
 } from "lucide-solid";
+import { speechSupported, startVoice, type VoiceSession } from "../lib/voice";
 import {
   commandList,
   currentModel,
@@ -40,6 +43,7 @@ interface PopupItem {
   label: string;
   detail?: string;
   badge?: string;
+  section?: string;
   apply: () => void;
 }
 
@@ -76,6 +80,50 @@ export default function Composer(props: {
   const [commands, setCommands] = createSignal<CommandInfo[]>([]);
   let textareaRef: HTMLTextAreaElement | undefined;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  const [recording, setRecording] = createSignal(false);
+  const [voiceError, setVoiceError] = createSignal("");
+  let voiceSession: VoiceSession | null = null;
+  let voiceBase = "";
+  let voiceFinals = "";
+
+  /** 自增高（上限 ~8 行），发送后复位。 */
+  function autoGrow() {
+    if (!textareaRef) return;
+    textareaRef.style.height = "auto";
+    textareaRef.style.height = `${Math.min(textareaRef.scrollHeight, 180)}px`;
+  }
+
+  function toggleVoice() {
+    if (recording()) {
+      voiceSession?.stop();
+      voiceSession = null;
+      setRecording(false);
+      return;
+    }
+    setVoiceError("");
+    voiceBase = text();
+    voiceFinals = "";
+    const session = startVoice(
+      (interim) => {
+        setText(voiceBase + voiceFinals + interim);
+        autoGrow();
+      },
+      (final) => {
+        voiceFinals += `${final} `;
+      },
+      (error) => {
+        setVoiceError(error === "not-allowed" ? "麦克风权限被拒" : `语音识别错误: ${error}`);
+        setRecording(false);
+        voiceSession = null;
+      },
+    );
+    if (!session) {
+      setVoiceError("当前环境不支持语音识别");
+      return;
+    }
+    voiceSession = session;
+    setRecording(true);
+  }
 
   const estimate = () => Math.ceil(text().length / 4);
   const estimateCls = () =>
@@ -161,16 +209,23 @@ export default function Composer(props: {
       }, 200);
     } else if (trigger.kind === "slash") {
       const q = trigger.query.toLowerCase();
-      const items = commands()
-        .filter((c) => c.name.toLowerCase().includes(q))
-        .slice(0, 10)
-        .map((c) => ({
-          label: `/${c.name}`,
-          detail: c.description,
-          badge: c.kind,
-          apply: () => applyCommand(c, trigger),
-        }));
-      setPopup({ ...trigger, items, selected: 0 });
+      const matched = commands().filter((c) => c.name.toLowerCase().includes(q));
+      const toItem = (c: (typeof matched)[number], section: string) => ({
+        label: `/${c.name}${c.argument_hint ? ` ${c.argument_hint}` : ""}`,
+        detail: c.description,
+        badge: c.kind === "skill" ? "skill" : undefined,
+        section,
+        apply: () => applyCommand(c, trigger),
+      });
+      const cmds = matched
+        .filter((c) => c.kind !== "skill")
+        .slice(0, 6)
+        .map((c) => toItem(c, "命令"));
+      const skills = matched
+        .filter((c) => c.kind === "skill")
+        .slice(0, 6)
+        .map((c) => toItem(c, "skills"));
+      setPopup({ ...trigger, items: [...cmds, ...skills], selected: 0 });
     } else {
       const q = trigger.query.toLowerCase();
       const items = KNOWLEDGE_TARGETS.filter((k) => k.label.toLowerCase().includes(q)).map((k) => ({
@@ -206,6 +261,7 @@ export default function Composer(props: {
   function onInput(e: InputEvent & { currentTarget: HTMLTextAreaElement }) {
     const value = e.currentTarget.value;
     setText(value);
+    autoGrow();
     const cursor = e.currentTarget.selectionStart ?? value.length;
     const trigger = detectTrigger(value, cursor);
     if (trigger) {
@@ -291,9 +347,11 @@ export default function Composer(props: {
         (c) => `（请把本次相关经验沉淀到 ${c.ref}，frontmatter 带 type/description，写前给我确认）`,
       )
       .join("\n");
+    if (recording()) toggleVoice();
     props.onSend(knowledgeNote ? `${value}\n${knowledgeNote}` : value, context, imageParts);
     setText("");
     setChips([]);
+    autoGrow();
   }
 
   return (
@@ -303,128 +361,161 @@ export default function Composer(props: {
         <div class="composer-popup absolute bottom-full left-0 right-0 mb-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] shadow-xl shadow-black/30 overflow-hidden z-20">
           <For each={popup()!.items}>
             {(item, i) => (
-              <button
-                class="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs"
-                classList={{
-                  "bg-[var(--bg-overlay)]": i() === popup()!.selected,
-                  "text-[var(--text-dim)]": i() !== popup()!.selected,
-                }}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  item.apply();
-                }}
-              >
-                <span class="truncate flex-1 font-mono">{item.label}</span>
-                <Show when={item.detail}>
-                  <span class="text-[10px] text-[var(--text-faint)] truncate max-w-[40%]">
-                    {item.detail}
-                  </span>
-                </Show>
-                <Show when={item.badge}>
-                  <span class="text-[9px] px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
-                    {item.badge}
-                  </span>
-                </Show>
-              </button>
-            )}
-          </For>
-        </div>
-      </Show>
-
-      {/* chips 行 */}
-      <Show when={chips().length > 0}>
-        <div class="flex flex-wrap gap-1.5 mb-1.5">
-          <For each={chips()}>
-            {(chip) => (
-              <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-[var(--border)] bg-[var(--bg-raised)] text-[11px] text-[var(--text-dim)]">
-                {chip.kind === "file" && <FileText size={11} />}
-                {chip.kind === "dir" && <Folder size={11} />}
-                {(chip.kind === "web" || chip.kind === "docs") && <Globe size={11} />}
-                {chip.kind === "image" &&
-                  (chip.preview ? (
-                    <img src={chip.preview} class="w-4 h-4 rounded object-cover" alt="" />
-                  ) : (
-                    <ImageIcon size={11} />
-                  ))}
-                {chip.kind === "knowledge" && <Plus size={11} />}
-                <span class="max-w-[180px] truncate">{chip.label}</span>
-                <button
-                  class="text-[var(--text-faint)] hover:text-[var(--err)]"
-                  onClick={() => removeChip(chip.id)}
+              <>
+                <Show
+                  when={
+                    item.section && (i() === 0 || popup()!.items[i() - 1].section !== item.section)
+                  }
                 >
-                  <X size={11} />
-                </button>
-              </span>
-            )}
-          </For>
-        </div>
-      </Show>
-
-      <textarea
-        ref={(el) => (textareaRef = el)}
-        class="w-full bg-[var(--bg-raised)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-[var(--accent)] placeholder:text-[var(--text-faint)]"
-        rows={2}
-        placeholder="输入消息，@ 引用文件，/ 命令，# 沉淀知识，Enter 发送"
-        value={text()}
-        onInput={onInput}
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
-      />
-
-      {/* action bar：左附件预留，右 tokens 预估 + 模型 pill + 发送/停止 */}
-      <div class="flex items-center gap-2 mt-1.5">
-        <button
-          class="pressable p-1.5 rounded-md text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60"
-          title="附件（@ 文件 / 粘贴图片）"
-          onClick={() => textareaRef?.focus()}
-        >
-          <Plus size={15} />
-        </button>
-        <span class={`text-[10px] tabular-nums ml-auto ${estimateCls()}`}>~{estimate()} tok</span>
-        <div class="relative">
-          <button
-            class="pressable flex items-center gap-1 px-2 py-1 rounded-md text-xs text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60 border border-[var(--border)]"
-            onClick={() => setModelOpen(!modelOpen())}
-          >
-            <span class="max-w-[140px] truncate">
-              {MODEL_PRESETS.find((p) => `${p.provider}/${p.model}` === modelLabel())?.label ??
-                modelLabel()}
-            </span>
-            <ChevronDown size={12} />
-          </button>
-          <Show when={modelOpen()}>
-            <div class="composer-popup absolute bottom-full right-0 mb-1.5 w-48 rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] shadow-xl shadow-black/30 overflow-hidden z-20">
-              {MODEL_PRESETS.map((p) => (
+                  <div class="popup-section">{item.section}</div>
+                </Show>
                 <button
-                  class="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--bg-overlay)]"
+                  class="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs"
                   classList={{
-                    "text-[var(--accent-hover)]": `${p.provider}/${p.model}` === modelLabel(),
+                    "bg-[var(--bg-overlay)]": i() === popup()!.selected,
+                    "text-[var(--text-dim)]": i() !== popup()!.selected,
                   }}
-                  onClick={() => {
-                    void setModel(p.provider, p.model);
-                    setModelLabel(`${p.provider}/${p.model}`);
-                    setModelOpen(false);
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    item.apply();
                   }}
                 >
-                  <div class="font-medium">{p.label}</div>
-                  <div class="text-[10px] text-[var(--text-faint)]">{p.provider}</div>
+                  <span class="truncate flex-1 font-mono">{item.label}</span>
+                  <Show when={item.detail}>
+                    <span class="text-[10px] text-[var(--text-faint)] truncate max-w-[40%]">
+                      {item.detail}
+                    </span>
+                  </Show>
+                  <Show when={item.badge}>
+                    <span class="text-[9px] px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
+                      {item.badge}
+                    </span>
+                  </Show>
                 </button>
-              ))}
-            </div>
-          </Show>
+              </>
+            )}
+          </For>
         </div>
-        <button
-          class="pressable h-8 w-8 rounded-lg flex items-center justify-center text-[var(--accent-contrast)] disabled:opacity-40"
-          classList={{
-            "bg-[var(--err)] hover:opacity-90": props.streaming(),
-            "bg-[var(--accent)] hover:bg-[var(--accent-hover)]": !props.streaming(),
-          }}
-          onClick={() => (props.streaming() ? props.onStop() : void send())}
-          disabled={!props.streaming() && !text().trim() && chips().length === 0}
-          title={props.streaming() ? "停止" : "发送"}
-        >
-          {props.streaming() ? <Square size={13} /> : <Send size={14} />}
-        </button>
+      </Show>
+
+      {/* 整卡 composer：chips + 自增高 textarea + 内嵌 action bar（Cursor 形态） */}
+      <div class="composer-card rounded-xl border border-[var(--border)] bg-[var(--bg-raised)] focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_3px_rgba(99,102,241,0.15)]">
+        {/* chips 行 */}
+        <Show when={chips().length > 0}>
+          <div class="flex flex-wrap gap-1.5 px-2 pt-2">
+            <For each={chips()}>
+              {(chip) => (
+                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-[var(--border)] bg-[var(--bg-raised)] text-[11px] text-[var(--text-dim)]">
+                  {chip.kind === "file" && <FileText size={11} />}
+                  {chip.kind === "dir" && <Folder size={11} />}
+                  {(chip.kind === "web" || chip.kind === "docs") && <Globe size={11} />}
+                  {chip.kind === "image" &&
+                    (chip.preview ? (
+                      <img src={chip.preview} class="w-4 h-4 rounded object-cover" alt="" />
+                    ) : (
+                      <ImageIcon size={11} />
+                    ))}
+                  {chip.kind === "knowledge" && <Plus size={11} />}
+                  <span class="max-w-[180px] truncate">{chip.label}</span>
+                  <button
+                    class="text-[var(--text-faint)] hover:text-[var(--err)]"
+                    onClick={() => removeChip(chip.id)}
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              )}
+            </For>
+          </div>
+        </Show>
+
+        <textarea
+          ref={(el) => (textareaRef = el)}
+          class="w-full bg-transparent px-3 py-2 text-sm resize-none focus:outline-none placeholder:text-[var(--text-faint)] overflow-y-auto"
+          rows={2}
+          placeholder="输入消息，@ 引用文件，/ 命令，# 沉淀知识，Enter 发送"
+          value={text()}
+          onInput={onInput}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+        />
+
+        {/* action bar 内嵌卡底：左 附件/语音，右 tokens 预估 + 模型 pill + 发送/停止 */}
+        <div class="flex items-center gap-1.5 px-2 pb-2">
+          <button
+            class="pressable p-1.5 rounded-md text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60"
+            title="附件（@ 文件 / 粘贴图片）"
+            onClick={() => textareaRef?.focus()}
+          >
+            <Plus size={15} />
+          </button>
+          <button
+            class="pressable p-1.5 rounded-md disabled:opacity-30"
+            classList={{
+              "text-[var(--err)] animate-pulse": recording(),
+              "text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60": !recording(),
+            }}
+            title={
+              speechSupported()
+                ? recording()
+                  ? "停止语音输入"
+                  : "语音输入（Apple 本地识别）"
+                : "当前环境不支持语音识别"
+            }
+            disabled={!speechSupported()}
+            onClick={toggleVoice}
+          >
+            {recording() ? <MicOff size={15} /> : <Mic size={15} />}
+          </button>
+          <Show when={voiceError()}>
+            <span class="text-[10px] text-[var(--err)]">{voiceError()}</span>
+          </Show>
+          <span class={`text-[10px] tabular-nums ml-auto ${estimateCls()}`}>~{estimate()} tok</span>
+          <div class="relative">
+            <button
+              class="pressable flex items-center gap-1 px-2 py-1 rounded-md text-xs text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60 border border-[var(--border)]"
+              onClick={() => setModelOpen(!modelOpen())}
+            >
+              <span class="max-w-[140px] truncate">
+                {MODEL_PRESETS.find((p) => `${p.provider}/${p.model}` === modelLabel())?.label ??
+                  modelLabel()}
+              </span>
+              <ChevronDown size={12} />
+            </button>
+            <Show when={modelOpen()}>
+              <div class="composer-popup absolute bottom-full right-0 mb-1.5 w-48 rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] shadow-xl shadow-black/30 overflow-hidden z-20">
+                {MODEL_PRESETS.map((p) => (
+                  <button
+                    class="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--bg-overlay)]"
+                    classList={{
+                      "text-[var(--accent-hover)]": `${p.provider}/${p.model}` === modelLabel(),
+                    }}
+                    onClick={() => {
+                      void setModel(p.provider, p.model);
+                      setModelLabel(`${p.provider}/${p.model}`);
+                      setModelOpen(false);
+                    }}
+                  >
+                    <div class="font-medium">{p.label}</div>
+                    <div class="text-[10px] text-[var(--text-faint)]">{p.provider}</div>
+                  </button>
+                ))}
+              </div>
+            </Show>
+          </div>
+          <button
+            class="pressable h-8 w-8 rounded-lg flex items-center justify-center text-[var(--accent-contrast)] disabled:opacity-40"
+            classList={{
+              "bg-[var(--err)] hover:opacity-90": props.streaming(),
+              "bg-[var(--accent)] hover:bg-[var(--accent-hover)]": !props.streaming(),
+            }}
+            onClick={() => (props.streaming() ? props.onStop() : void send())}
+            disabled={!props.streaming() && !text().trim() && chips().length === 0}
+            title={props.streaming() ? "停止" : "发送"}
+          >
+            {props.streaming() ? <Square size={13} /> : <Send size={14} />}
+          </button>
+        </div>
       </div>
     </div>
   );

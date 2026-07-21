@@ -1,7 +1,7 @@
 import { A } from "@solidjs/router";
-import { For, createSignal, onMount } from "solid-js";
-import { Activity, Moon, Plus, Settings as SettingsIcon, Sun, X } from "lucide-solid";
-import { currentModel, sessionDelete } from "../lib/chat";
+import { For, onMount } from "solid-js";
+import { Moon, Plus, Settings as SettingsIcon, Sun, X } from "lucide-solid";
+import { sessionDelete } from "../lib/chat";
 import {
   activeSessionId,
   initSessions,
@@ -14,11 +14,8 @@ import { theme, toggleTheme } from "../lib/theme";
 
 /** 左栏：会话列表（会话是家）+ 底部应用级入口。 */
 export default function Sidebar() {
-  const [model, setModel] = createSignal("");
   onMount(async () => {
     await initSessions();
-    const m = await currentModel();
-    setModel(`${m.provider}/${m.model}`);
   });
 
   const remove = async (id: string) => {
@@ -79,12 +76,6 @@ export default function Sidebar() {
             <SettingsIcon size={13} />
             设置
           </A>
-          <A
-            href="/doctor"
-            class="px-1 text-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
-          >
-            <Activity size={13} />
-          </A>
           <button
             class="pressable px-1.5 py-0.5 rounded text-xs text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60 flex items-center"
             title="切换明暗主题"
@@ -92,12 +83,6 @@ export default function Sidebar() {
           >
             {theme() === "dark" ? <Moon size={13} /> : <Sun size={13} />}
           </button>
-        </div>
-        <div>
-          <div class="text-[10px] uppercase tracking-wider text-[var(--text-faint)]">当前模型</div>
-          <div class="text-xs text-[var(--text-dim)] truncate" title={model()}>
-            {model() || "…"}
-          </div>
         </div>
       </div>
     </nav>

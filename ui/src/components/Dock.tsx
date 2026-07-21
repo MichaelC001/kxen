@@ -7,17 +7,12 @@ import {
   onTopic,
   taskKill,
   taskList,
-  teamList,
-  teamMessage,
   type DiffStatusEntry,
   type GoalInfo,
   type TaskInfo,
-  type TeamMember,
-  type TeamTask,
 } from "../lib/chat";
-import { activeSessionId } from "../lib/state";
 import Markdown from "./Markdown";
-import { ArrowLeft, FileDiff, SquareTerminal, Target, Users } from "lucide-solid";
+import { FileDiff, SquareTerminal, Target } from "lucide-solid";
 
 const GOAL_STATUS: Record<string, { text: string; cls: string }> = {
   draft: { text: "草稿", cls: "text-[var(--text-dim)]" },
@@ -36,100 +31,6 @@ const TASK_STATUS: Record<string, string> = {
   killed: "text-[var(--warn)]",
   failed: "text-[var(--err)]",
 };
-
-const MEMBER_STATUS: Record<string, { text: string; cls: string }> = {
-  working: { text: "工作中", cls: "bg-[var(--ok)]" },
-  idle: { text: "空闲", cls: "bg-[var(--text-faint)]" },
-  awaiting_plan_approval: { text: "待审批", cls: "bg-[var(--warn)]" },
-  failed: { text: "失败", cls: "bg-[var(--err)]" },
-  shutdown: { text: "已关闭", cls: "bg-[var(--text-faint)]" },
-};
-
-/** teammate 转录子视图：llm.delta 按 agent 过滤的实时流 + 直发输入框。 */
-function TeammateView(props: { name: string; onBack: () => void }) {
-  const [lines, setLines] = createSignal<Array<{ kind: string; text: string }>>([]);
-  const [draft, setDraft] = createSignal("");
-  let unlisten: (() => void) | undefined;
-
-  onMount(async () => {
-    unlisten = await onTopic(["llm.delta"], (_topic, payload) => {
-      const p = payload as {
-        agent?: string;
-        session_id?: string;
-        kind?: string;
-        text?: string;
-        name?: string;
-        summary?: string;
-      };
-      if (p.agent !== props.name || p.session_id !== activeSessionId()) return;
-      if (p.kind === "text" && p.text) {
-        setLines((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.kind === "text")
-            return [...prev.slice(0, -1), { kind: "text", text: last.text + p.text }];
-          return [...prev, { kind: "text", text: p.text! }];
-        });
-      } else if (p.kind === "tool_call") {
-        setLines((prev) => [...prev, { kind: "tool", text: `${p.name}: ${p.summary ?? ""}` }]);
-      } else if (p.kind === "error") {
-        setLines((prev) => [...prev, { kind: "error", text: p.summary ?? p.text ?? "error" }]);
-      }
-    });
-  });
-  onCleanup(() => unlisten?.());
-
-  const send = async () => {
-    const text = draft().trim();
-    if (!text) return;
-    setDraft("");
-    setLines((prev) => [...prev, { kind: "me", text }]);
-    await teamMessage(activeSessionId(), props.name, text);
-  };
-
-  return (
-    <div class="h-full flex flex-col">
-      <div class="px-3 py-2 border-b border-[var(--border)] flex items-center gap-2">
-        <button
-          class="pressable p-1 rounded text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60"
-          onClick={props.onBack}
-        >
-          <ArrowLeft size={13} />
-        </button>
-        <span class="text-xs font-medium">{props.name}</span>
-      </div>
-      <div class="flex-1 overflow-auto px-3 py-2 space-y-1.5 text-xs">
-        <For each={lines()}>
-          {(line) => (
-            <div
-              classList={{
-                "text-[var(--text)]": line.kind === "text",
-                "text-[var(--text-faint)] font-mono text-[10px]": line.kind === "tool",
-                "text-[var(--err)]": line.kind === "error",
-                "text-[var(--accent-hover)]": line.kind === "me",
-              }}
-            >
-              {line.kind === "me" ? `-> ${line.text}` : line.text}
-            </div>
-          )}
-        </For>
-        <Show when={lines().length === 0}>
-          <div class="text-[var(--text-faint)]">暂无转录（teammate 的输出会实时出现在这里）</div>
-        </Show>
-      </div>
-      <div class="p-2 border-t border-[var(--border)] flex gap-1.5">
-        <input
-          class="flex-1 bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs"
-          placeholder={`对 ${props.name} 说话…`}
-          value={draft()}
-          onInput={(e) => setDraft(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void send();
-          }}
-        />
-      </div>
-    </div>
-  );
-}
 
 function Section(props: { title: string; icon: unknown; children: unknown }) {
   const Icon = props.icon as (p: { size: number; class?: string }) => unknown;
@@ -153,9 +54,6 @@ function DockSections(props: {
   openDiff: { path: string; text: string } | null;
   toggleDiff: (path: string) => void;
   tasks: TaskInfo[];
-  members: TeamMember[];
-  teamTasks: TeamTask[];
-  onSelectMember: (name: string) => void;
 }) {
   const goal = () => props.goal;
   const badge = props.badge;
@@ -307,57 +205,6 @@ function DockSections(props: {
           </div>
         </Show>
       </Section>
-
-      <Section title="团队" icon={Users}>
-        <Show
-          when={props.members.length > 0}
-          fallback={
-            <div class="text-xs text-[var(--text-faint)]">
-              无 teammates。让主代理 spawn 一个团队试试。
-            </div>
-          }
-        >
-          <div class="space-y-1">
-            <For each={props.members}>
-              {(m) => (
-                <button
-                  class="w-full flex items-center gap-1.5 px-1 py-0.5 rounded text-xs text-left hover:bg-[var(--bg-overlay)]/60"
-                  onClick={() => props.onSelectMember(m.name)}
-                >
-                  <span
-                    class={`w-1.5 h-1.5 rounded-full shrink-0 ${MEMBER_STATUS[m.status]?.cls ?? "bg-[var(--text-faint)]"}`}
-                  />
-                  <span class="font-medium">{m.name}</span>
-                  <span class="text-[10px] text-[var(--text-faint)] truncate">{m.model.model}</span>
-                  <span class="text-[10px] text-[var(--text-faint)] ml-auto">
-                    {MEMBER_STATUS[m.status]?.text ?? m.status}
-                  </span>
-                </button>
-              )}
-            </For>
-            <For each={props.teamTasks}>
-              {(t) => (
-                <div class="flex items-center gap-1.5 px-1 text-[10px] text-[var(--text-dim)]">
-                  <span class="font-mono">#{t.id}</span>
-                  <span class="truncate flex-1">{t.title}</span>
-                  <span
-                    classList={{
-                      "text-[var(--ok)]": t.status === "completed",
-                      "text-[var(--accent-hover)]": t.status === "in_progress",
-                    }}
-                  >
-                    {t.status === "completed"
-                      ? "done"
-                      : t.status === "in_progress"
-                        ? `${t.assignee ?? ""}`
-                        : "pending"}
-                  </span>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
-      </Section>
     </>
   );
 }
@@ -367,40 +214,22 @@ export default function Dock() {
   const [changes, setChanges] = createSignal<DiffStatusEntry[]>([]);
   const [tasks, setTasks] = createSignal<TaskInfo[]>([]);
   const [openDiff, setOpenDiff] = createSignal<{ path: string; text: string } | null>(null);
-  const [members, setMembers] = createSignal<TeamMember[]>([]);
-  const [teamTasks, setTeamTasks] = createSignal<TeamTask[]>([]);
-  const [selectedMember, setSelectedMember] = createSignal<string | null>(null);
   let unlisten: (() => void) | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
 
   const reloadGoal = async () => setGoal(await goalFocus());
   const reloadDiff = async () => setChanges(await diffStatus().catch(() => []));
   const reloadTasks = async () => setTasks(await taskList());
-  const reloadTeam = async () => {
-    const sid = activeSessionId();
-    if (!sid) {
-      setMembers([]);
-      setTeamTasks([]);
-      return;
-    }
-    const data = await teamList(sid).catch(() => null);
-    if (data) {
-      setMembers(data.members);
-      setTeamTasks(data.tasks);
-    }
-  };
 
   onMount(async () => {
-    await Promise.all([reloadGoal(), reloadDiff(), reloadTasks(), reloadTeam()]);
+    await Promise.all([reloadGoal(), reloadDiff(), reloadTasks()]);
     unlisten = await onTopic(["goal.update", "task.update"], () => {
       void reloadGoal();
       void reloadTasks();
-      void reloadTeam();
     });
     timer = setInterval(() => {
       void reloadDiff();
       void reloadTasks();
-      void reloadTeam();
     }, 3000);
   });
   onCleanup(() => {
@@ -427,26 +256,16 @@ export default function Dock() {
   const badge = () => GOAL_STATUS[goal()?.status ?? ""] ?? { text: "", cls: "" };
 
   return (
-    <aside class="w-full h-full border-l border-[var(--border)] bg-[var(--bg-raised)] overflow-y-auto">
-      <Show
-        when={selectedMember()}
-        fallback={
-          <DockSections
-            goal={goal()}
-            badge={badge()}
-            act={act}
-            changes={changes()}
-            openDiff={openDiff()}
-            toggleDiff={toggleDiff}
-            tasks={tasks()}
-            members={members()}
-            teamTasks={teamTasks()}
-            onSelectMember={setSelectedMember}
-          />
-        }
-      >
-        {(name) => <TeammateView name={name()} onBack={() => setSelectedMember(null)} />}
-      </Show>
+    <aside class="w-full h-full overflow-y-auto">
+      <DockSections
+        goal={goal()}
+        badge={badge()}
+        act={act}
+        changes={changes()}
+        openDiff={openDiff()}
+        toggleDiff={toggleDiff}
+        tasks={tasks()}
+      />
     </aside>
   );
 }

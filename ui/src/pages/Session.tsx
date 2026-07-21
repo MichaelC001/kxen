@@ -4,6 +4,7 @@ import {
   sendMessage,
   sessionAbort,
   sessionMessages,
+  statusline,
   type ContextItem,
   type RunStats,
   type StoredMessage,
@@ -12,6 +13,7 @@ import { activeSessionId, ensureActiveSession, sessions, setHasConversation } fr
 import Markdown from "../components/Markdown";
 import ToolCard from "../components/ToolCard";
 import Composer from "../components/Composer";
+import { FolderOpen, Target, Users, Workflow, Wrench } from "lucide-solid";
 
 interface MsgItem {
   kind: "msg";
@@ -68,6 +70,7 @@ export default function Session() {
   const [items, setItems] = createSignal<Item[]>([]);
   const [streamingSid, setStreamingSid] = createSignal("");
   const [focusTick, setFocusTick] = createSignal(0);
+  const [workdir, setWorkdir] = createSignal("");
   let unlisten: (() => void) | undefined;
   let listRef: HTMLDivElement | undefined;
 
@@ -117,6 +120,8 @@ export default function Session() {
   };
 
   onMount(async () => {
+    const sl = await statusline("").catch(() => null);
+    if (sl) setWorkdir(sl.workdir);
     unlisten = await onLlmDelta(
       activeSessionId,
       (text) => appendAssistant("content", text),
@@ -186,6 +191,13 @@ export default function Session() {
         data-tauri-drag-region
       >
         <span class="font-medium text-[var(--text)] truncate">{title()}</span>
+        <span
+          class="flex items-center gap-1 text-[var(--text-faint)] truncate max-w-[40%]"
+          title={workdir()}
+        >
+          <FolderOpen size={12} />
+          <span class="truncate">{workdir()}</span>
+        </span>
         <Show when={streaming()}>
           <span class="inline-flex items-center gap-1.5 text-[var(--accent-hover)]">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-hover)] animate-pulse" />
@@ -195,7 +207,7 @@ export default function Session() {
       </div>
 
       <div ref={(el) => (listRef = el)} class="flex-1 overflow-auto px-4 py-5">
-        <div class="max-w-3xl mx-auto space-y-4">
+        <div class="w-full space-y-4">
           <For each={items()}>
             {(item) => {
               if (item.kind === "tool") {
@@ -245,12 +257,54 @@ export default function Session() {
           </For>
 
           <Show when={items().length === 0}>
-            <div class="pt-24 space-y-6">
-              <div class="text-center space-y-2">
-                <div class="text-[var(--text)] font-medium">发一条消息开始</div>
-                <div class="text-xs text-[var(--text-faint)]">
-                  @ 引用文件 · / 命令与 skill · # 沉淀知识 · 粘贴图片
+            <div class="pt-16 space-y-8 max-w-2xl">
+              <div class="empty-hero flex items-center gap-4">
+                <img
+                  src="/icon.png"
+                  alt="kxen"
+                  class="w-14 h-14 rounded-2xl shadow-lg shadow-indigo-500/20"
+                />
+                <div>
+                  <div class="text-lg font-semibold tracking-tight">kxen</div>
+                  <div class="text-xs text-[var(--text-dim)]">
+                    四个订阅混用 · 目标驱动 · 团队编排
+                  </div>
                 </div>
+              </div>
+              <div class="grid grid-cols-2 gap-2.5">
+                {[
+                  {
+                    icon: Target,
+                    title: "write-goal",
+                    desc: "定义带完成判据的目标，自动推进直到验证通过",
+                  },
+                  { icon: Wrench, title: "@ 与 /", desc: "@ 引用文件目录，/ 唤起命令与 skills" },
+                  {
+                    icon: Workflow,
+                    title: "workflow",
+                    desc: "我自己写编排脚本，并行派发多个子代理",
+                  },
+                  {
+                    icon: Users,
+                    title: "agent teams",
+                    desc: "spawn 多模型 teammates 组队干活，各自独立上下文",
+                  },
+                ].map((c, i) => (
+                  <div
+                    class="empty-card rounded-xl border border-[var(--border)] bg-[var(--bg-raised)] p-3.5 space-y-1.5"
+                    style={`animation-delay: ${80 + i * 50}ms`}
+                  >
+                    <c.icon size={16} class="text-[var(--accent-hover)]" />
+                    <div class="text-xs font-medium font-mono">{c.title}</div>
+                    <div class="text-[11px] leading-snug text-[var(--text-faint)]">{c.desc}</div>
+                  </div>
+                ))}
+              </div>
+              <div
+                class="empty-card text-[11px] text-[var(--text-faint)]"
+                style="animation-delay: 300ms"
+              >
+                输入消息开始 · @ 引用 · / 命令 · # 沉淀 · 粘贴图片
               </div>
             </div>
           </Show>
@@ -258,7 +312,7 @@ export default function Session() {
       </div>
 
       <div class="p-3 border-t border-[var(--border)]">
-        <div class="max-w-3xl mx-auto">
+        <div class="w-full">
           <Composer
             streaming={streaming}
             onSend={(t, c, i) => void send(t, c, i)}
