@@ -36,7 +36,7 @@
     "macOS": {
       "minimumSystemVersion": "14.0",
       "signingIdentity": null,
-      "info": {
+      "infoPlist": {
         "NSMicrophoneUsageDescription": "kxen 需要麦克风用于语音输入（Apple 本地语音识别，音频不上传）"
       }
     },
