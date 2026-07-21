@@ -2,6 +2,8 @@
 
 pub mod dev_server;
 pub mod exec;
+pub mod fs_tool;
+pub mod hashline;
 pub mod safety;
 pub mod shell;
 pub mod task;
