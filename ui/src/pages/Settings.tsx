@@ -100,7 +100,7 @@ export default function Settings() {
               <div class="flex items-center justify-between px-4 py-3">
                 <div>
                   <div class="text-sm">主题</div>
-                  <div class="text-[11px] text-[var(--text-faint)]">明暗切换，跟随系统默认</div>
+                  <div class="text-xs text-[var(--text-faint)]">明暗切换，跟随系统默认</div>
                 </div>
                 <button
                   class="pressable px-3 py-1 rounded-md text-xs border border-[var(--border)]"
@@ -137,11 +137,11 @@ export default function Settings() {
                         <div class="flex items-center justify-between px-4 py-3">
                           <div>
                             <div class="text-sm font-medium">{entry.display}</div>
-                            <div class="text-[11px] text-[var(--text-faint)]">{entry.provider}</div>
+                            <div class="text-xs text-[var(--text-faint)]">{entry.provider}</div>
                           </div>
                           <div class="text-right">
                             <div class={`text-sm font-medium ${badge().cls}`}>{badge().text}</div>
-                            <div class="text-[11px] text-[var(--text-faint)]">{entry.detail}</div>
+                            <div class="text-xs text-[var(--text-faint)]">{entry.detail}</div>
                           </div>
                         </div>
                       );
@@ -152,7 +152,7 @@ export default function Settings() {
             </Show>
             <Show when={report()}>
               {(r) => (
-                <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-3 text-[11px] font-mono text-[var(--text-dim)] space-y-1">
+                <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-3 text-xs font-mono text-[var(--text-dim)] space-y-1">
                   <div>{r().bun_like_runtime}</div>
                   <div>data: {r().data_dir}</div>
                   <div>config: {r().config_dir}</div>
@@ -173,7 +173,7 @@ export default function Settings() {
                     <div class="flex items-center gap-3 px-4 py-3">
                       <div class="w-20 shrink-0">
                         <div class="text-sm">{ROLE_LABELS[role]}</div>
-                        <div class="text-[10px] text-[var(--text-faint)]">{role}</div>
+                        <div class="text-2xs text-[var(--text-faint)]">{role}</div>
                       </div>
                       <select
                         class="bg-transparent border border-[var(--border)] rounded px-1.5 py-1 text-xs text-[var(--text-dim)]"

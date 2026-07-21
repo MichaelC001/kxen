@@ -46,7 +46,7 @@ export default function RightColumn() {
       <Show when={panes().length > 0}>
         <div class="shrink-0 border-b border-[var(--border)]" style={{ "max-height": "45%" }}>
           <Show when={showTabs()}>
-            <div class="flex items-center gap-0.5 px-2 pt-1.5 text-[10px]">
+            <div class="flex items-center gap-0.5 px-2 pt-1.5 text-2xs">
               <For each={panes()}>
                 {(a, i) => (
                   <button
@@ -111,17 +111,17 @@ function AgentPane(props: { name: string }) {
           class={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[activity()?.status ?? "idle"]}`}
         />
         <span class="text-xs font-medium">{props.name}</span>
-        <span class="text-[9px] px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
+        <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
           {KIND_BADGE[activity()?.kind ?? "subagent"]}
         </span>
-        <span class="text-[10px] text-[var(--text-faint)] truncate">{activity()?.model.model}</span>
-        <span class="text-[10px] text-[var(--text-faint)] ml-auto">
+        <span class="text-2xs text-[var(--text-faint)] truncate">{activity()?.model.model}</span>
+        <span class="text-2xs text-[var(--text-faint)] ml-auto">
           {STATUS_TEXT[activity()?.status ?? "idle"]}
         </span>
         <ChevronRight size={11} class="text-[var(--text-faint)]" />
       </div>
       <Show when={preview()}>
-        <div class="text-[10px] text-[var(--text-faint)] truncate mt-1 font-mono">{preview()}</div>
+        <div class="text-2xs text-[var(--text-faint)] truncate mt-1 font-mono">{preview()}</div>
       </Show>
     </button>
   );
@@ -150,7 +150,7 @@ function FocusView(props: { name: string }) {
       const p = payload as TranscriptEntry & { agent?: string; session_id?: string };
       if (p.agent !== props.name || p.session_id !== activeSessionId()) return;
       setEntries((prev) => {
-        const last = prev[prev.length - 1];
+        const last = prev.at(-1);
         if (p.kind === "text" && last?.kind === "text") {
           return [...prev.slice(0, -1), { ...last, text: (last.text ?? "") + (p.text ?? "") }];
         }
@@ -180,11 +180,11 @@ function FocusView(props: { name: string }) {
         </button>
         <Bot size={13} class="text-[var(--accent-hover)]" />
         <span class="text-xs font-medium">{props.name}</span>
-        <span class="text-[9px] px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
+        <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
           {KIND_BADGE[activity()?.kind ?? "subagent"]}
         </span>
-        <span class="text-[10px] text-[var(--text-faint)]">{activity()?.model.model}</span>
-        <span class="text-[10px] text-[var(--text-faint)] ml-auto">
+        <span class="text-2xs text-[var(--text-faint)]">{activity()?.model.model}</span>
+        <span class="text-2xs text-[var(--text-faint)] ml-auto">
           {STATUS_TEXT[activity()?.status ?? "idle"]}
         </span>
       </div>
@@ -193,11 +193,11 @@ function FocusView(props: { name: string }) {
           {(e) => {
             if (e.kind === "tool_call" || e.kind === "tool_result") {
               return (
-                <div class="text-[10px] font-mono text-[var(--text-faint)] truncate">{`${e.name}: ${e.summary ?? ""}`}</div>
+                <div class="text-2xs font-mono text-[var(--text-faint)] truncate">{`${e.name}: ${e.summary ?? ""}`}</div>
               );
             }
             if (e.kind === "error") {
-              return <div class="text-[10px] text-[var(--err)]">{e.message}</div>;
+              return <div class="text-2xs text-[var(--err)]">{e.message}</div>;
             }
             if (e.kind === "text" || e.kind === "reasoning") {
               return (
@@ -213,7 +213,7 @@ function FocusView(props: { name: string }) {
           }}
         </For>
         <Show when={entries().length === 0}>
-          <div class="text-[10px] text-[var(--text-faint)]">等待输出…</div>
+          <div class="text-2xs text-[var(--text-faint)]">等待输出…</div>
         </Show>
       </div>
       <Show

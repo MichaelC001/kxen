@@ -36,7 +36,7 @@ function Section(props: { title: string; icon: unknown; children: unknown }) {
   const Icon = props.icon as (p: { size: number; class?: string }) => unknown;
   return (
     <div class="border-b border-[var(--border)] px-3 py-3">
-      <div class="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-2 flex items-center gap-1.5">
+      <div class="text-2xs uppercase tracking-wider text-[var(--text-faint)] mb-2 flex items-center gap-1.5">
         <Icon size={11} class="text-[var(--text-faint)]" />
         {props.title}
       </div>
@@ -77,20 +77,20 @@ function DockSections(props: {
             <div class="space-y-1.5">
               <div class="flex items-center gap-1.5">
                 <span class={`text-xs font-medium ${badge().cls}`}>{badge().text}</span>
-                <span class="text-[10px] text-[var(--text-faint)]">
+                <span class="text-2xs text-[var(--text-faint)]">
                   turns {g().turns_used}
                   {g().budget.turns ? `/${g().budget.turns}` : ""}
                 </span>
               </div>
               <div class="text-xs leading-snug">{g().objective}</div>
-              <div class="text-[10px] text-[var(--text-dim)]">判据：{g().completion_criteria}</div>
+              <div class="text-2xs text-[var(--text-dim)]">判据：{g().completion_criteria}</div>
               <Show when={g().block_reason}>
-                <div class="text-[10px] text-[var(--err)]">阻塞：{g().block_reason}</div>
+                <div class="text-2xs text-[var(--err)]">阻塞：{g().block_reason}</div>
               </Show>
               <div class="flex gap-1.5 pt-0.5">
                 <Show when={g().status === "active"}>
                   <button
-                    class="pressable px-2 py-0.5 rounded text-[10px] border border-[var(--border)] text-[var(--warn)]"
+                    class="pressable px-2 py-0.5 rounded text-2xs border border-[var(--border)] text-[var(--warn)]"
                     onClick={() => void act("pause")}
                   >
                     暂停
@@ -98,7 +98,7 @@ function DockSections(props: {
                 </Show>
                 <Show when={["paused", "blocked", "budgetlimited"].includes(g().status)}>
                   <button
-                    class="pressable px-2 py-0.5 rounded text-[10px] bg-[var(--accent)] text-white"
+                    class="pressable px-2 py-0.5 rounded text-2xs bg-[var(--accent)] text-white"
                     onClick={() => void act("resume")}
                   >
                     恢复
@@ -106,14 +106,14 @@ function DockSections(props: {
                 </Show>
                 <Show when={["draft", "queued"].includes(g().status)}>
                   <button
-                    class="pressable px-2 py-0.5 rounded text-[10px] bg-[var(--accent)] text-white"
+                    class="pressable px-2 py-0.5 rounded text-2xs bg-[var(--accent)] text-white"
                     onClick={() => void act("activate")}
                   >
                     激活
                   </button>
                 </Show>
                 <button
-                  class="pressable px-2 py-0.5 rounded text-[10px] border border-[var(--border)] text-[var(--err)]"
+                  class="pressable px-2 py-0.5 rounded text-2xs border border-[var(--border)] text-[var(--err)]"
                   onClick={() => void act("cancel")}
                 >
                   取消
@@ -138,7 +138,7 @@ function DockSections(props: {
                     onClick={() => void toggleDiff(c.path)}
                   >
                     <span
-                      class="font-mono text-[10px] w-6 shrink-0"
+                      class="font-mono text-2xs w-6 shrink-0"
                       classList={{
                         "text-[var(--ok)]": c.status === "??" || c.status === "A",
                         "text-[var(--warn)]": c.status === "M",
@@ -150,7 +150,7 @@ function DockSections(props: {
                     <span class="truncate font-mono text-[var(--text-dim)]">{c.path}</span>
                   </button>
                   <Show when={openDiff()?.path === c.path}>
-                    <div class="mt-1 mb-2 text-[10px] max-h-72 overflow-auto rounded border border-[var(--border)]">
+                    <div class="mt-1 mb-2 text-2xs max-h-72 overflow-auto rounded border border-[var(--border)]">
                       <Markdown text={"```diff\n" + (openDiff()?.text ?? "") + "\n```"} />
                     </div>
                   </Show>
@@ -171,12 +171,12 @@ function DockSections(props: {
               {(t) => (
                 <div class="text-xs space-y-0.5">
                   <div class="flex items-center gap-1.5">
-                    <span class={`text-[10px] font-medium ${TASK_STATUS[t.status] ?? ""}`}>
+                    <span class={`text-2xs font-medium ${TASK_STATUS[t.status] ?? ""}`}>
                       {t.status}
                     </span>
                     <Show when={t.port}>
                       <a
-                        class="text-[10px] text-[var(--accent-hover)]"
+                        class="text-2xs text-[var(--accent-hover)]"
                         href={`http://localhost:${t.port}`}
                         target="_blank"
                         rel="noreferrer"
@@ -186,17 +186,14 @@ function DockSections(props: {
                     </Show>
                     <Show when={t.status === "running"}>
                       <button
-                        class="pressable ml-auto px-1.5 py-0 rounded text-[10px] border border-[var(--border)] text-[var(--err)]"
+                        class="pressable ml-auto px-1.5 py-0 rounded text-2xs border border-[var(--border)] text-[var(--err)]"
                         onClick={() => void taskKill(t.id).then(reloadTasks)}
                       >
                         终止
                       </button>
                     </Show>
                   </div>
-                  <div
-                    class="font-mono text-[10px] text-[var(--text-dim)] truncate"
-                    title={t.command}
-                  >
+                  <div class="font-mono text-2xs text-[var(--text-dim)] truncate" title={t.command}>
                     {t.command}
                   </div>
                 </div>

@@ -12,7 +12,7 @@ import {
 import { activeSessionId, ensureActiveSession, sessions, setHasConversation } from "../lib/state";
 import Markdown from "../components/Markdown";
 import ToolCard from "../components/ToolCard";
-import Composer from "../components/Composer";
+import Composer from "../components/composer/LexicalComposer";
 import { FolderOpen, Target, Users, Workflow, Wrench } from "lucide-solid";
 
 interface MsgItem {
@@ -42,14 +42,14 @@ function toItems(messages: StoredMessage[]): Item[] {
     if (m.role === "system") continue;
     for (const p of m.parts) {
       if (p.type === "text" && p.text) {
-        const last = items[items.length - 1];
+        const last = items.at(-1);
         if (last?.kind === "msg" && last.role === m.role) {
           items[items.length - 1] = { ...last, content: `${last.content}\n${p.text}` };
         } else {
           items.push({ kind: "msg", role: m.role, content: p.text });
         }
       } else if (p.type === "reasoning" && p.text && m.role === "assistant") {
-        const last = items[items.length - 1];
+        const last = items.at(-1);
         if (last?.kind === "msg" && last.role === "assistant") {
           items[items.length - 1] = { ...last, reasoning: `${last.reasoning ?? ""}${p.text}` };
         }
@@ -102,7 +102,7 @@ export default function Session() {
 
   const appendAssistant = (field: "content" | "reasoning", text: string) => {
     setItems((prev) => {
-      const last = prev[prev.length - 1];
+      const last = prev.at(-1);
       if (last?.kind === "msg" && last.role === "assistant") {
         return [...prev.slice(0, -1), { ...last, [field]: (last[field] ?? "") + text }];
       }
@@ -128,7 +128,7 @@ export default function Session() {
       (reasoning) => appendAssistant("reasoning", reasoning),
       (stats, error) => {
         setItems((prev) => {
-          const last = prev[prev.length - 1];
+          const last = prev.at(-1);
           if (last?.kind === "msg" && last.role === "assistant") {
             return [...prev.slice(0, -1), { ...last, stats, error }];
           }
@@ -192,7 +192,7 @@ export default function Session() {
       >
         <span class="font-medium text-[var(--text)] truncate">{title()}</span>
         <span
-          class="flex items-center gap-1 text-[var(--text-faint)] truncate max-w-[40%]"
+          class="flex items-center gap-1 text-[var(--text-faint)] truncate popup-detail"
           title={workdir()}
         >
           <FolderOpen size={12} />
@@ -241,7 +241,7 @@ export default function Session() {
                   <Markdown text={item.content} />
                   <Show when={item.stats}>
                     {(stats) => (
-                      <div class="text-[10px] text-[var(--text-faint)] mt-1.5 tabular-nums">
+                      <div class="text-2xs text-[var(--text-faint)] mt-1.5 tabular-nums">
                         in {stats().input_tokens} / out {stats().output_tokens} · TTFT{" "}
                         {(stats().ttft_ms / 1000).toFixed(1)}s ·{" "}
                         {(stats().duration_ms / 1000).toFixed(1)}s · {stats().tokens_per_sec} tok/s
@@ -267,7 +267,7 @@ export default function Session() {
                 <div>
                   <div class="text-lg font-semibold tracking-tight">kxen</div>
                   <div class="text-xs text-[var(--text-dim)]">
-                    四个订阅混用 · 目标驱动 · 团队编排
+                    多模型并行工作 · 目标驱动 · 团队编排
                   </div>
                 </div>
               </div>
@@ -296,12 +296,12 @@ export default function Session() {
                   >
                     <c.icon size={16} class="text-[var(--accent-hover)]" />
                     <div class="text-xs font-medium font-mono">{c.title}</div>
-                    <div class="text-[11px] leading-snug text-[var(--text-faint)]">{c.desc}</div>
+                    <div class="text-xs leading-snug text-[var(--text-faint)]">{c.desc}</div>
                   </div>
                 ))}
               </div>
               <div
-                class="empty-card text-[11px] text-[var(--text-faint)]"
+                class="empty-card text-xs text-[var(--text-faint)]"
                 style="animation-delay: 300ms"
               >
                 输入消息开始 · @ 引用 · / 命令 · # 沉淀 · 粘贴图片

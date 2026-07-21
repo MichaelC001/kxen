@@ -4,7 +4,8 @@ import RightColumn from "./components/RightColumn";
 import StatusBar from "./components/StatusBar";
 import Session from "./pages/Session";
 import Settings from "./pages/Settings";
-import { hasConversation } from "./lib/state";
+import { hasConversation, setNavigator } from "./lib/state";
+import { useNavigate } from "@solidjs/router";
 
 function Home() {
   return (
@@ -23,6 +24,8 @@ function Home() {
 }
 
 function Layout(props: { children?: unknown }) {
+  const navigate = useNavigate();
+  setNavigator(navigate);
   return (
     <div class="h-screen flex overflow-hidden">
       <Sidebar />

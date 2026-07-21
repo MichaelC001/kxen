@@ -28,9 +28,9 @@ export default function StatusBar() {
   };
 
   return (
-    <div class="h-7 shrink-0 flex items-center gap-3 px-3 border-t border-[var(--border)] bg-[var(--bg-raised)] text-[11px] text-[var(--text-dim)] select-none">
+    <div class="h-7 shrink-0 flex items-center gap-3 px-3 border-t border-[var(--border)] bg-[var(--bg-raised)] text-xs text-[var(--text-dim)] select-none">
       <Show when={has("workdir")}>
-        <span class="truncate max-w-[240px]" title={report()?.workdir}>
+        <span class="truncate max-w-60" title={report()?.workdir}>
           {shortWorkdir()}
         </span>
       </Show>

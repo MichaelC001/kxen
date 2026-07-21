@@ -34,9 +34,17 @@ export async function refreshSessions(): Promise<void> {
   setSessions(await sessionList());
 }
 
+/** 路由导航 hook（App 装配时注入；state 不直接依赖 router）。 */
+let navigate: ((path: string) => void) | null = null;
+export function setNavigator(fn: (path: string) => void): void {
+  navigate = fn;
+}
+
 export async function newSession(): Promise<void> {
   // 草稿态：不立即落库；首次发送消息时才创建会话（对齐 Cursor/Claude/ChatGPT）
   setActiveSessionId("");
+  setFocusAgent(null);
+  navigate?.("/");
 }
 
 /** 草稿态首条消息：先落库成会话再激活。返回活跃会话 id。 */
@@ -52,6 +60,7 @@ export async function ensureActiveSession(): Promise<string> {
 export function switchSession(id: string): void {
   setActiveSessionId(id);
   setFocusAgent(null);
+  navigate?.("/");
 }
 
 /** 刷新子代理名单（3s 轮询 + 事件驱动调用方）。 */

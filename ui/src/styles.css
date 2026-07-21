@@ -361,3 +361,136 @@ code {
     border-color var(--dur-fade) var(--ease-out),
     box-shadow var(--dur-fade) var(--ease-out);
 }
+
+/* Lexical 编辑器：placeholder + mention token */
+.editor-root:empty::before {
+  content: "输入消息，@ 引用文件，/ 命令，# 沉淀知识，长按空格语音";
+  color: var(--text-faint);
+  pointer-events: none;
+  position: absolute;
+}
+.editor-root {
+  position: relative;
+  caret-color: var(--text);
+}
+.editor-root p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.mention-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  margin: 0 1px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-overlay);
+  font-size: 0.85em;
+  line-height: 1.5;
+  vertical-align: baseline;
+  user-select: all;
+}
+.mention-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.mention-badge {
+  font-size: 0.75em;
+  color: var(--text-faint);
+}
+.mention-label {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mention-img {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  object-fit: cover;
+}
+
+/* 尺寸 tokens（禁用任意值：全库统一引用这些工具类） */
+.text-2xs {
+  font-size: 0.625rem;
+  line-height: 1.4;
+}
+.msg-user {
+  max-width: 80%;
+}
+.popup-detail {
+  max-width: 40%;
+}
+
+/* composer 整卡与 action bar（语义化样式，不用任意值） */
+.composer-card {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  transition:
+    border-color var(--dur-fade) var(--ease-out),
+    box-shadow var(--dur-fade) var(--ease-out);
+}
+.composer-card:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+.composer-card.recording {
+  border-color: var(--err);
+  box-shadow: 0 0 0 3px rgba(251, 113, 133, 0.18);
+}
+.composer-actionbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 8px;
+}
+.action-icon {
+  padding: 6px;
+  border-radius: 6px;
+  color: var(--text-dim);
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.action-icon:hover {
+  background: var(--bg-overlay);
+}
+.action-icon:active {
+  transform: scale(0.97);
+}
+.send-btn {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.send-btn:hover {
+  background: var(--accent-hover);
+}
+.send-btn:active {
+  transform: scale(0.97);
+}
+.send-btn:disabled {
+  opacity: 0.4;
+}
+.send-btn-stop,
+.send-btn-stop:hover {
+  background: var(--err);
+}
+.editor-root {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-size: 0.875rem;
+  position: relative;
+  caret-color: var(--text);
+}

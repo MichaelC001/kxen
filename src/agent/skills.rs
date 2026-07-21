@@ -167,8 +167,8 @@ pub fn find(workdir: &Path, name: &str) -> Option<Skill> {
 mod tests {
     use super::*;
 
-    fn fixture() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("kxen-skills-{}", std::process::id()));
+    fn fixture(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kxen-skills-{tag}-{}", std::process::id()));
         let flat = dir.join(".kxen/skills");
         std::fs::create_dir_all(&flat).unwrap();
         std::fs::write(
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn scan_flat_and_nested() {
-        let dir = fixture();
+        let dir = fixture("scan");
         let skills = scan(&dir);
         assert_eq!(skills.len(), 2);
         assert!(skills.iter().any(|s| s.name == "commit"));
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn listing_truncates_and_includes_when_to_use() {
-        let dir = fixture();
+        let dir = fixture("listing");
         let listing = render_listing(&dir).unwrap();
         assert!(listing.contains("commit: Conventional Commits 提交助手"));
         assert!(listing.contains("use when: 提交代码时"));
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn arguments_expansion() {
-        let dir = fixture();
+        let dir = fixture("args");
         let skill = find(&dir, "commit").unwrap();
         let loaded = render_loaded(&skill, "fix login bug", "user");
         assert!(loaded.contains("请按规范提交：fix login bug"));
