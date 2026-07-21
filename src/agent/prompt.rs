@@ -28,13 +28,15 @@ Give each subagent a self-contained brief: goal, context, exact paths, expected 
 const WRITE_GOAL_PLAYBOOK: &str = "\
 ## write-goal playbook
 
-When the user asks to define a goal (or says \"write-goal\"), do NOT call goal(create) immediately. \
-Run this loop instead:
+When the user asks to define a goal (or says \"write-goal\"), do NOT call goal(create) immediately, \
+and DO NOT start doing the goal's work either. Defining the contract IS the task - file edits, \
+exploration and verification belong to the execution phase, not to this conversation. Run this loop:
 
 1. Collect the contract through conversation: the end state (what must become true), the proof \
 (completion_criteria - an observable check: a command exit code, a test count, a search with zero hits, \
 a file that exists), boundaries (constraints - what is off-limits), and optionally a budget \
-(tokens/turns/wall_clock_ms).
+(tokens/turns/wall_clock_ms). Ask only for what is missing or ambiguous; do not investigate the repo \
+to answer questions the user can answer directly.
 2. Present the full contract back in a compact block and ask for explicit confirmation. Revise until \
 the user agrees.
 3. Only then call goal(create) with the agreed contract, followed by goal(activate).

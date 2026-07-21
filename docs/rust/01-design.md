@@ -28,23 +28,21 @@ kxen 是 macOS Apple Silicon 专精的 Coding Agent Harness，综合当前所有
 
 ## 2. 架构
 
-### 2.1 单 crate 模块布局（单向依赖）
+### 2.1 单 crate 模块布局（根即 crate 根，单向依赖）
 
 单二进制应用没有外部消费方，不分库 crate；`app/` 一个 crate，库目标按域分文件夹：
 
 ```
-kxen-app
+仓库根即 crate 根（无 workspace 包装）：
+  Cargo.toml        唯一定义（[package] + 依赖 + profile）
   src/lib.rs        库目标（pub mod 五个域）
-  src/main.rs       Tauri 壳装配（commands/events/窗口/菜单/updater，app/ 平铺无 src-tauri 层）
+  src/main.rs       Tauri 壳装配（commands/events/窗口/菜单/updater，无 src-tauri 层）
   src/agent/        agent loop / tool 调度 / subagent / workflow runtime
     -> src/tools/   exec / 读写删 / safety / hooks / worktree
     -> src/llm/     provider 调用 / 订阅注入与刷新 / mrm 调度
     -> src/auth/    订阅凭证探测 / 新鲜度 / refresh
       -> src/core/  域模型 / session / goal / config / 事件总线
-
-仓库布局:
-  Cargo.toml        workspace 根（members = ["app"]）
-  app/              唯一 crate（Cargo.toml + tauri.conf.json + src/ + examples/ + icons/ 平铺）
+  tauri.conf.json / build.rs / icons/ / gen/ / examples/  全部平铺根目录
   ui/               前端（vite-plus + SolidJS，独立 JS 项目）
 ```
 

@@ -93,14 +93,14 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "goal",
-            "Manage durable goals: create with a completion contract (objective + completionCriteria + optional constraints/budget), then drive the lifecycle (activate/pause/resume/complete/cancel/list/get). Goals persist across turns with budgets; same block reason 3 turns in a row escalates to blocked.",
+            "Manage durable goals with a completion contract. Actions: create (requires BOTH objective and completion_criteria strings; constraints/budget optional; the response contains the new goal id), activate/pause/resume/cancel/get (require id - always take it from a create or list response, never invent one), complete (requires id AND evidence), list (no params). Goals persist across turns; same block reason 3 turns in a row escalates to blocked.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": { "type": "string", "enum": ["create", "get", "activate", "pause", "resume", "complete", "cancel", "list"] },
-                    "id": { "type": "string" },
-                    "objective": { "type": "string" },
-                    "completion_criteria": { "type": "string" },
+                    "id": { "type": "string", "description": "Goal id from create/list response" },
+                    "objective": { "type": "string", "description": "REQUIRED for create: what must become true" },
+                    "completion_criteria": { "type": "string", "description": "REQUIRED for create: the observable proof of done, e.g. 'head -1 README.md prints # kxen'" },
                     "constraints": { "type": "string" },
                     "budget": { "type": "object", "properties": { "tokens": { "type": "integer" }, "turns": { "type": "integer" }, "wall_clock_ms": { "type": "integer" } } },
                     "evidence": { "type": "string" }

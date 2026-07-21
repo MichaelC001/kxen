@@ -247,7 +247,7 @@ async fn run_llm(text: String, history: Vec<HistoryMsg>, app: AppHandle) {
         workdir,
         model,
         store,
-        max_turns: 12,
+        max_turns: 32,
         mrm: Some(state.mrm.clone()),
         allowed_tools: None,
         loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),

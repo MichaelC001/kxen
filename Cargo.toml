@@ -1,23 +1,32 @@
-[workspace]
-resolver = "2"
-members = ["app"]
-
-[workspace.package]
+[package]
+name = "kxen-app"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/StringKe/kxen"
+description = "kxen - macOS Apple Silicon coding agent harness (Tauri + Rust)"
 
-[workspace.dependencies]
-tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "fs", "process", "io-util", "time", "sync", "net"] }
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.11", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "1"
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "fs", "process", "io-util", "time", "sync", "net"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+toml = "1"
 thiserror = "2"
 regex = "1.13"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "rustls-native-certs", "json", "stream"] }
+futures = "0.3"
+tokio-tungstenite = "0.26"
+keyring = "4"
+dirs = "6"
+base64 = "0.22"
+time = { version = "0.3", features = ["parsing", "formatting"] }
+rquickjs = { version = "0.12", features = ["futures"] }
 
 [profile.release]
 opt-level = 3
