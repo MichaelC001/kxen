@@ -23,6 +23,7 @@ async fn main() {
         model: ModelRef::new("xai", "grok-build-0.1"),
         store,
         max_turns: 8,
+        mrm: None,
         on_event: Box::new(|event| match event {
             AgentEvent::Text { text } => print!("{text}"),
             AgentEvent::Reasoning { text } => eprint!("[r:{}]", first_chars(&text, 40)),

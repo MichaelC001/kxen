@@ -237,6 +237,7 @@ async fn run_llm(text: String, history: Vec<(String, String)>, app: AppHandle) {
         model,
         store,
         max_turns: 12,
+        mrm: Some(state.mrm.clone()),
         on_event: Box::new(move |event| {
             let payload = match serde_json::to_value(&event) {
                 Ok(v) => v,

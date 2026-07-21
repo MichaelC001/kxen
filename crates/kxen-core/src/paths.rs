@@ -4,9 +4,9 @@ use std::path::PathBuf;
 
 pub const APP_DIR: &str = "kxen";
 
-/// ~/.config/kxen
+/// ~/.config/kxen（XDG 风格，跨平台一致，与官方 CLI 的 ~/.codex ~/.grok 同风格）
 pub fn config_dir() -> PathBuf {
-    dirs::config_dir().unwrap_or_else(|| PathBuf::from("~/.config")).join(APP_DIR)
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from("~")).join(".config").join(APP_DIR)
 }
 
 /// ~/Library/Application Support/kxen（数据：goals、sessions、auth.json）

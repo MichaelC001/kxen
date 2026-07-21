@@ -3,6 +3,7 @@
 
 pub mod anthropic;
 pub mod client;
+pub mod mrm;
 pub mod openai;
 pub mod sse;
 pub mod tool;

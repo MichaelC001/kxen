@@ -110,6 +110,18 @@ pub fn core_tools() -> Vec<ToolDefinition> {
             }),
         ),
         ToolDefinition::function(
+            "task",
+            "Dispatch a subagent by role: thinking (deep analysis), planning (task decomposition), execution (fast execution), review (adversarial review), research (external research). Each runs on a model chosen for the role.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "role": { "type": "string", "enum": ["thinking", "planning", "execution", "review", "research"] },
+                    "prompt": { "type": "string", "description": "The task for the subagent to perform" }
+                },
+                "required": ["role", "prompt"]
+            }),
+        ),
+        ToolDefinition::function(
             "restart_task",
             "Restart a background task with the same command (keeps task_id stable semantics).",
             json!({

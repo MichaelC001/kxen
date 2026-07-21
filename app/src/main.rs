@@ -10,6 +10,7 @@ pub struct AppState {
     model: Mutex<ModelRef>,
     pub bus: kxen_core::event::EventBus,
     pub registry: std::sync::Arc<kxen_tools::task::TaskRegistry>,
+    pub mrm: std::sync::Arc<kxen_llm::mrm::ModelResourceManager>,
     pub workdir: std::path::PathBuf,
 }
 
@@ -23,11 +24,17 @@ impl AppState {
         for (provider, outcome, _) in &outcomes {
             tracing::info!(provider, ?outcome, "credential probe");
         }
+        let config = kxen_core::config::Config::load(
+            &kxen_core::paths::config_dir().join("config.toml"),
+            None,
+        )
+        .unwrap_or_default();
         Self {
             auth_store: Mutex::new(store),
             model: Mutex::new(ModelRef::new("xai", "grok-build-0.1")),
             bus: kxen_core::event::EventBus::default(),
             registry: std::sync::Arc::new(kxen_tools::task::TaskRegistry::new()),
+            mrm: std::sync::Arc::new(kxen_llm::mrm::ModelResourceManager::new(config)),
             workdir: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")),
         }
     }

@@ -37,6 +37,7 @@ pub struct AgentContext {
     pub model: ModelRef,
     pub store: kxen_auth::credential::AuthStore,
     pub max_turns: u32,
+    pub mrm: Option<Arc<kxen_llm::mrm::ModelResourceManager>>,
     pub on_event: Box<dyn Fn(AgentEvent) + Send>,
 }
 
@@ -189,6 +190,14 @@ async fn execute_tool(name: &str, arguments: &str, ctx: &mut AgentContext) -> Re
         "restart_task" => {
             let id = args.get("task_id").and_then(Value::as_str).ok_or("missing task_id")?;
             restart_task(id, &ctx.registry).await.map(|new_id| format!("restarted as {new_id}")).map_err(|e| e.to_string())
+        }
+        "task" => {
+            let role = args.get("role").and_then(Value::as_str).ok_or("missing role")?.to_string();
+            let prompt = args.get("prompt").and_then(Value::as_str).ok_or("missing prompt")?.to_string();
+            let Some(mrm) = ctx.mrm.clone() else {
+                return Err("task tool unavailable: mrm not configured".into());
+            };
+            Box::pin(crate::subagent::dispatch(&role, prompt, ctx, &mrm)).await
         }
         other => Err(format!("unknown tool: {other}")),
     }
