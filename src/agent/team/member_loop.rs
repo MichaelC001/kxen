@@ -22,7 +22,9 @@ pub(super) async fn teammate_loop(
     cancel: CancelToken,
     notify: Arc<Notify>,
 ) {
-    let mut phase_prompt = prompt;
+    // 原始任务简报常驻：loop 每轮 messages 重建（无跨轮历史），唤醒只带新消息会丢任务上下文
+    let base_prompt = prompt;
+    let mut wake_prompt: Option<String> = None;
     let mut approved = !plan_approval;
     loop {
         if cancel.is_cancelled() {
@@ -32,9 +34,13 @@ pub(super) async fn teammate_loop(
         // 阶段 ctx：plan_approval 未批准前只读
         let allowed: Option<&'static [&'static str]> = if approved { None } else { Some(READONLY_TEAM_TOOLS) };
         let mut ctx = build_ctx(&state, &name, &role, &model, allowed, cancel.clone());
+        let user_content = match &wake_prompt {
+            None => base_prompt.clone(),
+            Some(wake) => format!("Original task:\n{base_prompt}\n\n---\nNew messages:\n{wake}"),
+        };
         let messages = vec![
             Message::system(teammate_system(&state, &name, &role, approved)),
-            Message::user(phase_prompt.clone()),
+            Message::user(user_content),
         ];
         let outcome = run_turn(&mut ctx, messages).await;
 
@@ -79,11 +85,13 @@ pub(super) async fn teammate_loop(
                     approved = true;
                 }
             }
-            phase_prompt = inbox
-                .iter()
-                .map(|(from, text)| format!("[{from}] {text}"))
-                .collect::<Vec<_>>()
-                .join("\n");
+            wake_prompt = Some(
+                inbox
+                    .iter()
+                    .map(|(from, text)| format!("[{from}] {text}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
             break;
         }
         if cancel.is_cancelled() {

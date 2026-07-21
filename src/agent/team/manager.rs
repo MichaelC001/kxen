@@ -58,7 +58,8 @@ impl TeamManager {
                 let prompt = args.get("prompt").and_then(Value::as_str)
                     .or_else(|| args.get("text").and_then(Value::as_str))
                     .ok_or("missing prompt")?.to_string();
-                let model = args.get("model").and_then(Value::as_str).map(String::from);
+                // 模型会给可选项填空串（gpt-5.4 习性）：空串视同未传
+                let model = args.get("model").and_then(Value::as_str).filter(|m| !m.is_empty()).map(String::from);
                 let plan_approval = args.get("plan_approval").and_then(Value::as_bool).unwrap_or(false);
                 // 模型解析（显式 model > mrm 角色路由）在这层 await，spawn 本体保持 sync
                 let model_ref = match model {
