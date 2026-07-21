@@ -1,5 +1,0 @@
-export { AccountTable, AccountStateTable, ControlAccountTable } from "@kxen/core/account/sql"
-export { ProjectTable } from "@kxen/core/project/sql"
-export { SessionTable, MessageTable, PartTable, TodoTable } from "@kxen/core/session/sql"
-export { SessionShareTable } from "@kxen/core/share/sql"
-export { WorkspaceTable } from "@kxen/core/control-plane/workspace.sql"
