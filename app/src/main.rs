@@ -2,40 +2,40 @@ mod doctor;
 mod goal_rpc;
 mod ws;
 
-use kxen_llm::ModelRef;
+use kxen_app::llm::ModelRef;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 pub struct AppState {
-    auth_store: Mutex<kxen_auth::credential::AuthStore>,
+    auth_store: Mutex<kxen_app::auth::credential::AuthStore>,
     model: Mutex<ModelRef>,
-    pub bus: kxen_core::event::EventBus,
-    pub registry: std::sync::Arc<kxen_tools::task::TaskRegistry>,
-    pub mrm: std::sync::Arc<kxen_llm::mrm::ModelResourceManager>,
+    pub bus: kxen_app::core::event::EventBus,
+    pub registry: std::sync::Arc<kxen_app::tools::task::TaskRegistry>,
+    pub mrm: std::sync::Arc<kxen_app::llm::mrm::ModelResourceManager>,
     pub workdir: std::sync::Arc<std::path::Path>,
 }
 
 impl AppState {
     #[allow(dead_code)]
     fn new() -> Self {
-        let path = kxen_core::paths::auth_file();
-        let mut store = kxen_auth::credential::read_auth_file(&path);
-        let outcomes = kxen_auth::probe_all(&mut store);
-        let _ = kxen_auth::credential::write_auth_file(&path, &store);
+        let path = kxen_app::core::paths::auth_file();
+        let mut store = kxen_app::auth::credential::read_auth_file(&path);
+        let outcomes = kxen_app::auth::probe_all(&mut store);
+        let _ = kxen_app::auth::credential::write_auth_file(&path, &store);
         for (provider, outcome, _) in &outcomes {
             tracing::info!(provider, ?outcome, "credential probe");
         }
-        let config = kxen_core::config::Config::load(
-            &kxen_core::paths::config_dir().join("config.toml"),
+        let config = kxen_app::core::config::Config::load(
+            &kxen_app::core::paths::config_dir().join("config.toml"),
             None,
         )
         .unwrap_or_default();
         Self {
             auth_store: Mutex::new(store),
             model: Mutex::new(ModelRef::new("xai", "grok-build-0.1")),
-            bus: kxen_core::event::EventBus::default(),
-            registry: std::sync::Arc::new(kxen_tools::task::TaskRegistry::new()),
-            mrm: std::sync::Arc::new(kxen_llm::mrm::ModelResourceManager::new(config)),
+            bus: kxen_app::core::event::EventBus::default(),
+            registry: std::sync::Arc::new(kxen_app::tools::task::TaskRegistry::new()),
+            mrm: std::sync::Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(config)),
             workdir: std::sync::Arc::from(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))),
         }
     }

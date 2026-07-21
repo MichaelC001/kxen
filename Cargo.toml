@@ -1,13 +1,6 @@
 [workspace]
 resolver = "2"
-members = [
-    "crates/kxen-core",
-    "crates/kxen-llm",
-    "crates/kxen-auth",
-    "crates/kxen-tools",
-    "crates/kxen-agent",
-    "app",
-]
+members = ["app"]
 
 [workspace.package]
 version = "0.1.0"

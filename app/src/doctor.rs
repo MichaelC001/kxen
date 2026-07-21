@@ -1,5 +1,5 @@
-use kxen_auth::{probe_all, ProbeOutcome};
-use kxen_core::paths;
+use kxen_app::auth::{probe_all, ProbeOutcome};
+use kxen_app::core::paths;
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -20,9 +20,9 @@ pub struct DoctorReport {
 
 pub fn doctor_report() -> DoctorReport {
     let auth_path = paths::auth_file();
-    let mut store = kxen_auth::credential::read_auth_file(&auth_path);
+    let mut store = kxen_app::auth::credential::read_auth_file(&auth_path);
     let outcomes = probe_all(&mut store);
-    let _ = kxen_auth::credential::write_auth_file(&auth_path, &store);
+    let _ = kxen_app::auth::credential::write_auth_file(&auth_path, &store);
 
     let entries = outcomes
         .iter()

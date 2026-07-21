@@ -2050,91 +2050,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "kxen-agent"
-version = "0.1.0"
-dependencies = [
- "futures",
- "kxen-auth",
- "kxen-core",
- "kxen-llm",
- "kxen-tools",
- "rquickjs",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "kxen-app"
-version = "0.1.0"
-dependencies = [
- "futures",
- "kxen-agent",
- "kxen-auth",
- "kxen-core",
- "kxen-llm",
- "kxen-tools",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "kxen-auth"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "dirs",
- "keyring",
- "kxen-core",
- "serde",
- "serde_json",
- "time",
-]
-
-[[package]]
-name = "kxen-core"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "keyring",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "tokio",
- "toml 1.1.3+spec-1.1.0",
-]
-
-[[package]]
-name = "kxen-llm"
-version = "0.1.0"
-dependencies = [
  "futures",
- "kxen-auth",
- "kxen-core",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "kxen-tools"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "kxen-core",
+ "keyring",
  "regex",
+ "reqwest",
+ "rquickjs",
  "serde",
  "serde_json",
+ "tauri",
+ "tauri-build",
  "thiserror 2.0.19",
+ "time",
  "tokio",
+ "tokio-tungstenite",
+ "toml 1.1.3+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

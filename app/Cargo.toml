@@ -10,15 +10,19 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2.11", features = [] }
-kxen-core = { path = "../crates/kxen-core" }
-kxen-auth = { path = "../crates/kxen-auth" }
-kxen-llm = { path = "../crates/kxen-llm" }
-kxen-agent = { path = "../crates/kxen-agent" }
-kxen-tools = { path = "../crates/kxen-tools" }
-futures = "0.3"
-tokio-tungstenite = "0.26"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+futures = "0.3"
+tokio-tungstenite = "0.26"
+keyring = "4"
+dirs = "6"
+base64 = "0.22"
+time = { version = "0.3", features = ["parsing", "formatting"] }
+rquickjs = { version = "0.12", features = ["futures"] }

@@ -4,7 +4,7 @@
 //! 端口启动时随机分配，经 window eval 注入前端。
 
 use futures::{SinkExt, StreamExt};
-use kxen_llm::Message;
+use kxen_app::llm::Message;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashSet;
@@ -205,8 +205,8 @@ async fn handle_stream(
     }
 }
 
-fn map_event(event: kxen_core::event::Event) -> (&'static str, Value) {
-    use kxen_core::event::Event;
+fn map_event(event: kxen_app::core::event::Event) -> (&'static str, Value) {
+    use kxen_app::core::event::Event;
     match event {
         Event::LlmDelta(payload) => ("llm.delta", payload),
         Event::ToolCall { name, summary } => ("llm.delta", json!({ "tool": name, "summary": summary })),
@@ -241,23 +241,23 @@ async fn run_llm(text: String, history: Vec<HistoryMsg>, app: AppHandle) {
         .collect();
     messages.push(Message::user(text));
 
-    let mut ctx = kxen_agent::agent_loop::AgentContext {
+    let mut ctx = kxen_app::agent::agent_loop::AgentContext {
         registry,
-        tracker: kxen_tools::fs_tool::FileTracker::default(),
+        tracker: kxen_app::tools::fs_tool::FileTracker::default(),
         workdir,
         model,
         store,
         max_turns: 12,
         mrm: Some(state.mrm.clone()),
         allowed_tools: None,
-        loop_detector: kxen_agent::loop_detect::LoopDetector::new(),
+        loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
         on_event: Arc::new(move |event| {
             let payload = match serde_json::to_value(&event) {
                 Ok(v) => v,
                 Err(_) => return,
             };
-            bus.publish(kxen_core::event::Event::LlmDelta(payload));
+            bus.publish(kxen_app::core::event::Event::LlmDelta(payload));
         }),
     };
-    kxen_agent::agent_loop::run_turn(&mut ctx, messages).await;
+    kxen_app::agent::agent_loop::run_turn(&mut ctx, messages).await;
 }

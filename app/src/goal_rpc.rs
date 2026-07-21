@@ -1,7 +1,7 @@
 //! goal RPC 方法（goal.{list,create,activate,pause,resume,complete,cancel,get}）。
 
-use kxen_core::goal::{Goal, GoalBudget, GoalContract};
-use kxen_core::paths;
+use kxen_app::core::goal::{Goal, GoalBudget, GoalContract};
+use kxen_app::core::paths;
 use serde_json::{json, Value};
 
 fn dir() -> std::path::PathBuf {
@@ -73,7 +73,7 @@ fn load(id: &str) -> Result<Goal, String> {
     Goal::load(&dir(), id).map_err(|e| e.to_string())
 }
 
-fn transit(params: Value, f: impl FnOnce(&mut Goal) -> Result<(), kxen_core::goal::GoalError>) -> Result<Value, String> {
+fn transit(params: Value, f: impl FnOnce(&mut Goal) -> Result<(), kxen_app::core::goal::GoalError>) -> Result<Value, String> {
     let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
     let mut goal = load(id)?;
     f(&mut goal).map_err(|e| e.to_string())?;
