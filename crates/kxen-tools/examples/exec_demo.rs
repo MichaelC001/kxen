@@ -61,7 +61,7 @@ async fn main() {
         ExecOutcome::Background { task_id } => {
             println!("[auto-bg] task_id = {task_id}");
             let info = registry.get(task_id).unwrap();
-            println!("[auto-bg] status = {:?}, command = {}", info.status, info.command);
+            println!("[auto-bg] status = {:?}, command = {}", info.status(), info.command);
             registry.kill(task_id).await;
         }
         other => println!("[auto-bg] UNEXPECTED: {other:?}"),

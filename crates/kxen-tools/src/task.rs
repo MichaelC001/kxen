@@ -18,7 +18,6 @@ pub struct TaskHandle {
     pub id: String,
     pub command: String,
     pub workdir: String,
-    pub status: TaskStatus,
     pub output: Arc<Mutex<String>>,
     pub truncated: Arc<Mutex<bool>>,
     pub started_at: u64,
@@ -43,6 +42,16 @@ pub struct TaskRegistry {
     tasks: Mutex<HashMap<String, Arc<TaskHandle>>>,
 }
 
+impl TaskHandle {
+    pub fn status(&self) -> TaskStatus {
+        match *self.exit_code.lock().expect("exit") {
+            Some(0) => TaskStatus::Exited,
+            Some(_) => TaskStatus::Failed,
+            None => TaskStatus::Running,
+        }
+    }
+}
+
 impl TaskRegistry {
     pub fn new() -> Self {
         Self::default()
@@ -65,7 +74,7 @@ impl TaskRegistry {
             .map(|t| TaskInfo {
                 id: t.id.clone(),
                 command: t.command.clone(),
-                status: t.status,
+                status: t.status(),
                 uptime_ms: now.saturating_sub(t.started_at),
                 port: t.port,
                 tail: tail_of(&t.output.lock().expect("output"), 400),
@@ -77,12 +86,13 @@ impl TaskRegistry {
         let task = self.get(id)?;
         let output = task.output.lock().expect("output").clone();
         let truncated = *task.truncated.lock().expect("truncated");
-        Some((output, truncated, task.status))
+        Some((output, truncated, task.status()))
     }
 
     pub async fn kill(&self, id: &str) -> bool {
         let Some(task) = self.get(id) else { return false };
-        if let Some(mut child) = task.child.lock().expect("child").take() {
+        let taken = task.child.lock().expect("child").take();
+        if let Some(mut child) = taken {
             let _ = child.kill().await;
         }
         true

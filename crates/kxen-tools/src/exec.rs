@@ -2,7 +2,7 @@
 
 use crate::safety::{evaluate_shell_command, Verdict};
 use crate::shell::{wrap_command, ShellKind};
-use crate::task::{append_capped, task_id, TaskHandle, TaskRegistry, TaskStatus};
+use crate::task::{append_capped, task_id, TaskHandle, TaskRegistry};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -149,7 +149,6 @@ pub async fn spawn_task(
         id: id.clone(),
         command: display_command.to_string(),
         workdir: workdir.to_string(),
-        status: TaskStatus::Running,
         output: output.clone(),
         truncated: truncated.clone(),
         started_at: std::time::SystemTime::now()
