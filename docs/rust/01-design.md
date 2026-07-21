@@ -252,7 +252,7 @@ Rust -> 前端 events：`llm://delta`、`tool://call`、`task://update`、`goal:
 | M2 | agent loop + 命令调度（快照 shell + auto_bg + 任务三件套 + dev_server）+ exec/读写删 + safety | 改文件 + rm -rf / 被拦 + 长命令自动后台化 + dev server 起停/就绪/重启可演示 + rm 实际进回收站 |
 | M3 | 订阅全接入 + mrm 角色路由 + subagent | 四家各一次真实调用；角色 agent 派发 |
 | M4 [DONE] | goal 全生命周期 + write-goal + workflow（rquickjs）+ loop 检测 | 已实测：状态机流转 + 预算/阻塞升级；write-goal 全链路（kimi create->activate->验证->complete）；workflow 并行编排（phase 流式 + Promise.all 双子代理）；loop 检测真实环境两次触发（exact/stagnation） |
-| M5 | .agents/OKF + Tool Search + hooks + worktree + updater + 签名公证 | OKF 注入可见；release dmg < 20MB |
+| M5 | .agents/OKF + Tool Search + hooks + worktree + 签名 dmg | 已实测：OKF 注入 0 工具调用复述规则；tool_search 挂载 todo 调用成功；hooks 阻断 cowsay；worktree 隔离主树零接触；dmg 构建中 |
 
 ## 10. 明确不做
 
