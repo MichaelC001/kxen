@@ -172,7 +172,7 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
         }
         "send_message" => {
             let p: SendMessageParams = serde_json::from_value(params).map_err(|e| e.to_string())?;
-            tokio::spawn(run_llm(p.session_id, p.text, p.context, app.clone()));
+            tokio::spawn(run_llm(p.session_id, p.text, p.context, p.images, app.clone()));
             Ok(Value::Null)
         }
         "session.abort" => {
@@ -244,6 +244,8 @@ struct SendMessageParams {
     text: String,
     #[serde(default)]
     context: Vec<kxen_app::agent::context::ContextItem>,
+    #[serde(default)]
+    images: Vec<kxen_app::llm::types::ImagePart>,
 }
 
 // ---------------- Stream 通道 ----------------
@@ -310,7 +312,7 @@ fn map_event(event: kxen_app::core::event::Event) -> (&'static str, Value) {
 
 // ---------------- LLM 任务 ----------------
 
-async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent::context::ContextItem>, app: AppHandle) {
+async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent::context::ContextItem>, images: Vec<kxen_app::llm::types::ImagePart>, app: AppHandle) {
     use kxen_app::core::session as ses;
 
     let state = app.state::<Arc<AppState>>();
@@ -326,6 +328,7 @@ async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent:
 
     // 用户消息落盘（LLM 历史以后端会话存储为准，前端不再传 history）
     let user_msg = ses::new_message(&session_id, ses::Role::User, vec![ses::Part::Text { text: text.clone() }]);
+    let with_images = !images.is_empty();
     if let Err(e) = ses::append_message(&sessions_dir, &user_msg) {
         tracing::error!(error = %e, "session append failed");
         return;
@@ -371,7 +374,7 @@ async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent:
         messages.push(Message::user(format!("[teammate {from}] {note}")));
     }
     if messages.is_empty() {
-        messages.push(Message::user(text));
+        messages.push(if with_images { Message::user_with_images(text, images) } else { Message::user(text) });
     }
 
     // 转录件：run 结束后整条 assistant 消息（文本 + 工具调用）落盘

@@ -1,6 +1,6 @@
 import { A } from "@solidjs/router";
 import { For, createSignal, onMount } from "solid-js";
-import { Activity, Moon, Plus, Sun, X } from "lucide-solid";
+import { Activity, Moon, Plus, Settings as SettingsIcon, Sun, X } from "lucide-solid";
 import { currentModel, sessionDelete } from "../lib/chat";
 import {
   activeSessionId,
@@ -73,11 +73,17 @@ export default function Sidebar() {
       <div class="px-3 py-2 border-t border-[var(--border)] space-y-2">
         <div class="flex items-center justify-between">
           <A
+            href="/settings"
+            class="px-1 text-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
+          >
+            <SettingsIcon size={13} />
+            设置
+          </A>
+          <A
             href="/doctor"
             class="px-1 text-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
           >
             <Activity size={13} />
-            环境检查
           </A>
           <button
             class="pressable px-1.5 py-0.5 rounded text-xs text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60 flex items-center"

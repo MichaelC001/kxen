@@ -68,6 +68,27 @@ body {
     color var(--dur-fade) var(--ease-out);
 }
 
+/* composer 弹窗：从触发器长出的 origin-aware 入场（150ms 强 ease-out） */
+.composer-popup {
+  transform-origin: bottom center;
+  animation: popup-in 150ms var(--ease-out);
+}
+@keyframes popup-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-popup {
+    animation: none;
+  }
+}
+
 /* ============ 右 dock 抽屉（负 margin 出流 + 位移深度 + 透明度，280ms ease-out） ============ */
 .dock-wrap {
   width: 16rem;
