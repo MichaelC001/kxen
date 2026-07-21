@@ -156,6 +156,7 @@ mod tests {
                 global_concurrent: 2,
                 providers: [("anthropic".into(), ProviderLimit { concurrent: Some(1), rpm: None })].into_iter().collect(),
             },
+            hooks: HashMap::new(),
         }
     }
 

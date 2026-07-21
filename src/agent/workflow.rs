@@ -182,12 +182,14 @@ mod tests {
         let config = Config {
             roles,
             limits: Limits { global_concurrent: 4, providers: HashMap::<String, ProviderLimit>::new() },
+            hooks: HashMap::new(),
         };
         SubagentDeps {
             registry: Arc::new(crate::tools::task::TaskRegistry::new()),
             workdir: Arc::from(std::path::Path::new("/tmp")),
             store: crate::auth::credential::AuthStore::default(),
             mrm: Arc::new(ModelResourceManager::new(config)),
+            hooks: None,
         }
     }
 

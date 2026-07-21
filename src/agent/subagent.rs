@@ -15,6 +15,7 @@ pub struct SubagentDeps {
     pub workdir: Arc<Path>,
     pub store: crate::auth::credential::AuthStore,
     pub mrm: Arc<ModelResourceManager>,
+    pub hooks: Option<Arc<crate::tools::hooks::HookRunner>>,
 }
 
 impl SubagentDeps {
@@ -24,6 +25,7 @@ impl SubagentDeps {
             workdir: ctx.workdir.clone(),
             store: ctx.store.clone(),
             mrm: ctx.mrm.clone()?,
+            hooks: ctx.hooks.clone(),
         })
     }
 }
@@ -97,6 +99,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps) -> Result
         mrm: None,
         allowed_tools: if allowed.is_empty() { None } else { Some(allowed) },
         extras: None,
+        hooks: deps.hooks.clone(),
         loop_detector: crate::agent::loop_detect::LoopDetector::new(),
         on_event: {
             let role_owned = agent.name.clone();

@@ -50,6 +50,7 @@ pub struct AgentContext {
     /// 子代理工具白名单（None = 全部常驻工具）。
     pub allowed_tools: Option<&'static [&'static str]>,
     pub extras: Option<Arc<SessionExtras>>,
+    pub hooks: Option<Arc<crate::tools::hooks::HookRunner>>,
     pub loop_detector: crate::agent::loop_detect::LoopDetector,
     pub on_event: Arc<dyn Fn(AgentEvent) + Send + Sync>,
 }
@@ -152,6 +153,23 @@ async fn execute_tool(name: &str, arguments: &str, ctx: &mut AgentContext) -> Re
     let args: Value = serde_json::from_str(arguments).unwrap_or_else(|_| json!({}));
     let cwd = ctx.workdir.to_string_lossy().to_string();
 
+    // hooks：pre_tool_use 任一失败即阻断；post_tool_use 仅记录
+    if let Some(hooks) = &ctx.hooks {
+        hooks.run_pre(name, &json!({ "tool": name, "arguments": args })).await?;
+    }
+    let result = dispatch_tool(name, &args, &cwd, ctx).await;
+    if let Some(hooks) = &ctx.hooks {
+        let preview = match &result {
+            Ok(text) => text.chars().take(400).collect::<String>(),
+            Err(e) => format!("ERROR: {}", e.chars().take(400).collect::<String>()),
+        };
+        hooks.run_post(name, &json!({ "tool": name, "arguments": args, "result_preview": preview })).await;
+    }
+    result
+}
+
+fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a mut AgentContext) -> impl std::future::Future<Output = Result<String, String>> + 'a {
+    async move {
     match name {
         "exec" => {
             let params = ExecParams {
@@ -286,6 +304,7 @@ async fn execute_tool(name: &str, arguments: &str, ctx: &mut AgentContext) -> Re
             Box::pin(crate::agent::workflow::run_tool(script, deps, ctx)).await
         }
         other => Err(format!("unknown tool: {other}")),
+    }
     }
 }
 

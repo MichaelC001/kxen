@@ -9,6 +9,14 @@ use std::path::Path;
 pub struct Config {
     pub roles: HashMap<String, RoleBinding>,
     pub limits: Limits,
+    pub hooks: HashMap<String, Vec<HookDef>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HookDef {
+    /// 工具名正则（None = 全部工具）。
+    pub matcher: Option<String>,
+    pub command: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,5 +68,8 @@ impl Config {
             self.limits.global_concurrent = other.limits.global_concurrent;
         }
         self.limits.providers.extend(other.limits.providers);
+        for (event, defs) in other.hooks {
+            self.hooks.entry(event).or_default().extend(defs);
+        }
     }
 }
