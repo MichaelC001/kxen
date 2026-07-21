@@ -42,7 +42,7 @@ async fn main() {
             AgentEvent::ToolCall { name, summary } => println!("\n>>> {name}: {}", first(&summary, 90)),
             AgentEvent::ToolResult { name, summary } => println!("<<< {name}: {}", first(&summary, 90)),
             AgentEvent::Phase { name } => println!("\n--- PHASE: {name} ---"),
-            AgentEvent::Done { turns } => println!("\n=== DONE {turns} turns ==="),
+            AgentEvent::Done { turns, .. } => println!("\n=== DONE {turns} turns ==="),
             AgentEvent::Aborted => println!("\n=== ABORTED ==="),
             AgentEvent::Error { message } => println!("\n!!! {message}"),
         }),

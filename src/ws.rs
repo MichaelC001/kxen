@@ -193,6 +193,27 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
             let state = app.state::<Arc<AppState>>();
             state.team.lead_action(session_id, &json!({ "action": "message", "name": name, "text": text })).await.map(Value::String)
         }
+        "statusline" => {
+            let session_id = params.get("session_id").and_then(Value::as_str).unwrap_or("");
+            let state = app.state::<Arc<AppState>>();
+            Ok(statusline_report(session_id, &state))
+        }
+        "config.get" => {
+            let config = kxen_app::core::config::Config::load(
+                &kxen_app::core::paths::config_dir().join("config.toml"),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(serde_json::to_value(config).map_err(|e| e.to_string())?)
+        }
+        "config.set_role" => {
+            let role = params.get("role").and_then(Value::as_str).ok_or("missing role")?;
+            let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
+            let model = params.get("model").and_then(Value::as_str).ok_or("missing model")?;
+            let fallback = params.get("fallback").and_then(Value::as_str);
+            let state = app.state::<Arc<AppState>>();
+            set_role(role, provider, model, fallback, &state)
+        }
         "fs.complete" => {
             let query = params.get("query").and_then(Value::as_str).unwrap_or("");
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
@@ -369,7 +390,7 @@ async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent:
         model,
         store,
         max_turns: 32,
-        mrm: Some(state.mrm.clone()),
+        mrm: Some(state.mrm.read().expect("mrm lock").clone()),
         allowed_tools: None,
         extras: Some(state.extras.clone()),
         hooks: Some(state.hooks.clone()),
@@ -409,6 +430,13 @@ async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent:
     };
     let outcome = kxen_app::agent::agent_loop::run_turn(&mut ctx, messages).await;
     kxen_app::core::shared::lock(&state.active_runs).remove(&session_id);
+    // 用量累计（状态栏 tokens 段）
+    if let Some(stats) = outcome.stats {
+        let mut map = kxen_app::core::shared::lock(&state.session_tokens);
+        let entry = map.entry(session_id.clone()).or_insert((0, 0));
+        entry.0 += stats.input_tokens;
+        entry.1 += stats.output_tokens;
+    }
 
     let mut parts = transcript.lock().expect("transcript").clone();
     if !outcome.final_text.is_empty() {
@@ -423,4 +451,73 @@ async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent:
             tracing::error!(error = %e, "session append failed");
         }
     }
+}
+
+// ---------------- 状态栏与设置 ----------------
+
+fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Value {
+    let items = kxen_app::core::shared::lock(&state.statusline_items).clone();
+
+    // git 分支（5s 缓存）
+    let git_branch = {
+        let mut cache = kxen_app::core::shared::lock(&state.git_cache);
+        if cache.0.elapsed() > std::time::Duration::from_secs(5) {
+            let branch = std::process::Command::new("git")
+                .args(["branch", "--show-current"])
+                .current_dir(&*state.workdir)
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default();
+            *cache = (std::time::Instant::now(), branch);
+        }
+        cache.1.clone()
+    };
+
+    let focus = kxen_app::core::goal::Goal::focus(&kxen_app::core::paths::goals_dir());
+    let tasks_running = state.registry.list().iter().filter(|t| matches!(t.status, kxen_app::tools::task::TaskStatus::Running)).count();
+    let tokens = kxen_app::core::shared::lock(&state.session_tokens).get(session_id).copied().unwrap_or((0, 0));
+    let model = state.model.lock().map(|m| m.clone()).unwrap_or_default();
+
+    json!({
+        "items": items,
+        "workdir": state.workdir.to_string_lossy(),
+        "git_branch": git_branch,
+        "goal": focus.map(|g| json!({ "id": g.id, "status": format!("{:?}", g.status).to_lowercase() })),
+        "tasks_running": tasks_running,
+        "tokens": { "input": tokens.0, "output": tokens.1 },
+        "model": format!("{}/{}", model.provider, model.model),
+    })
+}
+
+/// 非破坏写回：toml::Value 上改 roles[role]，保留文件其余内容；随后重建 MRM 热换 Arc。
+fn set_role(role: &str, provider: &str, model: &str, fallback: Option<&str>, state: &Arc<AppState>) -> Result<Value, String> {
+    let path = kxen_app::core::paths::config_dir().join("config.toml");
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut doc: toml::Value = if text.trim().is_empty() {
+        toml::Value::Table(toml::map::Map::new())
+    } else {
+        text.parse().map_err(|e| format!("config.toml parse: {e}"))?
+    };
+    let table = doc.as_table_mut().ok_or("config.toml root is not a table")?;
+    let roles = table.entry(String::from("roles")).or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+    let roles_table = roles.as_table_mut().ok_or("roles is not a table")?;
+    let mut binding = toml::map::Map::new();
+    binding.insert("provider".into(), toml::Value::String(provider.into()));
+    binding.insert("model".into(), toml::Value::String(model.into()));
+    if let Some(f) = fallback {
+        binding.insert("fallback".into(), toml::Value::String(f.into()));
+    }
+    roles_table.insert(role.into(), toml::Value::Table(binding));
+
+    std::fs::create_dir_all(kxen_app::core::paths::config_dir()).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, doc.to_string()).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+
+    // 重建 MRM 热换
+    let config = kxen_app::core::config::Config::load(&path, None).map_err(|e| e.to_string())?;
+    *state.mrm.write().expect("mrm lock") = std::sync::Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(config));
+    Ok(json!({ "role": role, "provider": provider, "model": model }))
 }

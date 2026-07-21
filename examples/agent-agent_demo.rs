@@ -38,7 +38,7 @@ async fn main() {
             AgentEvent::ToolCall { name, summary } => println!("\n>>> TOOL CALL {name}: {}", first_chars(&summary, 100)),
             AgentEvent::ToolResult { name, summary } => println!("<<< TOOL RESULT {name}: {}", first_chars(&summary, 100)),
             AgentEvent::Phase { name } => println!("\n--- PHASE: {name} ---"),
-            AgentEvent::Done { turns } => println!("\n=== DONE in {turns} turns ==="),
+            AgentEvent::Done { turns, .. } => println!("\n=== DONE in {turns} turns ==="),
             AgentEvent::Aborted => println!("\n=== ABORTED ==="),
             AgentEvent::Error { message } => println!("\n!!! ERROR: {message}"),
         }),

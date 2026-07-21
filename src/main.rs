@@ -11,12 +11,19 @@ pub struct AppState {
     model: Mutex<ModelRef>,
     pub bus: kxen_app::core::event::EventBus,
     pub registry: std::sync::Arc<kxen_app::tools::task::TaskRegistry>,
-    pub mrm: std::sync::Arc<kxen_app::llm::mrm::ModelResourceManager>,
+    /// 角色路由可热更新（设置页改角色 -> 重建换 Arc）
+    pub mrm: std::sync::RwLock<std::sync::Arc<kxen_app::llm::mrm::ModelResourceManager>>,
     pub extras: std::sync::Arc<kxen_app::agent::agent_loop::SessionExtras>,
     pub hooks: std::sync::Arc<kxen_app::tools::hooks::HookRunner>,
     pub team: std::sync::Arc<kxen_app::agent::team::TeamManager>,
     /// session_id -> 进行中 run 的取消令牌（session.abort 用；run 结束自行移除）
     pub active_runs: std::sync::Mutex<std::collections::HashMap<String, kxen_app::agent::cancel::CancelToken>>,
+    /// session_id -> (input, output) tokens 累计（状态栏用量段）
+    pub session_tokens: std::sync::Mutex<std::collections::HashMap<String, (u64, u64)>>,
+    /// 状态栏显隐段（启动时从 config 读；设置页改后重建）
+    pub statusline_items: std::sync::Mutex<Vec<String>>,
+    /// git 分支 5s 缓存（状态栏 git 段，防每帧 spawn）
+    pub git_cache: std::sync::Mutex<(std::time::Instant, String)>,
     pub workdir: std::sync::Arc<std::path::Path>,
 }
 
@@ -35,6 +42,7 @@ impl AppState {
             None,
         )
         .unwrap_or_default();
+        let statusline_items = config.statusline.items.clone();
         let registry = std::sync::Arc::new(kxen_app::tools::task::TaskRegistry::new());
         let extras = std::sync::Arc::new(kxen_app::agent::agent_loop::SessionExtras::default());
         let hooks = std::sync::Arc::new(kxen_app::tools::hooks::HookRunner::from_config(&config));
@@ -63,7 +71,10 @@ impl AppState {
             hooks,
             team,
             active_runs: std::sync::Mutex::new(std::collections::HashMap::new()),
-            mrm,
+            mrm: std::sync::RwLock::new(mrm),
+            session_tokens: std::sync::Mutex::new(std::collections::HashMap::new()),
+            statusline_items: std::sync::Mutex::new(statusline_items),
+            git_cache: std::sync::Mutex::new((std::time::Instant::now() - std::time::Duration::from_secs(60), String::new())),
             workdir,
         }
     }

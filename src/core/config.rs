@@ -10,6 +10,7 @@ pub struct Config {
     pub roles: HashMap<String, RoleBinding>,
     pub limits: Limits,
     pub hooks: HashMap<String, Vec<HookDef>>,
+    pub statusline: StatuslineConfig,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -19,10 +20,28 @@ pub struct HookDef {
     pub command: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RoleBinding {
     pub provider: String,
     pub model: String,
+    /// 降级目标角色（None = mrm 静态兜底链）。
+    pub fallback: Option<String>,
+}
+
+/// 状态栏显隐（固定段 + 开关，对齐 Zed 白名单模式）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StatuslineConfig {
+    pub items: Vec<String>,
+}
+
+impl Default for StatuslineConfig {
+    fn default() -> Self {
+        Self {
+            items: ["workdir", "git", "goal", "tasks", "tokens", "model"].iter().map(|s| s.to_string()).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +89,9 @@ impl Config {
         self.limits.providers.extend(other.limits.providers);
         for (event, defs) in other.hooks {
             self.hooks.entry(event).or_default().extend(defs);
+        }
+        if !other.statusline.items.is_empty() {
+            self.statusline = other.statusline;
         }
     }
 }

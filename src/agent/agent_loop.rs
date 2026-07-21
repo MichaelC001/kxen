@@ -21,9 +21,19 @@ pub enum AgentEvent {
     ToolCall { name: String, summary: String },
     ToolResult { name: String, summary: String },
     Phase { name: String },
-    Done { turns: u32 },
+    Done { turns: u32, stats: Option<RunStats> },
     Aborted,
     Error { message: String },
+}
+
+/// 单轮运行统计（TTFT / 耗时 / tok/s / tokens）。
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct RunStats {
+    pub ttft_ms: u64,
+    pub duration_ms: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub tokens_per_sec: u64,
 }
 
 #[derive(Debug)]
@@ -31,6 +41,7 @@ pub struct AgentOutcome {
     pub final_text: String,
     pub turns: u32,
     pub aborted: bool,
+    pub stats: Option<RunStats>,
 }
 
 /// 会话级共享态：tool_search 挂载的 deferred 工具 + todo 清单。
@@ -80,6 +91,23 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
     let mut turns = 0u32;
     let mut final_text = String::new();
     let mut aborted = false;
+
+    // 统计：TTFT（首个 Text/Reasoning delta）/ 总耗时 / tokens
+    let started = std::time::Instant::now();
+    let mut ttft: Option<std::time::Duration> = None;
+    let mut usage: Option<(u64, u64)> = None;
+    let stats = |ttft: Option<std::time::Duration>, usage: Option<(u64, u64)>| {
+        let (input, output) = usage.unwrap_or((0, 0));
+        let duration = started.elapsed();
+        let gen_ms = duration.as_millis() as u64;
+        Some(RunStats {
+            ttft_ms: ttft.map(|t| t.as_millis() as u64).unwrap_or(0),
+            duration_ms: gen_ms,
+            input_tokens: input,
+            output_tokens: output,
+            tokens_per_sec: if gen_ms > 0 { output * 1000 / gen_ms } else { 0 },
+        })
+    };
 
     // 系统提示由 loop 统一注入（身份 + 工具策略 + write-goal + 焦点 goal），调用方不重复造。
     let system_owned = !matches!(messages.first(), Some(m) if m.role == crate::llm::types::Role::System);
@@ -138,16 +166,24 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
             let Some(delta) = delta else { break };
             match delta {
                 Delta::Text(t) => {
+                    if ttft.is_none() {
+                        ttft = Some(started.elapsed());
+                    }
                     text.push_str(&t);
                     (ctx.on_event)(AgentEvent::Text { text: t });
                 }
-                Delta::Reasoning(r) => (ctx.on_event)(AgentEvent::Reasoning { text: r }),
+                Delta::Reasoning(r) => {
+                    if ttft.is_none() {
+                        ttft = Some(started.elapsed());
+                    }
+                    (ctx.on_event)(AgentEvent::Reasoning { text: r });
+                }
                 Delta::ToolFragments(fragments) => acc.push(&fragments),
-                Delta::Usage { .. } => {}
+                Delta::Usage { input, output } => usage = Some((input, output)),
                 Delta::Done => break,
                 Delta::Error(e) => {
                     (ctx.on_event)(AgentEvent::Error { message: e });
-                    return AgentOutcome { final_text, turns, aborted };
+                    return AgentOutcome { final_text, turns, aborted, stats: stats(ttft, usage) };
                 }
                 Delta::ToolCall { .. } => {}
             }
@@ -159,7 +195,7 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
         let calls = acc.take();
         if calls.is_empty() {
             final_text = text;
-            (ctx.on_event)(AgentEvent::Done { turns });
+            (ctx.on_event)(AgentEvent::Done { turns, stats: stats(ttft, usage) });
             break;
         }
 
@@ -216,7 +252,7 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
     if aborted {
         (ctx.on_event)(AgentEvent::Aborted);
     }
-    AgentOutcome { final_text, turns, aborted }
+    AgentOutcome { final_text, turns, aborted, stats: stats(ttft, usage) }
 }
 
 async fn execute_tool(name: &str, arguments: &str, ctx: &mut AgentContext) -> Result<String, String> {

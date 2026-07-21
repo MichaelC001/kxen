@@ -177,12 +177,13 @@ mod tests {
     /// 但纯 JS 能力（算数 / Promise.all / phase / CONSTRAINTS）不需要网络。
     fn test_deps() -> SubagentDeps {
         let mut roles = HashMap::new();
-        roles.insert("thinking".into(), RoleBinding { provider: "anthropic".into(), model: "claude".into() });
-        roles.insert("execution".into(), RoleBinding { provider: "xai".into(), model: "grok".into() });
+        roles.insert("thinking".into(), RoleBinding { provider: "anthropic".into(), model: "claude".into(), fallback: None });
+        roles.insert("execution".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None });
         let config = Config {
             roles,
             limits: Limits { global_concurrent: 4, providers: HashMap::<String, ProviderLimit>::new() },
             hooks: HashMap::new(),
+            statusline: Default::default(),
         };
         SubagentDeps {
             registry: Arc::new(crate::tools::task::TaskRegistry::new()),

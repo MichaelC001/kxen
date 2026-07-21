@@ -53,8 +53,23 @@ impl ModelResourceManager {
     }
 
     fn role_chain(&self, role: &str) -> Vec<String> {
+        // config 化兜底链：binding.fallback 单跳（链式递归取），缺省走静态链
         let mut chain = vec![role.to_string()];
-        // config.roles.fallback 语义简化：thinking -> planning -> research 兜底链（M3 静态，后续 config 化）
+        let mut cursor = role.to_string();
+        let mut hops = 0;
+        while hops < 3 {
+            let Some(next) = self.config.roles.get(&cursor).and_then(|b| b.fallback.clone()) else { break };
+            if chain.contains(&next) {
+                break;
+            }
+            chain.push(next.clone());
+            cursor = next;
+            hops += 1;
+        }
+        if chain.len() > 1 {
+            return chain;
+        }
+        // 静态兜底（无 config fallback 时）
         let fallback: &[&str] = match role {
             "thinking" => &["planning", "research"],
             "planning" => &["thinking", "research"],
@@ -147,9 +162,9 @@ mod tests {
 
     fn config() -> Config {
         let mut roles = HashMap::new();
-        roles.insert("thinking".into(), RoleBinding { provider: "anthropic".into(), model: "claude".into() });
-        roles.insert("execution".into(), RoleBinding { provider: "xai".into(), model: "grok".into() });
-        roles.insert("planning".into(), RoleBinding { provider: "xai".into(), model: "grok".into() });
+        roles.insert("thinking".into(), RoleBinding { provider: "anthropic".into(), model: "claude".into(), fallback: None });
+        roles.insert("execution".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None });
+        roles.insert("planning".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None });
         Config {
             roles,
             limits: Limits {
@@ -157,6 +172,7 @@ mod tests {
                 providers: [("anthropic".into(), ProviderLimit { concurrent: Some(1), rpm: None })].into_iter().collect(),
             },
             hooks: HashMap::new(),
+            statusline: Default::default(),
         }
     }
 
