@@ -175,6 +175,30 @@ crates/
 
 - 批量迁移/并行修改类任务（workflow pipeline 的常规形态）：project copy（git worktree）隔离执行，完成后 diff 回主树——并行 subagent 之间零冲突。
 
+### 4.16 读写删工具（各家对比后的重组）
+
+**各家现状**（2026-07-21 实查）：
+
+| 工具 | Read 形态 | Edit 形态 | 问题 |
+| --- | --- | --- | --- |
+| Claude Code / OpenCode | 行号 + 截断 | old_string 精确匹配 + 强制先 Read | 模型凭记忆 edit 被拒，浪费一整轮（用户痛点） |
+| grok-build hashline | LINE#HASH 锚点（三 scheme：ContentOnly / ChunkFingerprint / CheckpointChain） | 锚点定位 + `find_shifted` 有界窗口恢复 | 当前最强实现 |
+| pi_agent_rust | LINE#HASH | 锚点编辑 | 同源思路（grok-build 更成熟） |
+| aider / Codex | repo map | whole/diff/udiff/apply_patch 按模型选格式 | patch 解析容错重 |
+
+**kxen 采纳（hashline 优先 + 三保险）**：
+
+1. **read**：输出 `LINE#HASH` 锚点，scheme 取 grok-build 推荐的 ChunkFingerprint（行内容 hash + 固定 chunk 指纹——上方编辑不影响下方锚点）；截断 2000 行 / 长行 2000 字符。
+2. **edit 双模式**：锚点模式 `edits: [{anchor, new_text}]`（优先，无歧义）+ 兼容模式 `old_string/new_string + expected_replacements`（模型习惯兼容）。
+3. **免 read-before-edit**：会话内文件状态跟踪（path -> mtime + size + 锚点快照）。会话内读过且未外部变更 -> 直接 edit；有外部变更 -> 仅提示并重读相关段（不强制完整 Read 再走一轮）。
+4. **失败自愈**：锚点失配时自动 `find_shifted`（有界窗口找回），返回实际行内容与新锚点——模型下一轮直接改对，不需要补 Read 轮。
+
+**delete = trash（macOS 专精，grok-build 遮蔽模式）**：
+
+- exec 静态快照 shell 注入 `rm` -> `trash` 遮蔽（marker 门控 restore，不覆盖用户自定义）：模型写 `rm` 实际进回收站，**一切删除可恢复**。
+- safety 协同：trash 删除按「可恢复」降档（approval 而非 forbidden）；`.git` / 系统路径的 trash 仍 forbidden（进回收站也不允许）。
+- 实现：`/usr/bin/trash`（macOS 14+ 自带）优先；`trash` crate v5.2.6 备选；write/edit 的删除类操作同走 trash。
+
 ## 5. GUI（前端）
 
 - Tauri 内嵌静态页：会话列表/会话视图/流式渲染（marked + mermaid）/角色与模型选择器/goal 面板/doctor 页。
@@ -231,7 +255,8 @@ crates/
 | provider | OpenCode + jcode | 全通用（Rig 20+ + openai-compatible），订阅导入 = 通用探测规则机制（当前四条，新增加规则） |
 | context 工程 | OpenCode + peri + DCP | frozen 段（能力/规则，整会话不变）+ boundary marker + dynamic 段（goal/.agents/mrm）保 prompt cache 命中；mid-conversation system message 模式；中间结果不进主上下文 |
 | 渐进披露 | peri | 核心工具常驻（~12），其余按需发现（Tool Search 模式），省 token 保 cache |
-| 编辑工具 | pi_agent_rust | hashline 锚点 edit（LINE#HASH 定位，消除 string match 歧义/陈旧） |
+| 编辑工具 | grok-build hashline + pi_agent_rust | ChunkFingerprint 锚点 read + 锚点/兼容双模式 edit + 会话内新鲜度跟踪免强制 read-before-edit + find_shifted 失败自愈 |
+| 删除语义 | grok-build 遮蔽 + macOS | exec 遮蔽 `rm` -> `trash`（/usr/bin/trash 自带），删除可恢复；safety 对 trash 降档 approval，.git/系统路径仍 forbidden |
 | 命令策略 | Codex execpolicy + 自定 | safety F1-F5 规则族硬拦截（毁系统/毁目录/删 .git），结构化错误返回；不做内容级风控 |
 | loop 检测 | rust-code | 4 层循环检测（exact / semantic / output stagnation / frequency churn），防 agent 空转 |
 | goal 验证 | uira | score-based verification：完成判定打分环（proof 逐条过） |
