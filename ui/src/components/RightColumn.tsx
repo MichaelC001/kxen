@@ -1,15 +1,16 @@
 import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import { Bot, ChevronRight, X } from "lucide-solid";
 import { agentsTranscript, onTopic, teamMessage, type TranscriptEntry } from "../lib/chat";
+import { statusDot } from "../lib/variants";
 import { activeSessionId, agents, focusAgent, refreshAgents, setFocusAgent } from "../lib/state";
 import Dock from "./Dock";
 
-const STATUS_DOT: Record<string, string> = {
-  working: "bg-[var(--ok)] animate-pulse",
-  idle: "bg-[var(--text-faint)]",
-  done: "bg-[var(--accent)]",
-  failed: "bg-[var(--err)]",
-  shutdown: "bg-[var(--text-faint)]",
+const STATUS_TONE: Record<string, { tone: "ok" | "accent" | "err" | "faint"; pulse: boolean }> = {
+  working: { tone: "ok", pulse: true },
+  idle: { tone: "faint", pulse: false },
+  done: { tone: "accent", pulse: false },
+  failed: { tone: "err", pulse: false },
+  shutdown: { tone: "faint", pulse: false },
 };
 
 const STATUS_TEXT: Record<string, string> = {
@@ -108,7 +109,9 @@ function AgentPane(props: { name: string }) {
     >
       <div class="flex items-center gap-1.5">
         <span
-          class={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[activity()?.status ?? "idle"]}`}
+          class={statusDot(
+            STATUS_TONE[activity()?.status ?? "idle"] ?? { tone: "faint", pulse: false },
+          )}
         />
         <span class="text-xs font-medium">{props.name}</span>
         <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">

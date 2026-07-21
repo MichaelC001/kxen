@@ -4,6 +4,7 @@ import { Mic, MicOff, Plus, Send, Square } from "lucide-solid";
 import { $getRoot, COMMAND_PRIORITY_HIGH, KEY_ENTER_COMMAND, type LexicalEditor } from "lexical";
 import { commandList, fsComplete, type CommandInfo, type ContextItem } from "../../lib/chat";
 import { speechSupported } from "../../lib/voice";
+import { composerCard, sendBtn } from "../../lib/variants";
 import { clearEditor, extractPayload, replaceTriggerWithMention, setupEditor } from "./editor";
 import { detectTrigger, type Trigger } from "./triggers";
 import ComposerPopup, { usePopupSelection, type PopupItem } from "./Popup";
@@ -51,17 +52,19 @@ export default function LexicalComposer(props: {
   onMount(async () => {
     if (!editorRef) return;
     editor = setupEditor(editorRef);
-    editor.registerUpdateListener(() => {
+    editor.registerUpdateListener(({ editorState }) => {
       if (!editor) return;
-      const plain = editor.read(() => $getRoot().getTextContent());
-      setTextLength(plain.length);
-      const trigger = detectTrigger(editor);
-      currentTrigger = trigger;
-      if (trigger) {
-        void loadItems(trigger);
-      } else {
-        popupCtl.close();
-      }
+      editorState.read(() => {
+        const plain = $getRoot().getTextContent();
+        setTextLength(plain.length);
+        const trigger = detectTrigger(editorState);
+        currentTrigger = trigger;
+        if (trigger) {
+          void loadItems(trigger);
+        } else {
+          popupCtl.close();
+        }
+      });
     });
     editor.registerCommand(
       KEY_ENTER_COMMAND,
@@ -244,7 +247,7 @@ export default function LexicalComposer(props: {
     <div ref={(el) => (containerRef = el)} class="relative">
       <Show when={popupCtl.popup()}>{(p) => <ComposerPopup popup={p()} />}</Show>
 
-      <div class="composer-card" classList={{ recording: recording() }}>
+      <div class={composerCard({ state: recording() ? "recording" : "default" })}>
         <div
           ref={(el) => (editorRef = el)}
           class="editor-root focus:outline-none"
@@ -282,8 +285,7 @@ export default function LexicalComposer(props: {
           <span class={`text-2xs tabular-nums ml-auto ${estimateCls()}`}>~{estimate()} tok</span>
           <ModelPill />
           <button
-            class="pressable send-btn"
-            classList={{ "send-btn-stop": props.streaming() }}
+            class={sendBtn({ intent: props.streaming() ? "danger" : "primary" })}
             onClick={() => (props.streaming() ? props.onStop() : void send())}
             disabled={!props.streaming() && textLength() === 0}
             title={props.streaming() ? "停止" : "发送"}

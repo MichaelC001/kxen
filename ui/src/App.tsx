@@ -23,7 +23,7 @@ function Home() {
   );
 }
 
-function Layout(props: { children?: unknown }) {
+function Layout(props: { children?: import("solid-js").JSX.Element }) {
   const navigate = useNavigate();
   setNavigator(navigate);
   return (

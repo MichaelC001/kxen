@@ -3,9 +3,9 @@ import { createSignal, For, Show } from "solid-js";
 
 export interface PopupItem {
   label: string;
-  detail?: string;
-  badge?: string;
-  section?: string;
+  detail?: string | undefined;
+  badge?: string | undefined;
+  section?: string | undefined;
   apply: () => void;
 }
 
@@ -60,7 +60,7 @@ export default function ComposerPopup(props: { popup: PopupState }) {
           <>
             <Show
               when={
-                item.section && (i() === 0 || props.popup.items[i() - 1].section !== item.section)
+                item.section && (i() === 0 || props.popup.items[i() - 1]?.section !== item.section)
               }
             >
               <div class="popup-section">{item.section}</div>

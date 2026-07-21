@@ -5,7 +5,7 @@ import {
   $getSelection,
   $isRangeSelection,
   $isTextNode,
-  $createParagraphNode,
+  $isElementNode,
   $createTextNode,
   createEditor,
   type LexicalEditor,
@@ -25,6 +25,7 @@ export function setupEditor(root: HTMLElement): LexicalEditor {
     nodes: [MentionNode],
     onError: (error) => console.error("[composer]", error),
   });
+  root.contentEditable = "true";
   editor.setRootElement(root);
   return editor;
 }
@@ -101,12 +102,13 @@ export function upsertVoiceText(
       key = null; // 节点被删了（用户清空过）：重建
     }
     const node = $createTextNode(text);
-    let paragraph = $getRoot().getFirstChild();
-    if (!paragraph) {
-      paragraph = $createParagraphNode();
-      $getRoot().append(paragraph);
+    const root = $getRoot();
+    const first = root.getFirstChild();
+    if (first && $isElementNode(first)) {
+      first.append(node);
+    } else {
+      root.append(node);
     }
-    (paragraph as { append: (n: unknown) => void }).append(node);
     node.select(text.length, text.length);
     key = node.getKey();
   });

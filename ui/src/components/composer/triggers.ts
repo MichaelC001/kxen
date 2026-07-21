@@ -1,5 +1,5 @@
 // 触发检测（@ / / / #，Zed 边界规则）+ caret 坐标计算（弹窗锚点）。
-import type { LexicalEditor } from "lexical";
+import type { EditorState } from "lexical";
 import { $getSelection, $isRangeSelection, $isTextNode } from "lexical";
 
 export interface Trigger {
@@ -13,8 +13,8 @@ export interface Trigger {
 }
 
 /** 从当前 selection 解析触发 token；无触发返回 null。 */
-export function detectTrigger(editor: LexicalEditor): Trigger | null {
-  return editor.read(() => {
+export function detectTrigger(state: EditorState): Trigger | null {
+  return state.read(() => {
     const selection = $getSelection();
     if (!$isRangeSelection(selection) || !selection.isCollapsed()) return null;
     const anchor = selection.anchor;
@@ -58,5 +58,5 @@ function caretRect(): DOMRect | null {
   const range = sel.getRangeAt(0).cloneRange();
   range.collapse(true);
   const rects = range.getClientRects();
-  return rects.length > 0 ? rects[0] : null;
+  return rects.length > 0 ? rects.item(0) : null;
 }

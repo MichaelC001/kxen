@@ -84,7 +84,7 @@ export function startVoice(
   recognition.onresult = (e) => {
     let interim = "";
     for (let i = e.resultIndex; i < e.results.length; i++) {
-      const result = e.results[i];
+      const result = e.results[i] ?? [];
       const transcript = result[0]?.transcript ?? "";
       if ((result as unknown as { isFinal?: boolean }).isFinal) {
         onFinal(transcript);

@@ -9,6 +9,16 @@ declare global {
 
 type Handler = (topic: string, payload: unknown) => void;
 
+/** 等端口注入：页面重载/HMR 后 window.__KXEN_WS_PORT__ 会被清空，后端会重新注入，最多等 5s。 */
+async function waitPort(): Promise<number | undefined> {
+  for (let i = 0; i < 100; i++) {
+    const port = window.__KXEN_WS_PORT__;
+    if (port) return port;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return undefined;
+}
+
 let ws: WebSocket | null = null;
 let connecting: Promise<WebSocket> | null = null;
 const handlers = new Set<Handler>();
@@ -17,7 +27,7 @@ async function conn(): Promise<WebSocket> {
   if (ws) return ws;
   if (connecting) return connecting;
   connecting = (async () => {
-    const port = window.__KXEN_WS_PORT__;
+    const port = await waitPort();
     if (!port) throw new Error("ws port not injected");
     const socket = await WebSocket.connect(`ws://127.0.0.1:${port}/stream`);
     socket.addListener((arg) => {

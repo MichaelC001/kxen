@@ -1,19 +1,22 @@
 import { Show } from "solid-js";
 import { ChevronRight } from "lucide-solid";
+import { statusDot } from "../lib/variants";
 
 /** 工具活动卡片：<details> 原生折叠（高频元素，不加动画——瞬时展开）。 */
-export default function ToolCard(props: { name: string; call: string; result?: string }) {
+export default function ToolCard(props: {
+  name: string;
+  call: string;
+  result?: string | undefined;
+}) {
   const failed = () => props.result?.startsWith("ERROR") || /\berror\b/i.test(props.result ?? "");
   return (
     <details class="group rounded-md border border-[var(--border)] bg-[var(--bg-raised)] text-xs">
       <summary class="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer select-none list-none">
         <span
-          class="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-          classList={{
-            "bg-[var(--warn)] animate-pulse": props.result === undefined,
-            "bg-[var(--ok)]": props.result !== undefined && !failed(),
-            "bg-[var(--err)]": failed(),
-          }}
+          class={statusDot({
+            tone: props.result === undefined ? "warn" : failed() ? "err" : "ok",
+            pulse: props.result === undefined,
+          })}
         />
         <span class="font-mono text-[var(--accent-hover)]">{props.name}</span>
         <span class="text-[var(--text-dim)] truncate flex-1">{props.call}</span>

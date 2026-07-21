@@ -7,7 +7,7 @@ export interface MentionData {
   kind: MentionKind;
   ref: string;
   label: string;
-  preview?: string;
+  preview?: string | undefined;
 }
 
 type SerializedMention = Spread<MentionData, SerializedLexicalNode>;
@@ -34,21 +34,22 @@ export class MentionNode extends DecoratorNode<null> {
   __kind: MentionKind;
   __ref: string;
   __label: string;
-  __preview?: string;
+  __preview?: string | undefined;
 
-  static getType(): string {
+  static override getType(): string {
     return "mention";
   }
 
-  static clone(node: MentionNode): MentionNode {
+  static override clone(node: MentionNode): MentionNode {
     return new MentionNode(node.__kind, node.__ref, node.__label, node.__preview, node.__key);
   }
 
-  static importJSON(json: SerializedMention): MentionNode {
-    return new MentionNode(json.kind, json.ref, json.label, json.preview);
+  static override importJSON(json: import("lexical").SerializedLexicalNode): MentionNode {
+    const data = json as import("lexical").SerializedLexicalNode & MentionData;
+    return new MentionNode(data.kind, data.ref, data.label, data.preview);
   }
 
-  exportJSON(): SerializedMention {
+  override exportJSON(): SerializedMention {
     return {
       ...super.exportJSON(),
       kind: this.__kind,
@@ -58,7 +59,13 @@ export class MentionNode extends DecoratorNode<null> {
     };
   }
 
-  constructor(kind: MentionKind, ref: string, label: string, preview?: string, key?: NodeKey) {
+  constructor(
+    kind: MentionKind,
+    ref: string,
+    label: string,
+    preview?: string | undefined,
+    key?: NodeKey,
+  ) {
     super(key);
     this.__kind = kind;
     this.__ref = ref;
@@ -66,7 +73,7 @@ export class MentionNode extends DecoratorNode<null> {
     this.__preview = preview;
   }
 
-  createDOM(): HTMLElement {
+  override createDOM(): HTMLElement {
     const el = document.createElement("span");
     el.className = "mention-token";
     el.dataset.kind = this.__kind;
@@ -96,11 +103,11 @@ export class MentionNode extends DecoratorNode<null> {
     return el;
   }
 
-  updateDOM(): boolean {
+  override updateDOM(): boolean {
     return false;
   }
 
-  isInline(): boolean {
+  override isInline(): boolean {
     return true;
   }
 

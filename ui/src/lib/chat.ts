@@ -1,6 +1,18 @@
 import { rpc } from "./rpc";
 import { subscribe } from "./stream";
-import type { DoctorReport } from "./tauri";
+export interface DoctorEntry {
+  provider: string;
+  display: string;
+  status: "imported" | "ok" | "missing" | "expired";
+  detail: string;
+}
+
+export interface DoctorReport {
+  entries: DoctorEntry[];
+  bun_like_runtime: string;
+  data_dir: string;
+  config_dir: string;
+}
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -9,8 +21,6 @@ export interface ChatMessage {
   usage?: { input: number; output: number };
   error?: string;
 }
-
-export type { DoctorReport };
 
 export async function doctor(): Promise<DoctorReport> {
   return rpc<DoctorReport>("doctor");
@@ -270,7 +280,7 @@ export function onTopic(
 export interface ToolEvent {
   kind: "tool_call" | "tool_result" | "phase";
   name: string;
-  summary?: string;
+  summary?: string | undefined;
 }
 
 export interface RunStats {

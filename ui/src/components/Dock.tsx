@@ -32,8 +32,12 @@ const TASK_STATUS: Record<string, string> = {
   failed: "text-[var(--err)]",
 };
 
-function Section(props: { title: string; icon: unknown; children: unknown }) {
-  const Icon = props.icon as (p: { size: number; class?: string }) => unknown;
+function Section(props: {
+  title: string;
+  icon: (p: { size: number; class?: string }) => import("solid-js").JSX.Element;
+  children: import("solid-js").JSX.Element;
+}) {
+  const Icon = props.icon;
   return (
     <div class="border-b border-[var(--border)] px-3 py-3">
       <div class="text-2xs uppercase tracking-wider text-[var(--text-faint)] mb-2 flex items-center gap-1.5">
@@ -54,10 +58,12 @@ function DockSections(props: {
   openDiff: { path: string; text: string } | null;
   toggleDiff: (path: string) => void;
   tasks: TaskInfo[];
+  reloadTasks: () => void;
 }) {
   const goal = () => props.goal;
   const badge = props.badge;
   const act = props.act;
+  const reloadTasks = props.reloadTasks;
   const changes = () => props.changes;
   const openDiff = () => props.openDiff;
   const toggleDiff = props.toggleDiff;
@@ -256,12 +262,13 @@ export default function Dock() {
     <aside class="w-full h-full overflow-y-auto">
       <DockSections
         goal={goal()}
-        badge={badge()}
+        badge={badge}
         act={act}
         changes={changes()}
         openDiff={openDiff()}
         toggleDiff={toggleDiff}
         tasks={tasks()}
+        reloadTasks={() => void reloadTasks()}
       />
     </aside>
   );

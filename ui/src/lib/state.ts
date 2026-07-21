@@ -25,7 +25,7 @@ export async function initSessions(): Promise<void> {
     list = [created];
   }
   setSessions(list);
-  if (!activeSessionId()) {
+  if (!activeSessionId() && list[0]) {
     setActiveSessionId(list[0].id);
   }
 }

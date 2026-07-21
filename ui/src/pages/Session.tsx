@@ -19,15 +19,15 @@ interface MsgItem {
   kind: "msg";
   role: "user" | "assistant";
   content: string;
-  reasoning?: string;
-  stats?: RunStats;
-  error?: string;
+  reasoning?: string | undefined;
+  stats?: RunStats | undefined;
+  error?: string | undefined;
 }
 interface ToolItem {
   kind: "tool";
   name: string;
   call: string;
-  result?: string;
+  result?: string | undefined;
 }
 interface PhaseItem {
   kind: "phase";
@@ -147,6 +147,7 @@ export default function Session() {
           setItems((prev) => {
             for (let i = prev.length - 1; i >= 0; i--) {
               const item = prev[i];
+              if (!item) continue;
               if (item.kind === "tool" && item.name === event.name && item.result === undefined) {
                 const next = [...prev];
                 next[i] = { ...item, result: event.summary ?? "" };
@@ -257,7 +258,7 @@ export default function Session() {
           </For>
 
           <Show when={items().length === 0}>
-            <div class="pt-16 space-y-8 max-w-2xl">
+            <div class="pt-16 space-y-8 w-full">
               <div class="empty-hero flex items-center gap-4">
                 <img
                   src="/icon.png"
@@ -311,7 +312,7 @@ export default function Session() {
         </div>
       </div>
 
-      <div class="p-3 border-t border-[var(--border)]">
+      <div class="px-3 pb-3 composer-fade">
         <div class="w-full">
           <Composer
             streaming={streaming}

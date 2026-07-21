@@ -487,10 +487,26 @@ code {
   background: var(--err);
 }
 .editor-root {
+  min-height: 44px;
   max-height: 180px;
   overflow-y: auto;
   padding: 8px 12px;
   font-size: 0.875rem;
   position: relative;
   caret-color: var(--text);
+}
+
+/* composer 上方：渐变淡出代替 1px 硬线（scroll edge effect） */
+.composer-fade {
+  position: relative;
+}
+.composer-fade::before {
+  content: "";
+  position: absolute;
+  top: -16px;
+  left: 0;
+  right: 0;
+  height: 16px;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
 }
