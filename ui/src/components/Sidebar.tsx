@@ -79,7 +79,7 @@ export default function Sidebar() {
           <button
             class="pressable px-1.5 py-0.5 rounded text-xs text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60"
             title="切换明暗主题"
-            onClick={toggleTheme}
+            onClick={(e) => toggleTheme(e.clientX, e.clientY)}
           >
             {theme() === "dark" ? "☾ 暗" : "☀ 亮"}
           </button>

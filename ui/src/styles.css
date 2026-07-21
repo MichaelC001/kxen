@@ -85,6 +85,26 @@ body {
   flex-shrink: 0;
 }
 
+/* ============ 主题切换 View Transition（圆形展开；不支持 VT 的 WKWebView 回退瞬时） ============ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 2147483646;
+}
+/* reduced-motion：去掉展开位移，保留瞬时切换 */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    display: none;
+  }
+}
+
 /* ============ 按压反馈（pointer-down 即时；subtle 0.97/160ms） ============ */
 .pressable {
   transition: transform var(--dur-press) var(--ease-out);
