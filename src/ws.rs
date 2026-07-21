@@ -175,6 +175,12 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
             tokio::spawn(run_llm(p.session_id, p.text, p.context, app.clone()));
             Ok(Value::Null)
         }
+        "session.abort" => {
+            let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
+            let state = app.state::<Arc<AppState>>();
+            let token = kxen_app::core::shared::lock(&state.active_runs).get(id).cloned();
+            Ok(json!(token.map(|t| t.cancel()).is_some()))
+        }
         "fs.complete" => {
             let query = params.get("query").and_then(Value::as_str).unwrap_or("");
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
@@ -321,6 +327,10 @@ async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent:
     let transcript_writer = transcript.clone();
     let sid = session_id.clone();
 
+    // 取消令牌：注册到 active_runs，run 结束移除（session.abort 可达）
+    let cancel = kxen_app::agent::cancel::CancelToken::new();
+    kxen_app::core::shared::lock(&state.active_runs).insert(session_id.clone(), cancel.clone());
+
     let mut ctx = kxen_app::agent::agent_loop::AgentContext {
         registry,
         tracker: kxen_app::tools::fs_tool::FileTracker::default(),
@@ -333,6 +343,7 @@ async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent:
         extras: Some(state.extras.clone()),
         hooks: Some(state.hooks.clone()),
         loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
+        cancel: Some(cancel.clone()),
         on_event: Arc::new(move |event| {
             use kxen_app::agent::agent_loop::AgentEvent as AE;
             match &event {
@@ -363,10 +374,14 @@ async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent:
         }),
     };
     let outcome = kxen_app::agent::agent_loop::run_turn(&mut ctx, messages).await;
+    kxen_app::core::shared::lock(&state.active_runs).remove(&session_id);
 
     let mut parts = transcript.lock().expect("transcript").clone();
     if !outcome.final_text.is_empty() {
         parts.push(ses::Part::Text { text: outcome.final_text });
+    }
+    if outcome.aborted {
+        parts.push(ses::Part::Text { text: "(已中断)".into() });
     }
     if !parts.is_empty() {
         let assistant_msg = ses::new_message(&session_id, ses::Role::Assistant, parts);

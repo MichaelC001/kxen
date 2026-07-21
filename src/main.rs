@@ -14,6 +14,8 @@ pub struct AppState {
     pub mrm: std::sync::Arc<kxen_app::llm::mrm::ModelResourceManager>,
     pub extras: std::sync::Arc<kxen_app::agent::agent_loop::SessionExtras>,
     pub hooks: std::sync::Arc<kxen_app::tools::hooks::HookRunner>,
+    /// session_id -> 进行中 run 的取消令牌（session.abort 用；run 结束自行移除）
+    pub active_runs: std::sync::Mutex<std::collections::HashMap<String, kxen_app::agent::cancel::CancelToken>>,
     pub workdir: std::sync::Arc<std::path::Path>,
 }
 
@@ -39,6 +41,7 @@ impl AppState {
             registry: std::sync::Arc::new(kxen_app::tools::task::TaskRegistry::new()),
             extras: std::sync::Arc::new(kxen_app::agent::agent_loop::SessionExtras::default()),
             hooks: std::sync::Arc::new(kxen_app::tools::hooks::HookRunner::from_config(&config)),
+            active_runs: std::sync::Mutex::new(std::collections::HashMap::new()),
             mrm: std::sync::Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(config)),
             workdir: std::sync::Arc::from(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))),
         }

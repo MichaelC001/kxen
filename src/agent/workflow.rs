@@ -190,6 +190,7 @@ mod tests {
             store: crate::auth::credential::AuthStore::default(),
             mrm: Arc::new(ModelResourceManager::new(config)),
             hooks: None,
+            cancel: None,
         }
     }
 

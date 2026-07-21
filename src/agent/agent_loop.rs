@@ -22,6 +22,7 @@ pub enum AgentEvent {
     ToolResult { name: String, summary: String },
     Phase { name: String },
     Done { turns: u32 },
+    Aborted,
     Error { message: String },
 }
 
@@ -29,6 +30,7 @@ pub enum AgentEvent {
 pub struct AgentOutcome {
     pub final_text: String,
     pub turns: u32,
+    pub aborted: bool,
 }
 
 /// 会话级共享态：tool_search 挂载的 deferred 工具 + todo 清单。
@@ -52,6 +54,8 @@ pub struct AgentContext {
     pub extras: Option<Arc<SessionExtras>>,
     pub hooks: Option<Arc<crate::tools::hooks::HookRunner>>,
     pub loop_detector: crate::agent::loop_detect::LoopDetector,
+    /// 取消令牌：loop 顶 / stream 消费 / 工具执行 三处检查点；子代理级联继承。
+    pub cancel: Option<crate::agent::cancel::CancelToken>,
     pub on_event: Arc<dyn Fn(AgentEvent) + Send + Sync>,
 }
 
@@ -65,17 +69,22 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
     };
     let mut turns = 0u32;
     let mut final_text = String::new();
+    let mut aborted = false;
 
     // 系统提示由 loop 统一注入（身份 + 工具策略 + write-goal + 焦点 goal），调用方不重复造。
     if !matches!(messages.first(), Some(m) if m.role == crate::llm::types::Role::System) {
         messages.insert(0, Message::system(crate::agent::prompt::system_prompt(&ctx.workdir)));
     }
 
-    loop {
+    'outer: loop {
         turns += 1;
         if turns > ctx.max_turns {
             (ctx.on_event)(AgentEvent::Error { message: format!("max turns ({}) reached", ctx.max_turns) });
             break;
+        }
+        if ctx.cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
+            aborted = true;
+            break 'outer;
         }
 
         // 渐进披露：每轮重建，tool_search 本轮挂载的工具下一轮即对模型可见
@@ -89,7 +98,16 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
         let mut text = String::new();
         let mut stream = LlmClient::stream_with_tools(&ctx.model, &messages, &tools, &ctx.store);
 
-        while let Some(delta) = stream.next().await {
+        // stream 消费：cancel 即时打断（select 轮询 Delta 与取消令牌的等待）
+        loop {
+            let delta = match &ctx.cancel {
+                Some(token) => tokio::select! {
+                    d = stream.next() => d,
+                    _ = token.wait() => { aborted = true; break; }
+                },
+                None => stream.next().await,
+            };
+            let Some(delta) = delta else { break };
             match delta {
                 Delta::Text(t) => {
                     text.push_str(&t);
@@ -101,10 +119,13 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
                 Delta::Done => break,
                 Delta::Error(e) => {
                     (ctx.on_event)(AgentEvent::Error { message: e });
-                    return AgentOutcome { final_text, turns };
+                    return AgentOutcome { final_text, turns, aborted };
                 }
                 Delta::ToolCall { .. } => {}
             }
+        }
+        if aborted {
+            break 'outer;
         }
 
         let calls = acc.take();
@@ -120,7 +141,22 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
         let mut loop_stop: Option<crate::agent::loop_detect::LoopStop> = None;
         for call in &calls {
             (ctx.on_event)(AgentEvent::ToolCall { name: call.name.clone(), summary: summarize_args(&call.arguments) });
-            let result = execute_tool(&call.name, &call.arguments, ctx).await;
+            // 工具执行段：cancel 打断即落 interrupted 终态（不等待执行完成，后续任务由 registry 收尾）
+            let cancel = ctx.cancel.clone();
+            let result = match &cancel {
+                Some(token) => tokio::select! {
+                    r = execute_tool(&call.name, &call.arguments, ctx) => r,
+                    _ = token.wait() => Err("(interrupted)".to_string()),
+                },
+                None => execute_tool(&call.name, &call.arguments, ctx).await,
+            };
+            let interrupted = matches!(&result, Err(e) if e == "(interrupted)");
+            if interrupted {
+                (ctx.on_event)(AgentEvent::ToolResult { name: call.name.clone(), summary: "interrupted".into() });
+                results.push(result);
+                aborted = true;
+                break;
+            }
             (ctx.on_event)(AgentEvent::ToolResult { name: call.name.clone(), summary: result_summary(&call.name, &result) });
             if let crate::agent::loop_detect::LoopVerdict::Stop(stop) = ctx.loop_detector.record(&call.name, &call.arguments, &result_text(&result)) {
                 loop_stop = Some(stop);
@@ -137,6 +173,9 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
         for (call, result) in calls.into_iter().zip(results) {
             messages.push(Message::tool_result(call.id, call.name, result_text(&result)));
         }
+        if aborted {
+            break 'outer;
+        }
         if let Some(stop) = loop_stop {
             // 中断空转：硬停本轮，原因作为结果带出（事件已通知前端）
             let reason = stop.to_string();
@@ -146,7 +185,10 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
         }
     }
 
-    AgentOutcome { final_text, turns }
+    if aborted {
+        (ctx.on_event)(AgentEvent::Aborted);
+    }
+    AgentOutcome { final_text, turns, aborted }
 }
 
 async fn execute_tool(name: &str, arguments: &str, ctx: &mut AgentContext) -> Result<String, String> {

@@ -31,6 +31,7 @@ async fn main() {
         allowed_tools: None,
         extras: None,
         hooks: None,
+        cancel: None,
         loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
         on_event: Arc::new(|event| match event {
             AgentEvent::Text { text } => print!("{text}"),
@@ -39,6 +40,7 @@ async fn main() {
             AgentEvent::ToolResult { name, summary } => println!("<<< {name}: {}", first(&summary, 90)),
             AgentEvent::Phase { name } => println!("\n--- PHASE: {name} ---"),
             AgentEvent::Done { turns } => println!("\n=== DONE {turns} turns ==="),
+            AgentEvent::Aborted => println!("\n=== ABORTED ==="),
             AgentEvent::Error { message } => println!("\n!!! {message}"),
         }),
     };
