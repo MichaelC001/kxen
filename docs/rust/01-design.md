@@ -31,12 +31,18 @@ kxen 是 macOS Apple Silicon 专精的 Coding Agent Harness，综合当前所有
 ### 2.1 workspace（6 crate，单向依赖）
 
 ```
-kxen-app (Tauri 壳: commands/events/窗口/菜单/updater)
+kxen-app (Tauri 壳: commands/events/窗口/菜单/updater，目录 app/ 平铺无 src-tauri 层)
   -> kxen-agent (agent loop / tool 调度 / subagent / workflow runtime)
     -> kxen-tools (exec / 读写删 / safety / hooks / worktree)
     -> kxen-llm (provider 调用 / 订阅注入与刷新 / mrm 调度)
     -> kxen-auth (订阅凭证探测 / 新鲜度 / refresh)
       -> kxen-core (域模型 / session / goal / config / 事件总线)
+
+仓库布局:
+  Cargo.toml        workspace 根
+  crates/kxen-*     五个库 crate
+  app/              Tauri 壳 crate（Cargo.toml + tauri.conf.json + src/ + icons/ 平铺）
+  ui/               前端（vite-plus + SolidJS，独立 JS 项目）
 ```
 
 ### 2.2 外部依赖（2026-07-21 crates.io 核实 + 对比分析；总量控制 30 内）
@@ -223,7 +229,7 @@ Claude OAuth contract（jcode OAUTH.md 实证，五要素缺一不可）：
 **前端栈（2026-07-21 定案）**：
 
 - **SolidJS**：UI 框架。无 VDOM 细粒度 signals，会话流式渲染（消息增量）天然匹配；runtime ~7KB，与 < 80MB / < 500ms 首绘目标一致
-- Vite + vite-plugin-solid：构建为静态资产，Tauri 内嵌
+- **vite-plus（vp）**：统一工具链（dev / build / check / test 一体，含 oxlint + oxfmt + Vitest + Rolldown），替代裸 Vite；`vp dev` 开发、`vp build` 生产、`vp check` 检查
 - Tailwind CSS v4：样式（构建时 purge，产物极小）
 - Kobalte：Solid 无头组件（对话框 / 菜单 / 弹层）
 - marked + mermaid：markdown 与图渲染
