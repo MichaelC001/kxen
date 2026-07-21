@@ -3,12 +3,15 @@ import Sidebar from "./components/Sidebar";
 import Dock from "./components/Dock";
 import Session from "./pages/Session";
 import Doctor from "./pages/Doctor";
+import { hasConversation } from "./lib/state";
 
 function Home() {
   return (
     <>
       <Session />
-      <Dock />
+      <div class="dock-wrap" classList={{ "dock-hidden": !hasConversation() }}>
+        <Dock />
+      </div>
     </>
   );
 }

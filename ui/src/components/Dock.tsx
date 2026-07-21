@@ -93,7 +93,7 @@ export default function Dock() {
   const badge = () => GOAL_STATUS[goal()?.status ?? ""] ?? { text: "", cls: "" };
 
   return (
-    <aside class="w-64 shrink-0 border-l border-[var(--border)] bg-[var(--bg-raised)] overflow-y-auto">
+    <aside class="w-full h-full border-l border-[var(--border)] bg-[var(--bg-raised)] overflow-y-auto">
       <Section title="目标" icon={Target}>
         <Show
           when={goal()}

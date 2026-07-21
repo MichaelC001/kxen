@@ -68,6 +68,29 @@ body {
     color var(--dur-fade) var(--ease-out);
 }
 
+/* ============ 右 dock 抽屉（负 margin 出流 + 位移深度 + 透明度，280ms ease-out） ============ */
+.dock-wrap {
+  width: 16rem;
+  flex-shrink: 0;
+  margin-right: 0;
+  opacity: 1;
+  transition:
+    margin-right 280ms var(--ease-out),
+    opacity 200ms var(--ease-out);
+}
+.dock-wrap > aside {
+  transform: translateX(0);
+  transition: transform 280ms var(--ease-out);
+}
+.dock-wrap.dock-hidden {
+  margin-right: -16rem;
+  opacity: 0;
+  pointer-events: none;
+}
+.dock-wrap.dock-hidden > aside {
+  transform: translateX(24px);
+}
+
 /* ============ 沉浸式顶部栏（macOS Overlay 标题栏：内容延伸，红绿灯悬浮） ============ */
 [data-tauri-drag-region] {
   -webkit-app-region: drag;
@@ -269,5 +292,11 @@ code {
   }
   .pressable:active {
     transform: none;
+  }
+  /* dock 抽屉降级：保留透明度，去掉位移 */
+  .dock-wrap,
+  .dock-wrap > aside {
+    transition: opacity 200ms ease;
+    transform: none !important;
   }
 }

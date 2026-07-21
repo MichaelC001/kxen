@@ -8,7 +8,7 @@ import {
   setModel,
   type StoredMessage,
 } from "../lib/chat";
-import { activeSessionId, sessions } from "../lib/state";
+import { activeSessionId, ensureActiveSession, sessions, setHasConversation } from "../lib/state";
 import Markdown from "../components/Markdown";
 import ToolCard from "../components/ToolCard";
 
@@ -85,8 +85,14 @@ export default function Session() {
   let listRef: HTMLDivElement | undefined;
 
   const streaming = () => streamingSid() === activeSessionId() && activeSessionId() !== "";
-  const title = () => sessions().find((s) => s.id === activeSessionId())?.title ?? "会话";
+  const title = () =>
+    activeSessionId() === ""
+      ? "新会话"
+      : (sessions().find((s) => s.id === activeSessionId())?.title ?? "会话");
   const scroll = () => queueMicrotask(() => listRef && (listRef.scrollTop = listRef.scrollHeight));
+
+  // 有对话内容才驱动右 dock 滑入
+  createEffect(() => setHasConversation(items().length > 0));
 
   // 切换会话：加载存储的时间线
   createEffect(() => {
@@ -167,8 +173,9 @@ export default function Session() {
 
   const send = async () => {
     const text = draft().trim();
-    const sid = activeSessionId();
-    if (!text || !sid || streaming()) return;
+    if (!text || streaming()) return;
+    // 草稿态首条消息：此时才落库成会话
+    const sid = await ensureActiveSession();
     setDraft("");
     setStreamingSid(sid);
     setItems((prev) => [...prev, { kind: "msg", role: "user", content: text }]);
