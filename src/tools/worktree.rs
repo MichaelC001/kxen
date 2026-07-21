@@ -81,6 +81,53 @@ pub async fn diff_stat(repo: &Path, name: &str) -> Result<String, String> {
     git(repo, &["diff", "--stat", &format!("kxen/{name}")]).await
 }
 
+// ---------------- 通用 git 状态/diff（dock 改动面板数据源） ----------------
+
+#[derive(Debug, serde::Serialize)]
+pub struct StatusEntry {
+    pub path: String,
+    /// M / A / D / ??（取 porcelain 首列，重命名取 R）
+    pub status: String,
+}
+
+/// git status --porcelain（未暂存 + 未跟踪，dock 的改动清单）。
+pub async fn status(repo: &Path) -> Result<Vec<StatusEntry>, String> {
+    let repo = &canon(repo);
+    let out = git(repo, &["status", "--porcelain"]).await?;
+    Ok(out
+        .lines()
+        .filter(|l| l.len() > 3)
+        .map(|l| {
+            let code = l[..2].trim().to_string();
+            // 重命名 "R  old -> new" 取新路径
+            let path = l[3..].rsplit(" -> ").next().unwrap_or(&l[3..]).to_string();
+            StatusEntry { path, status: code }
+        })
+        .collect())
+}
+
+/// 单文件 diff（未暂存）；未跟踪文件走 --no-index 合成 new-file diff。
+pub async fn diff_file(repo: &Path, path: &str) -> Result<String, String> {
+    let repo = &canon(repo);
+    let diff = git(repo, &["diff", "--", path]).await.unwrap_or_default();
+    if !diff.trim().is_empty() {
+        return Ok(diff);
+    }
+    // --no-index 命中差异时退出码为 1：走容忍路径
+    let out = tokio::process::Command::new("git")
+        .args(["diff", "--no-index", "--", "/dev/null", path])
+        .current_dir(repo)
+        .output()
+        .await
+        .map_err(|e| format!("git spawn: {e}"))?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    if text.trim().is_empty() {
+        Err("no diff (unchanged or not a file)".into())
+    } else {
+        Ok(text)
+    }
+}
+
 /// .kxen/ 进 .gitignore（幂等）。
 fn ensure_gitignore(repo: &Path) -> Result<(), String> {
     let path = repo.join(".gitignore");

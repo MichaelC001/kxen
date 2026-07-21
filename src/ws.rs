@@ -140,9 +140,39 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
             Ok(json!({ "provider": provider, "model": model }))
         }
         m if m.starts_with("goal.") => crate::goal_rpc::call(m, params),
+        "session.list" => Ok(json!(kxen_app::core::session::list(&kxen_app::core::paths::sessions_dir()))),
+        "session.create" => {
+            let state = app.state::<Arc<AppState>>();
+            let directory = params
+                .get("directory")
+                .and_then(Value::as_str)
+                .map(String::from)
+                .unwrap_or_else(|| state.workdir.to_string_lossy().into_owned());
+            let session = kxen_app::core::session::create(&kxen_app::core::paths::sessions_dir(), &directory).map_err(|e| e.to_string())?;
+            Ok(json!(session))
+        }
+        "session.messages" => {
+            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
+            Ok(json!(kxen_app::core::session::load_messages(&kxen_app::core::paths::sessions_dir(), id)))
+        }
+        "session.delete" => {
+            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
+            kxen_app::core::session::remove(&kxen_app::core::paths::sessions_dir(), id);
+            Ok(Value::Null)
+        }
+        "diff.status" => {
+            let state = app.state::<Arc<AppState>>();
+            Ok(json!(kxen_app::tools::worktree::status(&state.workdir).await?))
+        }
+        "diff.file" => {
+            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
+            let state = app.state::<Arc<AppState>>();
+            let text = kxen_app::tools::worktree::diff_file(&state.workdir, path).await?;
+            Ok(json!(text))
+        }
         "send_message" => {
             let p: SendMessageParams = serde_json::from_value(params).map_err(|e| e.to_string())?;
-            tokio::spawn(run_llm(p.text, p.history, app.clone()));
+            tokio::spawn(run_llm(p.session_id, p.text, app.clone()));
             Ok(Value::Null)
         }
         other => Err(format!("unknown method: {other}")),
@@ -151,23 +181,8 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
 
 #[derive(Debug, Deserialize)]
 struct SendMessageParams {
+    session_id: String,
     text: String,
-    #[serde(default)]
-    history: Vec<HistoryMsg>,
-}
-
-#[derive(Debug, Deserialize)]
-struct HistoryMsg {
-    role: HistoryRole,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum HistoryRole {
-    System,
-    Assistant,
-    User,
 }
 
 // ---------------- Stream 通道 ----------------
@@ -234,8 +249,19 @@ fn map_event(event: kxen_app::core::event::Event) -> (&'static str, Value) {
 
 // ---------------- LLM 任务 ----------------
 
-async fn run_llm(text: String, history: Vec<HistoryMsg>, app: AppHandle) {
+async fn run_llm(session_id: String, text: String, app: AppHandle) {
+    use kxen_app::core::session as ses;
+
     let state = app.state::<Arc<AppState>>();
+    let sessions_dir = kxen_app::core::paths::sessions_dir();
+
+    // 用户消息落盘（LLM 历史以后端会话存储为准，前端不再传 history）
+    let user_msg = ses::new_message(&session_id, ses::Role::User, vec![ses::Part::Text { text: text.clone() }]);
+    if let Err(e) = ses::append_message(&sessions_dir, &user_msg) {
+        tracing::error!(error = %e, "session append failed");
+        return;
+    }
+
     let (model, store, registry, workdir, bus) = {
         let store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
         (
@@ -247,15 +273,37 @@ async fn run_llm(text: String, history: Vec<HistoryMsg>, app: AppHandle) {
         )
     };
 
-    let mut messages: Vec<Message> = history
+    // 历史：存储里的 user/assistant 文本
+    let mut messages: Vec<Message> = ses::load_messages(&sessions_dir, &session_id)
         .into_iter()
-        .map(|m| match m.role {
-            HistoryRole::System => Message::system(m.content),
-            HistoryRole::Assistant => Message::assistant(m.content),
-            HistoryRole::User => Message::user(m.content),
+        .filter_map(|m| {
+            let text: String = m
+                .parts
+                .iter()
+                .filter_map(|p| match p {
+                    ses::Part::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            if text.is_empty() {
+                return None;
+            }
+            Some(match m.role {
+                ses::Role::User => Message::user(text),
+                ses::Role::Assistant => Message::assistant(text),
+                ses::Role::System => Message::system(text),
+            })
         })
         .collect();
-    messages.push(Message::user(text));
+    if messages.is_empty() {
+        messages.push(Message::user(text));
+    }
+
+    // 转录件：run 结束后整条 assistant 消息（文本 + 工具调用）落盘
+    let transcript = Arc::new(std::sync::Mutex::new(Vec::<ses::Part>::new()));
+    let transcript_writer = transcript.clone();
+    let sid = session_id.clone();
 
     let mut ctx = kxen_app::agent::agent_loop::AgentContext {
         registry,
@@ -270,12 +318,44 @@ async fn run_llm(text: String, history: Vec<HistoryMsg>, app: AppHandle) {
         hooks: Some(state.hooks.clone()),
         loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
         on_event: Arc::new(move |event| {
-            let payload = match serde_json::to_value(&event) {
+            use kxen_app::agent::agent_loop::AgentEvent as AE;
+            match &event {
+                AE::ToolCall { name, summary } => {
+                    transcript_writer
+                        .lock()
+                        .expect("transcript")
+                        .push(ses::Part::ToolCall { name: name.clone(), input: json!(summary), output: String::new() });
+                }
+                AE::ToolResult { name, summary } => {
+                    let mut guard = transcript_writer.lock().expect("transcript");
+                    if let Some(ses::Part::ToolCall { output, .. }) =
+                        guard.iter_mut().rev().find(|p| matches!(p, ses::Part::ToolCall { name: n, output, .. } if n == name && output.is_empty()))
+                    {
+                        *output = summary.clone();
+                    }
+                }
+                _ => {}
+            }
+            let mut payload = match serde_json::to_value(&event) {
                 Ok(v) => v,
                 Err(_) => return,
             };
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("session_id".into(), json!(sid));
+            }
             bus.publish(kxen_app::core::event::Event::LlmDelta(payload));
         }),
     };
-    kxen_app::agent::agent_loop::run_turn(&mut ctx, messages).await;
+    let outcome = kxen_app::agent::agent_loop::run_turn(&mut ctx, messages).await;
+
+    let mut parts = transcript.lock().expect("transcript").clone();
+    if !outcome.final_text.is_empty() {
+        parts.push(ses::Part::Text { text: outcome.final_text });
+    }
+    if !parts.is_empty() {
+        let assistant_msg = ses::new_message(&session_id, ses::Role::Assistant, parts);
+        if let Err(e) = ses::append_message(&sessions_dir, &assistant_msg) {
+            tracing::error!(error = %e, "session append failed");
+        }
+    }
 }

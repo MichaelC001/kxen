@@ -30,3 +30,8 @@ pub fn auth_file() -> PathBuf {
 pub fn goals_dir() -> PathBuf {
     data_dir().join("goals")
 }
+
+/// sessions 目录
+pub fn sessions_dir() -> PathBuf {
+    data_dir().join("sessions")
+}
