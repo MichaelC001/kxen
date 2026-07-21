@@ -123,6 +123,13 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
             let model = state.model.lock().map_err(|e| e.to_string())?.clone();
             Ok(json!({ "provider": model.provider, "model": model.model }))
         }
+        "set_model" => {
+            let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
+            let model = params.get("model").and_then(Value::as_str).ok_or("missing model")?;
+            let state = app.state::<Arc<AppState>>();
+            *state.model.lock().map_err(|e| e.to_string())? = kxen_app::llm::ModelRef::new(provider, model);
+            Ok(json!({ "provider": provider, "model": model }))
+        }
         m if m.starts_with("goal.") => crate::goal_rpc::call(m, params),
         "send_message" => {
             let p: SendMessageParams = serde_json::from_value(params).map_err(|e| e.to_string())?;
