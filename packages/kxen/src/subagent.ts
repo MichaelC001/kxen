@@ -2,7 +2,7 @@
 // opencode 原生支持每 agent 独立 model（src/agent/agent.ts），本包只做
 // 角色 -> agent 配置的生成与权限预设，调度经 task 工具自然发生。
 
-import type { MrmConfig } from "@kxen/mrm"
+import type { MrmConfig } from "./mrm"
 
 export interface RoleAgentDef {
   name: string

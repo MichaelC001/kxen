@@ -3,7 +3,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import * as Tool from "./tool"
 import { Shell } from "@kxen/core/shell"
-import { evaluateShellCommand } from "@kxen/safety"
+import { evaluateShellCommand } from "kxen/safety"
 import { InstanceState } from "@/effect/instance-state"
 
 const SHELL_TYPES = ["zsh", "bash", "fish", "cmd", "powershell"] as const

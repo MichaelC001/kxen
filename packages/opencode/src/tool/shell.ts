@@ -21,7 +21,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
-import { evaluateShellCommand } from "@kxen/safety"
+import { evaluateShellCommand } from "kxen/safety"
 
 export { Parameters } from "./shell/prompt"
 

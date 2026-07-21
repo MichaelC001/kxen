@@ -2,7 +2,7 @@ import path from "path"
 import { Effect } from "effect"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { Global } from "@kxen/core/global"
-import * as Goal from "@kxen/goal"
+import * as Goal from "kxen/goal"
 import { InstanceHttpApi } from "../api"
 
 const dir = () => path.join(Global.Path.data, "goals")

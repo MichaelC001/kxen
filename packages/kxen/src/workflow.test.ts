@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { WorkflowRuntime, type SubagentResult } from "./index"
+import { WorkflowRuntime, type SubagentResult } from "./workflow"
 
 const fakeExecutor = async (prompt: string): Promise<SubagentResult> => ({ text: `reply:${prompt.slice(0, 20)}` })
 

@@ -5,7 +5,7 @@ import { Location } from "../location"
 import { Global } from "../global"
 import { SystemContext } from "./index"
 import { SystemContextRegistry } from "./registry"
-import * as Goal from "@kxen/goal"
+import * as Goal from "kxen/goal"
 
 // active/paused/blocked goal 注入 system-context（对齐 kimi-code goalInjection：
 // 每轮重扫，状态变化经 Context Snapshot 生成 mid-conversation 更新）。

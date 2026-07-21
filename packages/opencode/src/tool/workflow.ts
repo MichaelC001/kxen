@@ -3,7 +3,7 @@ import * as Tool from "./tool"
 import { Session } from "@/session/session"
 import type { TaskPromptOps } from "./task"
 import { SessionV1 } from "@kxen/core/v1/session"
-import { WorkflowRuntime, type AgentExecutor, type SubagentResult } from "@kxen/workflow"
+import { WorkflowRuntime, type AgentExecutor, type SubagentResult } from "kxen/workflow"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 

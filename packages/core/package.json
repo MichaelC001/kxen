@@ -65,7 +65,6 @@
     "@effect/platform-node": "catalog:",
     "@effect/sql-sqlite-bun": "catalog:",
     "@ff-labs/fff-bun": "0.9.4",
-    "@kxen/agents": "workspace:*",
     "@kxen/effect-drizzle-sqlite": "workspace:*",
     "@kxen/effect-sqlite-node": "workspace:*",
     "@kxen/llm": "workspace:*",
@@ -105,7 +104,7 @@
     "which": "6.0.1",
     "xdg-basedir": "5.1.0",
     "zod": "catalog:",
-    "@kxen/goal": "workspace:*"
+    "kxen": "workspace:*"
   },
   "devDependencies": {
     "@kxen/http-recorder": "workspace:*",

@@ -18,7 +18,7 @@ import { Snapshot } from "@/snapshot"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { FSUtil } from "@kxen/core/fs-util"
 import * as Bom from "@/util/bom"
-import { guardPath } from "@kxen/safety"
+import { guardPath } from "kxen/safety"
 
 function normalizeLineEndings(text: string): string {
   return text.replaceAll("\r\n", "\n")

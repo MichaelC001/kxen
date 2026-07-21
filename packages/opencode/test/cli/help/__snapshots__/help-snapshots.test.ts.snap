@@ -149,7 +149,7 @@ kxen upgrade [target]
 upgrade kxen to the latest or a specific version
 
 Positionals:
-  target  version to upgrade to, for ex '0.1.48' or 'v0.1.48'                               [string]
+  target  branch, tag or commit to check out (default: fast-forward main)                   [string]
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -157,8 +157,7 @@ Options:
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
-  -m, --method      installation method to use
-                          [string] [choices: "curl", "npm", "pnpm", "bun", "brew", "choco", "scoop"]
+      --dir         source directory (default: repository of the running CLI)               [string]
 "
 `;
 

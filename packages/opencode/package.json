@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "kxen",
+  "name": "@kxen/engine",
   "version": "1.18.4",
   "private": true,
   "license": "MIT",
@@ -55,20 +55,14 @@
     "@effect/opentelemetry": "catalog:",
     "@effect/platform-node": "catalog:",
     "@ff-labs/fff-bun": "0.9.4",
-    "@kxen/agents": "workspace:*",
     "@kxen/codemode": "workspace:*",
-    "@kxen/goal": "workspace:*",
     "@kxen/llm": "workspace:*",
-    "@kxen/mrm": "workspace:*",
     "@kxen/plugin": "workspace:*",
     "@kxen/protocol": "workspace:*",
-    "@kxen/safety": "workspace:*",
     "@kxen/schema": "workspace:*",
     "@kxen/script": "workspace:*",
     "@kxen/sdk": "workspace:*",
     "@kxen/server": "workspace:*",
-    "@kxen/subagent": "workspace:*",
-    "@kxen/workflow": "workspace:*",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@octokit/graphql": "9.0.2",
     "@octokit/rest": "catalog:",
@@ -128,7 +122,8 @@
     "ws": "8.21.0",
     "xdg-basedir": "5.1.0",
     "yargs": "18.0.0",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "kxen": "workspace:*"
   },
   "devDependencies": {
     "@babel/core": "7.28.4",

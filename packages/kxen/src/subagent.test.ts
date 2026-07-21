@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { roleAgents, permissionConfig } from "./index"
-import { parseConfig } from "@kxen/mrm"
+import { roleAgents, permissionConfig } from "./subagent"
+import { parseConfig } from "./mrm"
 
 const TOML = `
 [roles]

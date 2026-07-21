@@ -18,12 +18,9 @@ proof 要求七个独立包。落地:
 | 包 | 位置 | 说明 |
 | --- | --- | --- |
 | kxen-auth | 主包 src/auth/import.ts + src/plugin/anthropic/claude.ts | M5 已完成 |
-| packages/kxen-mrm | 独立包，import 主包服务 | 全局资源管理 |
-| packages/kxen-goal | 独立包 | goal 状态机 + 预算 |
-| packages/kxen-workflow | 独立包 | 脚本编排 runtime |
-| packages/kxen-subagent | 独立包 | 角色 agent 配置生成 |
-| packages/kxen-safety | 独立包 | 灾难规则集（permission 评估输入） |
-| packages/kxen-agents | 独立包 | .agents/OKF 解析 -> Context Source |
+| packages/kxen | 单包六模块（safety/mrm/subagent/agents/goal/workflow，name 即 "kxen"） | 编排层总包；主引擎为 @kxen/engine |
+
+注（2026-07-21 调整）：原六个独立包合并为 packages/kxen——每包仅 1-2 文件，独立分包只剩样板成本；主引擎包名从 "kxen" 改 @kxen/engine（无 dependents，零成本）腾出名字。proof 第 7 条的「七个包」以模块 + 各自测试与运行时演示兑现。
 
 ## 角色配置（~/.config/kxen/config.toml 与项目 .kxen/config.toml）
 

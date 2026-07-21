@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { ModelResourceManager, parseConfig } from "./index"
+import { ModelResourceManager, parseConfig } from "./mrm"
 
 const TOML = `
 [roles]

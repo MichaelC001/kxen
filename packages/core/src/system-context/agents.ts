@@ -5,7 +5,7 @@ import { makeLocationNode } from "../effect/app-node"
 import { Location } from "../location"
 import { SystemContext } from "./index"
 import { SystemContextRegistry } from "./registry"
-import { scanAgentsDir, renderInjection } from "@kxen/agents"
+import { scanAgentsDir, renderInjection } from "kxen/agents"
 
 // .agents/（项目级 + 用户级）作为 Context Source 注入 system-context。
 // 启动时无文档则不注册：unavailable 阻塞 epoch 初始化、空 baseline 非法，

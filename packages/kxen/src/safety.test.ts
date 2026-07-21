@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { evaluateShellCommand, guardPath, normalizePath, splitSegments, hasUnevaluatedVar } from "./index"
+import { evaluateShellCommand, guardPath, normalizePath, splitSegments, hasUnevaluatedVar } from "./safety"
 
 const cwd = "/Users/test/project"
 

@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test"
-import { scanAgentsDir, renderInjection, globMatch } from "./index"
+import { scanAgentsDir, renderInjection, globMatch } from "./agents"
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs"
 import { tmpdir } from "os"
 import path from "path"

@@ -2,7 +2,7 @@ import path from "path"
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import { Global } from "@kxen/core/global"
-import * as Goal from "@kxen/goal"
+import * as Goal from "kxen/goal"
 
 export const Parameters = Schema.Struct({
   action: Schema.Literals(["create", "get", "activate", "pause", "resume", "complete", "cancel", "list"]).annotate({

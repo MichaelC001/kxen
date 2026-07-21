@@ -14,7 +14,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { trimDiff } from "./edit"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import * as Bom from "@/util/bom"
-import { guardPath } from "@kxen/safety"
+import { guardPath } from "kxen/safety"
 
 const MAX_PROJECT_DIAGNOSTICS_FILES = 5
 
