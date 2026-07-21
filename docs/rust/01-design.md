@@ -44,7 +44,7 @@ kxen-app (Tauri 壳: commands/events/窗口/菜单/updater)
 | 用途 | 选型 | 备注 |
 | --- | --- | --- |
 | app 框架 | tauri 2.x | WKWebView；tauri-plugin-updater 更新 |
-| LLM provider | rig-core | 20+ provider 统一 API、tools、streaming、MCP |
+| LLM provider | 自研（jcode 同款：endpoint + auth + SSE 组合，每 provider ~200-400 行） | Rig 对 codex 订阅私有端点无实现，生态无现成 crate；SSE parser 本已决定自写 |
 | HTTP | reqwest 0.12 | rustls（零 OpenSSL） |
 | macOS Keychain | keyring 4.1.5 | Claude 凭证 |
 | PTY | portable-pty 0.9.0 | wezterm 出品 |
@@ -87,20 +87,26 @@ kxen-app (Tauri 壳: commands/events/窗口/菜单/updater)
 
 ## 4. 模型层
 
-### 4.1 provider（全通用，不特殊化）
+### 4.1 provider（全通用，自研薄层，不特殊化）
 
-Rig 的 20+ provider 与 openai-compatible 端点全部可用。用户当前恰好持有四订阅，仅意味着订阅探测当前有四条规则。
+自研 provider 层（jcode 同款结构）：每 provider = endpoint + auth + SSE 的组合，~200-400 行；openai-compatible 端点一条通用实现覆盖长尾。不特殊化任何一家；用户当前恰好持有四订阅，仅意味着订阅探测当前有四条规则。
+
+Claude OAuth contract（jcode OAUTH.md 实证，五要素缺一不可）：
+
+1. Messages endpoint 带 `?beta=true`
+2. `User-Agent: claude-cli/1.0.0`
+3. `anthropic-beta: oauth-2025-04-20,claude-code-20250219`（双值）
+4. 系统块第一行固定为 `You are Claude Code, Anthropic's official CLI for Claude.`
+5. 内置工具名 allow-list 重映射（bash->Bash、read->Read、write->Write、edit->Edit、glob->Glob、grep->Grep、subagent->Agent、schedule->ScheduleWakeup、skill_manage->Skill），其余工具原名转发
 
 ### 4.2 订阅探测（kxen-auth）
 
-通用机制：每个订阅一条探测规则（读官方 CLI 凭证存储 -> 比新鲜度（expires 大者优先）-> 导入 -> 过期刷新）。新增订阅 = 加一条规则。当前四条：
+通用机制：每个订阅一条探测规则（读官方 CLI 凭证存储 -> 比新鲜度（expires 大者优先）-> 导入 -> 过期刷新）。新增订阅 = 加一条规则。external 凭证文件**只读不动**（no move/rewrite/permission 变更，symlink 拒绝），首读需用户批准并记忆该批准（jcode 同款）。当前四条：
 
-- Claude：Keychain `Claude Code-credentials`（keyring）或 `~/.claude/.credentials.json`；refresh `https://console.anthropic.com/v1/oauth/token`；注入 `Authorization: Bearer` + `anthropic-beta: oauth-2025-04-20`
-- Codex：`~/.codex/auth.json`；refresh `https://auth.openai.com/oauth/token`；带 `ChatGPT-Account-Id` 头，端点 `https://chatgpt.com/backend-api/codex/responses`
+- Claude：Keychain `Claude Code-credentials`（keyring）或 `~/.claude/.credentials.json`；refresh `https://console.anthropic.com/v1/oauth/token`
+- Codex：`~/.codex/auth.json`；refresh `https://auth.openai.com/oauth/token`；带 `originator: codex_cli_rs` + `chatgpt-account-id` 头，端点 `https://chatgpt.com/backend-api/codex/responses`（API key 模式走 `api.openai.com/v1/responses`，base 可覆盖）
 - Grok：`~/.grok/auth.json`（issuer map 取 expires 最新）；xai API Bearer
 - Kimi：`~/.kimi-code/credentials/kimi-code.json`；`https://api.kimi.com/coding/v1` Bearer
-
-Rig 的 reqwest client 注入层统一挂 Bearer 与刷新钩子。
 
 ### 4.3 mrm（全局模型资源管理）
 
@@ -231,9 +237,8 @@ Rig 的 reqwest client 注入层统一挂 Bearer 与刷新钩子。
 
 ## 11. 开放问题
 
-1. Rig 对 codex 订阅端点（chatgpt.com/backend-api）的适配度——不合则 codex 单独自写（~200 行），其余走 Rig
-2. rquickjs 的 tokio 桥接形态（agent() 同步转异步）——M4 首个技术验证点
-3. 更新渠道细节：tauri-plugin-updater + GitHub Releases（签名 dmg，app 内提示）的具体发布管线
+1. rquickjs 的 tokio 桥接形态（agent() 同步转异步）——M4 首个技术验证点
+2. 更新渠道细节：tauri-plugin-updater + GitHub Releases（签名 dmg，app 内提示）的具体发布管线
 
 ## 附录 A：优点收纳矩阵
 
