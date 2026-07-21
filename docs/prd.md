@@ -82,5 +82,4 @@ kxen 是 macOS Apple Silicon 专精的开源 Coding Agent Harness，**只做 cod
 
 ## 6. 开放问题
 
-- updater 发布管线细节（M5 处理）
-- 已知风险：Claude 订阅 refresh 端点（console.anthropic.com）曾观察到 Cloudflare 1010 拦截；备选路径待 M3 实证（jcode 的 refresh 走法已在源码库中可对照）
+无。全部选型已冻结（2026-07-21 确认）。
