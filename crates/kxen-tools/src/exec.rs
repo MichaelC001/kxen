@@ -71,7 +71,11 @@ pub async fn exec(params: ExecParams, registry: &Arc<TaskRegistry>, cwd: &str) -
         _ => {}
     }
 
-    let workdir = if params.path.starts_with('/') { params.path.clone() } else { format!("{cwd}/{}", params.path) };
+    let workdir: std::borrow::Cow<'_, str> = if params.path.starts_with('/') {
+        std::borrow::Cow::Borrowed(params.path.as_str())
+    } else {
+        std::borrow::Cow::Owned(format!("{cwd}/{}", params.path))
+    };
     let argv = wrap_command(params.shell_type, &workdir, &params.command);
 
     if params.background {

@@ -123,24 +123,35 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
             let model = state.model.lock().map_err(|e| e.to_string())?.clone();
             Ok(json!({ "provider": model.provider, "model": model.model }))
         }
+        m if m.starts_with("goal.") => crate::goal_rpc::call(m, params),
         "send_message" => {
-            let text = params.get("text").and_then(Value::as_str).ok_or("missing text")?.to_string();
-            let history: Vec<(String, String)> = params
-                .get("history")
-                .and_then(Value::as_array)
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|m| {
-                            Some((m.get("role")?.as_str()?.to_string(), m.get("content")?.as_str()?.to_string()))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            tokio::spawn(run_llm(text, history, app.clone()));
+            let p: SendMessageParams = serde_json::from_value(params).map_err(|e| e.to_string())?;
+            tokio::spawn(run_llm(p.text, p.history, app.clone()));
             Ok(Value::Null)
         }
         other => Err(format!("unknown method: {other}")),
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct SendMessageParams {
+    text: String,
+    #[serde(default)]
+    history: Vec<HistoryMsg>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HistoryMsg {
+    role: HistoryRole,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum HistoryRole {
+    System,
+    Assistant,
+    User,
 }
 
 // ---------------- Stream 通道 ----------------
@@ -180,7 +191,7 @@ async fn handle_stream(
             // 内部事件桥 -> topic 推送
             event = bus_rx.recv() => {
                 let Ok(event) = event else { break };
-                let (topic, payload) = map_event(&event);
+                let (topic, payload) = map_event(event);
                 if !topics.contains(topic) {
                     continue;
                 }
@@ -194,10 +205,10 @@ async fn handle_stream(
     }
 }
 
-fn map_event(event: &kxen_core::event::Event) -> (&'static str, Value) {
+fn map_event(event: kxen_core::event::Event) -> (&'static str, Value) {
     use kxen_core::event::Event;
     match event {
-        Event::LlmDelta(payload) => ("llm.delta", payload.clone()),
+        Event::LlmDelta(payload) => ("llm.delta", payload),
         Event::ToolCall { name, summary } => ("llm.delta", json!({ "tool": name, "summary": summary })),
         Event::TaskUpdate { id, status } => ("task.update", json!({ "id": id, "status": status })),
         Event::GoalUpdate { id, status } => ("goal.update", json!({ "id": id, "status": status })),
@@ -207,7 +218,7 @@ fn map_event(event: &kxen_core::event::Event) -> (&'static str, Value) {
 
 // ---------------- LLM 任务 ----------------
 
-async fn run_llm(text: String, history: Vec<(String, String)>, app: AppHandle) {
+async fn run_llm(text: String, history: Vec<HistoryMsg>, app: AppHandle) {
     let state = app.state::<Arc<AppState>>();
     let (model, store, registry, workdir, bus) = {
         let store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
@@ -221,11 +232,11 @@ async fn run_llm(text: String, history: Vec<(String, String)>, app: AppHandle) {
     };
 
     let mut messages: Vec<Message> = history
-        .iter()
-        .map(|(role, content)| match role.as_str() {
-            "system" => Message::system(content.clone()),
-            "assistant" => Message::assistant(content.clone()),
-            _ => Message::user(content.clone()),
+        .into_iter()
+        .map(|m| match m.role {
+            HistoryRole::System => Message::system(m.content),
+            HistoryRole::Assistant => Message::assistant(m.content),
+            HistoryRole::User => Message::user(m.content),
         })
         .collect();
     messages.push(Message::user(text));
@@ -238,6 +249,7 @@ async fn run_llm(text: String, history: Vec<(String, String)>, app: AppHandle) {
         store,
         max_turns: 12,
         mrm: Some(state.mrm.clone()),
+        loop_detector: kxen_agent::loop_detect::LoopDetector::new(),
         on_event: Box::new(move |event| {
             let payload = match serde_json::to_value(&event) {
                 Ok(v) => v,

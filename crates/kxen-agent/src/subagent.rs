@@ -54,7 +54,7 @@ pub fn role_agent(role: &str) -> RoleAgent {
     RoleAgent { name: format!("kxen-{role}"), role: role.to_string(), permission, prompt: duty }
 }
 
-/// task 派发：角色 -> mrm 路由 model -> 独立子 loop -> 结果回传。
+/// agent 派发：角色 -> mrm 路由 model -> 独立子 loop -> 结果回传。
 pub async fn dispatch(role: &str, prompt: String, parent: &mut AgentContext, mrm: &ModelResourceManager) -> Result<String, String> {
     let agent = role_agent(role);
     let resolved = mrm.resolve(role).await.ok_or_else(|| format!("no available model for role {role}"))?;
@@ -69,6 +69,7 @@ pub async fn dispatch(role: &str, prompt: String, parent: &mut AgentContext, mrm
         store: parent.store.clone(),
         max_turns: 6,
         mrm: None,
+        loop_detector: crate::loop_detect::LoopDetector::new(),
         on_event: {
             let role_owned = agent.name.clone();
             Box::new(move |event| {
@@ -80,7 +81,7 @@ pub async fn dispatch(role: &str, prompt: String, parent: &mut AgentContext, mrm
     };
 
     let messages = vec![
-        Message::system(format!("你是子代理 {}。{}", agent.name, agent.prompt)),
+        Message::system(crate::prompt::subagent_prompt(&agent.name, &agent.prompt)),
         Message::user(prompt),
     ];
     let outcome = run_turn(&mut child, messages).await;

@@ -1,7 +1,7 @@
 //! dev_server 真实验证：起一个 http.server，就绪检测 + list + restart + kill。
 
 use kxen_tools::dev_server::{dev_server, restart_task, DevServerParams, ReadySpec};
-use kxen_tools::task::{TaskRegistry, TaskStatus};
+use kxen_tools::task::TaskRegistry;
 use std::sync::Arc;
 
 #[tokio::main]

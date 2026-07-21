@@ -1,4 +1,5 @@
 mod doctor;
+mod goal_rpc;
 mod ws;
 
 use kxen_llm::ModelRef;
@@ -11,7 +12,7 @@ pub struct AppState {
     pub bus: kxen_core::event::EventBus,
     pub registry: std::sync::Arc<kxen_tools::task::TaskRegistry>,
     pub mrm: std::sync::Arc<kxen_llm::mrm::ModelResourceManager>,
-    pub workdir: std::path::PathBuf,
+    pub workdir: std::sync::Arc<std::path::Path>,
 }
 
 impl AppState {
@@ -35,7 +36,7 @@ impl AppState {
             bus: kxen_core::event::EventBus::default(),
             registry: std::sync::Arc::new(kxen_tools::task::TaskRegistry::new()),
             mrm: std::sync::Arc::new(kxen_llm::mrm::ModelResourceManager::new(config)),
-            workdir: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")),
+            workdir: std::sync::Arc::from(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))),
         }
     }
 }

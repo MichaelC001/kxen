@@ -201,6 +201,12 @@ impl Goal {
         out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         out
     }
+    /// 当前焦点 goal（active/paused/blocked/budget_limited 中最近更新的一个），用于状态注入与 GUI 焦点显示。
+    pub fn focus(dir: &std::path::Path) -> Option<Self> {
+        Self::list(dir)
+            .into_iter()
+            .find(|g| matches!(g.status, GoalStatus::Active | GoalStatus::Paused | GoalStatus::Blocked | GoalStatus::BudgetLimited))
+    }
 }
 
 fn now_ms() -> u64 {

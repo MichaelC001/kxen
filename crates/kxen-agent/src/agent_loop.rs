@@ -33,11 +33,12 @@ pub struct AgentOutcome {
 pub struct AgentContext {
     pub registry: Arc<TaskRegistry>,
     pub tracker: FileTracker,
-    pub workdir: PathBuf,
+    pub workdir: Arc<Path>,
     pub model: ModelRef,
     pub store: kxen_auth::credential::AuthStore,
     pub max_turns: u32,
     pub mrm: Option<Arc<kxen_llm::mrm::ModelResourceManager>>,
+    pub loop_detector: crate::loop_detect::LoopDetector,
     pub on_event: Box<dyn Fn(AgentEvent) + Send>,
 }
 
@@ -45,6 +46,11 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
     let tools = crate::tools_spec::core_tools();
     let mut turns = 0u32;
     let mut final_text = String::new();
+
+    // 系统提示由 loop 统一注入（身份 + 工具策略 + write-goal + 焦点 goal），调用方不重复造。
+    if !matches!(messages.first(), Some(m) if m.role == kxen_llm::types::Role::System) {
+        messages.insert(0, Message::system(crate::prompt::system_prompt(&ctx.workdir)));
+    }
 
     loop {
         turns += 1;
@@ -82,19 +88,35 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
             break;
         }
 
-        // assistant 消息带标准 tool_calls，结果用 Role::Tool 回传
+        // assistant 消息带标准 tool_calls，结果用 Role::Tool 回传。
+        // 同一 call 数据要进两条协议消息（assistant.tool_calls + tool_result），arguments 只克隆一次。
+        let mut results = Vec::with_capacity(calls.len());
+        let mut loop_stop: Option<crate::loop_detect::LoopStop> = None;
+        for call in &calls {
+            (ctx.on_event)(AgentEvent::ToolCall { name: call.name.clone(), summary: summarize_args(&call.arguments) });
+            let result = execute_tool(&call.name, &call.arguments, ctx).await;
+            (ctx.on_event)(AgentEvent::ToolResult { name: call.name.clone(), summary: result_summary(&call.name, &result) });
+            if let crate::loop_detect::LoopVerdict::Stop(stop) = ctx.loop_detector.record(&call.name, &call.arguments, &result_text(&result)) {
+                loop_stop = Some(stop);
+                results.push(result);
+                break;
+            }
+            results.push(result);
+        }
         let assistant_calls: Vec<kxen_llm::types::AssistantToolCall> = calls
             .iter()
             .map(|c| kxen_llm::types::AssistantToolCall::function(c.id.clone(), c.name.clone(), c.arguments.clone()))
             .collect();
         messages.push(Message::assistant_with_tools(text, assistant_calls));
-        for call in calls {
-            let name = call.name;
-            (ctx.on_event)(AgentEvent::ToolCall { name: name.clone(), summary: summarize_args(&call.arguments) });
-            let result = execute_tool(&name, &call.arguments, ctx).await;
-            let summary = result_summary(&name, &result);
-            (ctx.on_event)(AgentEvent::ToolResult { name: name.clone(), summary: summary.clone() });
-            messages.push(Message::tool_result(call.id.clone(), name, result_text(&result)));
+        for (call, result) in calls.into_iter().zip(results) {
+            messages.push(Message::tool_result(call.id, call.name, result_text(&result)));
+        }
+        if let Some(stop) = loop_stop {
+            // 中断空转：硬停本轮，原因作为结果带出（事件已通知前端）
+            let reason = stop.to_string();
+            (ctx.on_event)(AgentEvent::Error { message: reason.clone() });
+            final_text = reason;
+            break;
         }
     }
 
@@ -156,22 +178,26 @@ async fn execute_tool(name: &str, arguments: &str, ctx: &mut AgentContext) -> Re
             let path = resolve_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, &ctx.workdir);
             delete(&path, &cwd).map(|_| "moved to Trash".to_string()).map_err(|e| e.to_string())
         }
-        "task_output" => {
-            let id = args.get("task_id").and_then(Value::as_str).ok_or("missing task_id")?;
-            ctx.registry
-                .output(id)
-                .map(|(output, truncated, status)| format!("status: {status:?}{}\n{output}", if truncated { " (truncated)" } else { "" }))
-                .ok_or_else(|| format!("task not found: {id}"))
+        "task" => execute_task_tool(&args, ctx).await,
+        "goal" => execute_goal_tool(&args).await,
+        "agent" => {
+            let role = args.get("role").and_then(Value::as_str).ok_or("missing role")?.to_string();
+            let prompt = args.get("prompt").and_then(Value::as_str).ok_or("missing prompt")?.to_string();
+            let Some(mrm) = ctx.mrm.clone() else {
+                return Err("agent tool unavailable: mrm not configured".into());
+            };
+            Box::pin(crate::subagent::dispatch(&role, prompt, ctx, &mrm)).await
         }
-        "kill_task" => {
-            let id = args.get("task_id").and_then(Value::as_str).ok_or("missing task_id")?;
-            Ok(if ctx.registry.kill(id).await { format!("killed {id}") } else { format!("task not found: {id}") })
-        }
-        "list_tasks" => {
-            let list = ctx.registry.list();
-            Ok(if list.is_empty() { "no tasks".into() } else { serde_json::to_string_pretty(&list).unwrap_or_default() })
-        }
-        "dev_server" => {
+        other => Err(format!("unknown tool: {other}")),
+    }
+}
+
+/// task 工具：后台任务统一管理（dev server 是带 ready 门的 start）。
+async fn execute_task_tool(args: &Value, ctx: &mut AgentContext) -> Result<String, String> {
+    let action = args.get("action").and_then(Value::as_str).ok_or("missing action")?;
+    let cwd = ctx.workdir.to_string_lossy().to_string();
+    match action {
+        "start" => {
             let params = DevServerParams {
                 command: args.get("command").and_then(Value::as_str).ok_or("missing command")?.to_string(),
                 workdir: resolve_path(args.get("workdir").and_then(Value::as_str).unwrap_or(&cwd), &ctx.workdir).to_string_lossy().into_owned(),
@@ -180,26 +206,91 @@ async fn execute_tool(name: &str, arguments: &str, ctx: &mut AgentContext) -> Re
                     port: r.get("port").and_then(Value::as_u64).map(|p| p as u16),
                     timeout_ms: r.get("timeout_ms").and_then(Value::as_u64),
                 }),
-                shell: None,
+                shell: args.get("shell").and_then(Value::as_str).map(parse_shell).transpose()?,
             };
             dev_server(params, &ctx.registry)
                 .await
                 .map(|s| format!("ready: {} (task {})", s.url.unwrap_or_else(|| "(no url)".into()), s.task_id))
                 .map_err(|e| e.to_string())
         }
-        "restart_task" => {
+        "output" => {
+            let id = args.get("task_id").and_then(Value::as_str).ok_or("missing task_id")?;
+            ctx.registry
+                .output(id)
+                .map(|(output, truncated, status)| format!("status: {status:?}{}\n{output}", if truncated { " (truncated)" } else { "" }))
+                .ok_or_else(|| format!("task not found: {id}"))
+        }
+        "kill" => {
+            let id = args.get("task_id").and_then(Value::as_str).ok_or("missing task_id")?;
+            Ok(if ctx.registry.kill(id).await { format!("killed {id}") } else { format!("task not found: {id}") })
+        }
+        "list" => {
+            let list = ctx.registry.list();
+            Ok(if list.is_empty() { "no tasks".into() } else { serde_json::to_string_pretty(&list).unwrap_or_default() })
+        }
+        "restart" => {
             let id = args.get("task_id").and_then(Value::as_str).ok_or("missing task_id")?;
             restart_task(id, &ctx.registry).await.map(|new_id| format!("restarted as {new_id}")).map_err(|e| e.to_string())
         }
-        "task" => {
-            let role = args.get("role").and_then(Value::as_str).ok_or("missing role")?.to_string();
-            let prompt = args.get("prompt").and_then(Value::as_str).ok_or("missing prompt")?.to_string();
-            let Some(mrm) = ctx.mrm.clone() else {
-                return Err("task tool unavailable: mrm not configured".into());
-            };
-            Box::pin(crate::subagent::dispatch(&role, prompt, ctx, &mrm)).await
+        other => Err(format!("unknown task action: {other}")),
+    }
+}
+
+async fn execute_goal_tool(args: &Value) -> Result<String, String> {
+    let action = args.get("action").and_then(Value::as_str).ok_or("missing action")?;
+    let dir = kxen_core::paths::goals_dir();
+    let show = |g: &kxen_core::goal::Goal| {
+        format!(
+            "goal {} [{}] {}\ncriteria: {}\nturns: {} tokens: {} blocks: {}{}",
+            g.id,
+            format!("{:?}", g.status).to_lowercase(),
+            g.contract.objective,
+            g.contract.completion_criteria,
+            g.turns_used,
+            g.tokens_used,
+            g.consecutive_blocks,
+            g.block_reason.as_deref().map(|r| format!("\nblocked: {r}")).unwrap_or_default()
+        )
+    };
+    match action {
+        "list" => {
+            let goals = kxen_core::goal::Goal::list(&dir);
+            Ok(if goals.is_empty() { "no goals".into() } else { goals.iter().map(|g| show(g)).collect::<Vec<_>>().join("\n---\n") })
         }
-        other => Err(format!("unknown tool: {other}")),
+        "create" => {
+            let contract = kxen_core::goal::GoalContract {
+                objective: args.get("objective").and_then(Value::as_str).ok_or("missing objective")?.to_string(),
+                completion_criteria: args.get("completion_criteria").and_then(Value::as_str).ok_or("missing completion_criteria")?.to_string(),
+                constraints: args.get("constraints").and_then(Value::as_str).map(String::from),
+                budget: kxen_core::goal::GoalBudget {
+                    tokens: args.pointer("/budget/tokens").and_then(Value::as_u64),
+                    turns: args.pointer("/budget/turns").and_then(Value::as_u64).map(|n| n as u32),
+                    wall_clock_ms: args.pointer("/budget/wall_clock_ms").and_then(Value::as_u64),
+                },
+            };
+            let id = format!("goal_{}_{:06x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0), std::process::id());
+            let goal = kxen_core::goal::Goal::create(contract, id).map_err(|e| e.to_string())?;
+            goal.save(&dir).map_err(|e| e.to_string())?;
+            Ok(show(&goal))
+        }
+        other => {
+            let id = args.get("id").and_then(Value::as_str).ok_or("missing id")?;
+            let mut goal = kxen_core::goal::Goal::load(&dir, id).map_err(|e| e.to_string())?;
+            match other {
+                "get" => {}
+                "activate" => goal.activate().map_err(|e| e.to_string())?,
+                "pause" => goal.pause().map_err(|e| e.to_string())?,
+                "resume" => goal.resume().map_err(|e| e.to_string())?,
+                "cancel" => goal.cancel().map_err(|e| e.to_string())?,
+                "complete" => {
+                    let evidence = args.get("evidence").and_then(Value::as_str).ok_or("missing evidence")?;
+                    goal.complete(evidence).map_err(|e| e.to_string())?;
+                }
+                unknown => return Err(format!("unknown goal action: {unknown}")),
+            }
+            goal.save(&dir).map_err(|e| e.to_string())?;
+            Ok(show(&goal))
+        }
     }
 }
 

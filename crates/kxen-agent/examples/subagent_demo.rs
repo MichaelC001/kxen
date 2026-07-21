@@ -1,4 +1,4 @@
-//! subagent 真实验证：主 agent 自主用 task 派发 thinking/review 子代理。
+//! subagent 真实验证：主 agent 自主用 agent 工具派发 thinking/review 子代理。
 
 use kxen_agent::agent_loop::{run_turn, AgentContext, AgentEvent};
 use kxen_llm::mrm::ModelResourceManager;
@@ -23,11 +23,12 @@ async fn main() {
     let mut ctx = AgentContext {
         registry: Arc::new(TaskRegistry::new()),
         tracker: FileTracker::default(),
-        workdir: workdir.clone(),
+        workdir: Arc::from(workdir.as_path()),
         model: ModelRef::new("xai", "grok-build-0.1"),
         store,
         max_turns: 8,
         mrm: Some(mrm),
+        loop_detector: kxen_agent::loop_detect::LoopDetector::new(),
         on_event: Box::new(|event| match event {
             AgentEvent::Text { text } => print!("{text}"),
             AgentEvent::Reasoning { text } => eprint!("[r:{}]", first(&text, 30)),
@@ -39,8 +40,8 @@ async fn main() {
     };
 
     let messages = vec![
-        Message::system("You are a coding agent with tools including `task` (dispatch subagents by role). For code review tasks, dispatch the review role subagent instead of doing it yourself, then summarize its findings."),
-        Message::user(format!("Review {} for bugs. Use the task tool with role review.", workdir.join("calc.py").display())),
+        Message::system("You are a coding agent with tools including `agent` (dispatch subagents by role). For code review tasks, dispatch the review role subagent instead of doing it yourself, then summarize its findings."),
+        Message::user(format!("Review {} for bugs. Use the agent tool with role review.", workdir.join("calc.py").display())),
     ];
 
     let outcome = run_turn(&mut ctx, messages).await;

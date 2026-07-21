@@ -1,4 +1,5 @@
-//! 常驻工具定义（渐进披露：常驻 ~12，其余经 Tool Search——M5）。
+//! Resident tool definitions (progressive disclosure: ~10 resident, rest via Tool Search in M5).
+//! All tool descriptions are English by design; UI strings stay Simplified Chinese.
 
 use kxen_llm::tool::ToolDefinition;
 use serde_json::json;
@@ -67,38 +68,19 @@ pub fn core_tools() -> Vec<ToolDefinition> {
             }),
         ),
         ToolDefinition::function(
-            "task_output",
-            "Get the accumulated output of a background task.",
-            json!({
-                "type": "object",
-                "properties": { "task_id": { "type": "string" } },
-                "required": ["task_id"]
-            }),
-        ),
-        ToolDefinition::function(
-            "kill_task",
-            "Kill a background task.",
-            json!({
-                "type": "object",
-                "properties": { "task_id": { "type": "string" } },
-                "required": ["task_id"]
-            }),
-        ),
-        ToolDefinition::function(
-            "list_tasks",
-            "List all background tasks (dev servers, long commands) with status, uptime, port, output tail.",
-            json!({ "type": "object", "properties": {} }),
-        ),
-        ToolDefinition::function(
-            "dev_server",
-            "Start a dev server (vite/cargo watch/next dev) in background and block until ready (output pattern or port reachable). Returns task_id and url. Do NOT sleep-wait yourself.",
+            "task",
+            "Manage background tasks (dev servers, long-running commands). Actions: start (spawn in background; pass `ready` to block until the server is ready - pattern matched in output or port reachable - and get back task_id + url), output (accumulated output), kill, list (status/uptime/port/tail), restart (same command, fresh process). Use start with a ready spec for dev servers instead of exec + sleep.",
             json!({
                 "type": "object",
                 "properties": {
-                    "command": { "type": "string" },
+                    "action": { "type": "string", "enum": ["start", "output", "kill", "list", "restart"] },
+                    "task_id": { "type": "string", "description": "Required for output/kill/restart" },
+                    "command": { "type": "string", "description": "Required for start" },
                     "workdir": { "type": "string" },
+                    "shell": { "type": "string", "enum": ["zsh", "bash", "fish"] },
                     "ready": {
                         "type": "object",
+                        "description": "Optional readiness gate for start",
                         "properties": {
                             "pattern": { "type": "string" },
                             "port": { "type": "integer" },
@@ -106,11 +88,28 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                         }
                     }
                 },
-                "required": ["command", "workdir"]
+                "required": ["action"]
             }),
         ),
         ToolDefinition::function(
-            "task",
+            "goal",
+            "Manage durable goals: create with a completion contract (objective + completionCriteria + optional constraints/budget), then drive the lifecycle (activate/pause/resume/complete/cancel/list/get). Goals persist across turns with budgets; same block reason 3 turns in a row escalates to blocked.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["create", "get", "activate", "pause", "resume", "complete", "cancel", "list"] },
+                    "id": { "type": "string" },
+                    "objective": { "type": "string" },
+                    "completion_criteria": { "type": "string" },
+                    "constraints": { "type": "string" },
+                    "budget": { "type": "object", "properties": { "tokens": { "type": "integer" }, "turns": { "type": "integer" }, "wall_clock_ms": { "type": "integer" } } },
+                    "evidence": { "type": "string" }
+                },
+                "required": ["action"]
+            }),
+        ),
+        ToolDefinition::function(
+            "agent",
             "Dispatch a subagent by role: thinking (deep analysis), planning (task decomposition), execution (fast execution), review (adversarial review), research (external research). Each runs on a model chosen for the role.",
             json!({
                 "type": "object",
@@ -119,15 +118,6 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                     "prompt": { "type": "string", "description": "The task for the subagent to perform" }
                 },
                 "required": ["role", "prompt"]
-            }),
-        ),
-        ToolDefinition::function(
-            "restart_task",
-            "Restart a background task with the same command (keeps task_id stable semantics).",
-            json!({
-                "type": "object",
-                "properties": { "task_id": { "type": "string" } },
-                "required": ["task_id"]
             }),
         ),
     ]
