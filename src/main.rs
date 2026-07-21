@@ -53,6 +53,7 @@ pub fn run() {
 
     tauri::async_runtime::block_on(async {
         let app = tauri::Builder::default()
+            .plugin(tauri_plugin_websocket::init())
             .manage(Arc::new(AppState::new()))
             .setup(|app| {
                 let handle = app.handle().clone();

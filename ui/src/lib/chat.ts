@@ -27,6 +27,65 @@ export async function sendMessage(
   return rpc("send_message", { text, history });
 }
 
+// ---------------- goal ----------------
+
+export interface GoalInfo {
+  id: string;
+  status: string;
+  objective: string;
+  completion_criteria: string;
+  constraints?: string | null;
+  budget: { tokens?: number | null; turns?: number | null; wall_clock_ms?: number | null };
+  turns_used: number;
+  tokens_used: number;
+  consecutive_blocks: number;
+  block_reason?: string | null;
+  verification_evidence?: string | null;
+}
+
+export async function goalList(): Promise<GoalInfo[]> {
+  return rpc<GoalInfo[]>("goal.list");
+}
+
+export async function goalFocus(): Promise<GoalInfo | null> {
+  return rpc<GoalInfo | null>("goal.focus");
+}
+
+export async function goalTransit(
+  id: string,
+  action: "activate" | "pause" | "resume" | "cancel",
+): Promise<GoalInfo> {
+  return rpc<GoalInfo>(`goal.${action}`, { id });
+}
+
+// ---------------- 后台任务 ----------------
+
+export interface TaskInfo {
+  id: string;
+  command: string;
+  status: "running" | "exited" | "killed" | "failed";
+  uptime_ms: number;
+  port?: number | null;
+  tail: string;
+}
+
+export async function taskList(): Promise<TaskInfo[]> {
+  return rpc<TaskInfo[]>("task.list");
+}
+
+export async function taskKill(id: string): Promise<boolean> {
+  return rpc<boolean>("task.kill", { id });
+}
+
+// ---------------- 事件订阅（goal.update / task.update） ----------------
+
+export function onTopic(
+  topics: string[],
+  handler: (topic: string, payload: unknown) => void,
+): Promise<() => void> {
+  return subscribe(topics, handler);
+}
+
 export interface ToolEvent {
   kind: "tool_call" | "tool_result" | "phase";
   name: string;

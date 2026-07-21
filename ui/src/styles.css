@@ -1,19 +1,177 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
+/* ============ 设计 tokens（曲线/时长取自 STANDARDS.md，性格：crisp 开发工具） ============ */
 :root {
-  color-scheme: dark;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --dur-press: 160ms;
+  --dur-fade: 150ms;
+
+  --bg: #0b0d10;
+  --bg-raised: #12151a;
+  --bg-overlay: #171b21;
+  --border: #23282f;
+  --text: #e6e9ee;
+  --text-dim: #9aa4b2;
+  --text-faint: #5d6875;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --err: #fb7185;
+  --radius: 8px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {
-  margin: 0;
-  font-family:
-    ui-sans-serif,
-    system-ui,
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px/1.6 system-ui,
     -apple-system,
-    "PingFang SC",
     sans-serif;
-  background: #0f1115;
-  color: #e5e7eb;
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============ 按压反馈（pointer-down 即时，Apple §1；subtle 0.97/160ms） ============ */
+.pressable {
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.pressable:active {
+  transform: scale(0.97);
+}
+
+/* ============ 半透明浮动层（Apple §12 materials：内容从其下滚过） ============ */
+.material {
+  background: rgba(11, 13, 16, 0.72);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+/* ============ 滚动条 ============ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
+
+/* ============ 链接/代码等基础排版 ============ */
+a {
+  color: var(--accent-hover);
+}
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.92em;
+}
+
+/* markdown 渲染体 */
+.md {
+  line-height: 1.7;
+}
+.md > * + * {
+  margin-top: 0.6em;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin-top: 1em;
+}
+.md h1 {
+  font-size: 1.3em;
+}
+.md h2 {
+  font-size: 1.18em;
+}
+.md h3 {
+  font-size: 1.05em;
+}
+.md ul,
+.md ol {
+  padding-left: 1.4em;
+}
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
+.md blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 0.8em;
+  color: var(--text-dim);
+}
+.md hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 0.3em 0.7em;
+  text-align: left;
+}
+.md :not(pre) > code {
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+.md pre {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  font-size: 0.86em;
+  line-height: 1.55;
+}
+.md pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+.md pre.shiki {
+  background: #0d1117;
+}
+.md .mermaid {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1em;
+  overflow-x: auto;
+}
+.md .mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ============ reduced motion：保留透明度反馈，去掉位移（gentler, not zero） ============ */
+@media (prefers-reduced-motion: reduce) {
+  .pressable {
+    transition: none;
+  }
+  .pressable:active {
+    transform: none;
+  }
 }

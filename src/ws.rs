@@ -123,6 +123,15 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
             let model = state.model.lock().map_err(|e| e.to_string())?.clone();
             Ok(json!({ "provider": model.provider, "model": model.model }))
         }
+        "task.list" => {
+            let state = app.state::<Arc<AppState>>();
+            Ok(json!(state.registry.list()))
+        }
+        "task.kill" => {
+            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
+            let state = app.state::<Arc<AppState>>();
+            Ok(json!(state.registry.kill(id).await))
+        }
         "set_model" => {
             let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
             let model = params.get("model").and_then(Value::as_str).ok_or("missing model")?;
