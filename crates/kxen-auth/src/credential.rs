@@ -28,8 +28,13 @@ impl CredentialKind {
     }
 
     pub fn is_expired(&self) -> bool {
+        self.is_expired_within(0)
+    }
+
+    /// buffer_ms 内将过期也算过期（提前刷新窗口）。
+    pub fn is_expired_within(&self, buffer_ms: u64) -> bool {
         match self {
-            CredentialKind::Oauth { expires, .. } => *expires > 0 && *expires < now_ms(),
+            CredentialKind::Oauth { expires, .. } => *expires > 0 && *expires < now_ms() + buffer_ms,
             CredentialKind::Api { .. } => false,
         }
     }

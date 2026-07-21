@@ -1,8 +1,15 @@
 import { createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import { currentModel, onLlmDelta, sendMessage, type ChatMessage } from "../lib/chat";
 
+interface ToolActivity {
+  name: string;
+  call: string;
+  result?: string;
+}
+
 export default function Session() {
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
+  const [tools, setTools] = createSignal<ToolActivity[]>([]);
   const [draft, setDraft] = createSignal("");
   const [streaming, setStreaming] = createSignal(false);
   const [model, setModel] = createSignal("");
@@ -99,6 +106,21 @@ export default function Session() {
             </div>
           )}
         </For>
+        <Show when={tools().length > 0}>
+          <div class="space-y-1">
+            <For each={tools()}>
+              {(t) => (
+                <div class="text-xs border border-gray-800 rounded px-2 py-1 bg-gray-900/50">
+                  <span class="text-indigo-400 font-mono">{t.name}</span>
+                  <span class="text-gray-500 ml-2">{t.call}</span>
+                  <Show when={t.result}>
+                    <div class="text-gray-400 mt-0.5">{t.result}</div>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
         <Show when={messages().length === 0}>
           <div class="text-gray-600 text-sm text-center mt-20">
             发一条消息开始（M1：xai / grok-build-0.1 直连）

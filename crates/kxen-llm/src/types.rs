@@ -8,23 +8,56 @@ pub enum Role {
     System,
     User,
     Assistant,
+    Tool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<AssistantToolCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssistantToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub function: FunctionCall,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionCall {
+    pub name: String,
+    pub arguments: String,
+}
+
+impl AssistantToolCall {
+    pub fn function(id: impl Into<String>, name: impl Into<String>, arguments: impl Into<String>) -> Self {
+        Self { id: id.into(), kind: "function".to_string(), function: FunctionCall { name: name.into(), arguments: arguments.into() } }
+    }
 }
 
 impl Message {
     pub fn system(content: impl Into<String>) -> Self {
-        Self { role: Role::System, content: content.into() }
+        Self { role: Role::System, content: content.into(), tool_calls: vec![], tool_call_id: None, name: None }
     }
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: Role::User, content: content.into() }
+        Self { role: Role::User, content: content.into(), tool_calls: vec![], tool_call_id: None, name: None }
     }
     pub fn assistant(content: impl Into<String>) -> Self {
-        Self { role: Role::Assistant, content: content.into() }
+        Self { role: Role::Assistant, content: content.into(), tool_calls: vec![], tool_call_id: None, name: None }
+    }
+    pub fn assistant_with_tools(content: impl Into<String>, tool_calls: Vec<AssistantToolCall>) -> Self {
+        Self { role: Role::Assistant, content: content.into(), tool_calls, tool_call_id: None, name: None }
+    }
+    pub fn tool_result(id: impl Into<String>, name: impl Into<String>, content: impl Into<String>) -> Self {
+        Self { role: Role::Tool, content: content.into(), tool_calls: vec![], tool_call_id: Some(id.into()), name: Some(name.into()) }
     }
 }
 

@@ -31,7 +31,7 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "edit",
-            "Edit a file. Prefer anchors mode (from read output). Match mode needs exact old_string. No need to read first if the file was read this session and unchanged.",
+            "Edit a file. Prefer anchors mode: read outputs lines as `LINE#HASH  content`, pass that anchor directly in edits[].anchor (e.g. `3#a1b2`). Match mode needs exact old_string. No need to read first if the file was read this session and unchanged.",
             json!({
                 "type": "object",
                 "properties": {

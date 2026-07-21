@@ -96,6 +96,7 @@ pub struct AnchorEdit {
 pub struct EditResult {
     pub applied: usize,
     pub diff_summary: String,
+    pub diff: String,
 }
 
 pub fn edit(path: &Path, spec: &EditSpec, tracker: &FileTracker, cwd: &str) -> Result<EditResult, FsToolError> {
@@ -103,6 +104,7 @@ pub fn edit(path: &Path, spec: &EditSpec, tracker: &FileTracker, cwd: &str) -> R
     let text = std::fs::read_to_string(path)?;
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
 
+    let before_lines: Vec<String> = text.lines().map(String::from).collect();
     let applied = match spec {
         EditSpec::Anchors { edits } => apply_anchor_edits(&text, &mut lines, edits, path)?,
         EditSpec::Match { old_string, new_string, expected_replacements } => {
@@ -119,6 +121,7 @@ pub fn edit(path: &Path, spec: &EditSpec, tracker: &FileTracker, cwd: &str) -> R
             expected
         }
     };
+    let diff = simple_diff(&before_lines, &lines);
 
     let trailing = text.ends_with('\n');
     let mut out = lines.join("\n");
@@ -128,7 +131,22 @@ pub fn edit(path: &Path, spec: &EditSpec, tracker: &FileTracker, cwd: &str) -> R
     std::fs::write(path, &out)?;
     tracker.mark(path);
 
-    Ok(EditResult { applied, diff_summary: format!("{applied} edit(s) applied to {}", path.display()) })
+    Ok(EditResult { applied, diff_summary: format!("{applied} edit(s) applied to {}", path.display()), diff })
+}
+
+/// 简单 diff：首个不同行起的 before/after（最多各 5 行）。
+fn simple_diff(before: &[String], after: &[String]) -> String {
+    let mut out = String::new();
+    let common = before.iter().zip(after.iter()).take_while(|(a, b)| a == b).count();
+    let before_tail = before.iter().skip(common).take(5);
+    let after_tail = after.iter().skip(common).take(5);
+    for line in before_tail {
+        out.push_str(&format!("- {line}\n"));
+    }
+    for line in after_tail {
+        out.push_str(&format!("+ {line}\n"));
+    }
+    out
 }
 
 fn apply_anchor_edits(original: &str, lines: &mut Vec<String>, edits: &[AnchorEdit], _path: &Path) -> Result<usize, FsToolError> {

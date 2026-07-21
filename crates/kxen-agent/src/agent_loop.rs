@@ -81,18 +81,19 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
             break;
         }
 
-        // assistant 消息（带 tool_calls 语义简化：文本 + 调用记录）+ 逐个执行回传
-        messages.push(Message::assistant(text));
+        // assistant 消息带标准 tool_calls，结果用 Role::Tool 回传
+        let assistant_calls: Vec<kxen_llm::types::AssistantToolCall> = calls
+            .iter()
+            .map(|c| kxen_llm::types::AssistantToolCall::function(c.id.clone(), c.name.clone(), c.arguments.clone()))
+            .collect();
+        messages.push(Message::assistant_with_tools(text, assistant_calls));
         for call in calls {
             let name = call.name;
             (ctx.on_event)(AgentEvent::ToolCall { name: name.clone(), summary: summarize_args(&call.arguments) });
             let result = execute_tool(&name, &call.arguments, ctx).await;
             let summary = result_summary(&name, &result);
             (ctx.on_event)(AgentEvent::ToolResult { name: name.clone(), summary: summary.clone() });
-            messages.push(Message {
-                role: kxen_llm::Role::User,
-                content: format!("<tool_result name=\"{}\" id=\"{}\">\n{}\n</tool_result>", name, call.id, result_text(&result)),
-            });
+            messages.push(Message::tool_result(call.id.clone(), name, result_text(&result)));
         }
     }
 
@@ -143,7 +144,7 @@ async fn execute_tool(name: &str, arguments: &str, ctx: &mut AgentContext) -> Re
                     expected_replacements: args.get("expected_replacements").and_then(Value::as_u64).map(|n| n as usize),
                 },
             };
-            edit(&path, &spec, &ctx.tracker, &cwd).map(|r| r.diff_summary).map_err(|e| e.to_string())
+            edit(&path, &spec, &ctx.tracker, &cwd).map(|r| format!("{}\n{}", r.diff_summary, r.diff)).map_err(|e| e.to_string())
         }
         "write" => {
             let path = resolve_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, &ctx.workdir);

@@ -19,13 +19,15 @@ pub struct ProbeRule {
     pub provider: &'static str,
     pub display: &'static str,
     probe: fn() -> Option<CredentialKind>,
+    /// 环境变量覆盖（开发期暂存，免官方源访问）
+    env_override: Option<&'static str>,
 }
 
 pub const RULES: &[ProbeRule] = &[
-    ProbeRule { provider: "anthropic", display: "Claude Pro/Max", probe: probe_claude },
-    ProbeRule { provider: "openai", display: "ChatGPT Plus/Pro (codex)", probe: probe_codex },
-    ProbeRule { provider: "xai", display: "SuperGrok (grok-build)", probe: probe_grok },
-    ProbeRule { provider: "kimi-for-coding", display: "Kimi Code", probe: probe_kimi },
+    ProbeRule { provider: "anthropic", display: "Claude Pro/Max", probe: probe_claude, env_override: Some("KXEN_CLAUDE_OAUTH") },
+    ProbeRule { provider: "openai", display: "ChatGPT Plus/Pro (codex)", probe: probe_codex, env_override: None },
+    ProbeRule { provider: "xai", display: "SuperGrok (grok-build)", probe: probe_grok, env_override: None },
+    ProbeRule { provider: "kimi-for-coding", display: "Kimi Code", probe: probe_kimi, env_override: None },
 ];
 
 /// 全源探测：返回 (provider, outcome, display)。store 就地更新。
@@ -33,7 +35,13 @@ pub fn probe_all(store: &mut AuthStore) -> Vec<(&'static str, ProbeOutcome, &'st
     RULES
         .iter()
         .map(|rule| {
-            let imported = (rule.probe)();
+            // 自有存储在刷新窗口内（30min）直接复用，不碰官方源（避免反复授权）
+            let existing = store.get(rule.provider);
+            if existing.is_some_and(|c| !c.is_expired_within(30 * 60 * 1000)) {
+                return (rule.provider, ProbeOutcome::Fresh, rule.display);
+            }
+            // env override（开发期暂存，最高优先）
+            let imported = rule.env_override.and_then(|var| read_env_override(var)).or_else(|| (rule.probe)());
             let outcome = match imported {
                 None => {
                     if store.contains_key(rule.provider) { ProbeOutcome::Fresh } else { ProbeOutcome::Missing }
@@ -54,6 +62,12 @@ pub fn probe_all(store: &mut AuthStore) -> Vec<(&'static str, ProbeOutcome, &'st
             (rule.provider, outcome, rule.display)
         })
         .collect()
+}
+
+fn read_env_override(var: &str) -> Option<CredentialKind> {
+    let raw = std::env::var(var).ok()?;
+    let raw = raw.strip_prefix("file://").map(|p| std::fs::read_to_string(p).ok()).unwrap_or(Some(raw.to_string()))?;
+    parse_claude(raw.trim())
 }
 
 // --- Claude（Keychain 优先，~/.claude/.credentials.json 兜底） ---
