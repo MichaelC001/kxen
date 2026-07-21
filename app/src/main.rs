@@ -1,54 +1,92 @@
-use kxen_auth::{probe_all, ProbeOutcome};
-use kxen_core::paths;
-use serde::Serialize;
+use futures::StreamExt;
+use kxen_llm::{Delta, LlmClient, Message, ModelRef};
+use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, State};
 
-#[derive(Serialize)]
-struct DoctorEntry {
-    provider: String,
-    display: String,
-    status: String,
-    detail: String,
+mod doctor;
+
+#[derive(Default)]
+struct AppState {
+    auth_store: Mutex<kxen_auth::credential::AuthStore>,
+    model: Mutex<ModelRef>,
 }
 
-#[derive(Serialize)]
-struct DoctorReport {
-    bun_like_runtime: String,
-    data_dir: String,
-    config_dir: String,
-    entries: Vec<DoctorEntry>,
+impl AppState {
+    fn new() -> Self {
+        let path = kxen_core::paths::auth_file();
+        let mut store = kxen_auth::credential::read_auth_file(&path);
+        let outcomes = kxen_auth::probe_all(&mut store);
+        let _ = kxen_auth::credential::write_auth_file(&path, &store);
+        for (provider, outcome, _) in &outcomes {
+            tracing::info!(provider, ?outcome, "credential probe");
+        }
+        Self {
+            auth_store: Mutex::new(store),
+            model: Mutex::new(ModelRef::new("xai", "grok-build-0.1")),
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum LlmEvent {
+    Text { text: String },
+    Reasoning { text: String },
+    Usage { input: u64, output: u64 },
+    Done,
+    Error { message: String },
+}
+
+#[derive(Deserialize)]
+struct SendInput {
+    text: String,
+    #[serde(default)]
+    history: Vec<HistoryMessage>,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+struct HistoryMessage {
+    role: String,
+    content: String,
 }
 
 #[tauri::command]
-fn doctor() -> DoctorReport {
-    let auth_path = paths::auth_file();
-    let mut store = kxen_auth::credential::read_auth_file(&auth_path);
-    let outcomes = probe_all(&mut store);
-    let _ = kxen_auth::credential::write_auth_file(&auth_path, &store);
+async fn send_message(app: AppHandle, state: State<'_, AppState>, input: SendInput) -> Result<(), String> {
+    let (model, store) = {
+        let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
+        (state.model.lock().map_err(|e| e.to_string())?.clone(), store)
+    };
 
-    let entries = outcomes
+    let mut messages: Vec<Message> = input
+        .history
         .iter()
-        .map(|(provider, outcome, display)| {
-            let (status, detail) = match outcome {
-                ProbeOutcome::Imported => ("imported", "updated from official CLI"),
-                ProbeOutcome::Fresh => ("ok", "credential present"),
-                ProbeOutcome::Missing => ("missing", "no credential found"),
-            };
-            let expired = store.get(*provider).is_some_and(|c| c.is_expired());
-            DoctorEntry {
-                provider: provider.to_string(),
-                display: display.to_string(),
-                status: if expired { "expired".into() } else { status.into() },
-                detail: if expired { "will refresh on next call".into() } else { detail.into() },
-            }
+        .map(|m| match m.role.as_str() {
+            "system" => Message::system(m.content.clone()),
+            "assistant" => Message::assistant(m.content.clone()),
+            _ => Message::user(m.content.clone()),
         })
         .collect();
+    messages.push(Message::user(input.text));
 
-    DoctorReport {
-        bun_like_runtime: format!("rust {}", env!("CARGO_PKG_RUST_VERSION", "1.96")),
-        data_dir: paths::data_dir().display().to_string(),
-        config_dir: paths::config_dir().display().to_string(),
-        entries,
+    let mut stream = LlmClient::stream(&model, &messages, &store);
+    while let Some(delta) = stream.next().await {
+        let event = match delta {
+            Delta::Text(text) => LlmEvent::Text { text },
+            Delta::Reasoning(text) => LlmEvent::Reasoning { text },
+            Delta::Usage { input, output } => LlmEvent::Usage { input, output },
+            Delta::Done => LlmEvent::Done,
+            Delta::Error(message) => LlmEvent::Error { message },
+            Delta::ToolCall { .. } => continue,
+        };
+        app.emit("llm://delta", event).map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+#[tauri::command]
+fn current_model(state: State<'_, AppState>) -> ModelRef {
+    state.model.lock().expect("model").clone()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -58,7 +96,8 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![doctor])
+        .manage(AppState::new())
+        .invoke_handler(tauri::generate_handler![doctor::doctor, send_message, current_model])
         .run(tauri::generate_context!())
         .expect("error while running kxen");
 }

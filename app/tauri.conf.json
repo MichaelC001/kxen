@@ -5,7 +5,7 @@
   "identifier": "ai.kxen.app",
   "build": {
     "frontendDist": "../ui/dist",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:7823",
     "beforeDevCommand": "",
     "beforeBuildCommand": ""
   },
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "kxen",
+        "title": "Kxen",
         "width": 1280,
         "height": 800,
         "minWidth": 900,

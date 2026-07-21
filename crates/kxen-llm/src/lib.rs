@@ -1,1 +1,10 @@
-//! kxen-llm（M0 占位，M1 实现 provider 调用与 mrm 调度）。
+//! kxen-llm：provider 调用层（自研薄层：endpoint + auth + SSE）。
+//! 每 provider ~200-400 行；openai-compatible 一条通用实现覆盖长尾。
+
+pub mod client;
+pub mod sse;
+pub mod types;
+pub mod xai;
+
+pub use client::LlmClient;
+pub use types::{Delta, Message, ModelRef, Role};

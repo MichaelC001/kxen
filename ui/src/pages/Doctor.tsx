@@ -1,11 +1,11 @@
-import { createSignal, For, Show } from 'solid-js';
-import { doctor, type DoctorReport } from '../lib/tauri';
+import { createSignal, For, Show } from "solid-js";
+import { doctor, type DoctorReport } from "../lib/tauri";
 
 const STATUS_STYLE: Record<string, string> = {
-  imported: 'text-emerald-400',
-  ok: 'text-emerald-400',
-  missing: 'text-amber-400',
-  expired: 'text-rose-400',
+  imported: "text-emerald-400",
+  ok: "text-emerald-400",
+  missing: "text-amber-400",
+  expired: "text-rose-400",
 };
 
 export default function Doctor() {
@@ -32,7 +32,7 @@ export default function Doctor() {
           onClick={run}
           disabled={loading()}
         >
-          {loading() ? '检查中…' : '重新检查'}
+          {loading() ? "检查中…" : "重新检查"}
         </button>
       </div>
 
@@ -53,7 +53,7 @@ export default function Doctor() {
                       <div class="text-xs text-gray-500">{entry.provider}</div>
                     </div>
                     <div class="text-right">
-                      <div class={`text-sm font-medium ${STATUS_STYLE[entry.status] ?? ''}`}>
+                      <div class={`text-sm font-medium ${STATUS_STYLE[entry.status] ?? ""}`}>
                         {entry.status}
                       </div>
                       <div class="text-xs text-gray-500">{entry.detail}</div>

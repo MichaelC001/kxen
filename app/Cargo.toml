@@ -12,6 +12,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2.11", features = [] }
 kxen-core = { path = "../crates/kxen-core" }
 kxen-auth = { path = "../crates/kxen-auth" }
+kxen-llm = { path = "../crates/kxen-llm" }
+futures = "0.3"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
