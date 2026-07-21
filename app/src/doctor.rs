@@ -2,7 +2,7 @@ use kxen_auth::{probe_all, ProbeOutcome};
 use kxen_core::paths;
 use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct DoctorEntry {
     provider: String,
     display: String,
@@ -10,7 +10,7 @@ pub struct DoctorEntry {
     detail: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct DoctorReport {
     runtime: String,
     data_dir: String,
@@ -18,8 +18,7 @@ pub struct DoctorReport {
     entries: Vec<DoctorEntry>,
 }
 
-#[tauri::command]
-pub fn doctor() -> DoctorReport {
+pub fn doctor_report() -> DoctorReport {
     let auth_path = paths::auth_file();
     let mut store = kxen_auth::credential::read_auth_file(&auth_path);
     let outcomes = probe_all(&mut store);

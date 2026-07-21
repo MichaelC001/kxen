@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import { doctor, type DoctorReport } from "../lib/tauri";
+import { doctor, type DoctorReport } from "../lib/chat";
 
 const STATUS_STYLE: Record<string, string> = {
   imported: "text-emerald-400",

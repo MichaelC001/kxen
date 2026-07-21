@@ -213,6 +213,9 @@ importers:
       '@tauri-apps/api':
         specifier: ^2.9.0
         version: 2.11.1
+      '@tauri-apps/plugin-websocket':
+        specifier: ^2.0.0
+        version: 2.4.2
       marked:
         specifier: ^17.0.0
         version: 17.0.6
@@ -985,6 +988,9 @@ packages:
 
   '@tauri-apps/api@2.11.1':
     resolution: {integrity: sha512-M2FPuYND2m+wh5hfW9ZpSdxMPdEJovPBWwoHJmwUpysTYNHaOkVFN419m/K0LIgjb/7KU2vBgsUepJWugQCvAA==}
+
+  '@tauri-apps/plugin-websocket@2.4.2':
+    resolution: {integrity: sha512-B1/csKPwJH9kLduNoqWFUdCsTgCvLM84T5ZZYK35jeBc9m2cm2m2G/hbSr28ZpVOZrl0x24fCWFe/9rpp7WETw==}
 
   '@testing-library/dom@10.4.1':
     resolution: {integrity: sha512-o4PXJQidqJl82ckFaXUeoAW+XysPLauYI43Abki5hABd853iMhitooc6znOnczgbTYmEP6U6/y1ZyKAIsvMKGg==}
@@ -2984,6 +2990,10 @@ snapshots:
       vite: 8.1.5(jiti@2.7.0)
 
   '@tauri-apps/api@2.11.1': {}
+
+  '@tauri-apps/plugin-websocket@2.4.2':
+    dependencies:
+      '@tauri-apps/api': 2.11.1
 
   '@testing-library/dom@10.4.1':
     dependencies:

@@ -1,5 +1,6 @@
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { rpc } from "./rpc";
+import { subscribe } from "./stream";
+import type { DoctorReport } from "./tauri";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -9,55 +10,66 @@ export interface ChatMessage {
   error?: string;
 }
 
-interface SendInput {
-  text: string;
-  history: Array<{ role: string; content: string }>;
-}
+export type { DoctorReport };
 
-type LlmEvent =
-  | { kind: "text"; text: string }
-  | { kind: "reasoning"; text: string }
-  | { kind: "usage"; input: number; output: number }
-  | { kind: "done" }
-  | { kind: "error"; message: string };
-
-const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-
-export async function sendMessage(input: SendInput): Promise<void> {
-  if (!isTauri) return;
-  return tauriInvoke("send_message", { input });
+export async function doctor(): Promise<DoctorReport> {
+  return rpc<DoctorReport>("doctor");
 }
 
 export async function currentModel(): Promise<{ provider: string; model: string }> {
-  if (!isTauri) return { provider: "xai", model: "grok-build-0.1 (browser mock)" };
-  return tauriInvoke("current_model");
+  return rpc("current_model");
 }
 
-export async function onLlmDelta(
+export async function sendMessage(
+  text: string,
+  history: Array<{ role: string; content: string }>,
+): Promise<void> {
+  return rpc("send_message", { text, history });
+}
+
+export function onLlmDelta(
   onText: (text: string) => void,
   onReasoning: (text: string) => void,
   onDone: (usage?: { input: number; output: number }, error?: string) => void,
-): Promise<UnlistenFn> {
-  if (!isTauri) return () => {};
+): Promise<() => void> {
   let usage: { input: number; output: number } | undefined;
-  return listen<LlmEvent>("llm://delta", (event) => {
-    const payload = event.payload;
-    switch (payload.kind) {
+  return subscribe(["llm.delta"], (_topic, payload) => {
+    handle(
+      payload as {
+        kind?: string;
+        text?: string;
+        input?: number;
+        output?: number;
+        message?: string;
+        tool?: string;
+      },
+    );
+  });
+
+  function handle(event: {
+    kind?: string;
+    text?: string;
+    input?: number;
+    output?: number;
+    message?: string;
+    tool?: string;
+  }) {
+    switch (event.kind) {
       case "text":
-        onText(payload.text);
+        if (event.text) onText(event.text);
         break;
       case "reasoning":
-        onReasoning(payload.text);
+        if (event.text) onReasoning(event.text);
         break;
       case "usage":
-        usage = { input: payload.input, output: payload.output };
+        usage = { input: event.input ?? 0, output: event.output ?? 0 };
         break;
       case "done":
         onDone(usage);
         break;
       case "error":
-        onDone(undefined, payload.message);
+        onDone(undefined, event.message ?? "unknown error");
         break;
     }
-  });
+  }
 }

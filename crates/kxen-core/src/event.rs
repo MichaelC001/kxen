@@ -4,7 +4,7 @@ use tokio::sync::broadcast;
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    LlmDelta(String),
+    LlmDelta(serde_json::Value),
     ToolCall { name: &'static str, summary: String },
     TaskUpdate { id: String, status: &'static str },
     GoalUpdate { id: String, status: &'static str },

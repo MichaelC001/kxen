@@ -1,13 +1,12 @@
 import { createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import { currentModel, onLlmDelta, sendMessage, type ChatMessage } from "../lib/chat";
-import type { UnlistenFn } from "@tauri-apps/api/event";
 
 export default function Session() {
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
   const [draft, setDraft] = createSignal("");
   const [streaming, setStreaming] = createSignal(false);
   const [model, setModel] = createSignal("");
-  let unlisten: UnlistenFn | undefined;
+  let unlisten: (() => void) | undefined;
   let listRef: HTMLDivElement | undefined;
 
   onMount(async () => {
