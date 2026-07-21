@@ -93,6 +93,43 @@ action bar：左 [+附件菜单][模式预留]   右 [预估 tokens][模型 pill
 - 文件编辑工具成功后 commit，粒度绑 messageID；三档 restore + unrevert
 - cap：每 session 100 滚动、30 天清理、单文件 2MB、排除 node_modules/target；bash 改动不追踪
 
+## 7. Agent Teams（P0，对标 Claude Code agent teams + kxen 差异化）
+
+### 7.1 模型
+
+- team = lead（主会话）+ teammates（独立 AgentContext + 常驻 tokio loop：spawn -> 首轮 -> idle 听 inbox -> 唤醒再跑）
+- **差异化：每个 teammate 可绑不同订阅/模型**（spawn model 参数 -> MRM 解析；默认走角色路由）——多订阅混用主场
+- 存储 `data_dir/teams/<session_id>/`：config.json（members/状态，session 结束清理）+ tasks.json（保留）+ inboxes/<name>.json
+- 无嵌套 team；单 session 单 team；lead 固定
+
+### 7.2 协调机制
+
+- tasks.json：{id, title, status: pending|in_progress|completed, assignee?, depends_on[]}；依赖完成自动解锁；进程内 Mutex 串行化 claim（单进程无需文件锁）
+- mailbox：inboxes/<name>.json 追加写 + 读取时校验（坏行报错剔除）；bus 事件自动送达不轮询
+- plan 审批：spawn plan_approval -> teammate 只读跑出计划 -> lead approve/reject（reject 带反馈继续改）
+- hook 挂点：teammate_idle / task_created / task_completed（复用 hooks 体系，exit 2 = 打回）
+
+### 7.3 工具面
+
+- lead：`team {action: spawn|message|shutdown|list}`，spawn 参数 {name, role, prompt, model?, plan_approval?, worktree?}
+- teammate：角色权限白名单工具 + `send_message {to, text}` + `task {action: claim|complete|list}`
+- worktree 隔离复用（teammate 各占一个 worktree，零文件冲突）
+
+### 7.4 UI 配套
+
+- team 面板（dock 新区块）：teammates 列表（working 绿呼吸/idle 灰/failed 红状态点 + 模型标签），点击展开其转录（独立消息流视图），内嵌输入框直接对它说话
+- 任务列表视图：三态 + 依赖链 + assignee
+- teammate 流式：llm.delta payload 加 agent 字段，主会话与 teammate 渲染分流
+- 创建入口：自然语言（lead 用 team 工具 spawn），UI 不做硬编码创建按钮（对齐 Claude Code "描述即编排"）
+
+### 7.5 验证（实测）
+
+- 自然语言让 lead spawn 3 个不同模型的 teammates 做并行调研（anthropic/xai/kimi 各一），各自返回结论
+- 共享任务列表：3 任务 1 依赖链，依赖完成自动解锁并被 claim
+- 直接对某个 teammate 发消息（UI 面板输入框），其转录更新且主会话不被打断
+- plan 审批：spawn plan_approval teammate，其改动前停在计划态，lead approve 后才动手
+- teammate_idle hook 配置 exit 2 打回一次生效
+
 ## 验证（全部实测）
 
 - cargo test 全绿、vp check 全绿、Rust 零警告

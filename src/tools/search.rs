@@ -90,6 +90,92 @@ pub fn grep_files(pattern: &str, base: &Path, glob_filter: Option<&str>) -> Resu
     Ok(out)
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct CompleteEntry {
+    pub path: String,
+    pub kind: &'static str, // "file" | "dir"
+}
+
+/// @ 补全：子序列模糊匹配（大小写不敏感），按匹配质量 + 路径长度排序。
+/// 评分：连续匹配段越长越好；起始匹配与路径越短越好。
+pub fn complete(query: &str, base: &Path, limit: usize) -> Vec<CompleteEntry> {
+    if !base.is_dir() {
+        return Vec::new();
+    }
+    let query = query.to_lowercase();
+    let mut hits: Vec<(i64, CompleteEntry)> = Vec::new();
+    for entry in WalkBuilder::new(base).hidden(false).build().flatten() {
+        let is_file = entry.file_type().is_some_and(|t| t.is_file());
+        let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
+        if !is_file && !is_dir {
+            continue;
+        }
+        let path = entry.path();
+        let rel = path.strip_prefix(base).unwrap_or(path).to_string_lossy().into_owned();
+        if rel.is_empty() {
+            continue;
+        }
+        let score = if query.is_empty() { Some(0) } else { fuzzy_score(&query, &rel.to_lowercase()) };
+        if let Some(score) = score {
+            hits.push((
+                score,
+                CompleteEntry { path: rel, kind: if is_file { "file" } else { "dir" } },
+            ));
+        }
+        if hits.len() >= limit * 8 {
+            break;
+        }
+    }
+    // 分数高的在前；同分短路径在前
+    hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.path.len().cmp(&b.1.path.len())));
+    hits.truncate(limit);
+    hits.into_iter().map(|(_, e)| e).collect()
+}
+
+/// 子序列匹配评分：None = 不匹配；分数 = 连续段奖励 - 间隙惩罚。
+fn fuzzy_score(query: &str, candidate: &str) -> Option<i64> {
+    let mut qs = query.chars().peekable();
+    let mut score = 0i64;
+    let mut run = 0i64;
+    for c in candidate.chars() {
+        if qs.peek() == Some(&c) {
+            qs.next();
+            run += 1;
+            score += 2 + run * 2; // 连续命中递增奖励
+        } else {
+            run = 0;
+            score -= 1; // 间隙惩罚
+        }
+    }
+    if qs.next().is_none() { Some(score) } else { None }
+}
+
+#[cfg(test)]
+mod complete_tests {
+    use super::*;
+
+    #[test]
+    fn fuzzy_ranks_contiguous_higher() {
+        let dir = std::env::temp_dir().join(format!("kxen-complete-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("src/agent")).unwrap();
+        std::fs::write(dir.join("src/agent/agent_loop.rs"), "").unwrap();
+        std::fs::write(dir.join("src/agent/okf.rs"), "").unwrap();
+        std::fs::write(dir.join("README.md"), "").unwrap();
+
+        let hits = complete("agent", &dir, 10);
+        assert!(!hits.is_empty());
+        assert!(hits.iter().any(|h| h.path.contains("agent_loop.rs")));
+        assert_eq!(hits[0].kind, "dir", "目录精确命中应排最前");
+
+        let none = complete("zzzqqq", &dir, 10);
+        assert!(none.is_empty());
+
+        let all = complete("", &dir, 10);
+        assert_eq!(all.len(), 5, "src/ + src/agent/ + 2 文件 + README");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -172,8 +172,14 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
         }
         "send_message" => {
             let p: SendMessageParams = serde_json::from_value(params).map_err(|e| e.to_string())?;
-            tokio::spawn(run_llm(p.session_id, p.text, app.clone()));
+            tokio::spawn(run_llm(p.session_id, p.text, p.context, app.clone()));
             Ok(Value::Null)
+        }
+        "fs.complete" => {
+            let query = params.get("query").and_then(Value::as_str).unwrap_or("");
+            let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+            let state = app.state::<Arc<AppState>>();
+            Ok(json!(kxen_app::tools::search::complete(query, &state.workdir, limit)))
         }
         other => Err(format!("unknown method: {other}")),
     }
@@ -183,6 +189,8 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
 struct SendMessageParams {
     session_id: String,
     text: String,
+    #[serde(default)]
+    context: Vec<kxen_app::agent::context::ContextItem>,
 }
 
 // ---------------- Stream 通道 ----------------
@@ -249,11 +257,19 @@ fn map_event(event: kxen_app::core::event::Event) -> (&'static str, Value) {
 
 // ---------------- LLM 任务 ----------------
 
-async fn run_llm(session_id: String, text: String, app: AppHandle) {
+async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent::context::ContextItem>, app: AppHandle) {
     use kxen_app::core::session as ses;
 
     let state = app.state::<Arc<AppState>>();
     let sessions_dir = kxen_app::core::paths::sessions_dir();
+
+    // @ 引用注入：chip -> 上下文块（文件/目录/Web/Docs），追加在用户消息尾部
+    let context_block = if context.is_empty() {
+        String::new()
+    } else {
+        kxen_app::agent::context::build_context(&context, &state.workdir).await
+    };
+    let text = if context_block.is_empty() { text } else { format!("{text}\n{context_block}") };
 
     // 用户消息落盘（LLM 历史以后端会话存储为准，前端不再传 history）
     let user_msg = ses::new_message(&session_id, ses::Role::User, vec![ses::Part::Text { text: text.clone() }]);
