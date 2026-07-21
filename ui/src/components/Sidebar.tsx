@@ -9,6 +9,7 @@ import {
   sessions,
   switchSession,
 } from "../lib/state";
+import { theme, toggleTheme } from "../lib/theme";
 
 /** 左栏：会话列表（会话是家）+ 底部应用级入口。 */
 export default function Sidebar() {
@@ -67,12 +68,21 @@ export default function Sidebar() {
         </For>
       </div>
       <div class="px-3 py-2 border-t border-[var(--border)] space-y-2">
-        <A
-          href="/doctor"
-          class="block px-1 text-xs text-[var(--text-dim)] hover:text-[var(--text)]"
-        >
-          环境检查
-        </A>
+        <div class="flex items-center justify-between">
+          <A
+            href="/doctor"
+            class="block px-1 text-xs text-[var(--text-dim)] hover:text-[var(--text)]"
+          >
+            环境检查
+          </A>
+          <button
+            class="pressable px-1.5 py-0.5 rounded text-xs text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60"
+            title="切换明暗主题"
+            onClick={toggleTheme}
+          >
+            {theme() === "dark" ? "☾ 暗" : "☀ 亮"}
+          </button>
+        </div>
         <div>
           <div class="text-[10px] uppercase tracking-wider text-[var(--text-faint)]">当前模型</div>
           <div class="text-xs text-[var(--text-dim)] truncate" title={model()}>

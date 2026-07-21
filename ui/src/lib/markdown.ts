@@ -33,34 +33,24 @@ function escapeHtml(text: string): string {
 
 export async function initMarkdown(): Promise<void> {
   if (ready) return;
-  highlighter = await createHighlighter({ themes: ["github-dark"], langs: LANGS });
+  highlighter = await createHighlighter({ themes: ["github-dark", "github-light"], langs: LANGS });
   marked.use(
     markedShiki({
       highlight(code, lang) {
         if (!highlighter || !lang || !LANGS.includes(lang)) {
           return `<pre><code>${escapeHtml(code)}</code></pre>`;
         }
-        return highlighter.codeToHtml(code, { lang, theme: "github-dark" });
+        // 主题在渲染时动态读取（注册一次，不重复 marked.use）
+        return highlighter.codeToHtml(code, { lang, theme: shikiTheme() });
       },
     }),
   );
   ready = true;
 }
 
-// mermaid 体积大（>500KB）：按需动态加载，首个 mermaid 块出现时才进内存
-let mermaidLib: typeof import("mermaid").default | null = null;
-
-async function ensureMermaid() {
-  if (!mermaidLib) {
-    mermaidLib = (await import("mermaid")).default;
-    mermaidLib.initialize({
-      startOnLoad: false,
-      theme: "dark",
-      securityLevel: "strict",
-      fontFamily: "system-ui, -apple-system, sans-serif",
-    });
-  }
-  return mermaidLib;
+/** 当前主题对应的 shiki 主题名。 */
+function shikiTheme(): string {
+  return document.documentElement.dataset.theme === "light" ? "github-light" : "github-dark";
 }
 
 /** 同步渲染 markdown -> HTML。mermaid 块先转占位 div，随后由 renderMermaid 实例化。 */
@@ -70,6 +60,26 @@ export function renderMarkdown(text: string): string {
   });
   return marked.parse(withPlaceholders, { async: false }) as string;
 }
+
+// mermaid 体积大（>500KB）：按需动态加载，首个 mermaid 块出现时才进内存
+let mermaidLib: typeof import("mermaid").default | null = null;
+
+async function ensureMermaid() {
+  const theme = document.documentElement.dataset.theme === "light" ? "default" : "dark";
+  if (!mermaidLib || mermaidTheme !== theme) {
+    mermaidLib = (await import("mermaid")).default;
+    mermaidLib.initialize({
+      startOnLoad: false,
+      theme,
+      securityLevel: "strict",
+      fontFamily: "system-ui, -apple-system, sans-serif",
+    });
+    mermaidTheme = theme;
+  }
+  return mermaidLib;
+}
+
+let mermaidTheme = "";
 
 let mermaidSeq = 0;
 

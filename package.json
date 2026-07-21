@@ -1,0 +1,5 @@
+{
+	"dependencies": {
+		"@tauri-apps/plugin-websocket": "~2.4.2"
+	}
+}

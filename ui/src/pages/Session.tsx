@@ -177,7 +177,7 @@ export default function Session() {
   };
 
   return (
-    <div class="h-full flex flex-col">
+    <div class="h-full flex-1 min-w-0 flex flex-col">
       <div class="material px-4 py-2 border-b border-[var(--border)] text-xs flex items-center gap-3">
         <span class="font-medium text-[var(--text)] truncate">{title()}</span>
         <Show when={streaming()}>

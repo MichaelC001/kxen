@@ -1,25 +1,47 @@
 @import "tailwindcss";
 
-/* ============ 设计 tokens（曲线/时长取自 STANDARDS.md，性格：crisp 开发工具） ============ */
-:root {
+/* ============ 主题 tokens：暗色为默认，[data-theme="light"] 覆盖 ============ */
+:root,
+[data-theme="dark"] {
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --dur-press: 160ms;
   --dur-fade: 150ms;
 
-  --bg: #0b0d10;
-  --bg-raised: #12151a;
-  --bg-overlay: #171b21;
-  --border: #23282f;
-  --text: #e6e9ee;
-  --text-dim: #9aa4b2;
-  --text-faint: #5d6875;
+  --bg: #15171c;
+  --bg-raised: #1b1e25;
+  --bg-overlay: #232732;
+  --border: #2d323d;
+  --text: #e4e7ed;
+  --text-dim: #9aa3b2;
+  --text-faint: #646d7c;
   --accent: #6366f1;
   --accent-hover: #818cf8;
+  --accent-contrast: #ffffff;
   --ok: #34d399;
   --warn: #fbbf24;
   --err: #fb7185;
+  --code-bg: #0d1117;
   --radius: 8px;
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --bg: #f6f7f9;
+  --bg-raised: #ffffff;
+  --bg-overlay: #eceef2;
+  --border: #dde1e7;
+  --text: #1c2330;
+  --text-dim: #5a6472;
+  --text-faint: #98a1ad;
+  --accent: #5850ec;
+  --accent-hover: #4f46e5;
+  --accent-contrast: #ffffff;
+  --ok: #059669;
+  --warn: #d97706;
+  --err: #e11d48;
+  --code-bg: #f6f8fa;
+  color-scheme: light;
 }
 
 html,
@@ -39,7 +61,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ============ 按压反馈（pointer-down 即时，Apple §1；subtle 0.97/160ms） ============ */
+/* 主题切换：body 底色渐变（子元素靠变量瞬时跟随，不做全局 transition） */
+body {
+  transition:
+    background-color var(--dur-fade) var(--ease-out),
+    color var(--dur-fade) var(--ease-out);
+}
+
+/* ============ 按压反馈（pointer-down 即时；subtle 0.97/160ms） ============ */
 .pressable {
   transition: transform var(--dur-press) var(--ease-out);
 }
@@ -47,9 +76,9 @@ body {
   transform: scale(0.97);
 }
 
-/* ============ 半透明浮动层（Apple §12 materials：内容从其下滚过） ============ */
+/* ============ 半透明浮动层 ============ */
 .material {
-  background: rgba(11, 13, 16, 0.72);
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
   backdrop-filter: blur(20px) saturate(160%);
   -webkit-backdrop-filter: blur(20px) saturate(160%);
 }
@@ -152,7 +181,7 @@ code {
   padding: 0;
 }
 .md pre.shiki {
-  background: #0d1117;
+  background: var(--code-bg);
 }
 .md .mermaid {
   background: var(--bg-raised);
@@ -166,7 +195,7 @@ code {
   height: auto;
 }
 
-/* ============ reduced motion：保留透明度反馈，去掉位移（gentler, not zero） ============ */
+/* ============ reduced motion：保留透明度反馈，去掉位移 ============ */
 @media (prefers-reduced-motion: reduce) {
   .pressable {
     transition: none;
