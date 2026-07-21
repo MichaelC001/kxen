@@ -39,6 +39,10 @@ pub struct AgentOutcome {
 pub struct SessionExtras {
     pub extra_tools: std::sync::Mutex<std::collections::HashSet<String>>,
     pub todos: crate::tools::todo::TodoStore,
+    /// 已装载 skill（"name\x1fargs" 键）：同 args 禁止重调（调研 §2）。
+    pub loaded_skills: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// skill -> skill 递归深度（cap 3）。
+    pub skill_depth: std::sync::atomic::AtomicU32,
 }
 
 pub struct AgentContext {
@@ -329,6 +333,34 @@ fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a mut 
         "webfetch" => {
             let url = args.get("url").and_then(Value::as_str).ok_or("missing url")?;
             crate::tools::webfetch::fetch_text(url).await
+        }
+        "skill" => {
+            let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?;
+            let skill_args = args.get("args").and_then(Value::as_str).unwrap_or("");
+            let Some(extras) = &ctx.extras else {
+                return Err("skill unavailable in this context".into());
+            };
+            // 递归深度 cap 3（skill -> skill 链）
+            let depth = extras.skill_depth.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            let result = (|| {
+                if depth > crate::agent::skills::SKILL_RECURSION_CAP {
+                    return Err(format!("skill recursion cap ({}) reached", crate::agent::skills::SKILL_RECURSION_CAP));
+                }
+                let Some(skill) = crate::agent::skills::find(&ctx.workdir, name) else {
+                    return Err(format!("skill not found: {name}"));
+                };
+                if skill.disable_model_invocation {
+                    return Err(format!("skill {name} is user-invocable only (disable-model-invocation)"));
+                }
+                // 同 args 禁止重调
+                let key = format!("{name}\x1f{skill_args}");
+                if !crate::core::shared::lock(&extras.loaded_skills).insert(key) {
+                    return Err(format!("skill {name} already loaded with identical args - reuse the block in this session"));
+                }
+                Ok(crate::agent::skills::render_loaded(&skill, skill_args, "model"))
+            })();
+            extras.skill_depth.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            result
         }
         "agent" => {
             let role = args.get("role").and_then(Value::as_str).ok_or("missing role")?.to_string();

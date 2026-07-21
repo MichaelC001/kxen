@@ -187,6 +187,20 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
             let state = app.state::<Arc<AppState>>();
             Ok(json!(kxen_app::tools::search::complete(query, &state.workdir, limit)))
         }
+        "command.list" => {
+            let state = app.state::<Arc<AppState>>();
+            let mut commands = kxen_app::agent::commands::list(&state.workdir);
+            // skills 并入弹窗（kind=skill，标注是否 user-invocable）
+            commands.extend(kxen_app::agent::skills::scan(&state.workdir).into_iter().filter(|s| s.user_invocable).map(|s| {
+                kxen_app::agent::commands::CommandInfo {
+                    name: s.name,
+                    description: s.description,
+                    kind: "skill",
+                    argument_hint: if s.arguments.is_empty() { None } else { Some(s.arguments.join(" ")) },
+                }
+            }));
+            Ok(json!(commands))
+        }
         other => Err(format!("unknown method: {other}")),
     }
 }

@@ -181,6 +181,19 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                 "required": ["script"]
             }),
         ),
+        ToolDefinition::function(
+            "skill",
+            "Load a skill by name (see Available skills). Skills are reusable instruction packs; loading one already loaded with identical args is rejected. Do not call for skills marked disable-model-invocation.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["load"] },
+                    "name": { "type": "string" },
+                    "args": { "type": "string", "description": "Arguments passed to the skill template" }
+                },
+                "required": ["action", "name"]
+            }),
+        ),
     ]
 }
 
