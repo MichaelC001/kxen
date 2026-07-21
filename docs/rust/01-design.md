@@ -39,24 +39,34 @@ kxen-app (Tauri 壳: commands/events/窗口/菜单/updater)
       -> kxen-core (域模型 / session / goal / config / 事件总线)
 ```
 
-### 2.2 外部依赖（全部实查，2026-07-21；总量控制 30 内）
+### 2.2 外部依赖（2026-07-21 crates.io 核实 + 对比分析；总量控制 30 内）
 
-| 用途 | 选型 | 备注 |
-| --- | --- | --- |
-| app 框架 | tauri 2.x | WKWebView；tauri-plugin-updater 更新 |
-| LLM provider | 自研（jcode 同款：endpoint + auth + SSE 组合，每 provider ~200-400 行） | Rig 对 codex 订阅私有端点无实现，生态无现成 crate；SSE parser 本已决定自写 |
-| HTTP | reqwest 0.12 | rustls（零 OpenSSL） |
-| macOS Keychain | keyring 4.1.5 | Claude 凭证 |
-| PTY | portable-pty 0.9.0 | wezterm 出品 |
-| 脚本引擎 | rquickjs | workflow 编排（模型写 JS） |
-| SSE 解析 | 自写 ~150 行 | reqwest stream + 手写 parser（pi_agent_rust 模式） |
-| 序列化 | serde / serde_json / toml | |
-| 异步 | tokio 1 | rt-multi-thread |
-| 正则 | regex / regexset | safety 规则，OnceLock 预编译 |
-| 文件监听 | notify | .agents/ 变更（后期） |
-| 日志 | tracing | |
+| 用途 | 选型 | 核实数据 | 结论依据 |
+| --- | --- | --- | --- |
+| app 框架 | tauri 2.11.5 + tauri-plugin-updater 2.10.1 | 22.5M / 6.6M 下载，2026-07 活跃 | WKWebView macOS；updater 官方 |
+| HTTP | reqwest 0.13.4 | 590M 下载，2026-05 | rustls（零 OpenSSL） |
+| macOS Keychain | keyring 4.1.5 | 17.3M 下载，2026-07-14 | Security.framework 跨平台抽象（vs 直接用 security-framework crate：多一层但 API 更稳） |
+| PTY | portable-pty 0.9.0 | 9.1M 下载，2025-02（稳定低更新） | wezterm 生产实证 |
+| 脚本引擎 | rquickjs 0.12.1 | 2.8M 下载，2026-07-06 | 见下方对比分析 |
+| 异步 | tokio 1.53.1 | 814M 下载，2026-07-20 | rt-multi-thread |
+| 正则 | regex 1.13.1（内含 RegexSet，无独立 regex-set crate） | 987M 下载，2026-07-15 | OnceLock 预编译 |
+| 文件监听 | notify 8.2.0 | 128M 下载，2026-05 | .agents/ 变更（后期） |
+| 日志 | tracing 0.1.44 | 718M 下载 | |
+| 序列化 | serde / serde_json / toml | 事实标准 | |
+| SSE 解析 | 自写 ~150 行 | pi_agent_rust 模式 | 少一个依赖 |
+| 回收站 | trash 5.2.6（备选） | 2.3M 下载，2026-05 | /usr/bin/trash（macOS 14+ 自带）优先，crate 备选 |
 
-明确不引入：deno_core / boa（重或弱）、任何 Node 运行时、OpenSSL。
+**脚本引擎对比定案（workflow 核心选型）**：
+
+| 引擎 | 启动 | 内存 | ES 支持 | macArm | 判定 |
+| --- | --- | --- | --- | --- | --- |
+| rquickjs 0.12.1 | 快 8-16x（vs deno_core，windmill 实证） | 1.4M（script-bench-rs，M5 Max） | ES2023 全（modules / async generators / proxies / BigInt） | ✅ | **选定** |
+| boa_engine 0.21.1 | 中 | 25.3M（18x） | 90%+ 不完整 | 不稳定 | 排除 |
+| deno_core 0.408.0 | 慢（V8） | 大 | 完整 | ✅ 但重 | 排除 |
+
+**rquickjs 的 tokio 桥接（开放问题 1 关闭）**：async-rt feature 原生集成——`AsyncRuntime` + `AsyncContext`，JS promise 可作 Rust future await（`promise.into_future()`），Rust async fn 直接注册为 JS 函数（`Func::from(Async(f))`），`ctx.spawn` + `rt.idle()` 驱动。workflow 的 agent()/pipeline() 原语直接成立，无需 spawn_blocking hack。
+
+明确不引入：deno_core / boa（上述对比）、任何 Node 运行时、OpenSSL。
 
 ## 3. 上下文工程
 
@@ -237,7 +247,7 @@ Claude OAuth contract（jcode OAUTH.md 实证，五要素缺一不可）：
 
 ## 11. 开放问题
 
-1. rquickjs 的 tokio 桥接形态（agent() 同步转异步）——M4 首个技术验证点
+1. ~~rquickjs 的 tokio 桥接形态~~（已关闭：async-rt 原生集成，AsyncRuntime + promise.into_future + Async fn 注册，见 2.2）
 2. 更新渠道细节：tauri-plugin-updater + GitHub Releases（签名 dmg，app 内提示）的具体发布管线
 
 ## 附录 A：优点收纳矩阵
@@ -252,7 +262,7 @@ Claude OAuth contract（jcode OAUTH.md 实证，五要素缺一不可）：
 | 目标管理 | Kimi Code | goal 生命周期 + write-goal 契约 + score 验证 + 注入 |
 | 子代理 | Claude Code + OpenCode | 角色化预设 + task 派发 |
 | 模型调度 | 自定（analysis/03） | mrm 并发 / RPM / 降级 / 状态注入 |
-| provider | OpenCode + jcode | Rig 全通用 + 订阅探测规则机制 |
+| provider | OpenCode + jcode | 自研薄层（jcode 同款）+ openai-compatible 通用 + 订阅探测规则机制 |
 | context 工程 | OpenCode + peri + DCP | frozen/dynamic 分段 + boundary marker + mid-conversation 注入 |
 | 渐进披露 | peri | Tool Search（常驻 ~12，其余按需） |
 | 编辑工具 | grok-build hashline + pi_agent_rust | ChunkFingerprint 锚点 + 双模式 edit + 免强制先 Read + find_shifted 自愈 |
