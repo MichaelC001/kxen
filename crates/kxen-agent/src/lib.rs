@@ -1,1 +1,6 @@
-//! kxen-agent（M0 占位，M2-M4 实现 agent loop / subagent / workflow）。
+//! kxen-agent：agent loop（LLM -> tool_call -> 工具执行 -> 回传 -> 循环）、subagent、workflow（后续里程碑）。
+
+pub mod agent_loop;
+pub mod tools_spec;
+
+pub use agent_loop::{run_turn, AgentEvent, AgentOutcome};

@@ -2,7 +2,8 @@
 
 use crate::exec::{spawn_task, ExecError};
 use crate::shell::{wrap_command, ShellKind};
-use crate::task::{TaskRegistry, TaskStatus};
+use crate::task::TaskRegistry;
+use kxen_core::shared::lock;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -52,7 +53,7 @@ pub async fn dev_server(params: DevServerParams, registry: &Arc<TaskRegistry>) -
     match result {
         Ok(url) => Ok(DevServerStarted { task_id, url, pid: task.pid }),
         Err(_) => {
-            let tail = task.output.lock().expect("output").clone();
+            let tail = lock(&task.output).clone();
             Err(ExecError::Spawn(format!(
                 "dev server not ready within {timeout}ms. tail:\n{}",
                 crate::task::tail_of(&tail, 800)
@@ -68,12 +69,12 @@ async fn wait_ready(task: Arc<crate::task::TaskHandle>, pattern: Option<String>,
 
     loop {
         // 进程提前退出 -> 失败
-        if task.exit_code.lock().expect("exit").is_some() {
+        if lock(&task.exit_code).is_some() {
             return None;
         }
         // pattern 匹配
         {
-            let output = task.output.lock().expect("output");
+            let output = lock(&task.output);
             let lower = output.to_lowercase();
             if patterns.iter().any(|p| lower.contains(p)) {
                 let port_found = port.or_else(|| parse_port(&output));
@@ -108,7 +109,7 @@ fn spawn_health_check(task: Arc<crate::task::TaskHandle>, registry: Arc<TaskRegi
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(HEALTH_CHECK_INTERVAL_MS)).await;
-            if task.exit_code.lock().expect("exit").is_some() {
+            if lock(&task.exit_code).is_some() {
                 break;
             }
             if tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_err() {

@@ -1,6 +1,5 @@
 mod doctor;
 mod ws;
-use kxen_core::event::EventBus;
 
 use kxen_llm::ModelRef;
 use std::sync::{Arc, Mutex};
@@ -10,6 +9,8 @@ pub struct AppState {
     auth_store: Mutex<kxen_auth::credential::AuthStore>,
     model: Mutex<ModelRef>,
     pub bus: kxen_core::event::EventBus,
+    pub registry: std::sync::Arc<kxen_tools::task::TaskRegistry>,
+    pub workdir: std::path::PathBuf,
 }
 
 impl AppState {
@@ -26,6 +27,8 @@ impl AppState {
             auth_store: Mutex::new(store),
             model: Mutex::new(ModelRef::new("xai", "grok-build-0.1")),
             bus: kxen_core::event::EventBus::default(),
+            registry: std::sync::Arc::new(kxen_tools::task::TaskRegistry::new()),
+            workdir: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")),
         }
     }
 }

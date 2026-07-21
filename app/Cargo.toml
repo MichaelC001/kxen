@@ -13,6 +13,8 @@ tauri = { version = "2.11", features = [] }
 kxen-core = { path = "../crates/kxen-core" }
 kxen-auth = { path = "../crates/kxen-auth" }
 kxen-llm = { path = "../crates/kxen-llm" }
+kxen-agent = { path = "../crates/kxen-agent" }
+kxen-tools = { path = "../crates/kxen-tools" }
 futures = "0.3"
 tokio-tungstenite = "0.26"
 serde = { workspace = true }

@@ -13,6 +13,15 @@ impl LlmClient {
         messages: &[Message],
         store: &kxen_auth::credential::AuthStore,
     ) -> Pin<Box<dyn Stream<Item = Delta> + Send>> {
+        Self::stream_with_tools(model, messages, &[], store)
+    }
+
+    pub fn stream_with_tools(
+        model: &ModelRef,
+        messages: &[Message],
+        tools: &[crate::tool::ToolDefinition],
+        store: &kxen_auth::credential::AuthStore,
+    ) -> Pin<Box<dyn Stream<Item = Delta> + Send>> {
         match model.provider.as_str() {
             "xai" => {
                 let Some(cred) = store.get("xai") else {
@@ -21,7 +30,7 @@ impl LlmClient {
                 let kxen_auth::credential::CredentialKind::Oauth { access, .. } = cred else {
                     return Box::pin(futures::stream::once(async { Delta::Error("xai credential is not oauth".into()) }));
                 };
-                crate::xai::XaiProvider::new(access.clone()).stream_chat(&model.model, messages)
+                crate::xai::XaiProvider::new(access.clone()).stream_chat_with_tools(&model.model, messages, tools)
             }
             other => {
                 let provider = other.to_string();

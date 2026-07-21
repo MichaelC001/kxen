@@ -1,5 +1,6 @@
 //! 后台任务注册表（任务三件套的后端 + dev_server 健康检查）。
 
+use kxen_core::shared::{lock, SharedStr};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -16,8 +17,8 @@ pub enum TaskStatus {
 
 pub struct TaskHandle {
     pub id: String,
-    pub command: String,
-    pub workdir: String,
+    pub command: SharedStr,
+    pub workdir: SharedStr,
     pub output: Arc<Mutex<String>>,
     pub truncated: Arc<Mutex<bool>>,
     pub started_at: u64,
@@ -30,7 +31,8 @@ pub struct TaskHandle {
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskInfo {
     pub id: String,
-    pub command: String,
+    #[serde(serialize_with = "serialize_shared")]
+    pub command: SharedStr,
     pub status: TaskStatus,
     pub uptime_ms: u64,
     pub port: Option<u16>,
@@ -58,18 +60,16 @@ impl TaskRegistry {
     }
 
     pub fn register(&self, handle: Arc<TaskHandle>) {
-        self.tasks.lock().expect("tasks").insert(handle.id.clone(), handle);
+        lock(&self.tasks).insert(handle.id.clone(), handle);
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<TaskHandle>> {
-        self.tasks.lock().expect("tasks").get(id).cloned()
+        lock(&self.tasks).get(id).cloned()
     }
 
     pub fn list(&self) -> Vec<TaskInfo> {
         let now = now_ms();
-        self.tasks
-            .lock()
-            .expect("tasks")
+        lock(&self.tasks)
             .values()
             .map(|t| TaskInfo {
                 id: t.id.clone(),
@@ -84,14 +84,14 @@ impl TaskRegistry {
 
     pub fn output(&self, id: &str) -> Option<(String, bool, TaskStatus)> {
         let task = self.get(id)?;
-        let output = task.output.lock().expect("output").clone();
-        let truncated = *task.truncated.lock().expect("truncated");
+        let output = lock(&task.output).clone();
+        let truncated = *lock(&task.truncated);
         Some((output, truncated, task.status()))
     }
 
     pub async fn kill(&self, id: &str) -> bool {
         let Some(task) = self.get(id) else { return false };
-        let taken = task.child.lock().expect("child").take();
+        let taken = lock(&task.child).take();
         if let Some(mut child) = taken {
             let _ = child.kill().await;
         }
@@ -114,6 +114,10 @@ pub fn append_capped(output: &Arc<Mutex<String>>, truncated: &Arc<Mutex<bool>>, 
         *out = out[cut..].to_string();
         *truncated.lock().expect("truncated") = true;
     }
+}
+
+fn serialize_shared<S: serde::Serializer>(value: &SharedStr, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(value)
 }
 
 fn now_ms() -> u64 {
@@ -148,7 +152,7 @@ mod tests {
         let out = Arc::new(Mutex::new(String::new()));
         let trunc = Arc::new(Mutex::new(false));
         append_capped(&out, &trunc, &"x".repeat(100), 60);
-        assert!(out.lock().unwrap().len() <= 60);
-        assert!(*trunc.lock().unwrap());
+        assert!(lock(&out).len() <= 60);
+        assert!(*lock(&trunc));
     }
 }

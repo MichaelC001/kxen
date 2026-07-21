@@ -3,6 +3,7 @@
 
 pub mod client;
 pub mod sse;
+pub mod tool;
 pub mod types;
 pub mod xai;
 

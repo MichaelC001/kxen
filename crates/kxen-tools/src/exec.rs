@@ -3,6 +3,7 @@
 use crate::safety::{evaluate_shell_command, Verdict};
 use crate::shell::{wrap_command, ShellKind};
 use crate::task::{append_capped, task_id, TaskHandle, TaskRegistry};
+use kxen_core::shared::{lock, SharedStr};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -83,7 +84,7 @@ pub async fn exec(params: ExecParams, registry: &Arc<TaskRegistry>, cwd: &str) -
     let hard_timeout = params.timeout_ms.unwrap_or(120_000);
 
     let out_id = spawn_task(argv, &params.command, &workdir, registry, None).await?;
-    let task = registry.get(&out_id).expect("just spawned");
+    let task = registry.get(&out_id).expect("spawned task must be registered");
 
     let wait = wait_task(task.clone());
     let sleep = tokio::time::sleep(Duration::from_millis(budget));
@@ -98,7 +99,7 @@ pub async fn exec(params: ExecParams, registry: &Arc<TaskRegistry>, cwd: &str) -
                 // 模型给了短 timeout 且到点：杀任务报超时
                 let _ = registry.kill(&out_id).await;
                 return Ok(ExecOutcome::Foreground {
-                    output: format!("(timed out after {hard_timeout}ms)\n{}", task.output.lock().expect("output")),
+                    output: format!("(timed out after {hard_timeout}ms)\n{}", lock(&task.output)),
                     exit_code: 124,
                     truncated: true,
                 });
@@ -111,9 +112,9 @@ pub async fn exec(params: ExecParams, registry: &Arc<TaskRegistry>, cwd: &str) -
 async fn wait_task(task: Arc<TaskHandle>) -> (String, i32, bool) {
     // 轮询退出状态（简单可靠；task 结束时 child.wait 已写 exit_code）
     loop {
-        if let Some(code) = *task.exit_code.lock().expect("exit") {
-            let output = task.output.lock().expect("output").clone();
-            let truncated = *task.truncated.lock().expect("truncated");
+        if let Some(code) = *lock(&task.exit_code) {
+            let output = lock(&task.output).clone();
+            let truncated = *lock(&task.truncated);
             return (output, code, truncated);
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -147,8 +148,8 @@ pub async fn spawn_task(
 
     let handle = Arc::new(TaskHandle {
         id: id.clone(),
-        command: display_command.to_string(),
-        workdir: workdir.to_string(),
+        command: SharedStr::from(display_command),
+        workdir: SharedStr::from(workdir),
         output: output.clone(),
         truncated: truncated.clone(),
         started_at: std::time::SystemTime::now()

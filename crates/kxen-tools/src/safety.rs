@@ -44,16 +44,16 @@ static DISK_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         r"\bparted\b",
     ]
     .iter()
-    .map(|p| Regex::new(p).unwrap())
+    .map(|p| Regex::new(p).expect("static pattern"))
     .collect()
 });
 
 static SYSTEM_CMDS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-    [r"\b(shutdown|reboot|halt)\b", r"\b(nvram|csrutil)\b"].iter().map(|p| Regex::new(p).unwrap()).collect()
+    [r"\b(shutdown|reboot|halt)\b", r"\b(nvram|csrutil)\b"].iter().map(|p| Regex::new(p).expect("static pattern")).collect()
 });
 
 static CRED_CMDS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-    [r"\bsecurity\s+delete-", r"\bgpg\s+--delete-secret-key"].iter().map(|p| Regex::new(p).unwrap()).collect()
+    [r"\bsecurity\s+delete-", r"\bgpg\s+--delete-secret-key"].iter().map(|p| Regex::new(p).expect("static pattern")).collect()
 });
 
 static DESTROY_CMDS: LazyLock<Vec<(Regex, &'static str, &'static str)>> = LazyLock::new(|| {
@@ -67,7 +67,7 @@ static DESTROY_CMDS: LazyLock<Vec<(Regex, &'static str, &'static str)>> = LazyLo
         (r"\bdocker\s+system\s+prune\b.*(--volumes|-a\b)", "F4", "docker system prune 卷/全量清理"),
     ]
     .iter()
-    .map(|(p, id, why)| (Regex::new(p).unwrap(), *id, *why))
+    .map(|(p, id, why)| (Regex::new(p).expect("static pattern"), *id, *why))
     .collect()
 });
 
@@ -77,7 +77,7 @@ static GIT_DESTROY: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
         (r"\bgit\s+branch\s+-D\s+\*", "git branch -D 批量删除分支"),
     ]
     .iter()
-    .map(|(p, why)| (Regex::new(p).unwrap(), *why))
+    .map(|(p, why)| (Regex::new(p).expect("static pattern"), *why))
     .collect()
 });
 
@@ -219,7 +219,7 @@ enum Family {
 
 struct PathHit {
     family: Family,
-    guard: String,
+    guard: std::borrow::Cow<'static, str>,
 }
 
 fn classify_path(target: &str, cwd: &str) -> Option<PathHit> {
@@ -245,30 +245,30 @@ fn classify_path(target: &str, cwd: &str) -> Option<PathHit> {
     let home = dirs::home_dir()?;
     let home_str = home.to_string_lossy();
     if norm == home_str {
-        return Some(PathHit { family: Family::Home, guard: home_str.to_string() });
+        return Some(PathHit { family: Family::Home, guard: home_str.to_string().into() });
     }
     for dot in home_credential_dot() {
         let guard = format!("{home_str}/{dot}");
         if norm == guard || norm.starts_with(&format!("{guard}/")) {
-            return Some(PathHit { family: Family::Credential, guard });
+            return Some(PathHit { family: Family::Credential, guard: guard.into() });
         }
     }
     for top in home_top() {
         let guard = format!("{home_str}/{top}");
         if norm == guard {
-            return Some(PathHit { family: Family::Home, guard });
+            return Some(PathHit { family: Family::Home, guard: guard.into() });
         }
     }
     for rc in [".zshrc", ".bashrc", ".bash_profile", ".zprofile", ".profile"] {
         let guard = format!("{home_str}/{rc}");
         if norm == guard {
-            return Some(PathHit { family: Family::Home, guard });
+            return Some(PathHit { family: Family::Home, guard: guard.into() });
         }
     }
     // .config：拦整体删除，内容放行
     let guard = format!("{home_str}/.config");
     if norm == guard {
-        return Some(PathHit { family: Family::Home, guard });
+        return Some(PathHit { family: Family::Home, guard: guard.into() });
     }
     None
 }

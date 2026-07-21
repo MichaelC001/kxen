@@ -24,6 +24,7 @@ async fn main() {
             Delta::Done => eprintln!("\n[done]"),
             Delta::Error(e) => eprintln!("\n[error] {e}"),
             Delta::ToolCall { .. } => {}
+            Delta::ToolFragments(_) => {}
         }
     }
 }

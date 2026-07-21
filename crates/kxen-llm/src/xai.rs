@@ -2,15 +2,17 @@
 
 use crate::sse::{SseFrame, SseParser};
 use crate::types::{Delta, Message};
+use crate::tool::ToolDefinition;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use kxen_core::shared::SharedStr;
 use std::pin::Pin;
 
 const API_URL: &str = "https://api.x.ai/v1/chat/completions";
 
 pub struct XaiProvider {
     http: reqwest::Client,
-    bearer: String,
+    bearer: SharedStr,
 }
 
 #[derive(Serialize)]
@@ -18,6 +20,8 @@ struct ChatRequest<'a> {
     model: &'a str,
     messages: &'a [Message],
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<&'a [crate::tool::ToolDefinition]>,
 }
 
 #[derive(Deserialize)]
@@ -35,6 +39,8 @@ struct ChunkChoice {
 struct ChunkDelta {
     content: Option<String>,
     reasoning_content: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<crate::tool::ChunkToolCall>,
 }
 
 #[derive(Deserialize)]
@@ -45,18 +51,24 @@ struct Usage {
 
 impl XaiProvider {
     pub fn new(bearer: impl Into<String>) -> Self {
-        Self { http: crate::client::shared_http(), bearer: bearer.into() }
+        Self { http: crate::client::shared_http(), bearer: SharedStr::from(bearer.into()) }
     }
 
     /// 流式调用：返回 Delta 的异步流（'static，不借 provider）。
     pub fn stream_chat(&self, model: &str, messages: &[Message]) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
+        self.stream_chat_with_tools(model, messages, &[])
+    }
+
+    pub fn stream_chat_with_tools(&self, model: &str, messages: &[Message], tools: &[crate::tool::ToolDefinition]) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
+        let tools_owned: Option<Vec<ToolDefinition>> = if tools.is_empty() { None } else { Some(tools.to_vec()) };
         let bearer = self.bearer.clone();
         let model = model.to_string();
         let messages = messages.to_vec();
         let http = self.http.clone();
 
         let start = async move {
-            http.post(API_URL).bearer_auth(bearer).json(&ChatRequest { model: &model, messages: &messages, stream: true }).send().await
+            let tools_opt = tools_owned.as_deref();
+            http.post(API_URL).bearer_auth(bearer).json(&ChatRequest { model: &model, messages: &messages, stream: true, tools: tools_opt }).send().await
         };
 
         Box::pin(futures::stream::once(start).flat_map(|result| match result {
@@ -97,6 +109,9 @@ fn delta_of(frame: SseFrame) -> Option<Delta> {
                 });
             }
             let delta = chunk.choices.into_iter().next()?.delta;
+            if !delta.tool_calls.is_empty() {
+                return Some(Delta::ToolFragments(delta.tool_calls));
+            }
             if let Some(reasoning) = delta.reasoning_content {
                 return Some(Delta::Reasoning(reasoning));
             }

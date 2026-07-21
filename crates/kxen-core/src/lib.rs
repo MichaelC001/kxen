@@ -7,5 +7,6 @@ pub mod event;
 pub mod goal;
 pub mod paths;
 pub mod session;
+pub mod shared;
 
 pub use error::{Error, Result};

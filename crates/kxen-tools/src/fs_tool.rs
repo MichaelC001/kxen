@@ -131,7 +131,7 @@ pub fn edit(path: &Path, spec: &EditSpec, tracker: &FileTracker, cwd: &str) -> R
     Ok(EditResult { applied, diff_summary: format!("{applied} edit(s) applied to {}", path.display()) })
 }
 
-fn apply_anchor_edits(original: &str, lines: &mut Vec<String>, edits: &[AnchorEdit], path: &Path) -> Result<usize, FsToolError> {
+fn apply_anchor_edits(original: &str, lines: &mut Vec<String>, edits: &[AnchorEdit], _path: &Path) -> Result<usize, FsToolError> {
     let orig_lines: Vec<&str> = original.lines().collect();
     let anchors = generate_anchors(&orig_lines);
     let mut applied = 0;

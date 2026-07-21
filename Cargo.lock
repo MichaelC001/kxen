@@ -2041,15 +2041,27 @@ dependencies = [
 [[package]]
 name = "kxen-agent"
 version = "0.1.0"
+dependencies = [
+ "futures",
+ "kxen-auth",
+ "kxen-core",
+ "kxen-llm",
+ "kxen-tools",
+ "serde",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "kxen-app"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "kxen-agent",
  "kxen-auth",
  "kxen-core",
  "kxen-llm",
+ "kxen-tools",
  "serde",
  "serde_json",
  "tauri",

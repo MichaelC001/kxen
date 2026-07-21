@@ -4,11 +4,11 @@
 //! 端口启动时随机分配，经 window eval 注入前端。
 
 use futures::{SinkExt, StreamExt};
-use kxen_llm::{Delta, LlmClient, Message, ModelRef};
+use kxen_llm::Message;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
@@ -47,16 +47,6 @@ enum StreamCtl {
 struct StreamPush {
     topic: String,
     payload: Value,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum LlmEvent {
-    Text { text: String },
-    Reasoning { text: String },
-    Usage { input: u64, output: u64 },
-    Done,
-    Error { message: String },
 }
 
 // ---------------- 启动 ----------------
@@ -219,9 +209,15 @@ fn map_event(event: &kxen_core::event::Event) -> (&'static str, Value) {
 
 async fn run_llm(text: String, history: Vec<(String, String)>, app: AppHandle) {
     let state = app.state::<Arc<AppState>>();
-    let (model, store) = {
+    let (model, store, registry, workdir, bus) = {
         let store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
-        (state.model.lock().map(|m| m.clone()).unwrap_or_default(), store)
+        (
+            state.model.lock().map(|m| m.clone()).unwrap_or_default(),
+            store,
+            state.registry.clone(),
+            state.workdir.clone(),
+            state.bus.clone(),
+        )
     };
 
     let mut messages: Vec<Message> = history
@@ -234,17 +230,20 @@ async fn run_llm(text: String, history: Vec<(String, String)>, app: AppHandle) {
         .collect();
     messages.push(Message::user(text));
 
-    let bus = state.bus.clone();
-    let mut stream = LlmClient::stream(&model, &messages, &store);
-    while let Some(delta) = stream.next().await {
-        let event = match delta {
-            Delta::Text(text) => LlmEvent::Text { text },
-            Delta::Reasoning(text) => LlmEvent::Reasoning { text },
-            Delta::Usage { input, output } => LlmEvent::Usage { input, output },
-            Delta::Done => LlmEvent::Done,
-            Delta::Error(message) => LlmEvent::Error { message },
-            Delta::ToolCall { .. } => continue,
-        };
-        bus.publish(kxen_core::event::Event::LlmDelta(serde_json::to_value(&event).unwrap_or_default()));
-    }
+    let mut ctx = kxen_agent::agent_loop::AgentContext {
+        registry,
+        tracker: kxen_tools::fs_tool::FileTracker::default(),
+        workdir,
+        model,
+        store,
+        max_turns: 12,
+        on_event: Box::new(move |event| {
+            let payload = match serde_json::to_value(&event) {
+                Ok(v) => v,
+                Err(_) => return,
+            };
+            bus.publish(kxen_core::event::Event::LlmDelta(payload));
+        }),
+    };
+    kxen_agent::agent_loop::run_turn(&mut ctx, messages).await;
 }

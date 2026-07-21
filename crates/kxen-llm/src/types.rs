@@ -47,6 +47,8 @@ pub enum Delta {
     Text(String),
     /// 推理/thinking 增量
     Reasoning(String),
+    /// 工具调用分片（tool_calls chunk，由调用方累积）
+    ToolFragments(Vec<crate::tool::ChunkToolCall>),
     /// 工具调用（累积完成后一次性给出）
     ToolCall { name: String, input: serde_json::Value },
     /// 用量（流末尾给出，可能缺省）

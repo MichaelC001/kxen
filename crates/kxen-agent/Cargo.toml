@@ -6,3 +6,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+kxen-core = { path = "../kxen-core" }
+kxen-llm = { path = "../kxen-llm" }
+kxen-tools = { path = "../kxen-tools" }
+kxen-auth = { path = "../kxen-auth" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "process", "net"] }
+futures = "0.3"

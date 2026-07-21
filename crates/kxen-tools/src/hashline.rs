@@ -5,7 +5,6 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 const CHUNK_SIZE: usize = 32;
-const HASH_LEN: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Anchor {
