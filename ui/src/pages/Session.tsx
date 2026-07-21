@@ -1,4 +1,5 @@
 import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
+import { Send, Sparkles, Target, Wrench, Workflow } from "lucide-solid";
 import {
   currentModel,
   onLlmDelta,
@@ -36,6 +37,12 @@ const MODEL_PRESETS = [
   { provider: "openai", model: "gpt-5.4", label: "GPT (Codex)" },
   { provider: "xai", model: "grok-build-0.1", label: "Grok Build" },
   { provider: "kimi-for-coding", model: "kimi-for-coding", label: "Kimi Code" },
+];
+
+const HINTS = [
+  { icon: Target, title: "write-goal", desc: "定义一个带完成判据的目标" },
+  { icon: Wrench, title: "tool_search", desc: "按需发现工具（todo / webfetch）" },
+  { icon: Workflow, title: "workflow", desc: "自己写编排脚本并行派发子代理" },
 ];
 
 /** 存储消息 -> 时间线条目（工具调用/推理/文本按序还原）。 */
@@ -179,15 +186,18 @@ export default function Session() {
   return (
     <div class="h-full flex-1 min-w-0 flex flex-col">
       <div
-        class="material px-4 py-2 border-b border-[var(--border)] text-xs flex items-center gap-3"
+        class="material px-4 py-2.5 border-b border-[var(--border)] text-xs flex items-center gap-3"
         data-tauri-drag-region
       >
         <span class="font-medium text-[var(--text)] truncate">{title()}</span>
         <Show when={streaming()}>
-          <span class="text-[var(--accent-hover)]">进行中…</span>
+          <span class="inline-flex items-center gap-1.5 text-[var(--accent-hover)]">
+            <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-hover)] animate-pulse" />
+            进行中
+          </span>
         </Show>
         <select
-          class="ml-auto bg-[var(--bg-raised)] border border-[var(--border)] rounded px-1.5 py-0.5 text-[var(--text-dim)]"
+          class="ml-auto bg-transparent border border-[var(--border)] rounded-md px-1.5 py-0.5 text-[var(--text-dim)] hover:text-[var(--text)]"
           value={modelLabel()}
           onChange={(e) => void pickModel(e.currentTarget.value)}
         >
@@ -200,8 +210,8 @@ export default function Session() {
         </select>
       </div>
 
-      <div ref={(el) => (listRef = el)} class="flex-1 overflow-auto px-4 py-4">
-        <div class="max-w-3xl mx-auto space-y-3">
+      <div ref={(el) => (listRef = el)} class="flex-1 overflow-auto px-4 py-5">
+        <div class="max-w-3xl mx-auto space-y-4">
           <For each={items()}>
             {(item) => {
               if (item.kind === "tool") {
@@ -215,45 +225,52 @@ export default function Session() {
                   </div>
                 );
               }
-              return (
-                <div class={item.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                  <div
-                    class="max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm"
-                    classList={{
-                      "bg-[var(--accent)] text-white": item.role === "user",
-                      "bg-[var(--bg-raised)] border border-[var(--border)]":
-                        item.role === "assistant",
-                    }}
-                  >
-                    <Show when={item.reasoning}>
-                      <div class="text-xs text-[var(--text-faint)] border-l-2 border-[var(--border)] pl-2 mb-2 whitespace-pre-wrap">
-                        {item.reasoning}
-                      </div>
-                    </Show>
-                    <Show when={item.role === "user"} fallback={<Markdown text={item.content} />}>
-                      <span class="whitespace-pre-wrap">{item.content}</span>
-                    </Show>
-                    <Show when={item.usage}>
-                      <div class="text-[10px] text-[var(--text-faint)] mt-1.5">
-                        in {item.usage!.input} / out {item.usage!.output}
-                      </div>
-                    </Show>
-                    <Show when={item.error}>
-                      <div class="text-xs text-[var(--err)] mt-1.5">{item.error}</div>
-                    </Show>
+              if (item.role === "user") {
+                return (
+                  <div class="flex justify-end">
+                    <div class="max-w-[80%] rounded-2xl rounded-br-md px-3.5 py-2 text-sm bg-[var(--accent)] text-[var(--accent-contrast)] whitespace-pre-wrap">
+                      {item.content}
+                    </div>
                   </div>
+                );
+              }
+              // assistant：全宽排版，无气泡（现代 agent UI 形态）
+              return (
+                <div class="text-sm">
+                  <Show when={item.reasoning}>
+                    <div class="text-xs text-[var(--text-faint)] border-l-2 border-[var(--border)] pl-2.5 mb-2 whitespace-pre-wrap">
+                      {item.reasoning}
+                    </div>
+                  </Show>
+                  <Markdown text={item.content} />
+                  <Show when={item.usage}>
+                    <div class="text-[10px] text-[var(--text-faint)] mt-1.5 tabular-nums">
+                      in {item.usage!.input} / out {item.usage!.output}
+                    </div>
+                  </Show>
+                  <Show when={item.error}>
+                    <div class="text-xs text-[var(--err)] mt-1.5">{item.error}</div>
+                  </Show>
                 </div>
               );
             }}
           </For>
 
           <Show when={items().length === 0}>
-            <div class="text-center mt-24 space-y-3">
-              <div class="text-[var(--text-dim)]">发一条消息开始</div>
-              <div class="text-xs text-[var(--text-faint)] space-y-1">
-                <div>write-goal：定义一个带完成判据的目标</div>
-                <div>tool_search：按需发现工具（todo / webfetch）</div>
-                <div>workflow：让我自己写编排脚本并行派发子代理</div>
+            <div class="pt-24 space-y-6">
+              <div class="text-center space-y-2">
+                <Sparkles size={28} class="mx-auto text-[var(--accent-hover)]" />
+                <div class="text-[var(--text)] font-medium">发一条消息开始</div>
+                <div class="text-xs text-[var(--text-faint)]">四个订阅混用，目标驱动，并行编排</div>
+              </div>
+              <div class="grid grid-cols-3 gap-2.5 max-w-xl mx-auto">
+                {HINTS.map((h) => (
+                  <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-3 space-y-1.5">
+                    <h.icon size={15} class="text-[var(--accent-hover)]" />
+                    <div class="text-xs font-medium">{h.title}</div>
+                    <div class="text-[11px] leading-snug text-[var(--text-faint)]">{h.desc}</div>
+                  </div>
+                ))}
               </div>
             </div>
           </Show>
@@ -261,9 +278,9 @@ export default function Session() {
       </div>
 
       <div class="p-3 border-t border-[var(--border)]">
-        <div class="max-w-3xl mx-auto flex gap-2">
+        <div class="max-w-3xl mx-auto flex gap-2 items-end">
           <textarea
-            class="flex-1 bg-[var(--bg-raised)] border border-[var(--border)] rounded-md px-3 py-2 text-sm resize-none focus:outline-none focus:border-[var(--accent)] placeholder:text-[var(--text-faint)]"
+            class="flex-1 bg-[var(--bg-raised)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-[var(--accent)] placeholder:text-[var(--text-faint)]"
             rows={2}
             placeholder="输入消息，Enter 发送（Shift+Enter 换行）"
             value={draft()}
@@ -276,11 +293,12 @@ export default function Session() {
             }}
           />
           <button
-            class="pressable px-4 rounded-md bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-sm text-white disabled:opacity-40"
+            class="pressable h-9 w-9 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-contrast)] disabled:opacity-40 flex items-center justify-center"
             onClick={() => void send()}
             disabled={streaming() || !draft().trim()}
+            title="发送"
           >
-            发送
+            <Send size={15} />
           </button>
         </div>
       </div>

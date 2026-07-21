@@ -31,6 +31,11 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/** 代码块包装：语言标签 + 复制按钮（复制行为由 Markdown 组件事件委托实现）。 */
+function wrapCodeBlock(body: string, lang: string): string {
+  return `<div class="code-block" data-lang="${lang}"><div class="code-header"><span>${lang || "text"}</span><button class="code-copy" type="button">复制</button></div>${body}</div>`;
+}
+
 export async function initMarkdown(): Promise<void> {
   if (ready) return;
   highlighter = await createHighlighter({ themes: ["github-dark", "github-light"], langs: LANGS });
@@ -38,10 +43,10 @@ export async function initMarkdown(): Promise<void> {
     markedShiki({
       highlight(code, lang) {
         if (!highlighter || !lang || !LANGS.includes(lang)) {
-          return `<pre><code>${escapeHtml(code)}</code></pre>`;
+          return wrapCodeBlock(`<pre><code>${escapeHtml(code)}</code></pre>`, lang || "text");
         }
         // 主题在渲染时动态读取（注册一次，不重复 marked.use）
-        return highlighter.codeToHtml(code, { lang, theme: shikiTheme() });
+        return wrapCodeBlock(highlighter.codeToHtml(code, { lang, theme: shikiTheme() }), lang);
       },
     }),
   );

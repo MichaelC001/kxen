@@ -12,6 +12,7 @@ import {
   type TaskInfo,
 } from "../lib/chat";
 import Markdown from "./Markdown";
+import { FileDiff, SquareTerminal, Target } from "lucide-solid";
 
 const GOAL_STATUS: Record<string, { text: string; cls: string }> = {
   draft: { text: "草稿", cls: "text-[var(--text-dim)]" },
@@ -31,10 +32,12 @@ const TASK_STATUS: Record<string, string> = {
   failed: "text-[var(--err)]",
 };
 
-function Section(props: { title: string; children: unknown }) {
+function Section(props: { title: string; icon: unknown; children: unknown }) {
+  const Icon = props.icon as (p: { size: number; class?: string }) => unknown;
   return (
     <div class="border-b border-[var(--border)] px-3 py-3">
-      <div class="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-2">
+      <div class="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-2 flex items-center gap-1.5">
+        <Icon size={11} class="text-[var(--text-faint)]" />
         {props.title}
       </div>
       {props.children}
@@ -91,7 +94,7 @@ export default function Dock() {
 
   return (
     <aside class="w-64 shrink-0 border-l border-[var(--border)] bg-[var(--bg-raised)] overflow-y-auto">
-      <Section title="目标">
+      <Section title="目标" icon={Target}>
         <Show
           when={goal()}
           fallback={
@@ -151,7 +154,7 @@ export default function Dock() {
         </Show>
       </Section>
 
-      <Section title="改动">
+      <Section title="改动" icon={FileDiff}>
         <Show
           when={changes().length > 0}
           fallback={<div class="text-xs text-[var(--text-faint)]">workdir 无未提交改动</div>}
@@ -188,7 +191,7 @@ export default function Dock() {
         </Show>
       </Section>
 
-      <Section title="后台任务">
+      <Section title="后台任务" icon={SquareTerminal}>
         <Show
           when={tasks().length > 0}
           fallback={<div class="text-xs text-[var(--text-faint)]">无后台任务</div>}

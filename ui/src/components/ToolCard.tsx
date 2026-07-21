@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+import { ChevronRight } from "lucide-solid";
 
 /** 工具活动卡片：<details> 原生折叠（高频元素，不加动画——瞬时展开）。 */
 export default function ToolCard(props: { name: string; call: string; result?: string }) {
@@ -16,9 +17,10 @@ export default function ToolCard(props: { name: string; call: string; result?: s
         />
         <span class="font-mono text-[var(--accent-hover)]">{props.name}</span>
         <span class="text-[var(--text-dim)] truncate flex-1">{props.call}</span>
-        <span class="text-[var(--text-faint)] group-open:rotate-90 transition-transform duration-150">
-          &gt;
-        </span>
+        <ChevronRight
+          size={12}
+          class="text-[var(--text-faint)] group-open:rotate-90 transition-transform duration-150 shrink-0"
+        />
       </summary>
       <Show when={props.result !== undefined}>
         <pre class="px-2.5 pb-2 pt-1 text-[var(--text-dim)] whitespace-pre-wrap break-all max-h-64 overflow-auto border-t border-[var(--border)]">

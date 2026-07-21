@@ -1,5 +1,6 @@
 import { A } from "@solidjs/router";
 import { For, createSignal, onMount } from "solid-js";
+import { Activity, Moon, Plus, Sun, X } from "lucide-solid";
 import { currentModel, sessionDelete } from "../lib/chat";
 import {
   activeSessionId,
@@ -33,10 +34,11 @@ export default function Sidebar() {
       </div>
       <div class="px-3 pb-2">
         <button
-          class="pressable w-full px-3 py-1.5 rounded-md text-sm text-left border border-[var(--border)] text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60"
+          class="pressable w-full px-3 py-1.5 rounded-md text-sm text-left border border-[var(--border)] text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60 flex items-center gap-2"
           onClick={() => void newSession()}
         >
-          + 新会话
+          <Plus size={14} />
+          新会话
         </button>
       </div>
       <div class="flex-1 overflow-auto px-2 space-y-0.5">
@@ -62,7 +64,7 @@ export default function Sidebar() {
                   void remove(s.id);
                 }}
               >
-                ×
+                <X size={13} />
               </button>
             </div>
           )}
@@ -72,16 +74,17 @@ export default function Sidebar() {
         <div class="flex items-center justify-between">
           <A
             href="/doctor"
-            class="block px-1 text-xs text-[var(--text-dim)] hover:text-[var(--text)]"
+            class="px-1 text-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
           >
+            <Activity size={13} />
             环境检查
           </A>
           <button
-            class="pressable px-1.5 py-0.5 rounded text-xs text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60"
+            class="pressable px-1.5 py-0.5 rounded text-xs text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60 flex items-center"
             title="切换明暗主题"
             onClick={(e) => toggleTheme(e.clientX, e.clientY)}
           >
-            {theme() === "dark" ? "☾ 暗" : "☀ 亮"}
+            {theme() === "dark" ? <Moon size={13} /> : <Sun size={13} />}
           </button>
         </div>
         <div>

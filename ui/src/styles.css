@@ -204,9 +204,7 @@ code {
   padding: 0.1em 0.35em;
 }
 .md pre {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--code-bg);
   padding: 0.75em 1em;
   overflow-x: auto;
   font-size: 0.86em;
@@ -217,8 +215,40 @@ code {
   border: none;
   padding: 0;
 }
-.md pre.shiki {
+/* 代码块：头部（语言标签 + 复制）+ 体 */
+.md .code-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
   background: var(--code-bg);
+}
+.md .code-block pre {
+  border: none;
+  border-radius: 0;
+}
+.md .code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3em 0.75em;
+  font-size: 0.72em;
+  color: var(--text-faint);
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.md .code-copy {
+  padding: 0.1em 0.5em;
+  border-radius: 4px;
+  color: var(--text-dim);
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.md .code-copy:hover {
+  background: var(--bg-overlay);
+  color: var(--text);
+}
+.md .code-copy:active {
+  transform: scale(0.97);
 }
 .md .mermaid {
   background: var(--bg-raised);
