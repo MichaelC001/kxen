@@ -45,7 +45,6 @@ StringKe/opencode    fork：跟踪 anomalyco/opencode，仅用于生成同步 pa
 | packages/client | 生成客户端 | 依赖 |
 | packages/plugin | 插件系统 | 保留（hooks/扩展） |
 | packages/sdk + sdk/js | JS SDK | 保留 |
-| packages/sdk-next | 下一代 SDK | 保留，后续评估 |
 | packages/script | 构建/脚本 | 保留 |
 | packages/http-recorder | HTTP 录制回放（测试） | 保留 |
 | packages/httpapi-codegen | API 代码生成 | 保留 |
@@ -70,6 +69,7 @@ StringKe/opencode    fork：跟踪 anomalyco/opencode，仅用于生成同步 pa
 | packages/docs | 上游文档站内容 |
 | packages/containers | 容器定义 |
 | packages/identity | 无独立 package.json，随关联包评估 |
+| packages/sdk-next | 零依赖方的孤岛（embedded 模式在 daemon+浏览器形态下无用户），且 embedded 测试持续环境超时 |
 
 ### 3.3 主引擎内部子系统取舍（packages/opencode/src）
 

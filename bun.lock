@@ -545,20 +545,6 @@
         "@types/semver": "^7.5.8",
       },
     },
-    "packages/sdk-next": {
-      "name": "@kxen/sdk-next",
-      "dependencies": {
-        "@kxen/client": "workspace:*",
-        "@kxen/core": "workspace:*",
-        "@kxen/server": "workspace:*",
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "@tsconfig/bun": "catalog:",
-        "@types/bun": "catalog:",
-        "@typescript/native-preview": "catalog:",
-      },
-    },
     "packages/sdk/js": {
       "name": "@kxen/sdk",
       "version": "1.18.4",
@@ -1236,8 +1222,6 @@
     "@kxen/script": ["@kxen/script@workspace:packages/script"],
 
     "@kxen/sdk": ["@kxen/sdk@workspace:packages/sdk/js"],
-
-    "@kxen/sdk-next": ["@kxen/sdk-next@workspace:packages/sdk-next"],
 
     "@kxen/server": ["@kxen/server@workspace:packages/server"],
 
