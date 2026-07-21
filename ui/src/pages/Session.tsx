@@ -178,7 +178,10 @@ export default function Session() {
 
   return (
     <div class="h-full flex-1 min-w-0 flex flex-col">
-      <div class="material px-4 py-2 border-b border-[var(--border)] text-xs flex items-center gap-3">
+      <div
+        class="material px-4 py-2 border-b border-[var(--border)] text-xs flex items-center gap-3"
+        data-tauri-drag-region
+      >
         <span class="font-medium text-[var(--text)] truncate">{title()}</span>
         <Show when={streaming()}>
           <span class="text-[var(--accent-hover)]">进行中…</span>

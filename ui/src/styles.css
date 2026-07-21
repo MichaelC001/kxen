@@ -68,6 +68,23 @@ body {
     color var(--dur-fade) var(--ease-out);
 }
 
+/* ============ 沉浸式顶部栏（macOS Overlay 标题栏：内容延伸，红绿灯悬浮） ============ */
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+}
+[data-tauri-drag-region] button,
+[data-tauri-drag-region] select,
+[data-tauri-drag-region] a,
+[data-tauri-drag-region] input,
+[data-tauri-drag-region] textarea {
+  -webkit-app-region: no-drag;
+}
+/* 红绿灯占位（左侧约 78px 宽区） */
+.traffic-pad {
+  height: 38px;
+  flex-shrink: 0;
+}
+
 /* ============ 按压反馈（pointer-down 即时；subtle 0.97/160ms） ============ */
 .pressable {
   transition: transform var(--dur-press) var(--ease-out);

@@ -27,7 +27,8 @@ export default function Sidebar() {
 
   return (
     <nav class="w-52 shrink-0 flex flex-col border-r border-[var(--border)] bg-[var(--bg-raised)]">
-      <div class="px-4 pt-4 pb-2 text-lg font-semibold tracking-tight text-[var(--accent-hover)]">
+      <div class="traffic-pad" data-tauri-drag-region />
+      <div class="px-4 pb-2 text-lg font-semibold tracking-tight text-[var(--accent-hover)]">
         kxen
       </div>
       <div class="px-3 pb-2">
