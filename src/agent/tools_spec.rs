@@ -196,17 +196,17 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "team",
-            "Lead an agent team. spawn (name, role, prompt, model? as provider/model, plan_approval?) creates a teammate with its own context and model; message (name, text) sends to its inbox; approve/reject (name, feedback?) answers a plan approval request; shutdown (name); task_create (title, depends_on?); list shows members and tasks. Teammates report back automatically - do not poll.",
+            "Lead an agent team. spawn (name, role, prompt, model? as provider/model, plan_approval?) creates a teammate with its own context and model; message (name, text) sends to its inbox; approve/reject (name, feedback?) answers a plan approval request; shutdown (name); task_create (title, depends_on?); list shows members and tasks. Teammates report back automatically - do not poll. Example: {\"action\":\"spawn\",\"name\":\"a\",\"role\":\"execution\",\"model\":\"anthropic/claude-sonnet-4-5-20250929\",\"prompt\":\"task brief\"}.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": { "type": "string", "enum": ["spawn", "message", "approve", "reject", "shutdown", "list", "task_create"] },
                     "name": { "type": "string" },
-                    "role": { "type": "string", "enum": ["thinking", "planning", "execution", "review", "research"] },
-                    "prompt": { "type": "string" },
+                    "role": { "type": "string", "enum": ["thinking", "planning", "execution", "review", "research", "observer"], "description": "observer = receives copies of all team traffic" },
+                    "prompt": { "type": "string", "description": "REQUIRED for spawn: the teammate's standing task brief (never 'text')" },
                     "model": { "type": "string", "description": "provider/model override, e.g. anthropic/claude-sonnet-4-5-20250929" },
                     "plan_approval": { "type": "boolean" },
-                    "text": { "type": "string" },
+                    "text": { "type": "string", "description": "REQUIRED for message: the message body to deliver" },
                     "feedback": { "type": "string" },
                     "title": { "type": "string" },
                     "depends_on": { "type": "array", "items": { "type": "integer" } }

@@ -53,6 +53,10 @@ impl ModelResourceManager {
     }
 
     fn role_chain(&self, role: &str) -> Vec<String> {
+        // 未绑定角色（如 observer）回落 execution，避免 teammate spawn 因角色未配置直接失败
+        if !self.config.roles.contains_key(role) && self.config.roles.contains_key("execution") {
+            return vec!["execution".to_string()];
+        }
         // config 化兜底链：binding.fallback 单跳（链式递归取），缺省走静态链
         let mut chain = vec![role.to_string()];
         let mut cursor = role.to_string();
@@ -188,6 +192,13 @@ mod tests {
         assert_eq!(r2.provider, "xai");
         assert_eq!(r2.degraded_from.as_deref(), Some("thinking"));
         drop(slot);
+    }
+
+    #[tokio::test]
+    async fn unbound_role_falls_back_to_execution() {
+        let mrm = ModelResourceManager::new(config());
+        let r = mrm.resolve("observer").await.expect("observer 应回落 execution");
+        assert_eq!(r.provider, "xai");
     }
 
     #[tokio::test]

@@ -30,6 +30,36 @@ pub const RULES: &[ProbeRule] = &[
     ProbeRule { provider: "kimi-for-coding", display: "Kimi Code", probe: probe_kimi, env_override: None },
 ];
 
+/// 单规则探测带 5s 超时：keychain ACL 弹窗会无限阻塞调用线程（macOS 未签名二进制），
+/// 超时视为不可得，保住其余规则的导入与 app 启动。
+fn probe_with_timeout(rule: &ProbeRule) -> Option<CredentialKind> {
+    let probe = rule.probe;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(probe());
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(5)).ok().flatten()
+}
+
+const TEN_YEARS_MS: u64 = 10 * 365 * 24 * 3600 * 1000;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// expires 单位归一（ms）。kimi 官方文件是秒级；历史代码无差别 *1000 会产生荒诞远期值。
+fn sane_expires(v: u64) -> u64 {
+    if v > 1_000_000_000_000 { v } else { v * 1000 }
+}
+
+/// 荒诞远期 expires（单位 bug 产物）按已过期处理，让 store 在下轮探测自修复。
+fn poisoned(c: &CredentialKind) -> bool {
+    matches!(c.expires(), Some(v) if v > now_ms() + TEN_YEARS_MS)
+}
+
 /// 全源探测：返回 (provider, outcome, display)。store 就地更新。
 pub fn probe_all(store: &mut AuthStore) -> Vec<(&'static str, ProbeOutcome, &'static str)> {
     RULES
@@ -38,21 +68,24 @@ pub fn probe_all(store: &mut AuthStore) -> Vec<(&'static str, ProbeOutcome, &'st
             // 自有存储为 oauth 且未在刷新窗口（30min）内才豁免官方源（避免反复授权弹窗）；
             // Api 类型无过期信息，每次必须重新评估（kimi 轮换场景）
             let existing = store.get(rule.provider);
-            let exempt = matches!(existing, Some(CredentialKind::Oauth { .. })) && existing.is_some_and(|c| !c.is_expired_within(30 * 60 * 1000));
+            let exempt = matches!(existing, Some(CredentialKind::Oauth { .. }))
+                && existing.is_some_and(|c| !poisoned(c) && !c.is_expired_within(30 * 60 * 1000));
             if exempt {
                 return (rule.provider, ProbeOutcome::Fresh, rule.display);
             }
             // env override（开发期暂存，最高优先）
-            let imported = rule.env_override.and_then(|var| read_env_override(var)).or_else(|| (rule.probe)());
+            let imported = rule.env_override.and_then(|var| read_env_override(var)).or_else(|| probe_with_timeout(rule));
             let outcome = match imported {
                 None => {
                     if store.contains_key(rule.provider) { ProbeOutcome::Fresh } else { ProbeOutcome::Missing }
                 }
                 Some(new) => {
-                    let fresher = match store.get(rule.provider) {
-                        None => true,
-                        Some(existing) => new.expires().unwrap_or(u64::MAX) > existing.expires().unwrap_or(u64::MAX),
-                    };
+                    let existing_stale = store.get(rule.provider).is_some_and(poisoned);
+                    let fresher = existing_stale
+                        || match store.get(rule.provider) {
+                            None => true,
+                            Some(existing) => new.expires().unwrap_or(u64::MAX) > existing.expires().unwrap_or(u64::MAX),
+                        };
                     if fresher {
                         store.insert(rule.provider.to_string(), new);
                         ProbeOutcome::Imported
@@ -203,11 +236,11 @@ fn probe_kimi() -> Option<CredentialKind> {
     let file = home()?.join(".kimi-code/credentials/kimi-code.json");
     let raw = std::fs::read_to_string(file).ok()?;
     let parsed: KimiCredentials = serde_json::from_str(&raw).ok()?;
-    // kimi 官方文件是 oauth 形态（access/refresh/expires_at，秒级）——保留过期时间才能正确轮换
+    // kimi 官方文件是 oauth 形态（access/refresh/expires_at）——保留过期时间才能正确轮换；单位归一防荒诞远期
     Some(CredentialKind::Oauth {
         access: parsed.access_token?,
         refresh: parsed.refresh_token.unwrap_or_default(),
-        expires: parsed.expires_at.map(|s| s * 1000).unwrap_or(0),
+        expires: parsed.expires_at.map(sane_expires).unwrap_or(0),
         account_id: None,
     })
 }

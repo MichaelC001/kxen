@@ -33,20 +33,26 @@ pub(super) async fn teammate_loop(
         let allowed: Option<&'static [&'static str]> = if approved { None } else { Some(READONLY_TEAM_TOOLS) };
         let mut ctx = build_ctx(&state, &name, &role, &model, allowed, cancel.clone());
         let messages = vec![
-            Message::system(teammate_system(&name, &role, approved)),
+            Message::system(teammate_system(&state, &name, &role, approved)),
             Message::user(phase_prompt.clone()),
         ];
         let outcome = run_turn(&mut ctx, messages).await;
 
         if !approved {
-            // 计划出炉：递交 lead 审批
+            // 计划出炉：递交 lead 审批（经 manager.send：observer 抄送 + 前端通知）
+            let text = format!("[plan for approval]\n{}", outcome.final_text);
+            match state.manager.upgrade() {
+                Some(mgr) => { let _ = mgr.send(&state, &name, "lead", &text); }
+                None => { let _ = append_inbox(&state.dir, "lead", &name, &text); }
+            }
             set_status(&state, &name, MemberStatus::AwaitingPlanApproval);
-            let _ = append_inbox(&state.dir, "lead", &name, &format!("[plan for approval]\n{}", outcome.final_text));
-            state.bus.publish(crate::core::event::Event::Notification(format!("teammate {name} submitted a plan for approval")));
         } else {
-            // 本轮成果上报 lead
+            // 本轮成果上报 lead（经 manager.send：observer 抄送 + 前端通知）
             if !outcome.final_text.is_empty() {
-                let _ = append_inbox(&state.dir, "lead", &name, &outcome.final_text);
+                match state.manager.upgrade() {
+                    Some(mgr) => { let _ = mgr.send(&state, &name, "lead", &outcome.final_text); }
+                    None => { let _ = append_inbox(&state.dir, "lead", &name, &outcome.final_text); }
+                }
             }
             // teammate_idle hook：exit 非零 = 打回（反馈进 inbox， teammate 继续工作）
             if let Some(hooks) = &state.deps.hooks {
@@ -104,7 +110,7 @@ fn build_ctx(state: &Arc<TeamState>, name: &str, _role: &str, model: &ModelRef, 
         model: model.clone(),
         store: state.deps.store.clone(),
         max_turns: 16,
-        mrm: Some(state.deps.mrm.clone()),
+        mrm: Some(state.deps.mrm.read().expect("mrm").clone()),
         allowed_tools: allowed,
         extras: Some(state.deps.extras.clone()),
         hooks: state.deps.hooks.clone(),
@@ -130,15 +136,28 @@ fn build_ctx(state: &Arc<TeamState>, name: &str, _role: &str, model: &ModelRef, 
     }
 }
 
-fn teammate_system(name: &str, role: &str, approved: bool) -> String {
+pub(super) fn teammate_system(state: &Arc<TeamState>, name: &str, role: &str, approved: bool) -> String {
     let mode = if approved {
         "You may use your full tool set to implement."
     } else {
         "You are in PLAN-ONLY mode: read-only tools. Produce a concrete plan and stop - the lead must approve it before you implement anything."
     };
+    // roster 每轮重建：成员状态变化（新 spawn / shutdown / 状态流转）实时反映进 system prompt
+    let roster = lock(&state.members)
+        .iter()
+        .map(|m| format!("- {} (role: {}, model: {}, status: {:?})", m.name, m.role, m.model.model, m.status))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let observer_note = if role == "observer" {
+        " You are the OBSERVER: you receive copies of all team traffic. Watch the process and report summaries or issues to the lead."
+    } else {
+        ""
+    };
     format!(
-        "You are teammate \"{name}\" (role: {role}) in a kxen agent team. {mode} \
-        Coordinate via send_message (to: \"lead\" or a teammate name) and team_task (claim/complete/list). \
+        "You are teammate \"{name}\" (role: {role}) in a kxen agent team. {mode}{observer_note} \
+        Current team roster:\n{roster}\n\
+        Coordinate via send_message (to: \"lead\" or a teammate name from the roster) and team_task (claim/complete/list). \
+        Act on every task brief IMMEDIATELY with tools (write/edit/exec/read) in the SAME turn - never reply with intent-only text such as \"I will start\". \
         Report results to the lead when done, then go idle."
     )
 }

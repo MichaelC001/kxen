@@ -1,9 +1,8 @@
 //! Anthropic provider（Claude Pro/Max 订阅，OAuth contract 五要素，jcode 实证）。
 
-use crate::llm::sse::{SseFrame, SseParser};
 use crate::llm::types::{Delta, Message, Role};
 use futures::StreamExt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::pin::Pin;
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages?beta=true";
@@ -25,6 +24,23 @@ pub fn remap_tool_name(name: &str) -> &str {
         "skill_manage" => "Skill",
         other => other,
     }
+}
+
+/// 回流 tool_use 名的逆映射：模型回的是 Claude 名，执行层要 kxen 名。
+pub(super) fn unmap_tool_name(name: &str) -> String {
+    match name {
+        "Bash" => "exec",
+        "Read" => "read",
+        "Write" => "write",
+        "Edit" => "edit",
+        "Glob" => "glob",
+        "Grep" => "grep",
+        "Agent" => "subagent",
+        "ScheduleWakeup" => "schedule",
+        "Skill" => "skill_manage",
+        other => other,
+    }
+    .to_string()
 }
 
 pub struct AnthropicProvider {
@@ -82,33 +98,60 @@ fn wire_content(m: &Message) -> serde_json::Value {
     serde_json::Value::Array(blocks)
 }
 
-#[derive(Deserialize)]
-struct SseEvent {
-    #[serde(rename = "type")]
-    kind: String,
-    #[serde(default)]
-    delta: Option<EventDelta>,
-    #[serde(default)]
-    usage: Option<EventUsage>,
-    #[serde(default)]
-    message: Option<UsageMessage>,
+/// assistant 带 tool_calls -> text + tool_use 块（input 需对象，arguments 是 JSON 字符串）。
+fn assistant_content(m: &Message) -> serde_json::Value {
+    if m.tool_calls.is_empty() {
+        return serde_json::Value::String(m.content.clone());
+    }
+    let mut blocks: Vec<serde_json::Value> = Vec::new();
+    if !m.content.is_empty() {
+        blocks.push(serde_json::json!({ "type": "text", "text": m.content }));
+    }
+    for call in &m.tool_calls {
+        let input = serde_json::from_str::<serde_json::Value>(&call.function.arguments)
+            .unwrap_or_else(|_| serde_json::json!({}));
+        blocks.push(serde_json::json!({
+            "type": "tool_use",
+            "id": call.id,
+            "name": remap_tool_name(&call.function.name),
+            "input": input,
+        }));
+    }
+    serde_json::Value::Array(blocks)
 }
 
-#[derive(Deserialize)]
-struct EventDelta {
-    #[serde(rename = "type")]
-    kind: Option<String>,
-    text: Option<String>,
+/// 消息序列 -> api 消息：连续 tool_result 合并为单条 user（anthropic 规范形态，避免角色连排）。
+fn flush_tool_results<'a>(out: &mut Vec<ApiMessage<'a>>, results: &mut Vec<serde_json::Value>) {
+    if !results.is_empty() {
+        out.push(ApiMessage { role: "user", content: serde_json::Value::Array(std::mem::take(results)) });
+    }
 }
 
-#[derive(Deserialize)]
-struct EventUsage {
-    output_tokens: Option<u64>,
-}
-
-#[derive(Deserialize)]
-struct UsageMessage {
-    usage: Option<EventUsage>,
+fn api_messages_of(messages: &[Message]) -> Vec<ApiMessage<'_>> {
+    let mut out: Vec<ApiMessage> = Vec::new();
+    let mut tool_results: Vec<serde_json::Value> = Vec::new();
+    for m in messages {
+        match m.role {
+            Role::System => continue,
+            Role::Tool => {
+                tool_results.push(serde_json::json!({
+                    "type": "tool_result",
+                    "tool_use_id": m.tool_call_id,
+                    "content": m.content,
+                }));
+            }
+            Role::Assistant => {
+                flush_tool_results(&mut out, &mut tool_results);
+                out.push(ApiMessage { role: "assistant", content: assistant_content(m) });
+            }
+            Role::User => {
+                flush_tool_results(&mut out, &mut tool_results);
+                out.push(ApiMessage { role: "user", content: wire_content(m) });
+            }
+        }
+    }
+    flush_tool_results(&mut out, &mut tool_results);
+    out
 }
 
 impl AnthropicProvider {
@@ -131,17 +174,7 @@ impl AnthropicProvider {
                     system.push(SystemBlock { kind: "text", text: &m.content });
                 }
             }
-            let api_messages: Vec<ApiMessage> = messages_owned
-                .iter()
-                .filter(|m| m.role != Role::System)
-                .map(|m| ApiMessage {
-                    role: match m.role {
-                        Role::User | Role::Tool => "user",
-                        _ => "assistant",
-                    },
-                    content: wire_content(m),
-                })
-                .collect();
+            let api_messages = api_messages_of(&messages_owned);
             let tools_api: Option<Vec<ApiTool>> = if tools_owned.is_empty() {
                 None
             } else {
@@ -169,7 +202,7 @@ impl AnthropicProvider {
         };
 
         Box::pin(futures::stream::once(start).flat_map(|result| match result {
-            Ok(resp) if resp.status().is_success() => stream_sse(resp),
+            Ok(resp) if resp.status().is_success() => super::anthropic_sse::stream_sse(resp),
             Ok(resp) => futures::stream::once(async move {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
@@ -181,38 +214,6 @@ impl AnthropicProvider {
     }
 }
 
-fn stream_sse(resp: reqwest::Response) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
-    let mut parser = SseParser::new();
-    let stream = resp.bytes_stream();
-    let stream = stream.flat_map(move |chunk| {
-        let deltas: Vec<Delta> = match chunk {
-            Ok(bytes) => parser.feed(&bytes).into_iter().filter_map(delta_of).collect(),
-            Err(e) => vec![Delta::Error(format!("sse read: {e}"))],
-        };
-        futures::stream::iter(deltas)
-    });
-    Box::pin(stream.chain(futures::stream::once(async { Delta::Done })))
-}
-
-fn delta_of(frame: SseFrame) -> Option<Delta> {
-    let SseFrame::Data(data) = frame else { return None };
-    let event: SseEvent = serde_json::from_str(&data).ok()?;
-    match event.kind.as_str() {
-        "content_block_delta" => {
-            let delta = event.delta?;
-            match delta.kind.as_deref() {
-                Some("text_delta") => delta.text.map(Delta::Text),
-                Some("thinking_delta") => delta.text.map(Delta::Reasoning),
-                Some("input_json_delta") => None, // tool 输入分片（M3 后续接 tool calling）
-                _ => None,
-            }
-        }
-        "message_delta" => event.usage.and_then(|u| u.output_tokens).map(|output| Delta::Usage { input: 0, output }),
-        "message_start" => event.message.and_then(|m| m.usage).and_then(|u| u.output_tokens).map(|output| Delta::Usage { input: 0, output }),
-        _ => None,
-    }
-}
-
 fn truncate(s: &str, max: usize) -> &str {
     if s.len() <= max { s } else { &s[..s.floor_char_boundary(max)] }
 }
@@ -220,21 +221,44 @@ fn truncate(s: &str, max: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::types::AssistantToolCall;
 
     #[test]
-    fn tool_remap() {
+    fn tool_remap_roundtrip() {
         assert_eq!(remap_tool_name("exec"), "Bash");
-        assert_eq!(remap_tool_name("read"), "Read");
-        assert_eq!(remap_tool_name("custom_tool"), "custom_tool");
+        assert_eq!(unmap_tool_name("Bash"), "exec");
+        assert_eq!(unmap_tool_name("custom_tool"), "custom_tool");
     }
 
     #[test]
-    fn parses_text_delta() {
-        let frame = SseFrame::Data(r#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"pong"}}"#.into());
-        assert!(matches!(delta_of(frame), Some(Delta::Text(t)) if t == "pong"));
+    fn assistant_tool_calls_become_tool_use_blocks() {
+        let m = Message::assistant_with_tools("看下目录", vec![AssistantToolCall::function("toolu_1", "exec", "{\"command\":\"ls\"}")]);
+        let v = assistant_content(&m);
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr[0]["type"], "text");
+        assert_eq!(arr[1]["type"], "tool_use");
+        assert_eq!(arr[1]["name"], "Bash");
+        assert_eq!(arr[1]["input"]["command"], "ls");
+    }
+
+    #[test]
+    fn consecutive_tool_results_merge_into_one_user() {
+        let msgs = vec![
+            Message::assistant_with_tools("", vec![AssistantToolCall::function("toolu_1", "exec", "{}"), AssistantToolCall::function("toolu_2", "read", "{}")]),
+            Message::tool_result("toolu_1", "exec", "out1"),
+            Message::tool_result("toolu_2", "read", "out2"),
+            Message::user("继续"),
+        ];
+        let api = api_messages_of(&msgs);
+        assert_eq!(api.len(), 3);
+        assert_eq!(api[1].role, "user");
+        let blocks = api[1].content.as_array().unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["type"], "tool_result");
+        assert_eq!(blocks[0]["tool_use_id"], "toolu_1");
+        assert_eq!(blocks[1]["tool_use_id"], "toolu_2");
     }
 }
-
 
 #[cfg(test)]
 mod wire_tests {

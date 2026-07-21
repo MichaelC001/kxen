@@ -54,7 +54,10 @@ impl TeamManager {
             "spawn" => {
                 let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?.to_string();
                 let role = args.get("role").and_then(Value::as_str).unwrap_or("execution").to_string();
-                let prompt = args.get("prompt").and_then(Value::as_str).ok_or("missing prompt")?.to_string();
+                // 部分模型（grok-build）固定把简报写进 text：别名兜底，二者取一
+                let prompt = args.get("prompt").and_then(Value::as_str)
+                    .or_else(|| args.get("text").and_then(Value::as_str))
+                    .ok_or("missing prompt")?.to_string();
                 let model = args.get("model").and_then(Value::as_str).map(String::from);
                 let plan_approval = args.get("plan_approval").and_then(Value::as_bool).unwrap_or(false);
                 // 模型解析（显式 model > mrm 角色路由）在这层 await，spawn 本体保持 sync
@@ -64,7 +67,9 @@ impl TeamManager {
                         ModelRef::new(provider, model)
                     }
                     None => {
-                        let resolved = state.deps.mrm.resolve(&role).await.ok_or_else(|| format!("no available model for role {role}"))?;
+                        // 共享句柄读当前 MRM：set_role 热换后 teammate 派发也走新路由
+                        let mrm = state.deps.mrm.read().expect("mrm").clone();
+                        let resolved = mrm.resolve(&role).await.ok_or_else(|| format!("no available model for role {role}"))?;
                         ModelRef::new(resolved.provider, resolved.model)
                     }
                 };
@@ -103,6 +108,7 @@ impl TeamManager {
             // lead 的信件：bus 推给前端 + 写入 lead inbox 等下次 run 注入
             append_inbox(&state.dir, "lead", from, text)?;
             self.bus.publish(crate::core::event::Event::Notification(format!("teammate {from}: {}", text.chars().take(120).collect::<String>())));
+            self.fanout_observers(state, from, "lead", text);
             return Ok(());
         }
         if !lock(&state.members).iter().any(|m| m.name == to) {
@@ -112,7 +118,23 @@ impl TeamManager {
         if let Some(n) = lock(&state.notifies).get(to) {
             n.notify_one();
         }
+        self.fanout_observers(state, from, to, text);
         Ok(())
+    }
+
+    /// role=observer 的成员抄送全部团队信件（from=feed，避免被误判为 lead 直发）。
+    fn fanout_observers(&self, state: &Arc<TeamState>, from: &str, to: &str, text: &str) {
+        let observers: Vec<String> = lock(&state.members)
+            .iter()
+            .filter(|m| m.role == "observer" && m.name != from && m.name != to)
+            .map(|m| m.name.clone())
+            .collect();
+        for name in observers {
+            let _ = append_inbox(&state.dir, &name, "feed", &format!("[observed {from} -> {to}] {text}"));
+            if let Some(n) = lock(&state.notifies).get(&name) {
+                n.notify_one();
+            }
+        }
     }
 
     /// lead inbox 排空（run_llm 每轮注入用）。

@@ -1,6 +1,7 @@
 //! OpenAI/Codex provider（ChatGPT Plus/Pro 订阅：backend-api 端点 + account 头）。
 
 use crate::llm::sse::{SseFrame, SseParser};
+use crate::llm::tool::{ChunkFunction, ChunkToolCall};
 use crate::llm::types::{Delta, Message, Role};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -20,19 +21,11 @@ pub struct OpenAiProvider {
 #[derive(Serialize)]
 struct ResponsesRequest<'a> {
     model: &'a str,
-    input: Vec<InputItem<'a>>,
+    input: Vec<serde_json::Value>,
     stream: bool,
     store: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<ResponsesTool<'a>>,
-}
-
-#[derive(Serialize)]
-struct InputItem<'a> {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    role: &'a str,
-    content: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -60,6 +53,36 @@ fn wire_content(m: &Message) -> serde_json::Value {
     serde_json::Value::Array(blocks)
 }
 
+/// 消息序列 -> Responses input 项：assistant 的 tool_calls 拆 function_call 项，结果走 function_call_output。
+fn input_items(messages: &[Message]) -> Vec<serde_json::Value> {
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    for m in messages {
+        match m.role {
+            Role::System => out.push(serde_json::json!({"type": "message", "role": "developer", "content": m.content})),
+            Role::User => out.push(serde_json::json!({"type": "message", "role": "user", "content": wire_content(m)})),
+            Role::Assistant => {
+                if !m.content.is_empty() {
+                    out.push(serde_json::json!({"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": m.content}]}));
+                }
+                for c in &m.tool_calls {
+                    out.push(serde_json::json!({
+                        "type": "function_call",
+                        "call_id": c.id,
+                        "name": c.function.name,
+                        "arguments": c.function.arguments,
+                    }));
+                }
+            }
+            Role::Tool => out.push(serde_json::json!({
+                "type": "function_call_output",
+                "call_id": m.tool_call_id,
+                "output": m.content,
+            })),
+        }
+    }
+    out
+}
+
 #[derive(Deserialize)]
 struct ResponsesEvent {
     #[serde(rename = "type")]
@@ -67,7 +90,25 @@ struct ResponsesEvent {
     #[serde(default)]
     delta: Option<String>,
     #[serde(default)]
+    output_index: Option<usize>,
+    #[serde(default)]
+    item: Option<OutputItem>,
+    #[serde(default)]
     response: Option<ResponseUsage>,
+}
+
+#[derive(Deserialize)]
+struct OutputItem {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    call_id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    arguments: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -101,18 +142,7 @@ impl OpenAiProvider {
         let http = self.http.clone();
 
         let start = async move {
-            let input: Vec<InputItem> = messages_owned
-                .iter()
-                .map(|m| InputItem {
-                    kind: "message",
-                    role: match m.role {
-                        Role::System => "developer",
-                        Role::User | Role::Tool => "user",
-                        Role::Assistant => "assistant",
-                    },
-                    content: wire_content(m),
-                })
-                .collect();
+            let input = input_items(&messages_owned);
             let tools_api: Vec<ResponsesTool> = tools_owned
                 .iter()
                 .map(|t| ResponsesTool { kind: "function", name: &t.function.name, description: &t.function.description, parameters: t.function.parameters.clone() })
@@ -161,6 +191,18 @@ fn delta_of(frame: SseFrame) -> Option<Delta> {
     match event.kind.as_str() {
         "response.output_text.delta" => event.delta.map(Delta::Text),
         "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => event.delta.map(Delta::Reasoning),
+        // function_call 完整项一次性给出（output_item.done 必发），走累积器归位
+        "response.output_item.done" => {
+            let item = event.item?;
+            if item.kind != "function_call" {
+                return None;
+            }
+            Some(Delta::ToolFragments(vec![ChunkToolCall {
+                index: event.output_index,
+                id: item.call_id.or(item.id),
+                function: Some(ChunkFunction { name: item.name, arguments: item.arguments }),
+            }]))
+        }
         "response.completed" => event.response.and_then(|r| r.usage).map(|u| Delta::Usage {
             input: u.input_tokens.unwrap_or(0),
             output: u.output_tokens.unwrap_or(0),
@@ -173,10 +215,11 @@ fn truncate(s: &str, max: usize) -> &str {
     if s.len() <= max { s } else { &s[..s.floor_char_boundary(max)] }
 }
 
-
 #[cfg(test)]
-mod wire_tests {
-    use crate::llm::types::{ImagePart, Message};
+mod tests {
+    use super::*;
+    use crate::llm::tool::ToolCallAccumulator;
+    use crate::llm::types::{AssistantToolCall, ImagePart, Message};
 
     #[test]
     fn images_become_input_image_blocks() {
@@ -186,5 +229,38 @@ mod wire_tests {
         assert_eq!(arr[0]["type"], "input_image");
         assert_eq!(arr[0]["image_url"], "data:image/png;base64,QUJD");
         assert_eq!(arr[1]["type"], "input_text");
+    }
+
+    #[test]
+    fn assistant_tools_and_results_wire_shape() {
+        let msgs = vec![
+            Message::assistant_with_tools("查一下", vec![AssistantToolCall::function("call_1", "exec", "{\"command\":\"ls\"}")]),
+            Message::tool_result("call_1", "exec", "file.txt"),
+        ];
+        let items = input_items(&msgs);
+        assert_eq!(items[0]["type"], "message");
+        assert_eq!(items[0]["role"], "assistant");
+        assert_eq!(items[1]["type"], "function_call");
+        assert_eq!(items[1]["call_id"], "call_1");
+        assert_eq!(items[1]["name"], "exec");
+        assert_eq!(items[2]["type"], "function_call_output");
+        assert_eq!(items[2]["call_id"], "call_1");
+        assert_eq!(items[2]["output"], "file.txt");
+    }
+
+    #[test]
+    fn function_call_item_done_becomes_fragments() {
+        let frame = SseFrame::Data(
+            r#"{"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","id":"fc_1","call_id":"call_9","name":"exec","arguments":"{\"command\":\"ls\"}"}}"#.into(),
+        );
+        let d = delta_of(frame).expect("function_call 应产出 fragments");
+        let Delta::ToolFragments(f) = d else { panic!("wrong delta") };
+        let mut acc = ToolCallAccumulator::default();
+        acc.push(&f);
+        let calls = acc.take();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, "call_9");
+        assert_eq!(calls[0].name, "exec");
+        assert_eq!(calls[0].arguments, "{\"command\":\"ls\"}");
     }
 }

@@ -49,13 +49,13 @@ pub(super) fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Valu
 pub(super) fn set_role(role: &str, provider: &str, model: &str, fallback: Option<&str>, state: &Arc<AppState>) -> Result<Value, String> {
     let path = kxen_app::core::paths::config_dir().join("config.toml");
     let text = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut doc: toml::Value = if text.trim().is_empty() {
-        toml::Value::Table(toml::map::Map::new())
+    // toml 1.x：Value::from_str 解析的是「值」不是文档，文档必须按 Table 解析
+    let mut doc: toml::Table = if text.trim().is_empty() {
+        toml::Table::new()
     } else {
-        text.parse().map_err(|e| format!("config.toml parse: {e}"))?
+        toml::from_str(&text).map_err(|e| format!("config.toml parse: {e}"))?
     };
-    let table = doc.as_table_mut().ok_or("config.toml root is not a table")?;
-    let roles = table.entry(String::from("roles")).or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+    let roles = doc.entry(String::from("roles")).or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
     let roles_table = roles.as_table_mut().ok_or("roles is not a table")?;
     let mut binding = toml::map::Map::new();
     binding.insert("provider".into(), toml::Value::String(provider.into()));
@@ -67,7 +67,7 @@ pub(super) fn set_role(role: &str, provider: &str, model: &str, fallback: Option
 
     std::fs::create_dir_all(kxen_app::core::paths::config_dir()).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, doc.to_string()).map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, toml::to_string(&doc).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
 
     // 重建 MRM 热换

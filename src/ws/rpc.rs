@@ -13,7 +13,11 @@ use crate::AppState;
 
 pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value, String> {
     match method {
-        "doctor" => Ok(serde_json::to_value(doctor_report()).map_err(|e| e.to_string())?),
+        "doctor" => {
+            let state = app.state::<Arc<AppState>>();
+            let store = state.auth_store.lock().map_err(|e| e.to_string())?;
+            Ok(serde_json::to_value(doctor_report(&store)).map_err(|e| e.to_string())?)
+        }
         "current_model" => {
             let state = app.state::<Arc<AppState>>();
             let model = state.model.lock().map_err(|e| e.to_string())?.clone();

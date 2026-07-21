@@ -1,4 +1,5 @@
-use kxen_app::auth::{probe_all, ProbeOutcome};
+use kxen_app::auth::credential::AuthStore;
+use kxen_app::auth::probe::RULES;
 use kxen_app::core::paths;
 use serde::Serialize;
 
@@ -18,26 +19,21 @@ pub struct DoctorReport {
     entries: Vec<DoctorEntry>,
 }
 
-pub fn doctor_report() -> DoctorReport {
-    let auth_path = paths::auth_file();
-    let mut store = kxen_app::auth::credential::read_auth_file(&auth_path);
-    let outcomes = probe_all(&mut store);
-    let _ = kxen_app::auth::credential::write_auth_file(&auth_path, &store);
-
-    let entries = outcomes
+/// 渲染当前 store 状态。探测只发生在启动后台任务（keychain 可阻塞），RPC 路径绝不触发 keychain。
+pub fn doctor_report(store: &AuthStore) -> DoctorReport {
+    let entries = RULES
         .iter()
-        .map(|(provider, outcome, display)| {
-            let (status, detail) = match outcome {
-                ProbeOutcome::Imported => ("imported", "updated from official CLI"),
-                ProbeOutcome::Fresh => ("ok", "credential present"),
-                ProbeOutcome::Missing => ("missing", "no credential found"),
+        .map(|rule| {
+            let (status, detail) = match store.get(rule.provider) {
+                None => ("missing", "no credential found"),
+                Some(c) if c.is_expired() => ("expired", "will refresh on next call"),
+                Some(_) => ("ok", "credential present"),
             };
-            let expired = store.get(*provider).is_some_and(|c| c.is_expired());
             DoctorEntry {
-                provider: provider.to_string(),
-                display: display.to_string(),
-                status: if expired { "expired".into() } else { status.into() },
-                detail: if expired { "will refresh on next call".into() } else { detail.into() },
+                provider: rule.provider.to_string(),
+                display: rule.display.to_string(),
+                status: status.into(),
+                detail: detail.into(),
             }
         })
         .collect();

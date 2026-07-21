@@ -176,7 +176,7 @@ mod tests {
         let add = std::process::Command::new("git").args(["add", "."]).current_dir(&repo).output().unwrap();
         assert!(add.status.success());
         let commit = std::process::Command::new("git")
-            .args(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"])
+            .args(["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-m", "init"])
             .current_dir(&repo)
             .output()
             .unwrap();

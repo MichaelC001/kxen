@@ -2,6 +2,7 @@
 //! 每 provider ~200-400 行；openai-compatible 一条通用实现覆盖长尾。
 
 pub mod anthropic;
+pub mod anthropic_sse;
 pub mod client;
 pub mod mrm;
 pub mod openai;

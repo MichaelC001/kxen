@@ -57,7 +57,7 @@ pub struct SpawnDeps {
     pub registry: Arc<crate::tools::task::TaskRegistry>,
     pub workdir: Arc<Path>,
     pub store: crate::auth::credential::AuthStore,
-    pub mrm: Arc<ModelResourceManager>,
+    pub mrm: std::sync::Arc<std::sync::RwLock<std::sync::Arc<ModelResourceManager>>>,
     pub hooks: Option<Arc<crate::tools::hooks::HookRunner>>,
     pub extras: Arc<crate::agent::agent_loop::SessionExtras>,
     pub agents: Arc<crate::agent::activity::AgentRegistry>,

@@ -23,6 +23,7 @@ mod tests {
     use super::tasks::{claim_task, complete_task, create_task};
     use super::*;
     use crate::core::event::EventBus;
+    use crate::core::shared::lock;
     use crate::llm::mrm::ModelResourceManager;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
@@ -33,7 +34,7 @@ mod tests {
             registry: Arc::new(crate::tools::task::TaskRegistry::new()),
             workdir: Arc::from(Path::new("/tmp")),
             store: crate::auth::credential::AuthStore::default(),
-            mrm: Arc::new(ModelResourceManager::new(config)),
+            mrm: Arc::new(std::sync::RwLock::new(Arc::new(ModelResourceManager::new(config)))),
             hooks: None,
             extras: Arc::new(crate::agent::agent_loop::SessionExtras::default()),
             agents: Arc::new(crate::agent::activity::AgentRegistry::default()),
@@ -83,6 +84,50 @@ mod tests {
         let drained = mgr.drain_lead_inbox("s1");
         assert_eq!(drained.len(), 1);
         assert_eq!(drained[0].0, "worker1");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn push_member(state: &TeamState, name: &str, role: &str) {
+        lock(&state.members).push(Member {
+            name: name.into(),
+            role: role.into(),
+            model: crate::llm::ModelRef::new("p", "m"),
+            status: MemberStatus::Idle,
+            plan_approval: false,
+        });
+    }
+
+    #[test]
+    fn observer_receives_traffic_copy() {
+        let (mgr, dir) = manager("observer");
+        let state = mgr.state_for("s1");
+        push_member(&state, "a", "execution");
+        push_member(&state, "b", "execution");
+        push_member(&state, "c", "observer");
+        // teammate 互发抄送
+        mgr.send(&state, "a", "b", "ping").unwrap();
+        let feed = drain_inbox(&state.dir, "c");
+        assert_eq!(feed.len(), 1);
+        assert_eq!(feed[0].0, "feed", "observer 抄送 from=feed，防误判为 lead 直发");
+        assert!(feed[0].1.contains("[observed a -> b] ping"));
+        // 上报 lead 也抄送
+        mgr.send(&state, "a", "lead", "done").unwrap();
+        let feed2 = drain_inbox(&state.dir, "c");
+        assert_eq!(feed2.len(), 1);
+        assert!(feed2[0].1.contains("[observed a -> lead]"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn roster_injected_into_system_prompt() {
+        let (mgr, dir) = manager("roster");
+        let state = mgr.state_for("s1");
+        push_member(&state, "a", "execution");
+        let sys = super::member_loop::teammate_system(&state, "a", "execution", true);
+        assert!(sys.contains("Current team roster:"));
+        assert!(sys.contains("- a (role: execution"));
+        let obs = super::member_loop::teammate_system(&state, "c", "observer", true);
+        assert!(obs.contains("OBSERVER"), "observer 角色应有专属指引");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

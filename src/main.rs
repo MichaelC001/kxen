@@ -7,14 +7,14 @@ use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 pub struct AppState {
-    auth_store: Mutex<kxen_app::auth::credential::AuthStore>,
+    pub auth_store: Mutex<kxen_app::auth::credential::AuthStore>,
     /// ws 服务端口（serve 成功后写入，ws_port command 用）
     ws_port: Mutex<u16>,
     model: Mutex<ModelRef>,
     pub bus: kxen_app::core::event::EventBus,
     pub registry: std::sync::Arc<kxen_app::tools::task::TaskRegistry>,
-    /// 角色路由可热更新（设置页改角色 -> 重建换 Arc）
-    pub mrm: std::sync::RwLock<std::sync::Arc<kxen_app::llm::mrm::ModelResourceManager>>,
+    /// 角色路由可热更新（设置页改角色 -> 重建换 Arc）；与 SpawnDeps 共享同一 RwLock 句柄
+    pub mrm: std::sync::Arc<std::sync::RwLock<std::sync::Arc<kxen_app::llm::mrm::ModelResourceManager>>>,
     pub extras: std::sync::Arc<kxen_app::agent::agent_loop::SessionExtras>,
     pub hooks: std::sync::Arc<kxen_app::tools::hooks::HookRunner>,
     pub team: std::sync::Arc<kxen_app::agent::team::TeamManager>,
@@ -40,12 +40,7 @@ impl AppState {
     #[allow(dead_code)]
     fn new() -> Self {
         let path = kxen_app::core::paths::auth_file();
-        let mut store = kxen_app::auth::credential::read_auth_file(&path);
-        let outcomes = kxen_app::auth::probe_all(&mut store);
-        let _ = kxen_app::auth::credential::write_auth_file(&path, &store);
-        for (provider, outcome, _) in &outcomes {
-            tracing::info!(provider, ?outcome, "credential probe");
-        }
+        let store = kxen_app::auth::credential::read_auth_file(&path);
         let config = kxen_app::core::config::Config::load(
             &kxen_app::core::paths::config_dir().join("config.toml"),
             None,
@@ -55,7 +50,9 @@ impl AppState {
         let registry = std::sync::Arc::new(kxen_app::tools::task::TaskRegistry::new());
         let extras = std::sync::Arc::new(kxen_app::agent::agent_loop::SessionExtras::default());
         let hooks = std::sync::Arc::new(kxen_app::tools::hooks::HookRunner::from_config(&config));
-        let mrm = std::sync::Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(config));
+        let mrm = std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(
+            kxen_app::llm::mrm::ModelResourceManager::new(config),
+        )));
         let workdir: std::sync::Arc<std::path::Path> =
             std::sync::Arc::from(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
         let bus = kxen_app::core::event::EventBus::default();
@@ -85,7 +82,7 @@ impl AppState {
             agents,
             active_runs: std::sync::Mutex::new(std::collections::HashMap::new()),
             run_streams: std::sync::Mutex::new(std::collections::HashMap::new()),
-            mrm: std::sync::RwLock::new(mrm),
+            mrm,
             session_tokens: std::sync::Mutex::new(std::collections::HashMap::new()),
             session_last_input: std::sync::Mutex::new(std::collections::HashMap::new()),
             statusline_items: std::sync::Mutex::new(statusline_items),
@@ -118,6 +115,26 @@ pub fn run() {
                             }
                         }
                         Err(e) => tracing::error!(error = %e, "ws server failed"),
+                    }
+                });
+                // 凭证探测走后台：keychain 读取可被 ACL 弹窗无限阻塞，绝不能卡启动路径
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let probed = tokio::task::spawn_blocking(|| {
+                        let path = kxen_app::core::paths::auth_file();
+                        let mut store = kxen_app::auth::credential::read_auth_file(&path);
+                        let outcomes = kxen_app::auth::probe_all(&mut store);
+                        let _ = kxen_app::auth::credential::write_auth_file(&path, &store);
+                        (store, outcomes)
+                    })
+                    .await;
+                    if let Ok((store, outcomes)) = probed {
+                        for (provider, outcome, _) in &outcomes {
+                            tracing::info!(provider, ?outcome, "credential probe");
+                        }
+                        if let Some(state) = handle.try_state::<Arc<AppState>>() {
+                            *state.auth_store.lock().expect("auth_store") = store;
+                        }
                     }
                 });
                 Ok(())
