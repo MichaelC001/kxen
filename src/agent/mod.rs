@@ -2,6 +2,7 @@
 
 pub mod agent_loop;
 pub mod loop_detect;
+pub mod okf;
 pub mod prompt;
 pub mod subagent;
 pub mod tools_spec;

@@ -55,6 +55,9 @@ pub fn system_prompt(workdir: &std::path::Path) -> String {
     out.push_str(TOOL_POLICY);
     out.push_str("\n\n");
     out.push_str(WRITE_GOAL_PLAYBOOK);
+    if let Some(block) = crate::agent::okf::render_context(workdir) {
+        out.push_str(&block);
+    }
     if let Some(block) = goal_block() {
         out.push_str("\n\n");
         out.push_str(&block);
