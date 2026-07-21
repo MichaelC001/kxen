@@ -20,11 +20,69 @@ export async function currentModel(): Promise<{ provider: string; model: string 
   return rpc("current_model");
 }
 
-export async function sendMessage(
-  text: string,
-  history: Array<{ role: string; content: string }>,
-): Promise<void> {
-  return rpc("send_message", { text, history });
+export async function setModel(provider: string, model: string): Promise<void> {
+  return rpc("set_model", { provider, model });
+}
+
+export async function sendMessage(sessionId: string, text: string): Promise<void> {
+  return rpc("send_message", { session_id: sessionId, text });
+}
+
+// ---------------- 会话 ----------------
+
+export interface SessionMeta {
+  id: string;
+  title: string;
+  directory: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface StoredPart {
+  type: "text" | "tool_call" | "reasoning";
+  text?: string;
+  name?: string;
+  input?: unknown;
+  output?: string;
+}
+
+export interface StoredMessage {
+  id: string;
+  session_id: string;
+  role: "user" | "assistant" | "system";
+  parts: StoredPart[];
+  created_at: number;
+}
+
+export async function sessionList(): Promise<SessionMeta[]> {
+  return rpc<SessionMeta[]>("session.list");
+}
+
+export async function sessionCreate(directory?: string): Promise<SessionMeta> {
+  return rpc<SessionMeta>("session.create", directory ? { directory } : {});
+}
+
+export async function sessionMessages(id: string): Promise<StoredMessage[]> {
+  return rpc<StoredMessage[]>("session.messages", { id });
+}
+
+export async function sessionDelete(id: string): Promise<void> {
+  return rpc("session.delete", { id });
+}
+
+// ---------------- diff（workdir 改动） ----------------
+
+export interface DiffStatusEntry {
+  path: string;
+  status: string;
+}
+
+export async function diffStatus(): Promise<DiffStatusEntry[]> {
+  return rpc<DiffStatusEntry[]>("diff.status");
+}
+
+export async function diffFile(path: string): Promise<string> {
+  return rpc<string>("diff.file", { path });
 }
 
 // ---------------- goal ----------------
@@ -93,6 +151,7 @@ export interface ToolEvent {
 }
 
 export function onLlmDelta(
+  activeSession: () => string,
   onText: (text: string) => void,
   onReasoning: (text: string) => void,
   onDone: (usage?: { input: number; output: number }, error?: string) => void,
@@ -103,6 +162,7 @@ export function onLlmDelta(
     handle(
       payload as {
         kind?: string;
+        session_id?: string;
         text?: string;
         input?: number;
         output?: number;
@@ -115,6 +175,7 @@ export function onLlmDelta(
 
   function handle(event: {
     kind?: string;
+    session_id?: string;
     text?: string;
     input?: number;
     output?: number;
@@ -122,6 +183,8 @@ export function onLlmDelta(
     name?: string;
     summary?: string;
   }) {
+    // 只渲染活跃会话的增量（后台运行的其他会话事件忽略）
+    if (event.session_id && event.session_id !== activeSession()) return;
     switch (event.kind) {
       case "text":
         if (event.text) onText(event.text);

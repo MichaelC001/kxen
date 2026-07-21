@@ -1,5 +1,13 @@
-import { createSignal, For, Show, onCleanup, onMount } from "solid-js";
-import { onLlmDelta, sendMessage } from "../lib/chat";
+import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
+import {
+  currentModel,
+  onLlmDelta,
+  sendMessage,
+  sessionMessages,
+  setModel,
+  type StoredMessage,
+} from "../lib/chat";
+import { activeSessionId, sessions } from "../lib/state";
 import Markdown from "../components/Markdown";
 import ToolCard from "../components/ToolCard";
 
@@ -23,16 +31,68 @@ interface PhaseItem {
 }
 type Item = MsgItem | ToolItem | PhaseItem;
 
+const MODEL_PRESETS = [
+  { provider: "anthropic", model: "claude-sonnet-4-5-20250929", label: "Claude Sonnet" },
+  { provider: "openai", model: "gpt-5.4", label: "GPT (Codex)" },
+  { provider: "xai", model: "grok-build-0.1", label: "Grok Build" },
+  { provider: "kimi-for-coding", model: "kimi-for-coding", label: "Kimi Code" },
+];
+
+/** 存储消息 -> 时间线条目（工具调用/推理/文本按序还原）。 */
+function toItems(messages: StoredMessage[]): Item[] {
+  const items: Item[] = [];
+  for (const m of messages) {
+    if (m.role === "system") continue;
+    for (const p of m.parts) {
+      if (p.type === "text" && p.text) {
+        const last = items[items.length - 1];
+        if (last?.kind === "msg" && last.role === m.role) {
+          items[items.length - 1] = { ...last, content: `${last.content}\n${p.text}` };
+        } else {
+          items.push({ kind: "msg", role: m.role, content: p.text });
+        }
+      } else if (p.type === "reasoning" && p.text && m.role === "assistant") {
+        const last = items[items.length - 1];
+        if (last?.kind === "msg" && last.role === "assistant") {
+          items[items.length - 1] = { ...last, reasoning: `${last.reasoning ?? ""}${p.text}` };
+        }
+      } else if (p.type === "tool_call" && p.name) {
+        items.push({
+          kind: "tool",
+          name: p.name,
+          call: typeof p.input === "string" ? p.input : JSON.stringify(p.input),
+          result: p.output || undefined,
+        });
+      }
+    }
+  }
+  return items;
+}
+
 export default function Session() {
   const [items, setItems] = createSignal<Item[]>([]);
   const [draft, setDraft] = createSignal("");
-  const [streaming, setStreaming] = createSignal(false);
+  const [streamingSid, setStreamingSid] = createSignal("");
+  const [modelLabel, setModelLabel] = createSignal("");
   let unlisten: (() => void) | undefined;
   let listRef: HTMLDivElement | undefined;
 
+  const streaming = () => streamingSid() === activeSessionId() && activeSessionId() !== "";
+  const title = () => sessions().find((s) => s.id === activeSessionId())?.title ?? "会话";
   const scroll = () => queueMicrotask(() => listRef && (listRef.scrollTop = listRef.scrollHeight));
 
-  /** 追加到最后一条 assistant 消息（没有则新建）。 */
+  // 切换会话：加载存储的时间线
+  createEffect(() => {
+    const id = activeSessionId();
+    if (!id) return;
+    void sessionMessages(id).then((messages) => {
+      if (activeSessionId() === id) {
+        setItems(toItems(messages));
+        scroll();
+      }
+    });
+  });
+
   const appendAssistant = (field: "content" | "reasoning", text: string) => {
     setItems((prev) => {
       const last = prev[prev.length - 1];
@@ -53,7 +113,10 @@ export default function Session() {
   };
 
   onMount(async () => {
+    const m = await currentModel();
+    setModelLabel(`${m.provider}/${m.model}`);
     unlisten = await onLlmDelta(
+      activeSessionId,
       (text) => appendAssistant("content", text),
       (reasoning) => appendAssistant("reasoning", reasoning),
       (usage, error) => {
@@ -64,7 +127,7 @@ export default function Session() {
           }
           return prev;
         });
-        setStreaming(false);
+        setStreamingSid("");
         scroll();
       },
       (event) => {
@@ -97,24 +160,41 @@ export default function Session() {
 
   const send = async () => {
     const text = draft().trim();
-    if (!text || streaming()) return;
+    const sid = activeSessionId();
+    if (!text || !sid || streaming()) return;
     setDraft("");
-    setStreaming(true);
-    const history = items()
-      .filter((i): i is MsgItem => i.kind === "msg")
-      .map((m) => ({ role: m.role, content: m.content }));
+    setStreamingSid(sid);
     setItems((prev) => [...prev, { kind: "msg", role: "user", content: text }]);
     scroll();
-    await sendMessage(text, history);
+    await sendMessage(sid, text);
+  };
+
+  const pickModel = async (value: string) => {
+    const preset = MODEL_PRESETS.find((p) => `${p.provider}/${p.model}` === value);
+    if (!preset) return;
+    await setModel(preset.provider, preset.model);
+    setModelLabel(value);
   };
 
   return (
     <div class="h-full flex flex-col">
-      <div class="material px-4 py-2 border-b border-[var(--border)] text-xs text-[var(--text-dim)] flex items-center gap-3">
-        <span class="font-medium">会话</span>
+      <div class="material px-4 py-2 border-b border-[var(--border)] text-xs flex items-center gap-3">
+        <span class="font-medium text-[var(--text)] truncate">{title()}</span>
         <Show when={streaming()}>
           <span class="text-[var(--accent-hover)]">进行中…</span>
         </Show>
+        <select
+          class="ml-auto bg-[var(--bg-raised)] border border-[var(--border)] rounded px-1.5 py-0.5 text-[var(--text-dim)]"
+          value={modelLabel()}
+          onChange={(e) => void pickModel(e.currentTarget.value)}
+        >
+          <Show when={!MODEL_PRESETS.some((p) => `${p.provider}/${p.model}` === modelLabel())}>
+            <option value={modelLabel()}>{modelLabel()}</option>
+          </Show>
+          {MODEL_PRESETS.map((p) => (
+            <option value={`${p.provider}/${p.model}`}>{p.label}</option>
+          ))}
+        </select>
       </div>
 
       <div ref={(el) => (listRef = el)} class="flex-1 overflow-auto px-4 py-4">
