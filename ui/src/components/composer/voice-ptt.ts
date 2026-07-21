@@ -40,7 +40,11 @@ export function createVoicePtt(opts: {
           // webview 语音服务不可用：本会话内禁用，不再反复报错
           opts.setDead(true);
         } else {
-          opts.setError(error === "not-allowed" ? "麦克风权限被拒（系统设置 > 隐私 > 麦克风 中允许 kxen）" : `语音识别错误: ${error}`);
+          opts.setError(
+            error === "not-allowed"
+              ? "麦克风权限被拒（系统设置 > 隐私 > 麦克风 中允许 kxen）"
+              : `语音识别错误: ${error}`,
+          );
         }
         stop();
       },

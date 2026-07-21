@@ -14,7 +14,7 @@ pub(super) fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Valu
         if cache.0.elapsed() > std::time::Duration::from_secs(5) {
             let branch = std::process::Command::new("git")
                 .args(["branch", "--show-current"])
-                .current_dir(&*state.workdir)
+                .current_dir(&*state.active_workspace.read().expect("workspace"))
                 .output()
                 .ok()
                 .filter(|o| o.status.success())
@@ -35,7 +35,7 @@ pub(super) fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Valu
 
     json!({
         "items": items,
-        "workdir": state.workdir.to_string_lossy(),
+        "workdir": state.active_workspace.read().expect("workspace").to_string_lossy(),
         "git_branch": git_branch,
         "goal": focus.map(|g| json!({ "id": g.id, "status": format!("{:?}", g.status).to_lowercase() })),
         "tasks_running": tasks_running,

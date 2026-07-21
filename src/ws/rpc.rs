@@ -36,14 +36,43 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             Ok(json!({ "provider": provider, "model": model }))
         }
         m if m.starts_with("goal.") => crate::goal_rpc::call(m, params),
-        "session.list" => Ok(json!(kxen_app::core::session::list(&kxen_app::core::paths::sessions_dir()))),
+        "workspace.list" => Ok(json!(kxen_app::core::workspace::list(&kxen_app::core::paths::data_dir()))),
+        "session.list" => {
+            // 全量返回（侧栏树按 workspace 分组，过滤在前端）
+            Ok(json!(kxen_app::core::session::list(&kxen_app::core::paths::sessions_dir())))
+        }
+        "workspace.current" => {
+            let state = app.state::<Arc<AppState>>();
+            let active = state.active_workspace.read().expect("workspace").to_string_lossy().into_owned();
+            Ok(json!(active))
+        }
+        "workspace.add" => {
+            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
+            let dir = std::path::PathBuf::from(path);
+            if !dir.is_dir() {
+                return Err(format!("directory not found: {path}"));
+            }
+            kxen_app::core::workspace::touch(&kxen_app::core::paths::data_dir(), path).map_err(|e| e.to_string())?;
+            Ok(json!(path))
+        }
+        "workspace.switch" => {
+            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
+            let dir = std::path::PathBuf::from(path);
+            if !dir.is_dir() {
+                return Err(format!("directory not found: {path}"));
+            }
+            let state = app.state::<Arc<AppState>>();
+            *state.active_workspace.write().expect("workspace") = dir;
+            kxen_app::core::workspace::touch(&kxen_app::core::paths::data_dir(), path).map_err(|e| e.to_string())?;
+            Ok(json!(path))
+        }
         "session.create" => {
             let state = app.state::<Arc<AppState>>();
             let directory = params
                 .get("directory")
                 .and_then(Value::as_str)
                 .map(String::from)
-                .unwrap_or_else(|| state.workdir.to_string_lossy().into_owned());
+                .unwrap_or_else(|| state.active_workspace.read().expect("workspace").to_string_lossy().into_owned());
             let session = kxen_app::core::session::create(&kxen_app::core::paths::sessions_dir(), &directory).map_err(|e| e.to_string())?;
             Ok(json!(session))
         }
@@ -58,12 +87,14 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
         }
         "diff.status" => {
             let state = app.state::<Arc<AppState>>();
-            Ok(json!(kxen_app::tools::worktree::status(&state.workdir).await?))
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            Ok(json!(kxen_app::tools::worktree::status(&dir).await?))
         }
         "diff.file" => {
             let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
             let state = app.state::<Arc<AppState>>();
-            let text = kxen_app::tools::worktree::diff_file(&state.workdir, path).await?;
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            let text = kxen_app::tools::worktree::diff_file(&dir, path).await?;
             Ok(json!(text))
         }
         "send_message" => {
@@ -128,13 +159,15 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let query = params.get("query").and_then(Value::as_str).unwrap_or("");
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
             let state = app.state::<Arc<AppState>>();
-            Ok(json!(kxen_app::tools::search::complete(query, &state.workdir, limit)))
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            Ok(json!(kxen_app::tools::search::complete(query, &dir, limit)))
         }
         "command.list" => {
             let state = app.state::<Arc<AppState>>();
-            let mut commands = kxen_app::agent::commands::list(&state.workdir);
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            let mut commands = kxen_app::agent::commands::list(&dir);
             // skills 并入弹窗（kind=skill，标注是否 user-invocable）
-            commands.extend(kxen_app::agent::skills::scan(&state.workdir).into_iter().filter(|s| s.user_invocable).map(|s| {
+            commands.extend(kxen_app::agent::skills::scan(&dir).into_iter().filter(|s| s.user_invocable).map(|s| {
                 kxen_app::agent::commands::CommandInfo {
                     name: s.name,
                     description: s.description,

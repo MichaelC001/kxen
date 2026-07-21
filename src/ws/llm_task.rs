@@ -13,11 +13,17 @@ pub(super) async fn run_llm(stream_id: String, session_id: String, text: String,
     let state = app.state::<Arc<AppState>>();
     let sessions_dir = kxen_app::core::paths::sessions_dir();
 
+    // 多 workspace：run 的 workdir 取 session 归属目录（fallback 当前活跃 workspace）
+    let session_dir = ses::load_meta(&sessions_dir, &session_id)
+        .map(|m| m.directory)
+        .unwrap_or_else(|_| state.active_workspace.read().expect("workspace").to_string_lossy().into_owned());
+    let session_path = std::path::PathBuf::from(&session_dir);
+
     // @ 引用注入：chip -> 上下文块（文件/目录/Web/Docs），追加在用户消息尾部
     let context_block = if context.is_empty() {
         String::new()
     } else {
-        kxen_app::agent::context::build_context(&context, &state.workdir).await
+        kxen_app::agent::context::build_context(&context, &session_path).await
     };
     let text = if context_block.is_empty() { text } else { format!("{text}\n{context_block}") };
 
@@ -35,7 +41,7 @@ pub(super) async fn run_llm(stream_id: String, session_id: String, text: String,
             state.model.lock().map(|m| m.clone()).unwrap_or_default(),
             store,
             state.registry.clone(),
-            state.workdir.clone(),
+            std::sync::Arc::from(session_path.as_path()),
             state.bus.clone(),
         )
     };

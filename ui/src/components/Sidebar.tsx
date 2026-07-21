@@ -1,27 +1,15 @@
 import { A } from "@solidjs/router";
-import { For, onMount } from "solid-js";
-import { Moon, Plus, Settings as SettingsIcon, Sun, X } from "lucide-solid";
-import { sessionDelete } from "../lib/chat";
-import {
-  activeSessionId,
-  initSessions,
-  newSession,
-  refreshSessions,
-  sessions,
-  switchSession,
-} from "../lib/state";
+import { onMount } from "solid-js";
+import { Moon, Plus, Settings as SettingsIcon, Sun } from "lucide-solid";
+import SessionTree from "./SessionTree";
+import { initSessions, newSession } from "../lib/state";
 import { theme, toggleTheme } from "../lib/theme";
 
-/** 左栏：会话列表（会话是家）+ 底部应用级入口。 */
+/** 左栏：品牌 + 新会话 + 项目-会话树（Codex 式分组）+ 底部应用级入口。 */
 export default function Sidebar() {
   onMount(async () => {
     await initSessions();
   });
-
-  const remove = async (id: string) => {
-    await sessionDelete(id);
-    await refreshSessions();
-  };
 
   return (
     <nav class="w-52 shrink-0 flex flex-col border-r border-[var(--border)] bg-[var(--bg-raised)]">
@@ -38,35 +26,7 @@ export default function Sidebar() {
           新会话
         </button>
       </div>
-      <div class="flex-1 overflow-auto px-2 space-y-0.5">
-        <For each={sessions()}>
-          {(s) => (
-            <div
-              class="group flex items-center rounded-md text-sm cursor-pointer"
-              classList={{
-                "bg-[var(--bg-overlay)] text-[var(--text)]": s.id === activeSessionId(),
-                "text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60":
-                  s.id !== activeSessionId(),
-              }}
-              onClick={() => switchSession(s.id)}
-            >
-              <span class="flex-1 px-3 py-1.5 truncate" title={s.title}>
-                {s.title}
-              </span>
-              <button
-                class="px-2 text-[var(--text-faint)] opacity-0 group-hover:opacity-100 hover:text-[var(--err)]"
-                title="删除会话"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void remove(s.id);
-                }}
-              >
-                <X size={13} />
-              </button>
-            </div>
-          )}
-        </For>
-      </div>
+      <SessionTree />
       <div class="px-3 py-2 border-t border-[var(--border)] space-y-2">
         <div class="flex items-center justify-between">
           <A

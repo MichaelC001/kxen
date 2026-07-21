@@ -32,6 +32,8 @@ pub struct AppState {
     /// git 分支 5s 缓存（状态栏 git 段，防每帧 spawn）
     pub git_cache: std::sync::Mutex<(std::time::Instant, String)>,
     pub workdir: std::sync::Arc<std::path::Path>,
+    /// 当前活跃 workspace（多项目目录，可切换；初始 = workdir）
+    pub active_workspace: std::sync::RwLock<std::path::PathBuf>,
 }
 
 impl AppState {
@@ -88,6 +90,7 @@ impl AppState {
             session_last_input: std::sync::Mutex::new(std::collections::HashMap::new()),
             statusline_items: std::sync::Mutex::new(statusline_items),
             git_cache: std::sync::Mutex::new((std::time::Instant::now() - std::time::Duration::from_secs(60), String::new())),
+            active_workspace: std::sync::RwLock::new(workdir.to_path_buf()),
             workdir,
         }
     }

@@ -8,5 +8,6 @@ pub mod goal;
 pub mod paths;
 pub mod session;
 pub mod shared;
+pub mod workspace;
 
 pub use error::{Error, Result};

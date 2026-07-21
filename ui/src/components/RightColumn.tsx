@@ -1,6 +1,7 @@
 import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import { Bot, ChevronRight, X } from "lucide-solid";
-import { agentsTranscript, onTopic, teamMessage, type TranscriptEntry } from "../lib/chat";
+import { onTopic } from "../lib/chat";
+import { agentsTranscript, teamMessage, type TranscriptEntry } from "../lib/team";
 import { statusDot } from "../lib/variants";
 import { activeSessionId, agents, focusAgent, refreshAgents, setFocusAgent } from "../lib/state";
 import Dock from "./Dock";

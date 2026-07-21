@@ -1,12 +1,7 @@
 // 会话状态：活跃会话 id + 会话列表（Sidebar 与 Session 页共享）。
 import { createSignal } from "solid-js";
-import {
-  agentsList,
-  sessionCreate,
-  sessionList,
-  type AgentActivity,
-  type SessionMeta,
-} from "./chat";
+import { agentsList, type AgentActivity } from "./team";
+import { sessionCreate, sessionList, type SessionMeta } from "./chat";
 
 export const [sessions, setSessions] = createSignal<SessionMeta[]>([]);
 export const [activeSessionId, setActiveSessionId] = createSignal<string>("");
