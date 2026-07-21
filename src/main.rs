@@ -8,6 +8,8 @@ use tauri::Manager;
 
 pub struct AppState {
     auth_store: Mutex<kxen_app::auth::credential::AuthStore>,
+    /// ws 服务端口（serve 成功后写入，ws_port command 用）
+    ws_port: Mutex<u16>,
     model: Mutex<ModelRef>,
     pub bus: kxen_app::core::event::EventBus,
     pub registry: std::sync::Arc<kxen_app::tools::task::TaskRegistry>,
@@ -19,8 +21,12 @@ pub struct AppState {
     pub agents: std::sync::Arc<kxen_app::agent::activity::AgentRegistry>,
     /// session_id -> 进行中 run 的取消令牌（session.abort 用；run 结束自行移除）
     pub active_runs: std::sync::Mutex<std::collections::HashMap<String, kxen_app::agent::cancel::CancelToken>>,
+    /// stream_id -> session_id（rpc.cancelStream 路由用）
+    pub run_streams: std::sync::Mutex<std::collections::HashMap<String, String>>,
     /// session_id -> (input, output) tokens 累计（状态栏用量段）
     pub session_tokens: std::sync::Mutex<std::collections::HashMap<String, (u64, u64)>>,
+    /// session_id -> 最近一次 run 的 input tokens（ctx 占用近似值，进度条数据源）
+    pub session_last_input: std::sync::Mutex<std::collections::HashMap<String, u64>>,
     /// 状态栏显隐段（启动时从 config 读；设置页改后重建）
     pub statusline_items: std::sync::Mutex<Vec<String>>,
     /// git 分支 5s 缓存（状态栏 git 段，防每帧 spawn）
@@ -67,6 +73,7 @@ impl AppState {
         );
         Self {
             auth_store: Mutex::new(store),
+            ws_port: Mutex::new(0),
             model: Mutex::new(ModelRef::new("xai", "grok-build-0.1")),
             bus,
             registry,
@@ -75,8 +82,10 @@ impl AppState {
             team,
             agents,
             active_runs: std::sync::Mutex::new(std::collections::HashMap::new()),
+            run_streams: std::sync::Mutex::new(std::collections::HashMap::new()),
             mrm: std::sync::RwLock::new(mrm),
             session_tokens: std::sync::Mutex::new(std::collections::HashMap::new()),
+            session_last_input: std::sync::Mutex::new(std::collections::HashMap::new()),
             statusline_items: std::sync::Mutex::new(statusline_items),
             git_cache: std::sync::Mutex::new((std::time::Instant::now() - std::time::Duration::from_secs(60), String::new())),
             workdir,
@@ -93,6 +102,7 @@ pub fn run() {
     tauri::async_runtime::block_on(async {
         let app = tauri::Builder::default()
             .plugin(tauri_plugin_websocket::init())
+            .invoke_handler(tauri::generate_handler![ws_port])
             .manage(Arc::new(AppState::new()))
             .setup(|app| {
                 let handle = app.handle().clone();
@@ -100,8 +110,8 @@ pub fn run() {
                     match ws::serve(handle.clone()).await {
                         Ok(port) => {
                             tracing::info!(port, "ws server listening");
-                            if let Some(window) = handle.get_webview_window("main") {
-                                let _ = window.eval(&format!("window.__KXEN_WS_PORT__ = {port};"));
+                            if let Some(state) = handle.try_state::<Arc<AppState>>() {
+                                *state.ws_port.lock().expect("ws_port") = port;
                             }
                         }
                         Err(e) => tracing::error!(error = %e, "ws server failed"),
@@ -118,4 +128,11 @@ pub fn run() {
 
 fn main() {
     run();
+}
+
+
+/// 前端拿 ws 端口（替代 window.eval 注入：页面重载后注入丢失的竞态根治）。
+#[tauri::command]
+fn ws_port(state: tauri::State<'_, Arc<AppState>>) -> u16 {
+    *state.ws_port.lock().expect("ws_port")
 }

@@ -19,10 +19,11 @@ export default function Markdown(props: { text: string }) {
 
   createEffect(() => {
     theme(); // 主题切换触发重渲染（shiki/mermaid 主题跟随）
-    const html = renderMarkdown(props.text);
-    if (!el) return;
-    el.innerHTML = html;
-    void renderMermaid(el);
+    void renderMarkdown(props.text).then((html) => {
+      if (!el) return;
+      el.innerHTML = html;
+      void renderMermaid(el);
+    });
   });
 
   return <div ref={(node) => (el = node)} class="md" onClick={onClick} />;

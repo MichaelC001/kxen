@@ -58,12 +58,12 @@ function shikiTheme(): string {
   return document.documentElement.dataset.theme === "light" ? "github-light" : "github-dark";
 }
 
-/** 同步渲染 markdown -> HTML。mermaid 块先转占位 div，随后由 renderMermaid 实例化。 */
-export function renderMarkdown(text: string): string {
+/** 渲染 markdown -> HTML（async：marked-shiki 扩展强制异步 parse）。mermaid 块先转占位 div，随后由 renderMermaid 实例化。 */
+export async function renderMarkdown(text: string): Promise<string> {
   const withPlaceholders = text.replace(MERMAID_BLOCK, (_, source: string) => {
     return `\n\n<div class="mermaid">${escapeHtml(source.trim())}</div>\n\n`;
   });
-  return marked.parse(withPlaceholders, { async: false }) as string;
+  return (await marked.parse(withPlaceholders)) as string;
 }
 
 // mermaid 体积大（>500KB）：按需动态加载，首个 mermaid 块出现时才进内存

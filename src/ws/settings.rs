@@ -28,7 +28,10 @@ pub(super) fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Valu
     let focus = kxen_app::core::goal::Goal::focus(&kxen_app::core::paths::goals_dir());
     let tasks_running = state.registry.list().iter().filter(|t| matches!(t.status, kxen_app::tools::task::TaskStatus::Running)).count();
     let tokens = kxen_app::core::shared::lock(&state.session_tokens).get(session_id).copied().unwrap_or((0, 0));
+    let last_input = kxen_app::core::shared::lock(&state.session_last_input).get(session_id).copied().unwrap_or(0);
     let model = state.model.lock().map(|m| m.clone()).unwrap_or_default();
+    // ctx 占用近似：最近一次 run 的 input / 200k 窗（Claude Code 只按 input 算的惯例）
+    let ctx_pct = ((last_input as f64 / 200_000.0) * 100.0).min(100.0) as u32;
 
     json!({
         "items": items,
@@ -37,6 +40,7 @@ pub(super) fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Valu
         "goal": focus.map(|g| json!({ "id": g.id, "status": format!("{:?}", g.status).to_lowercase() })),
         "tasks_running": tasks_running,
         "tokens": { "input": tokens.0, "output": tokens.1 },
+        "ctx_pct": ctx_pct,
         "model": format!("{}/{}", model.provider, model.model),
     })
 }

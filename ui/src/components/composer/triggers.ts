@@ -1,62 +1,106 @@
-// 触发检测（@ / / / #，Zed 边界规则）+ caret 坐标计算（弹窗锚点）。
-import type { EditorState } from "lexical";
-import { $getSelection, $isRangeSelection, $isTextNode } from "lexical";
+// 触发弹窗逻辑（textarea 版）：@ / / / # 检测（Zed 边界规则）+ 弹窗装配 + token 移除。
+import { fsComplete, type CommandInfo, type CompleteEntry } from "../../lib/chat";
+
+export interface PopupState {
+  kind: "at" | "slash" | "hash";
+  query: string;
+  start: number;
+  items: PopupItem[];
+  selected: number;
+}
+
+export interface PopupItem {
+  label: string;
+  detail?: string | undefined;
+  badge?: string | undefined;
+  apply: () => void;
+}
 
 export interface Trigger {
   kind: "at" | "slash" | "hash";
+  start: number;
   query: string;
-  /** 触发字符在 caret 所在 text node 内的偏移（删除 token 用）。 */
-  startInNode: number;
-  caretOffset: number;
-  /** 弹窗锚点（viewport 坐标）。 */
-  rect: DOMRect | null;
 }
 
-/** 从当前 selection 解析触发 token；无触发返回 null。 */
-export function detectTrigger(state: EditorState): Trigger | null {
-  return state.read(() => {
-    const selection = $getSelection();
-    if (!$isRangeSelection(selection) || !selection.isCollapsed()) return null;
-    const anchor = selection.anchor;
-    const node = anchor.getNode();
-    if (!$isTextNode(node)) return null;
-    const text = node.getTextContent();
-    const caret = anchor.offset;
-
-    // 向前找触发字符（@ / # 任意位置；/ 只在 node 起始）
-    for (let i = caret - 1; i >= 0; i--) {
-      const c = text[i];
-      if (c === " " || c === "\n") {
-        // 空格：查询结束；但 /query 中允许空格？不允许（命令名单词）
-        if (i === caret - 1) continue;
-        return null;
+/** 触发 token 检测：光标前最近的 @ / / / #，前界为行首/空白/([{（Zed 边界规则）。 */
+export function detectTrigger(value: string, cursor: number): Trigger | null {
+  let i = cursor - 1;
+  while (i >= 0) {
+    const c = value[i];
+    if (c === "\n") {
+      if (value[i + 1] === "/") {
+        return { kind: "slash", start: i + 1, query: value.slice(i + 2, cursor) };
       }
-      if (c === "@" || c === "#" || c === "/") {
-        const prev = i === 0 ? "" : text[i - 1];
-        const bounded =
-          i === 0 || prev === " " || prev === "\n" || prev === "(" || prev === "[" || prev === "{";
-        if (!bounded) return null;
-        if (c === "/" && i !== 0) return null;
-        const kind = c === "@" ? "at" : c === "/" ? "slash" : "hash";
-        return {
-          kind,
-          startInNode: i,
-          caretOffset: caret,
-          query: text.slice(i + 1, caret),
-          rect: caretRect(),
-        };
-      }
+      break;
     }
-    return null;
-  });
+    if (c === "@" || c === "#" || c === "/") {
+      const prev = i === 0 ? "" : value[i - 1];
+      const bounded =
+        i === 0 || prev === " " || prev === "\t" || prev === "(" || prev === "[" || prev === "{";
+      if (!bounded) return null;
+      if (c === "/" && i !== 0) return null;
+      const kind = c === "@" ? "at" : c === "/" ? "slash" : "hash";
+      return { kind, start: i, query: value.slice(i + 1, cursor) };
+    }
+    if (c === " " && i !== cursor - 1) break;
+    i--;
+  }
+  return null;
 }
 
-/** caret 的 viewport 坐标（原生 selection range rect）。 */
-function caretRect(): DOMRect | null {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return null;
-  const range = sel.getRangeAt(0).cloneRange();
-  range.collapse(true);
-  const rects = range.getClientRects();
-  return rects.length > 0 ? rects.item(0) : null;
+const KNOWLEDGE_TARGETS = [
+  { ref: ".agents/rules/", label: "写入项目规范", detail: ".agents/rules/（入 git 共享）" },
+  { ref: "~/.agents/rules/", label: "写入全局规范", detail: "~/.agents/rules/（个人全部项目）" },
+  { ref: ".kxen/memory/", label: "写入本地 memory", detail: ".kxen/memory/（本机，gitignored）" },
+];
+
+export interface PopupActions {
+  onChip: (kind: "file" | "dir" | "knowledge", ref: string, label: string) => void;
+  onPlainInsert: (text: string, triggerStart: number) => void;
+  onCloseToken: (triggerStart: number) => void;
+}
+
+/** 按触发类型装配弹窗条目（200ms 防抖由调用方控制）。 */
+export async function buildItems(
+  trigger: Trigger,
+  commands: CommandInfo[],
+  actions: PopupActions,
+): Promise<PopupItem[]> {
+  if (trigger.kind === "at") {
+    const hits = await fsComplete(trigger.query, 10).catch(() => [] as CompleteEntry[]);
+    return hits.map((h) => ({
+      label: h.path,
+      badge: h.kind === "dir" ? "dir" : undefined,
+      apply: () => {
+        actions.onChip(
+          h.kind === "dir" ? "dir" : "file",
+          h.path,
+          h.path.split("/").pop() ?? h.path,
+        );
+        actions.onCloseToken(trigger.start);
+      },
+    }));
+  }
+  if (trigger.kind === "slash") {
+    const q = trigger.query.toLowerCase();
+    return commands
+      .filter((c) => c.name.toLowerCase().includes(q))
+      .slice(0, 10)
+      .map((c) => ({
+        label: `/${c.name}${c.argument_hint ? ` ${c.argument_hint}` : ""}`,
+        detail: c.description,
+        badge: c.kind,
+        apply: () => actions.onPlainInsert(`/${c.name} `, trigger.start),
+      }));
+  }
+  const q = trigger.query.toLowerCase();
+  return KNOWLEDGE_TARGETS.filter((k) => k.label.toLowerCase().includes(q)).map((k) => ({
+    label: k.label,
+    detail: k.detail,
+    badge: "knowledge",
+    apply: () => {
+      actions.onChip("knowledge", k.ref, k.label);
+      actions.onCloseToken(trigger.start);
+    },
+  }));
 }

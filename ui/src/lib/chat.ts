@@ -1,5 +1,4 @@
-import { rpc } from "./rpc";
-import { subscribe } from "./stream";
+import { client } from "./client";
 export interface DoctorEntry {
   provider: string;
   display: string;
@@ -23,15 +22,15 @@ export interface ChatMessage {
 }
 
 export async function doctor(): Promise<DoctorReport> {
-  return rpc<DoctorReport>("doctor");
+  return client.rpc<DoctorReport>("doctor");
 }
 
 export async function currentModel(): Promise<{ provider: string; model: string }> {
-  return rpc("current_model");
+  return client.rpc("current_model");
 }
 
 export async function setModel(provider: string, model: string): Promise<void> {
-  return rpc("set_model", { provider, model });
+  return client.rpc("set_model", { provider, model });
 }
 
 export async function sendMessage(
@@ -40,7 +39,7 @@ export async function sendMessage(
   context: ContextItem[] = [],
   images: Array<{ media_type: string; data: string }> = [],
 ): Promise<void> {
-  return rpc("send_message", { session_id: sessionId, text, context, images });
+  return client.rpc("send_message", { session_id: sessionId, text, context, images });
 }
 
 export type ContextItem =
@@ -55,7 +54,7 @@ export interface CompleteEntry {
 }
 
 export async function fsComplete(query: string, limit = 20): Promise<CompleteEntry[]> {
-  return rpc<CompleteEntry[]>("fs.complete", { query, limit });
+  return client.rpc<CompleteEntry[]>("fs.complete", { query, limit });
 }
 
 export interface CommandInfo {
@@ -66,11 +65,11 @@ export interface CommandInfo {
 }
 
 export async function commandList(): Promise<CommandInfo[]> {
-  return rpc<CommandInfo[]>("command.list");
+  return client.rpc<CommandInfo[]>("command.list");
 }
 
 export async function sessionAbort(sessionId: string): Promise<boolean> {
-  return rpc<boolean>("session.abort", { session_id: sessionId });
+  return client.rpc<boolean>("session.abort", { session_id: sessionId });
 }
 
 export interface StatuslineReport {
@@ -84,7 +83,7 @@ export interface StatuslineReport {
 }
 
 export async function statusline(sessionId: string): Promise<StatuslineReport> {
-  return rpc<StatuslineReport>("statusline", { session_id: sessionId });
+  return client.rpc<StatuslineReport>("statusline", { session_id: sessionId });
 }
 
 export interface RoleBindingView {
@@ -94,7 +93,7 @@ export interface RoleBindingView {
 }
 
 export async function configGet(): Promise<{ roles: Record<string, RoleBindingView> }> {
-  return rpc("config.get");
+  return client.rpc("config.get");
 }
 
 export async function configSetRole(
@@ -103,7 +102,7 @@ export async function configSetRole(
   model: string,
   fallback?: string,
 ): Promise<void> {
-  return rpc("config.set_role", { role, provider, model, fallback });
+  return client.rpc("config.set_role", { role, provider, model, fallback });
 }
 
 // ---------------- 会话 ----------------
@@ -133,19 +132,19 @@ export interface StoredMessage {
 }
 
 export async function sessionList(): Promise<SessionMeta[]> {
-  return rpc<SessionMeta[]>("session.list");
+  return client.rpc<SessionMeta[]>("session.list");
 }
 
 export async function sessionCreate(directory?: string): Promise<SessionMeta> {
-  return rpc<SessionMeta>("session.create", directory ? { directory } : {});
+  return client.rpc<SessionMeta>("session.create", directory ? { directory } : {});
 }
 
 export async function sessionMessages(id: string): Promise<StoredMessage[]> {
-  return rpc<StoredMessage[]>("session.messages", { id });
+  return client.rpc<StoredMessage[]>("session.messages", { id });
 }
 
 export async function sessionDelete(id: string): Promise<void> {
-  return rpc("session.delete", { id });
+  return client.rpc("session.delete", { id });
 }
 
 // ---------------- diff（workdir 改动） ----------------
@@ -156,11 +155,11 @@ export interface DiffStatusEntry {
 }
 
 export async function diffStatus(): Promise<DiffStatusEntry[]> {
-  return rpc<DiffStatusEntry[]>("diff.status");
+  return client.rpc<DiffStatusEntry[]>("diff.status");
 }
 
 export async function diffFile(path: string): Promise<string> {
-  return rpc<string>("diff.file", { path });
+  return client.rpc<string>("diff.file", { path });
 }
 
 // ---------------- goal ----------------
@@ -180,18 +179,18 @@ export interface GoalInfo {
 }
 
 export async function goalList(): Promise<GoalInfo[]> {
-  return rpc<GoalInfo[]>("goal.list");
+  return client.rpc<GoalInfo[]>("goal.list");
 }
 
 export async function goalFocus(): Promise<GoalInfo | null> {
-  return rpc<GoalInfo | null>("goal.focus");
+  return client.rpc<GoalInfo | null>("goal.focus");
 }
 
 export async function goalTransit(
   id: string,
   action: "activate" | "pause" | "resume" | "cancel",
 ): Promise<GoalInfo> {
-  return rpc<GoalInfo>(`goal.${action}`, { id });
+  return client.rpc<GoalInfo>(`goal.${action}`, { id });
 }
 
 // ---------------- 后台任务 ----------------
@@ -206,11 +205,11 @@ export interface TaskInfo {
 }
 
 export async function taskList(): Promise<TaskInfo[]> {
-  return rpc<TaskInfo[]>("task.list");
+  return client.rpc<TaskInfo[]>("task.list");
 }
 
 export async function taskKill(id: string): Promise<boolean> {
-  return rpc<boolean>("task.kill", { id });
+  return client.rpc<boolean>("task.kill", { id });
 }
 
 // ---------------- 团队 ----------------
@@ -234,11 +233,11 @@ export interface TeamTask {
 export async function teamList(
   sessionId: string,
 ): Promise<{ members: TeamMember[]; tasks: TeamTask[] }> {
-  return rpc("team.list", { session_id: sessionId });
+  return client.rpc("team.list", { session_id: sessionId });
 }
 
 export async function teamMessage(sessionId: string, name: string, text: string): Promise<void> {
-  return rpc("team.message", { session_id: sessionId, name, text });
+  return client.rpc("team.message", { session_id: sessionId, name, text });
 }
 
 export interface AgentActivity {
@@ -250,7 +249,7 @@ export interface AgentActivity {
 }
 
 export async function agentsList(sessionId: string): Promise<AgentActivity[]> {
-  return rpc<AgentActivity[]>("agents.list", { session_id: sessionId });
+  return client.rpc<AgentActivity[]>("agents.list", { session_id: sessionId });
 }
 
 export interface TranscriptEntry {
@@ -265,7 +264,7 @@ export async function agentsTranscript(
   sessionId: string,
   name: string,
 ): Promise<TranscriptEntry[]> {
-  return rpc<TranscriptEntry[]>("agents.transcript", { session_id: sessionId, name });
+  return client.rpc<TranscriptEntry[]>("agents.transcript", { session_id: sessionId, name });
 }
 
 // ---------------- 事件订阅（goal.update / task.update） ----------------
@@ -273,8 +272,8 @@ export async function agentsTranscript(
 export function onTopic(
   topics: string[],
   handler: (topic: string, payload: unknown) => void,
-): Promise<() => void> {
-  return subscribe(topics, handler);
+): () => void {
+  return client.stream(topics).then((payload) => handler("", payload));
 }
 
 export interface ToolEvent {
@@ -297,8 +296,8 @@ export function onLlmDelta(
   onReasoning: (text: string) => void,
   onDone: (stats?: RunStats, error?: string) => void,
   onTool?: (event: ToolEvent) => void,
-): Promise<() => void> {
-  return subscribe(["llm.delta"], (_topic, payload) => {
+): () => void {
+  return client.stream("llm.delta").then((payload) => {
     handle(payload as DeltaPayload);
   });
 

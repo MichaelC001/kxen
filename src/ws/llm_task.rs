@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::AppState;
 
-pub(super) async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent::context::ContextItem>, images: Vec<kxen_app::llm::types::ImagePart>, app: AppHandle) {
+pub(super) async fn run_llm(stream_id: String, session_id: String, text: String, context: Vec<kxen_app::agent::context::ContextItem>, images: Vec<kxen_app::llm::types::ImagePart>, app: AppHandle) {
     use kxen_app::core::session as ses;
 
     let state = app.state::<Arc<AppState>>();
@@ -76,6 +76,7 @@ pub(super) async fn run_llm(session_id: String, text: String, context: Vec<kxen_
     let transcript = Arc::new(std::sync::Mutex::new(Vec::<ses::Part>::new()));
     let transcript_writer = transcript.clone();
     let sid = session_id.clone();
+    let stream_id_event = stream_id.clone();
 
     // 取消令牌：注册到 active_runs，run 结束移除（session.abort 可达）
     let cancel = kxen_app::agent::cancel::CancelToken::new();
@@ -124,18 +125,22 @@ pub(super) async fn run_llm(session_id: String, text: String, context: Vec<kxen_
             };
             if let Some(obj) = payload.as_object_mut() {
                 obj.insert("session_id".into(), json!(sid));
+                obj.insert("stream_id".into(), json!(stream_id_event));
             }
             bus.publish(kxen_app::core::event::Event::LlmDelta(payload));
         }),
     };
     let outcome = kxen_app::agent::agent_loop::run_turn(&mut ctx, messages).await;
     kxen_app::core::shared::lock(&state.active_runs).remove(&session_id);
+    kxen_app::core::shared::lock(&state.run_streams).remove(&stream_id);
     // 用量累计（状态栏 tokens 段）
     if let Some(stats) = outcome.stats {
         let mut map = kxen_app::core::shared::lock(&state.session_tokens);
         let entry = map.entry(session_id.clone()).or_insert((0, 0));
         entry.0 += stats.input_tokens;
         entry.1 += stats.output_tokens;
+        drop(map);
+        kxen_app::core::shared::lock(&state.session_last_input).insert(session_id.clone(), stats.input_tokens);
     }
 
     let mut parts = transcript.lock().expect("transcript").clone();

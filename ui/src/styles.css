@@ -510,3 +510,221 @@ code {
   background: linear-gradient(to bottom, transparent, var(--bg));
   pointer-events: none;
 }
+
+/* ============ 交互反应层（reaction）：所有可操作元素的状态反馈 ============ */
+
+/* attach + 开启时旋为 ×（150ms ease-out） */
+.attach-icon {
+  transition: transform var(--dur-fade) var(--ease-out);
+}
+.attach-open .attach-icon {
+  transform: rotate(45deg);
+}
+
+/* mic 录音：外圈扩散脉冲（state indication，1.4s 循环） */
+.mic-btn {
+  position: relative;
+}
+.mic-recording {
+  color: var(--err);
+}
+.mic-recording::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 8px;
+  border: 1.5px solid var(--err);
+  animation: pulse-ring 1.4s var(--ease-out) infinite;
+}
+@keyframes pulse-ring {
+  from {
+    opacity: 0.8;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
+/* send 就绪态（有内容时从禁用灰暗到强调，state indication） */
+.send-btn {
+  transition:
+    transform var(--dur-press) var(--ease-out),
+    background-color var(--dur-fade) var(--ease-out),
+    opacity var(--dur-fade) var(--ease-out);
+}
+.send-ready {
+  opacity: 1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+
+/* 错误抖动（error feedback，300ms） */
+.shake {
+  animation: shake 300ms var(--ease-out);
+}
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+
+/* 完成瞬间：左缘 accent 一闪（300ms 淡出，GPU 属性） */
+.done-flash {
+  animation: done-flash 400ms var(--ease-out);
+}
+@keyframes done-flash {
+  from {
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  to {
+    box-shadow: inset 2px 0 0 transparent;
+  }
+}
+
+/* chips（composer 引用 token） */
+.chip-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  font-size: 0.6875rem;
+  color: var(--text-dim);
+}
+.chip-img {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  object-fit: cover;
+}
+.chip-label {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip-x {
+  color: var(--text-faint);
+}
+.chip-x:hover {
+  color: var(--err);
+}
+
+/* 弹窗行 */
+.popup-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  text-align: left;
+  font-size: 0.75rem;
+}
+.popup-row:hover {
+  background: var(--bg-overlay);
+}
+.popup-row-active {
+  background: var(--bg-overlay);
+}
+
+/* composer textarea（卡内无边框） */
+.composer-textarea {
+  width: 100%;
+  background: transparent;
+  padding: 8px 12px;
+  font-size: 0.875rem;
+  resize: none;
+  caret-color: var(--text);
+}
+.composer-textarea:focus {
+  outline: none;
+}
+.composer-textarea::placeholder {
+  color: var(--text-faint);
+}
+
+/* 模型 pill 与行 */
+.model-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.model-pill:hover {
+  background: var(--bg-overlay);
+}
+.model-pill:active {
+  transform: scale(0.97);
+}
+.model-pill-name {
+  max-width: 144px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-brand {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--text-faint);
+  width: 44px;
+  flex-shrink: 0;
+}
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.model-row:hover {
+  background: var(--bg-overlay);
+}
+.model-row-active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.role-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.625rem;
+  color: var(--text-dim);
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.role-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+.role-chip:active {
+  transform: scale(0.97);
+}
+.role-chip:disabled {
+  opacity: 0.4;
+}
+
+/* reduced motion：reaction 层降级（保留 opacity，去掉位移/缩放） */
+@media (prefers-reduced-motion: reduce) {
+  .attach-icon,
+  .mic-recording::after,
+  .shake,
+  .done-flash {
+    animation: none;
+  }
+  .attach-icon {
+    transition: none;
+  }
+}

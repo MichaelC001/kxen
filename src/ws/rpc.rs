@@ -1,44 +1,17 @@
 //! RPC 通道：请求-响应（id 关联，支持并发调用）。
 
-use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
-use tokio::net::TcpStream;
-use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use super::llm_task::run_llm;
 use super::settings::{set_role, statusline_report};
-use super::{RpcRequest, RpcResponse};
 use crate::doctor::doctor_report;
 use crate::AppState;
 
-pub(super) async fn handle_rpc(
-    ws: tokio_tungstenite::WebSocketStream<TcpStream>,
-    app: AppHandle,
-) {
-    let (mut tx, mut rx) = ws.split();
-    while let Some(Ok(msg)) = rx.next().await {
-        let WsMessage::Text(text) = msg else { continue };
-        let Ok(req) = serde_json::from_str::<RpcRequest>(&text) else {
-            let resp = RpcResponse { id: String::new(), ok: false, result: None, error: Some("bad rpc frame".into()) };
-            let _ = tx.send(WsMessage::Text(serde_json::to_string(&resp).unwrap().into())).await;
-            continue;
-        };
-        let result = rpc_call(&req.method, req.params, &app).await;
-        let resp = match result {
-            Ok(value) => RpcResponse { id: req.id, ok: true, result: Some(value), error: None },
-            Err(e) => RpcResponse { id: req.id, ok: false, result: None, error: Some(e) },
-        };
-        let Ok(text) = serde_json::to_string(&resp) else { break };
-        if tx.send(WsMessage::Text(text.into())).await.is_err() {
-            break;
-        }
-    }
-}
 
-async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value, String> {
+pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value, String> {
     match method {
         "doctor" => Ok(serde_json::to_value(doctor_report()).map_err(|e| e.to_string())?),
         "current_model" => {
@@ -95,8 +68,11 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
         }
         "send_message" => {
             let p: SendMessageParams = serde_json::from_value(params).map_err(|e| e.to_string())?;
-            tokio::spawn(run_llm(p.session_id, p.text, p.context, p.images, app.clone()));
-            Ok(Value::Null)
+            // 分配 run 流 id（JSON-RPC 3.0：增量走 stream chunk 下发）
+            let stream_id = super::protocol::stream_id("run");
+            kxen_app::core::shared::lock(&app.state::<Arc<AppState>>().run_streams).insert(stream_id.clone(), p.session_id.clone());
+            tokio::spawn(run_llm(stream_id.clone(), p.session_id, p.text, p.context, p.images, app.clone()));
+            Ok(json!({ "stream_id": stream_id }))
         }
         "session.abort" => {
             let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;

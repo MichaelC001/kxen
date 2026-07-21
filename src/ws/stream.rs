@@ -1,61 +1,46 @@
-//! Stream 通道：订阅-推送（topic 过滤，server 主动推）。
+//! 事件桥：bus 事件 -> JSON-RPC 3.0 stream chunk。
+//! - 带 stream_id 的 LlmDelta -> run 流 chunk（done/aborted/error 末块 complete:true 携带 stats），
+//!   同时双写到 llm.delta 订阅流（被动监听方语义统一）
+//! - 其余 topic -> 命中的订阅流 chunk（result 携带 {topic, payload}）
 
-use futures::{SinkExt, StreamExt};
-use serde_json::{json, Value};
-use std::collections::HashSet;
-use std::sync::Arc;
-use tauri::{AppHandle, Manager};
-use tokio::net::TcpStream;
-use tokio_tungstenite::tungstenite::Message as WsMessage;
+use serde_json::Value;
 
-use super::{StreamCtl, StreamPush};
-use crate::AppState;
+use super::protocol::StreamChunk;
+use super::{next_seq, SubBinding};
 
-pub(super) async fn handle_stream(
-    ws: tokio_tungstenite::WebSocketStream<TcpStream>,
-    app: AppHandle,
-) {
-    let (mut tx, mut rx) = ws.split();
-    let mut topics: HashSet<String> = ["llm.delta", "task.update", "goal.update", "notification"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-    let mut bus_rx = app.state::<Arc<AppState>>().bus.subscribe();
-
-    loop {
-        tokio::select! {
-            // client 控制帧
-            msg = rx.next() => {
-                match msg {
-                    Some(Ok(WsMessage::Text(text))) => {
-                        if let Ok(ctl) = serde_json::from_str::<StreamCtl>(&text) {
-                            match ctl {
-                                StreamCtl::Subscribe { topics: t } => topics.extend(t),
-                                StreamCtl::Unsubscribe { topics: t } => {
-                                    for topic in t {
-                                        topics.remove(&topic);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Some(Ok(WsMessage::Close(_))) | None => break,
-                    _ => {}
-                }
+pub(super) fn event_to_chunks(event: kxen_app::core::event::Event, subs: &[SubBinding]) -> Vec<StreamChunk> {
+    use kxen_app::core::event::Event;
+    match event {
+        Event::LlmDelta(payload) => {
+            let mut out = Vec::new();
+            if let Some(stream_id) = payload.get("stream_id").and_then(Value::as_str).map(String::from) {
+                let kind = payload.get("kind").and_then(Value::as_str).unwrap_or("");
+                let seq = next_seq(&stream_id);
+                let chunk = if kind == "done" || kind == "aborted" || kind == "error" {
+                    StreamChunk::complete(&stream_id, seq, payload.clone())
+                } else {
+                    StreamChunk::new(&stream_id, seq, payload.clone())
+                };
+                out.push(chunk);
             }
-            // 内部事件桥 -> topic 推送
-            event = bus_rx.recv() => {
-                let Ok(event) = event else { break };
-                let (topic, payload) = map_event(event);
-                if !topics.contains(topic) {
-                    continue;
-                }
-                let push = StreamPush { topic: topic.to_string(), payload };
-                let Ok(text) = serde_json::to_string(&push) else { continue };
-                if tx.send(WsMessage::Text(text.into())).await.is_err() {
-                    break;
-                }
+            // 双写 llm.delta 订阅流（teammate/其他会话的被动监听也走这里）
+            if let Some(binding) = subs.iter().find(|b| b.topics.contains("llm.delta")) {
+                let seq = next_seq(&binding.stream_id);
+                out.push(StreamChunk::new(
+                    &binding.stream_id,
+                    seq,
+                    serde_json::json!({ "topic": "llm.delta", "payload": payload }),
+                ));
             }
+            out
+        }
+        other => {
+            let (topic, payload) = map_event(other);
+            let Some(binding) = subs.iter().find(|b| b.topics.contains(topic)) else {
+                return Vec::new();
+            };
+            let seq = next_seq(&binding.stream_id);
+            vec![StreamChunk::new(&binding.stream_id, seq, serde_json::json!({ "topic": topic, "payload": payload }))]
         }
     }
 }
@@ -64,9 +49,9 @@ fn map_event(event: kxen_app::core::event::Event) -> (&'static str, Value) {
     use kxen_app::core::event::Event;
     match event {
         Event::LlmDelta(payload) => ("llm.delta", payload),
-        Event::ToolCall { name, summary } => ("llm.delta", json!({ "tool": name, "summary": summary })),
-        Event::TaskUpdate { id, status } => ("task.update", json!({ "id": id, "status": status })),
-        Event::GoalUpdate { id, status } => ("goal.update", json!({ "id": id, "status": status })),
-        Event::Notification(text) => ("notification", json!({ "text": text })),
+        Event::ToolCall { name, summary } => ("llm.delta", serde_json::json!({ "tool": name, "summary": summary })),
+        Event::TaskUpdate { id, status } => ("task.update", serde_json::json!({ "id": id, "status": status })),
+        Event::GoalUpdate { id, status } => ("goal.update", serde_json::json!({ "id": id, "status": status })),
+        Event::Notification(text) => ("notification", serde_json::json!({ "text": text })),
     }
 }
