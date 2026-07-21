@@ -76,8 +76,12 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
     let mut aborted = false;
 
     // 系统提示由 loop 统一注入（身份 + 工具策略 + write-goal + 焦点 goal），调用方不重复造。
-    if !matches!(messages.first(), Some(m) if m.role == crate::llm::types::Role::System) {
-        messages.insert(0, Message::system(crate::agent::prompt::system_prompt(&ctx.workdir)));
+    let system_owned = !matches!(messages.first(), Some(m) if m.role == crate::llm::types::Role::System);
+    let mut last_involved: Vec<std::path::PathBuf> = Vec::new();
+    if system_owned {
+        let involved = ctx.tracker.files();
+        last_involved = involved.clone();
+        messages.insert(0, Message::system(crate::agent::prompt::system_prompt(&ctx.workdir, &involved)));
     }
 
     'outer: loop {
@@ -96,6 +100,15 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
         if let Some(extras) = &ctx.extras {
             let enabled = crate::core::shared::lock(&extras.extra_tools);
             tools.extend(crate::agent::tools_spec::deferred_tools().into_iter().filter(|t| enabled.contains(&t.function.name)));
+        }
+
+        // mid-turn 刷新：涉及文件变化时重建系统提示（OKF globs 激活 / goal 状态 / 多层就近）
+        if system_owned {
+            let involved = ctx.tracker.files();
+            if involved != last_involved {
+                messages[0] = Message::system(crate::agent::prompt::system_prompt(&ctx.workdir, &involved));
+                last_involved = involved;
+            }
         }
 
         let mut acc = ToolCallAccumulator::default();

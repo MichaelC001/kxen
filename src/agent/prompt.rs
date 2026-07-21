@@ -46,7 +46,8 @@ claiming done, and call goal(complete, evidence) only with concrete evidence you
 If you cannot make progress, say why and stop - do not force a pass.";
 
 /// Full system prompt for a turn. `workdir` is rendered into the environment line.
-pub fn system_prompt(workdir: &std::path::Path) -> String {
+/// `involved` = 本会话涉及文件（OKF globs 动态激活与多层就近的输入）。
+pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf]) -> String {
     let mut out = String::with_capacity(2048);
     out.push_str(IDENTITY);
     out.push_str("\n\n## Environment\n\n- OS: macOS (Apple Silicon)\n- Working directory: ");
@@ -55,7 +56,7 @@ pub fn system_prompt(workdir: &std::path::Path) -> String {
     out.push_str(TOOL_POLICY);
     out.push_str("\n\n");
     out.push_str(WRITE_GOAL_PLAYBOOK);
-    if let Some(block) = crate::agent::okf::render_context(workdir) {
+    if let Some(block) = crate::agent::okf::render_context(workdir, involved) {
         out.push_str(&block);
     }
     if let Some(listing) = crate::agent::skills::render_listing(workdir) {
@@ -115,7 +116,7 @@ mod tests {
 
     #[test]
     fn prompt_contains_core_sections() {
-        let p = system_prompt(std::path::Path::new("/tmp/x"));
+        let p = system_prompt(std::path::Path::new("/tmp/x"), &[]);
         assert!(p.contains("You are kxen"));
         assert!(p.contains("write-goal playbook"));
         assert!(p.contains("Working directory: /tmp/x"));

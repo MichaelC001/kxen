@@ -9,6 +9,7 @@ pub struct OkfDoc {
     pub path: PathBuf,
     pub doc_type: String,
     pub always_apply: bool,
+    pub globs: Vec<String>,
     pub description: String,
     pub content: String,
 }
@@ -22,6 +23,7 @@ pub fn scan(workdir: &Path) -> Vec<OkfDoc> {
             path: root_agents,
             doc_type: "rule".into(),
             always_apply: true,
+            globs: vec![],
             description: "root AGENTS.md".into(),
             content,
         });
@@ -48,9 +50,11 @@ pub fn scan(workdir: &Path) -> Vec<OkfDoc> {
 }
 
 /// 宽松 frontmatter 解析：`---` 包围的 key: value 头；正文是剩余部分。
+/// globs 支持逗号分隔（`globs: *.rs, src/**`）或行内数组（`globs: ["*.rs", "src/**"]`）。
 fn parse_doc(path: PathBuf, text: String) -> OkfDoc {
     let mut doc_type = "doc".to_string();
     let mut always_apply = false;
+    let mut globs: Vec<String> = Vec::new();
     let mut description = String::new();
     let mut content = text.as_str();
 
@@ -64,6 +68,15 @@ fn parse_doc(path: PathBuf, text: String) -> OkfDoc {
                     "type" => doc_type = value.to_string(),
                     "alwaysApply" | "always_apply" | "always" => always_apply = matches!(value, "true" | "yes" | "1"),
                     "description" => description = value.to_string(),
+                    "globs" | "glob" => {
+                        globs = value
+                            .trim_start_matches('[')
+                            .trim_end_matches(']')
+                            .split(',')
+                            .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                    }
                     _ => {}
                 }
             }
@@ -80,21 +93,43 @@ fn parse_doc(path: PathBuf, text: String) -> OkfDoc {
             .unwrap_or_default();
     }
 
-    OkfDoc { path, doc_type, always_apply, description, content: content.to_string() }
+    OkfDoc { path, doc_type, always_apply, globs, description, content: content.to_string() }
 }
 
-/// 渲染注入段：rules + alwaysApply 全文；其余一行索引（模型按需 read）。
-/// 无 .agents / AGENTS.md 时返回 None（不产生空段）。
-pub fn render_context(workdir: &Path) -> Option<String> {
-    let docs = scan(workdir);
+/// 渲染注入段：rules + alwaysApply 全文；globs 命中的 rule 动态激活；其余一行索引。
+/// involved = 本会话涉及文件（@chip + tracker）；无 .agents / AGENTS.md 时返回 None。
+pub fn render_context(workdir: &Path, involved: &[PathBuf]) -> Option<String> {
+    let mut docs = scan(workdir);
+    docs.extend(nearby_docs(workdir, involved));
     if docs.is_empty() {
         return None;
     }
+    let involved_rel: Vec<String> = involved
+        .iter()
+        .filter_map(|p| p.strip_prefix(workdir).ok().map(|r| r.to_string_lossy().into_owned()))
+        .collect();
+    let glob_set = |patterns: &[String]| {
+        let mut builder = globset::GlobSetBuilder::new();
+        for p in patterns {
+            if let Ok(g) = globset::Glob::new(p) {
+                builder.add(g);
+            }
+        }
+        builder.build().ok()
+    };
     let mut rules = String::new();
     let mut index = String::new();
+    let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     for doc in &docs {
+        if !seen.insert(doc.path.clone()) {
+            continue; // 多层就近与根扫描去重（就近先出现）
+        }
         let rel = doc.path.strip_prefix(workdir).unwrap_or(&doc.path).to_string_lossy().into_owned();
-        if doc.always_apply || doc.doc_type == "rule" {
+        let globbed_active = !doc.globs.is_empty()
+            && glob_set(&doc.globs).is_some_and(|set| involved_rel.iter().any(|f| set.is_match(f)));
+        // 有 globs 的 rule 只按命中激活；无 globs 按 alwaysApply/type 常规判断
+        let inject = if !doc.globs.is_empty() { globbed_active } else { doc.always_apply || doc.doc_type == "rule" };
+        if inject {
             rules.push_str(&format!("\n#### {rel}\n{}\n", doc.content.trim()));
         } else {
             index.push_str(&format!("- {rel} — {}\n", doc.description));
@@ -110,6 +145,40 @@ pub fn render_context(workdir: &Path) -> Option<String> {
         out.push_str(&index);
     }
     Some(out)
+}
+
+/// 多层就近：involved 文件向上目录链（到 workdir 止）里的 AGENTS.md。
+/// 越近越优先（返回顺序 = 由近及远）；根的由主扫描覆盖，这里不含 workdir 根本身。
+fn nearby_docs(workdir: &Path, involved: &[PathBuf]) -> Vec<OkfDoc> {
+    let mut out = Vec::new();
+    let mut visited: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    for file in involved {
+        let rel = match file.strip_prefix(workdir) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let mut dir = rel.parent();
+        while let Some(d) = dir {
+            if d.as_os_str().is_empty() {
+                break;
+            }
+            if visited.insert(d.to_path_buf()) {
+                let candidate = workdir.join(d).join("AGENTS.md");
+                if let Ok(content) = std::fs::read_to_string(&candidate) {
+                    out.push(OkfDoc {
+                        path: candidate,
+                        doc_type: "rule".into(),
+                        always_apply: true,
+                        globs: vec![],
+                        description: format!("AGENTS.md ({})", d.display()),
+                        content,
+                    });
+                }
+            }
+            dir = d.parent();
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -130,7 +199,7 @@ mod tests {
 
         let docs = scan(&dir);
         assert_eq!(docs.len(), 2);
-        let rendered = render_context(&dir).unwrap();
+        let rendered = render_context(&dir, &[]).unwrap();
         assert!(rendered.contains("Use tabs, single quotes."));
         assert!(rendered.contains("arch.md"));
         assert!(!rendered.contains("Details here."), "reference 只进索引不进全文");
@@ -142,7 +211,40 @@ mod tests {
     fn no_agents_dir_returns_none() {
         let dir = std::env::temp_dir().join(format!("kxen-okf-empty-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        assert!(render_context(&dir).is_none());
+        assert!(render_context(&dir, &[]).is_none());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn globs_activate_on_involved_match() {
+        let dir = std::env::temp_dir().join(format!("kxen-okf-glob-{}", std::process::id()));
+        let agents = dir.join(".agents/rules");
+        std::fs::create_dir_all(&agents).unwrap();
+        std::fs::write(
+            agents.join("rust-style.md"),
+            "---\ntype: rule\nglobs: *.rs, src/**\ndescription: rust only\n---\nRust rule body.\n",
+        )
+        .unwrap();
+        // 无涉及文件：rule 只进索引不进全文
+        let rendered = render_context(&dir, &[]).unwrap();
+        assert!(!rendered.contains("Rust rule body."));
+        assert!(rendered.contains("rust-style.md"));
+        // 涉及 .rs 文件：激活全文
+        let involved = vec![dir.join("src/main.rs")];
+        let rendered2 = render_context(&dir, &involved).unwrap();
+        assert!(rendered2.contains("Rust rule body."));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn nearby_agents_md_injected_from_ancestor_chain() {
+        let dir = std::env::temp_dir().join(format!("kxen-okf-near-{}", std::process::id()));
+        let nested = dir.join("crates/web");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("AGENTS.md"), "web 层专属规范").unwrap();
+        let involved = vec![dir.join("crates/web/src/app.ts")];
+        let rendered = render_context(&dir, &involved).unwrap();
+        assert!(rendered.contains("web 层专属规范"));
         std::fs::remove_dir_all(&dir).ok();
     }
 

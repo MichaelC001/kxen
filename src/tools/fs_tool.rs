@@ -47,6 +47,11 @@ impl FileTracker {
         let now_mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
         now_mtime == *mtime && meta.len() == *size
     }
+
+    /// 本会话涉及的全部文件（OKF globs 激活的数据源）。
+    pub fn files(&self) -> Vec<PathBuf> {
+        self.seen.lock().expect("tracker").keys().cloned().collect()
+    }
 }
 
 // ---------------- read ----------------
