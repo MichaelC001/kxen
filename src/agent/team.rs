@@ -575,7 +575,7 @@ mod tests {
         let (mgr, dir) = manager("deps");
         let state = mgr.state_for("s1");
         let t1 = create_task(&state, "first", vec![]);
-        let _t2 = create_task(        let t2 = create_task(&state, "second", vec![t1.id]);state, "second", vec![t1.id]);
+        let _t2 = create_task(&state, "second", vec![t1.id]);
         assert!(claim_task(&state, "a").unwrap().contains("first"));
         assert!(claim_task(&state, "b").is_err(), "t2 应被依赖阻塞");
         complete_task(&state, "a", t1.id).await.unwrap();
