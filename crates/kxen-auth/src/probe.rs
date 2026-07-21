@@ -35,9 +35,11 @@ pub fn probe_all(store: &mut AuthStore) -> Vec<(&'static str, ProbeOutcome, &'st
     RULES
         .iter()
         .map(|rule| {
-            // 自有存储在刷新窗口内（30min）直接复用，不碰官方源（避免反复授权）
+            // 自有存储为 oauth 且未在刷新窗口（30min）内才豁免官方源（避免反复授权弹窗）；
+            // Api 类型无过期信息，每次必须重新评估（kimi 轮换场景）
             let existing = store.get(rule.provider);
-            if existing.is_some_and(|c| !c.is_expired_within(30 * 60 * 1000)) {
+            let exempt = matches!(existing, Some(CredentialKind::Oauth { .. })) && existing.is_some_and(|c| !c.is_expired_within(30 * 60 * 1000));
+            if exempt {
                 return (rule.provider, ProbeOutcome::Fresh, rule.display);
             }
             // env override（开发期暂存，最高优先）
@@ -193,13 +195,21 @@ fn chrono_free_iso_ms(s: &str) -> Option<u64> {
 #[derive(Deserialize)]
 struct KimiCredentials {
     access_token: Option<String>,
+    refresh_token: Option<String>,
+    expires_at: Option<u64>,
 }
 
 fn probe_kimi() -> Option<CredentialKind> {
     let file = home()?.join(".kimi-code/credentials/kimi-code.json");
     let raw = std::fs::read_to_string(file).ok()?;
     let parsed: KimiCredentials = serde_json::from_str(&raw).ok()?;
-    Some(CredentialKind::Api { key: parsed.access_token? })
+    // kimi 官方文件是 oauth 形态（access/refresh/expires_at，秒级）——保留过期时间才能正确轮换
+    Some(CredentialKind::Oauth {
+        access: parsed.access_token?,
+        refresh: parsed.refresh_token.unwrap_or_default(),
+        expires: parsed.expires_at.map(|s| s * 1000).unwrap_or(0),
+        account_id: None,
+    })
 }
 
 // --- 工具 ---

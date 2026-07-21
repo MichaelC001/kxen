@@ -23,6 +23,28 @@ impl LlmClient {
         store: &kxen_auth::credential::AuthStore,
     ) -> Pin<Box<dyn Stream<Item = Delta> + Send>> {
         match model.provider.as_str() {
+            "anthropic" => {
+                let Some(kxen_auth::credential::CredentialKind::Oauth { access, .. }) = store.get("anthropic") else {
+                    return Box::pin(futures::stream::once(async { Delta::Error("anthropic credential missing (run doctor)".into()) }));
+                };
+                crate::anthropic::AnthropicProvider::new(access.clone()).stream_chat(&model.model, messages, tools)
+            }
+            "openai" => {
+                let Some(kxen_auth::credential::CredentialKind::Oauth { access, account_id, .. }) = store.get("openai") else {
+                    return Box::pin(futures::stream::once(async { Delta::Error("openai credential missing (run doctor)".into()) }));
+                };
+                crate::openai::OpenAiProvider::new(access.clone(), account_id.clone(), true).stream_chat(&model.model, messages, tools)
+            }
+            "kimi-for-coding" => {
+                let key = match store.get("kimi-for-coding") {
+                    Some(kxen_auth::credential::CredentialKind::Api { key }) => key.clone(),
+                    Some(kxen_auth::credential::CredentialKind::Oauth { access, .. }) => access.clone(),
+                    _ => {
+                        return Box::pin(futures::stream::once(async { Delta::Error("kimi credential missing (run doctor)".into()) }));
+                    }
+                };
+                crate::xai::XaiProvider::kimi(key).stream_chat_with_tools(&model.model, messages, tools)
+            }
             "xai" => {
                 let Some(cred) = store.get("xai") else {
                     return Box::pin(futures::stream::once(async { Delta::Error("xai credential missing (run doctor)".into()) }));

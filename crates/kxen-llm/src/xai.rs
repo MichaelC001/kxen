@@ -9,8 +9,10 @@ use kxen_core::shared::SharedStr;
 use std::pin::Pin;
 
 const API_URL: &str = "https://api.x.ai/v1/chat/completions";
+const KIMI_URL: &str = "https://api.kimi.com/coding/v1/chat/completions";
 
 pub struct XaiProvider {
+    url: &'static str,
     http: reqwest::Client,
     bearer: SharedStr,
 }
@@ -51,7 +53,11 @@ struct Usage {
 
 impl XaiProvider {
     pub fn new(bearer: impl Into<String>) -> Self {
-        Self { http: crate::client::shared_http(), bearer: SharedStr::from(bearer.into()) }
+        Self { url: API_URL, http: crate::client::shared_http(), bearer: SharedStr::from(bearer.into()) }
+    }
+
+    pub fn kimi(bearer: impl Into<String>) -> Self {
+        Self { url: KIMI_URL, http: crate::client::shared_http(), bearer: SharedStr::from(bearer.into()) }
     }
 
     /// 流式调用：返回 Delta 的异步流（'static，不借 provider）。
@@ -66,9 +72,10 @@ impl XaiProvider {
         let messages = messages.to_vec();
         let http = self.http.clone();
 
+        let self_url = self.url;
         let start = async move {
             let tools_opt = tools_owned.as_deref();
-            http.post(API_URL).bearer_auth(bearer).json(&ChatRequest { model: &model, messages: &messages, stream: true, tools: tools_opt }).send().await
+            http.post(self_url).bearer_auth(bearer).json(&ChatRequest { model: &model, messages: &messages, stream: true, tools: tools_opt }).send().await
         };
 
         Box::pin(futures::stream::once(start).flat_map(|result| match result {
