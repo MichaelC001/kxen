@@ -7,8 +7,6 @@ export type { IntegrationDraft, IntegrationMethodRegistration }
 export interface IntegrationHooks extends Hooks<{ transform: IntegrationDraft }> {
   readonly connection: {
     readonly active: (integrationID: string) => Promise<import("@kxen/sdk/v2/types").ConnectionInfo | undefined>
-    readonly resolve: (
-      connection: import("@kxen/sdk/v2/types").ConnectionInfo,
-    ) => Promise<CredentialValue | undefined>
+    readonly resolve: (connection: import("@kxen/sdk/v2/types").ConnectionInfo) => Promise<CredentialValue | undefined>
   }
 }

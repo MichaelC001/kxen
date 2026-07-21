@@ -2,10 +2,10 @@
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@kxen/codemode",
   "version": "1.18.4",
-  "description": "Effect-native confined code execution over schema-described tools",
   "private": true,
-  "type": "module",
+  "description": "Effect-native confined code execution over schema-described tools",
   "license": "MIT",
+  "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },

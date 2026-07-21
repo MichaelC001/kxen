@@ -1,15 +1,10 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "1.18.4",
   "name": "@kxen/llm",
-  "type": "module",
-  "license": "MIT",
+  "version": "1.18.4",
   "private": true,
-  "scripts": {
-    "setup:recording-env": "bun run script/setup-recording-env.ts",
-    "test": "bun test --timeout 30000 --only-failures",
-    "typecheck": "tsgo --noEmit"
-  },
+  "license": "MIT",
+  "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./route": "./src/route/index.ts",
@@ -34,6 +29,18 @@
     "./protocols/openai-compatible-chat": "./src/protocols/openai-compatible-chat.ts",
     "./protocols/openai-responses": "./src/protocols/openai-responses.ts"
   },
+  "scripts": {
+    "setup:recording-env": "bun run script/setup-recording-env.ts",
+    "test": "bun test --timeout 30000 --only-failures",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@kxen/schema": "workspace:*",
+    "@smithy/eventstream-codec": "4.2.14",
+    "@smithy/util-utf8": "4.2.2",
+    "aws4fetch": "1.0.20",
+    "effect": "catalog:"
+  },
   "devDependencies": {
     "@clack/prompts": "1.0.0-alpha.1",
     "@effect/platform-node": "catalog:",
@@ -41,12 +48,5 @@
     "@tsconfig/bun": "catalog:",
     "@types/bun": "catalog:",
     "@typescript/native-preview": "catalog:"
-  },
-  "dependencies": {
-    "@smithy/eventstream-codec": "4.2.14",
-    "@smithy/util-utf8": "4.2.2",
-    "@kxen/schema": "workspace:*",
-    "aws4fetch": "1.0.20",
-    "effect": "catalog:"
   }
 }

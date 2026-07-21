@@ -1,9 +1,4 @@
-import {
-  AssistantMessage,
-  type SnapshotFileDiff,
-  Message as MessageType,
-  Part as PartType,
-} from "@kxen/sdk/v2/client"
+import { AssistantMessage, type SnapshotFileDiff, Message as MessageType, Part as PartType } from "@kxen/sdk/v2/client"
 import type { SessionStatus } from "@kxen/sdk/v2"
 import { useData } from "../context"
 import { useFileComponent } from "@kxen/ui/context/file"

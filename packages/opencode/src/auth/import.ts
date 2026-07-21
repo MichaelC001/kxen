@@ -144,7 +144,9 @@ export async function importSubscriptions(): Promise<ImportResult[]> {
     }
     const existing = data[provider]
     const shouldWrite =
-      imported.type === "oauth" ? fresherOauth(imported, existing) : JSON.stringify(imported) !== JSON.stringify(existing)
+      imported.type === "oauth"
+        ? fresherOauth(imported, existing)
+        : JSON.stringify(imported) !== JSON.stringify(existing)
     if (shouldWrite) {
       data[provider] = imported
       results.push({ provider, action: "imported" })

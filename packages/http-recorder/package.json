@@ -1,17 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "1.18.4",
   "name": "@kxen/http-recorder",
+  "version": "1.18.4",
   "description": "Record and replay Effect HTTP client traffic with deterministic cassettes",
-  "type": "module",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/anomalyco/opencode.git",
-    "directory": "packages/http-recorder"
-  },
-  "homepage": "https://github.com/anomalyco/opencode/tree/dev/packages/http-recorder",
-  "bugs": "https://github.com/anomalyco/opencode/issues",
   "keywords": [
     "effect",
     "http",
@@ -20,8 +11,24 @@
     "testing",
     "vcr"
   ],
-  "engines": {
-    "node": ">=22"
+  "homepage": "https://github.com/anomalyco/opencode/tree/dev/packages/http-recorder",
+  "bugs": "https://github.com/anomalyco/opencode/issues",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anomalyco/opencode.git",
+    "directory": "packages/http-recorder"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./internal": "./src/internal.ts"
   },
   "publishConfig": {
     "access": "public"
@@ -32,16 +39,10 @@
     "build": "bun ./script/build.ts",
     "verify:package": "bun ./script/verify-package.ts"
   },
-  "exports": {
-    ".": "./src/index.ts",
-    "./internal": "./src/internal.ts"
+  "dependencies": {
+    "@effect/platform-node": "4.0.0-beta.83",
+    "@effect/platform-node-shared": "4.0.0-beta.83"
   },
-  "files": [
-    "dist",
-    "README.md",
-    "CHANGELOG.md",
-    "LICENSE"
-  ],
   "devDependencies": {
     "@tsconfig/node22": "catalog:",
     "@types/bun": "catalog:",
@@ -50,11 +51,10 @@
     "effect": "catalog:",
     "typescript": "catalog:"
   },
-  "dependencies": {
-    "@effect/platform-node": "4.0.0-beta.83",
-    "@effect/platform-node-shared": "4.0.0-beta.83"
-  },
   "peerDependencies": {
     "effect": "4.0.0-beta.83"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

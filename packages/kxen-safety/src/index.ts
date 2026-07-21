@@ -2,9 +2,7 @@
 // forbidden 决策不可被 prompt / AGENTS.md / 项目规则覆盖；approval 档交由
 // opencode permission 系统处理，本包只做 forbidden 硬拦截与结构化返回。
 
-export type Verdict =
-  | { verdict: "allow" }
-  | { verdict: "deny"; ruleId: string; reason: string; suggestion?: string }
+export type Verdict = { verdict: "allow" } | { verdict: "deny"; ruleId: string; reason: string; suggestion?: string }
 
 const HOME = process.env.HOME ?? "~"
 
@@ -133,7 +131,11 @@ export function classifyPath(p: string, cwd: string): { hit: string; family: "F1
     if (norm === guard || norm.startsWith(guard + "/")) return { hit: guard, family: "F2" }
   }
   // 防毁灭目录与 .config、shell rc：仅拦整体，内容放行
-  const homeChildren = [...HOME_TOP.map((d) => `${HOME}/${d}`), `${HOME}/.config`, ...SHELL_RC.map((f) => `${HOME}/${f}`)]
+  const homeChildren = [
+    ...HOME_TOP.map((d) => `${HOME}/${d}`),
+    `${HOME}/.config`,
+    ...SHELL_RC.map((f) => `${HOME}/${f}`),
+  ]
   for (const guard of homeChildren) {
     if (norm === guard) return { hit: guard, family: "F2" }
   }
@@ -169,7 +171,11 @@ const CRED_CMDS = [/\bsecurity\s+delete-/, /\bgpg\s+--delete-secret-key/]
 const DESTROY_CMDS = [
   { re: /\bterraform\s+destroy\b/, id: "F4", why: "terraform destroy 销毁基础设施" },
   { re: /\bdropdb\b/, id: "F4", why: "dropdb 删除整个数据库" },
-  { re: /\b(psql|mysql|mongosh?|mongo|redis-cli)\b.*\b(drop\s+database|dropDatabase|flushall)/i, id: "F4", why: "数据库毁灭操作" },
+  {
+    re: /\b(psql|mysql|mongosh?|mongo|redis-cli)\b.*\b(drop\s+database|dropDatabase|flushall)/i,
+    id: "F4",
+    why: "数据库毁灭操作",
+  },
   { re: /\bkubectl\s+delete\s+(ns|namespace|--all)\b/, id: "F4", why: "kubectl 命名空间/全量删除" },
   { re: /\baws\s+s3\s+rb\s+.*--force\b/, id: "F4", why: "aws s3 rb --force 删除整个 bucket" },
   { re: /\bgcloud\s+projects\s+delete\b/, id: "F4", why: "gcloud 项目删除" },
@@ -182,7 +188,10 @@ function evalDeleteSegment(seg: string, cwd: string): Verdict | undefined {
   const cmd = tokens[0] === "sudo" || tokens[0] === "doas" ? tokens[1] : tokens[0]
   if (!cmd) return undefined
 
-  const isDelete = DELETE_CMDS.has(cmd) || /^find\b/.test(seg) && /\s-delete\b|\s-exec\s+(rm|trash)\b/.test(seg) || /^\s*rsync\b.*--delete/.test(seg)
+  const isDelete =
+    DELETE_CMDS.has(cmd) ||
+    (/^find\b/.test(seg) && /\s-delete\b|\s-exec\s+(rm|trash)\b/.test(seg)) ||
+    /^\s*rsync\b.*--delete/.test(seg)
   const isMove = MOVE_CMDS.has(cmd)
   if (!isDelete && !isMove) return undefined
 
@@ -240,7 +249,8 @@ function evalSegment(seg: string, cwd: string): Verdict | undefined {
 /** 主入口：评估一条 shell 命令文本 */
 export function evaluateShellCommand(command: string, cwd: string): Verdict {
   // 防绕过：bash -c / eval / xargs 嵌套的命令递归评估内层
-  const nested = command.match(/(?:bash|zsh|sh|fish)\s+-c\s+["']([^"']+)["']/) ?? command.match(/\beval\s+["']([^"']+)["']/)
+  const nested =
+    command.match(/(?:bash|zsh|sh|fish)\s+-c\s+["']([^"']+)["']/) ?? command.match(/\beval\s+["']([^"']+)["']/)
   if (nested?.[1]) {
     const inner = evaluateShellCommand(nested[1], cwd)
     if (inner.verdict === "deny") return inner
@@ -257,9 +267,5 @@ export function evaluateShellCommand(command: string, cwd: string): Verdict {
 export function guardPath(p: string, cwd: string): Verdict {
   const hit = classifyPath(p, cwd)
   if (!hit) return { verdict: "allow" }
-  return deny(
-    hit.family,
-    `路径 ${p} 命中保护路径 ${hit.hit}`,
-    "工作区内的具体子路径操作不受限，请缩小范围",
-  )
+  return deny(hit.family, `路径 ${p} 命中保护路径 ${hit.hit}`, "工作区内的具体子路径操作不受限，请缩小范围")
 }

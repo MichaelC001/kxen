@@ -347,42 +347,38 @@ describe("session.retry.retryable", () => {
 })
 
 describe("session.message-v2.fromError", () => {
-  test.concurrent(
-    "converts ECONNRESET socket errors to retryable APIError",
-    async () => {
-      using server = Bun.serve({
-        port: 0,
-        idleTimeout: 8,
-        async fetch(_req) {
-          return new Response(
-            new ReadableStream({
-              async pull(controller) {
-                controller.enqueue("Hello,")
-                await sleep(10000)
-                controller.enqueue(" World!")
-                controller.close()
-              },
-            }),
-            { headers: { "Content-Type": "text/plain" } },
-          )
-        },
-      })
+  test.concurrent("converts ECONNRESET socket errors to retryable APIError", async () => {
+    using server = Bun.serve({
+      port: 0,
+      idleTimeout: 8,
+      async fetch(_req) {
+        return new Response(
+          new ReadableStream({
+            async pull(controller) {
+              controller.enqueue("Hello,")
+              await sleep(10000)
+              controller.enqueue(" World!")
+              controller.close()
+            },
+          }),
+          { headers: { "Content-Type": "text/plain" } },
+        )
+      },
+    })
 
-      const error = await fetch(new URL("/", server.url.origin))
-        .then((res) => res.text())
-        .catch((e) => e)
+    const error = await fetch(new URL("/", server.url.origin))
+      .then((res) => res.text())
+      .catch((e) => e)
 
-      const result = MessageV2.fromError(error, { providerID })
+    const result = MessageV2.fromError(error, { providerID })
 
-      expect(SessionV1.APIError.isInstance(result)).toBe(true)
-      if (!SessionV1.APIError.isInstance(result)) throw new Error("expected APIError")
-      expect(result.data.isRetryable).toBe(true)
-      expect(result.data.message).toBe("Connection reset by server")
-      expect(result.data.metadata?.code).toBe("ECONNRESET")
-      expect(result.data.metadata?.message).toInclude("socket connection")
-    },
-    15_000,
-  )
+    expect(SessionV1.APIError.isInstance(result)).toBe(true)
+    if (!SessionV1.APIError.isInstance(result)) throw new Error("expected APIError")
+    expect(result.data.isRetryable).toBe(true)
+    expect(result.data.message).toBe("Connection reset by server")
+    expect(result.data.metadata?.code).toBe("ECONNRESET")
+    expect(result.data.metadata?.message).toInclude("socket connection")
+  }, 15_000)
 
   test("ECONNRESET socket error is retryable", () => {
     const error = Schema.decodeUnknownSync(SessionV1.APIError.Schema)(

@@ -56,6 +56,7 @@ import { PermissionV1 } from "@kxen/core/v1/permission"
 import { McpCatalog } from "@/mcp/catalog"
 import { WorkflowTool } from "./workflow"
 import { ExecTool } from "./exec"
+import { GoalTool } from "./goal"
 
 export function webSearchEnabled(providerID: ProviderV2.ID, flags = { exa: false, parallel: false }) {
   return providerID === ProviderV2.ID.opencode || flags.exa || flags.parallel
@@ -107,6 +108,7 @@ const layer = Layer.effect(
     const shell = yield* ShellTool
     const workflow = yield* WorkflowTool
     const exec = yield* ExecTool
+    const goal = yield* GoalTool
     const globtool = yield* GlobTool
     const writetool = yield* WriteTool
     const edit = yield* EditTool
@@ -210,6 +212,7 @@ const layer = Layer.effect(
           shell: Tool.init(shell),
           workflow: Tool.init(workflow),
           exec: Tool.init(exec),
+          goal: Tool.init(goal),
           read: Tool.init(read),
           glob: Tool.init(globtool),
           grep: Tool.init(greptool),
@@ -235,6 +238,7 @@ const layer = Layer.effect(
             tool.shell,
             tool.workflow,
             tool.exec,
+            tool.goal,
             tool.read,
             tool.glob,
             tool.grep,

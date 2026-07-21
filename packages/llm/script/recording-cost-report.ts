@@ -48,7 +48,9 @@ const walk = async (dir: string): Promise<ReadonlyArray<string>> =>
     })
     .concat(
       ...(await Promise.all(
-        (await fs.readdir(dir, { withFileTypes: true }))
+        (
+          await fs.readdir(dir, { withFileTypes: true })
+        )
           .filter((entry) => entry.isDirectory())
           .map((entry) => walk(path.join(dir, entry.name))),
       )),
@@ -219,7 +221,9 @@ const tokens = (value: number) => value.toLocaleString("en-US")
 const models = (await (await fetch(MODELS_DEV_URL)).json()) as JsonRecord
 const rows = (
   await Promise.all(
-    (await walk(RECORDINGS_DIR))
+    (
+      await walk(RECORDINGS_DIR)
+    )
       .filter((file) => file.endsWith(".json"))
       .map(async (file) => rowFor(models, file, await readJson(file))),
   )

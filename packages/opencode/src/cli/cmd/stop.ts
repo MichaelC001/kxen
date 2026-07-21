@@ -25,6 +25,10 @@ export const StopCommand = effectCmd({
         console.log(`stopped ${name} (pid ${pid})`)
       }
     }
-    yield* Effect.promise(() => Bun.file(pidFile()).delete().catch(() => {}))
+    yield* Effect.promise(() =>
+      Bun.file(pidFile())
+        .delete()
+        .catch(() => {}),
+    )
   }),
 })

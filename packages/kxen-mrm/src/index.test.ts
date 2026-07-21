@@ -31,7 +31,11 @@ describe("parseConfig", () => {
 describe("resolve 与降级", () => {
   test("首选可用直取", () => {
     const mrm = new ModelResourceManager(parseConfig(TOML))
-    expect(mrm.resolve("thinking")).toEqual({ provider: "anthropic", model: "claude-sonnet-4-5", degradedFrom: undefined })
+    expect(mrm.resolve("thinking")).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      degradedFrom: undefined,
+    })
   })
   test("首选满员走降级链", () => {
     const mrm = new ModelResourceManager(parseConfig(TOML))

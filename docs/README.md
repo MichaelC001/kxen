@@ -56,6 +56,15 @@ kxen 是一个开源的终端原生 Coding Agent Harness：混用 Claude / Codex
 | 文件 | 内容 |
 | --- | --- |
 | `01-opencode-migration.md` | OpenCode 源码迁移总规划：包取舍清单、重构调整项、kxen 编排层落点、上游同步策略、里程碑 M1-M7、验证标准 |
+| `02-test-baseline.md` | M2 测试基线（proof 第 4 条对照基准）与迁移期修复记录 |
+| `03-orchestration-design.md` | M6 编排层设计定盘：角色配置 schema、MRM 挂载点、七包边界、验证方式 |
+
+## 运维
+
+| 文件 | 内容 |
+| --- | --- |
+| `upstream-sync.md` | 上游同步流程（sync-point + format-patch + scope 替换 + protected-features） |
+| 根 `SYNC` | 当前代码对应的上游 commit |
 
 ## 当前状态
 

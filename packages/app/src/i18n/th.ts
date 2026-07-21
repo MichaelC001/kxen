@@ -132,15 +132,12 @@ export const dict = {
   "provider.connect.status.inProgress": "กำลังอนุญาต...",
   "provider.connect.status.waiting": "รอการอนุญาต...",
   "provider.connect.status.failed": "การอนุญาตล้มเหลว: {{error}}",
-  "provider.connect.apiKey.description":
-    "ป้อนคีย์ API ของ {{provider}} เพื่อเชื่อมต่อบัญชีและใช้โมเดล {{provider}} ใน OpenCode",
+  "provider.connect.apiKey.description": "ป้อนคีย์ API ของ {{provider}} เพื่อเชื่อมต่อบัญชีและใช้โมเดล {{provider}} ใน OpenCode",
   "provider.connect.apiKey.label": "คีย์ API ของ {{provider}}",
   "provider.connect.apiKey.placeholder": "คีย์ API",
   "provider.connect.apiKey.required": "ต้องใช้คีย์ API",
-  "provider.connect.opencodeZen.line1":
-    "OpenCode Zen ให้คุณเข้าถึงชุดโมเดลที่เชื่อถือได้และปรับแต่งแล้วสำหรับเอเจนต์การเขียนโค้ด",
-  "provider.connect.opencodeZen.line2":
-    "ด้วยคีย์ API เดียวคุณจะได้รับการเข้าถึงโมเดล เช่น Claude, GPT, Gemini, GLM และอื่น ๆ",
+  "provider.connect.opencodeZen.line1": "OpenCode Zen ให้คุณเข้าถึงชุดโมเดลที่เชื่อถือได้และปรับแต่งแล้วสำหรับเอเจนต์การเขียนโค้ด",
+  "provider.connect.opencodeZen.line2": "ด้วยคีย์ API เดียวคุณจะได้รับการเข้าถึงโมเดล เช่น Claude, GPT, Gemini, GLM และอื่น ๆ",
   "provider.connect.opencodeZen.visit.prefix": "เยี่ยมชม ",
   "provider.connect.opencodeZen.visit.link": "opencode.ai/zen",
   "provider.connect.opencodeZen.visit.suffix": " เพื่อรวบรวมคีย์ API ของคุณ",
@@ -154,8 +151,7 @@ export const dict = {
   "provider.connect.oauth.code.invalid": "รหัสการอนุญาตไม่ถูกต้อง",
   "provider.connect.oauth.auto.visit.prefix": "เยี่ยมชม ",
   "provider.connect.oauth.auto.visit.link": "ลิงก์นี้",
-  "provider.connect.oauth.auto.visit.suffix":
-    " และป้อนรหัสด้านล่างเพื่อเชื่อมต่อบัญชีและใช้โมเดล {{provider}} ใน OpenCode",
+  "provider.connect.oauth.auto.visit.suffix": " และป้อนรหัสด้านล่างเพื่อเชื่อมต่อบัญชีและใช้โมเดล {{provider}} ใน OpenCode",
   "provider.connect.oauth.auto.confirmationCode": "รหัสยืนยัน",
   "provider.connect.toast.connected.title": "{{provider}} ที่เชื่อมต่อแล้ว",
   "provider.connect.toast.connected.description": "โมเดล {{provider}} พร้อมใช้งานแล้ว",
@@ -346,8 +342,7 @@ export const dict = {
   "dialog.server.add.password": "รหัสผ่าน (ไม่บังคับ)",
   "dialog.server.edit.title": "แก้ไขเซิร์ฟเวอร์",
   "dialog.server.default.title": "เซิร์ฟเวอร์เริ่มต้น",
-  "dialog.server.default.description":
-    "เชื่อมต่อกับเซิร์ฟเวอร์นี้เมื่อเปิดแอปแทนการเริ่มเซิร์ฟเวอร์ในเครื่อง ต้องรีสตาร์ท",
+  "dialog.server.default.description": "เชื่อมต่อกับเซิร์ฟเวอร์นี้เมื่อเปิดแอปแทนการเริ่มเซิร์ฟเวอร์ในเครื่อง ต้องรีสตาร์ท",
   "dialog.server.default.none": "ไม่ได้เลือกเซิร์ฟเวอร์",
   "dialog.server.default.set": "ตั้งเซิร์ฟเวอร์ปัจจุบันเป็นค่าเริ่มต้น",
   "dialog.server.default.clear": "ล้าง",
@@ -408,8 +403,7 @@ export const dict = {
   "wsl.onboarding.wslUnavailable.title": "WSL ไม่พร้อมใช้งาน",
   "wsl.onboarding.wslUnavailable.description": "OpenCode ไม่สามารถตรวจสอบ WSL บนเครื่องนี้ได้.",
   "wsl.onboarding.installWsl": "ติดตั้ง WSL",
-  "wsl.onboarding.windowsRestartRequired":
-    "รีสตาร์ท Windows เพื่อให้การติดตั้ง WSL เสร็จสมบูรณ์ แล้วเปิด OpenCode อีกครั้ง.",
+  "wsl.onboarding.windowsRestartRequired": "รีสตาร์ท Windows เพื่อให้การติดตั้ง WSL เสร็จสมบูรณ์ แล้วเปิด OpenCode อีกครั้ง.",
   "wsl.onboarding.next": "ถัดไป",
   "wsl.onboarding.refresh": "รีเฟรช",
   "wsl.onboarding.allDistrosAdded": "เพิ่มดิสโทรที่ติดตั้งไว้ทั้งหมดแล้ว.",
@@ -761,8 +755,7 @@ export const dict = {
   "settings.general.row.language.title": "ภาษา",
   "settings.general.row.language.description": "เปลี่ยนภาษาที่แสดงสำหรับ OpenCode",
   "settings.general.row.shell.title": "เชลล์เทอร์มินัล",
-  "settings.general.row.shell.description":
-    "เลือกเชลล์ที่จะใช้กับเทอร์มินัล เชลล์ที่เข้ากันได้จะใช้สำหรับการเรียกเครื่องมือของเอเจนต์ด้วย",
+  "settings.general.row.shell.description": "เลือกเชลล์ที่จะใช้กับเทอร์มินัล เชลล์ที่เข้ากันได้จะใช้สำหรับการเรียกเครื่องมือของเอเจนต์ด้วย",
   "settings.general.row.shell.autoDefault": "อัตโนมัติ (ค่าเริ่มต้น)",
   "settings.general.row.shell.terminalOnly": "เทอร์มินัลเท่านั้น",
   "settings.general.row.appearance.title": "รูปลักษณ์",
@@ -792,8 +785,7 @@ export const dict = {
   "settings.general.row.showStatus.title": "สถานะเซิร์ฟเวอร์",
   "settings.general.row.showStatus.description": "แสดงปุ่มสถานะเซิร์ฟเวอร์ในแถบชื่อเรื่อง",
   "settings.general.row.mobileTitlebarBottom.title": "การนำทางด้านล่าง",
-  "settings.general.row.mobileTitlebarBottom.description":
-    "วางแถบชื่อเรื่องและแท็บเซสชันไว้ด้านล่างของหน้าจอบนอุปกรณ์เคลื่อนที่",
+  "settings.general.row.mobileTitlebarBottom.description": "วางแถบชื่อเรื่องและแท็บเซสชันไว้ด้านล่างของหน้าจอบนอุปกรณ์เคลื่อนที่",
   "settings.general.row.showCustomAgents.title": "เอเจนต์ที่กำหนดเอง",
   "settings.general.row.showCustomAgents.description": "แสดงตัวเลือกเอเจนต์ในช่องเขียนข้อความ",
   "settings.general.row.reasoningSummaries.title": "แสดงสรุปการใช้เหตุผล",
@@ -805,8 +797,7 @@ export const dict = {
     "แสดงส่วนเครื่องมือ edit, write และ patch แบบขยายตามค่าเริ่มต้นในไทม์ไลน์",
   "settings.general.row.newInterface.title": "เลย์เอาต์ใหม่",
   "settings.general.row.newInterface.badge": "ใหม่",
-  "settings.general.row.newInterface.description":
-    "ใช้แท็บใหม่และเลย์เอาต์หน้าแรก คุณสามารถสลับระหว่างเลย์เอาต์ได้ในช่วงเวลาจำกัด",
+  "settings.general.row.newInterface.description": "ใช้แท็บใหม่และเลย์เอาต์หน้าแรก คุณสามารถสลับระหว่างเลย์เอาต์ได้ในช่วงเวลาจำกัด",
   "settings.general.row.newInterfaceNotice.title": "ขณะนี้คุณกำลังใช้เลย์เอาต์ใหม่",
   "settings.general.row.newInterfaceNotice.description": "เลย์เอาต์ก่อนหน้าไม่พร้อมใช้งานอีกต่อไป",
   "settings.general.row.newInterfaceNotice.dismiss": "ปิด",
@@ -1041,8 +1032,7 @@ export const dict = {
   "debugBar.ariaLabel": "การวินิจฉัยประสิทธิภาพการพัฒนา",
   "debugBar.na": "n/a",
   "debugBar.nav.label": "NAV",
-  "debugBar.nav.tip":
-    "การเปลี่ยนเส้นทางที่เสร็จสมบูรณ์ล่าสุดที่สัมผัสหน้าเซสชัน วัดจากจุดเริ่มต้นเราเตอร์จนถึงการวาดครั้งแรกหลังจากที่นิ่ง",
+  "debugBar.nav.tip": "การเปลี่ยนเส้นทางที่เสร็จสมบูรณ์ล่าสุดที่สัมผัสหน้าเซสชัน วัดจากจุดเริ่มต้นเราเตอร์จนถึงการวาดครั้งแรกหลังจากที่นิ่ง",
   "debugBar.fps.label": "FPS",
   "debugBar.fps.tip": "เฟรมต่อวินาทีแบบต่อเนื่องในช่วง 5 วินาทีที่ผ่านมา",
   "debugBar.frame.label": "FRAME",
@@ -1054,8 +1044,7 @@ export const dict = {
   "debugBar.delay.label": "DELAY",
   "debugBar.delay.tip": "ความล่าช้าในการป้อนข้อมูลที่แย่ที่สุดที่สังเกตได้ในช่วง 5 วินาทีที่ผ่านมา",
   "debugBar.inp.label": "INP",
-  "debugBar.inp.tip":
-    "ระยะเวลาการโต้ตอบโดยประมาณในช่วง 5 วินาทีที่ผ่านมา นี่เป็นเหมือน INP ไม่ใช่ Web Vitals INP อย่างเป็นทางการ",
+  "debugBar.inp.tip": "ระยะเวลาการโต้ตอบโดยประมาณในช่วง 5 วินาทีที่ผ่านมา นี่เป็นเหมือน INP ไม่ใช่ Web Vitals INP อย่างเป็นทางการ",
   "debugBar.cls.label": "CLS",
   "debugBar.cls.tip": "การเลื่อนเลย์เอาต์สะสมสำหรับอายุการใช้งานของแอปปัจจุบัน",
   "debugBar.mem.label": "MEM",

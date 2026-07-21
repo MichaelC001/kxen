@@ -3,8 +3,8 @@
   "name": "@kxen/server",
   "version": "1.18.4",
   "private": true,
-  "type": "module",
   "license": "MIT",
+  "type": "module",
   "exports": {
     "./*": "./src/*.ts"
   },

@@ -73,7 +73,11 @@ export class WorkflowRuntime {
     this.opts.onEvent?.(event)
   }
 
-  async run(script: string, args?: unknown, resumeFrom?: { id: string; cache: CallCacheEntry[] }): Promise<WorkflowRunState> {
+  async run(
+    script: string,
+    args?: unknown,
+    resumeFrom?: { id: string; cache: CallCacheEntry[] },
+  ): Promise<WorkflowRunState> {
     const id = resumeFrom?.id ?? `wf-${this.nextId++}`
     const cache: CallCacheEntry[] = resumeFrom?.cache ? [...resumeFrom.cache] : []
     const state: WorkflowRunState = { id, status: "running", phases: [], agentCalls: 0 }
@@ -84,7 +88,14 @@ export class WorkflowRuntime {
     let callIndex = 0
     const api = this.buildApi(id, runEntry, () => callIndex++)
     try {
-      const fn = new AsyncFunction("agent", "pipeline", "constraints", "phase", "args", `"use strict"; return (async () => { ${script} })()`)
+      const fn = new AsyncFunction(
+        "agent",
+        "pipeline",
+        "constraints",
+        "phase",
+        "args",
+        `"use strict"; return (async () => { ${script} })()`,
+      )
       const result = await fn(api.agent, api.pipeline, api.constraints, api.phase, args)
       state.result = result
       if (runEntry.pauseRequested) {

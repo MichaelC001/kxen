@@ -1,11 +1,4 @@
-import type {
-  Config,
-  McpResource,
-  OpencodeClient,
-  Path,
-  Project,
-  ProviderAuthResponse,
-} from "@kxen/sdk/v2/client"
+import type { Config, McpResource, OpencodeClient, Path, Project, ProviderAuthResponse } from "@kxen/sdk/v2/client"
 import { showToast } from "@/utils/toast"
 import { getFilename } from "@kxen/core/util/path"
 import { type Accessor, batch, createMemo, getOwner, onCleanup, onMount, untrack } from "solid-js"

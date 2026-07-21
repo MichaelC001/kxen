@@ -2,9 +2,7 @@ import { makeDefaultApi } from "@kxen/protocol/api"
 import { InvalidRequestError, SessionNotFoundError } from "@kxen/protocol/errors"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
 
-class LocationMiddleware extends HttpApiMiddleware.Service<LocationMiddleware>()(
-  "@kxen/client/LocationMiddleware",
-) {}
+class LocationMiddleware extends HttpApiMiddleware.Service<LocationMiddleware>()("@kxen/client/LocationMiddleware") {}
 
 class SessionLocationMiddleware extends HttpApiMiddleware.Service<SessionLocationMiddleware>()(
   "@kxen/client/SessionLocationMiddleware",

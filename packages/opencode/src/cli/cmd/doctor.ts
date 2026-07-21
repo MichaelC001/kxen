@@ -50,10 +50,7 @@ export const DoctorCommand = effectCmd({
     // 运行状态
     const state = yield* Effect.promise(() => readState())
     if (state) push("state", `serve pid ${state.servePid}, web pid ${state.webPid}`)
-    push(
-      `port ${SERVE_PORT}`,
-      (yield* Effect.promise(() => portReady(SERVE_PORT))) ? "daemon responding" : "no daemon",
-    )
+    push(`port ${SERVE_PORT}`, (yield* Effect.promise(() => portReady(SERVE_PORT))) ? "daemon responding" : "no daemon")
     if (yield* Effect.promise(() => portReady(WEB_PORT))) push(`port ${WEB_PORT}`, "web responding")
 
     const width = Math.max(...rows.map(([k]) => k.length))

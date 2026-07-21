@@ -277,7 +277,11 @@ const layer = Layer.effect(
             description: def.description,
             mode: "subagent",
             model: Provider.parseModel(`${def.model.providerID}/${def.model.modelID}`),
-            permission: Permission.merge(defaults, Permission.fromConfig(permissionConfig(def.permissionProfile) as ConfigPermissionV1.Info), user),
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig(permissionConfig(def.permissionProfile) as ConfigPermissionV1.Info),
+              user,
+            ),
             prompt: def.prompt,
             options: {},
             native: false,

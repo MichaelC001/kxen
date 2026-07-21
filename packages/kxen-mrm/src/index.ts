@@ -59,7 +59,8 @@ export function parseConfig(toml: string): MrmConfig {
     const fb = roles.fallback as Array<{ role?: string; chain?: string[] }> | undefined
     if (Array.isArray(fb)) {
       for (const item of fb) {
-        if (item?.role && Array.isArray(item.chain)) out.fallbacks[item.role] = item.chain.filter((r) => r !== item.role)
+        if (item?.role && Array.isArray(item.chain))
+          out.fallbacks[item.role] = item.chain.filter((r) => r !== item.role)
       }
     }
   }
@@ -214,7 +215,8 @@ export async function loadConfig(paths: { user: string; project?: string }): Pro
     config = {
       roles: { ...config.roles, ...parsed.roles },
       fallbacks: { ...config.fallbacks, ...parsed.fallbacks },
-      globalConcurrent: parsed.globalConcurrent !== DEFAULT_CONFIG.globalConcurrent ? parsed.globalConcurrent : config.globalConcurrent,
+      globalConcurrent:
+        parsed.globalConcurrent !== DEFAULT_CONFIG.globalConcurrent ? parsed.globalConcurrent : config.globalConcurrent,
       providers: { ...config.providers, ...parsed.providers },
     }
   }

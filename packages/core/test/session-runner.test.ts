@@ -41,12 +41,7 @@ import { AgentV2 } from "@kxen/core/agent"
 import { Config } from "@kxen/core/config"
 import { ConfigCompaction } from "@kxen/core/config/compaction"
 import { Tool } from "@kxen/core/tool/tool"
-import {
-  SessionContextEpochTable,
-  SessionInputTable,
-  SessionMessageTable,
-  SessionTable,
-} from "@kxen/core/session/sql"
+import { SessionContextEpochTable, SessionInputTable, SessionMessageTable, SessionTable } from "@kxen/core/session/sql"
 import { SessionStore } from "@kxen/core/session/store"
 import { SystemContext } from "@kxen/core/system-context"
 import { SystemContextRegistry } from "@kxen/core/system-context/registry"

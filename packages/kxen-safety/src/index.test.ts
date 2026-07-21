@@ -57,12 +57,15 @@ describe("F1 系统毁灭", () => {
 })
 
 describe("F2 用户目录毁灭", () => {
-  test.each(["rm -rf ~", "rm -rf ~/Documents", "trash ~/Desktop", "rm -rf ~/.ssh", "security delete-generic-password -s x"])(
-    "deny: %s",
-    (cmd) => {
-      expect(evaluateShellCommand(cmd, cwd).verdict).toBe("deny")
-    },
-  )
+  test.each([
+    "rm -rf ~",
+    "rm -rf ~/Documents",
+    "trash ~/Desktop",
+    "rm -rf ~/.ssh",
+    "security delete-generic-password -s x",
+  ])("deny: %s", (cmd) => {
+    expect(evaluateShellCommand(cmd, cwd).verdict).toBe("deny")
+  })
   test("允许: 用户目录普通子路径", () => {
     expect(evaluateShellCommand("rm ~/Documents/draft.txt", cwd).verdict).toBe("allow")
   })

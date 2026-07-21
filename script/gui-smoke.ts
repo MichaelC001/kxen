@@ -19,9 +19,7 @@ const rootChildren = await page.locator("#root").evaluate((el) => el.childElemen
 await page.screenshot({ path: "script/gui-smoke.png", fullPage: false })
 await browser.close()
 
-const fatal = errors.filter(
-  (e) => !e.includes("favicon") && !e.includes("DevTools") && !e.includes("fonts.g"),
-)
+const fatal = errors.filter((e) => !e.includes("favicon") && !e.includes("DevTools") && !e.includes("fonts.g"))
 console.log(JSON.stringify({ title, rootChildren, consoleErrors: fatal.slice(0, 5) }, null, 2))
 if (rootChildren === 0) {
   console.error("FAIL: #root 为空，SPA 未挂载")

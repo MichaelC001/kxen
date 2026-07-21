@@ -2,8 +2,8 @@
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@kxen/client",
   "private": true,
-  "type": "module",
   "license": "MIT",
+  "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./effect": "./src/effect.ts"
@@ -15,16 +15,8 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@kxen/schema": "workspace:*",
-    "@kxen/protocol": "workspace:*"
-  },
-  "peerDependencies": {
-    "effect": "4.0.0-beta.83"
-  },
-  "peerDependenciesMeta": {
-    "effect": {
-      "optional": true
-    }
+    "@kxen/protocol": "workspace:*",
+    "@kxen/schema": "workspace:*"
   },
   "devDependencies": {
     "@effect/platform-node": "catalog:",
@@ -35,5 +27,13 @@
     "@types/bun": "catalog:",
     "@typescript/native-preview": "catalog:",
     "effect": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-beta.83"
+  },
+  "peerDependenciesMeta": {
+    "effect": {
+      "optional": true
+    }
   }
 }

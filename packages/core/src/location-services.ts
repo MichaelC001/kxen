@@ -34,6 +34,7 @@ import { SystemContextBuiltIns } from "./system-context/builtins"
 import { SystemContextRegistry } from "./system-context/registry"
 import * as KxenAgentsContext from "./system-context/agents"
 import * as KxenCapabilitiesContext from "./system-context/capabilities"
+import * as KxenGoalContext from "./system-context/goal"
 import { BuiltInTools } from "./tool/builtins"
 import { ReadToolFileSystem } from "./tool/read-filesystem"
 import { ToolRegistry } from "./tool/registry"
@@ -64,6 +65,7 @@ export const locationServices = LayerNode.group([
   SystemContextBuiltIns.node,
   KxenAgentsContext.node,
   KxenCapabilitiesContext.node,
+  KxenGoalContext.node,
   LocationMutation.node,
   FileMutation.node,
   PermissionV2.node,

@@ -49,7 +49,8 @@ export const goalHandlers = HttpApiBuilder.group(InstanceHttpApi, "goal", (handl
 
     const create = Effect.fn("GoalHttpApi.create")(function* (ctx: { payload: Goal.GoalContract }) {
       const g = yield* Effect.try({
-        try: () => Goal.create(ctx.payload, `goal_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`),
+        try: () =>
+          Goal.create(ctx.payload, `goal_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`),
         catch: () => new HttpApiError.BadRequest({}),
       })
       yield* Effect.promise(() => Goal.save(dir(), g))

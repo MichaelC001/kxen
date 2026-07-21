@@ -2,13 +2,11 @@
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@kxen/sdk",
   "version": "1.18.4",
-  "type": "module",
   "license": "MIT",
-  "scripts": {
-    "test": "bun test",
-    "typecheck": "tsgo --noEmit",
-    "build": "bun ./script/build.ts"
-  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
@@ -19,9 +17,14 @@
     "./v2/server": "./src/v2/server.ts",
     "./v2/types": "./src/v2/gen/types.gen.ts"
   },
-  "files": [
-    "dist"
-  ],
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsgo --noEmit",
+    "build": "bun ./script/build.ts"
+  },
+  "dependencies": {
+    "cross-spawn": "catalog:"
+  },
   "devDependencies": {
     "@hey-api/openapi-ts": "0.90.10",
     "@tsconfig/node22": "catalog:",
@@ -29,8 +32,5 @@
     "@types/node": "catalog:",
     "@typescript/native-preview": "catalog:",
     "typescript": "catalog:"
-  },
-  "dependencies": {
-    "cross-spawn": "catalog:"
   }
 }

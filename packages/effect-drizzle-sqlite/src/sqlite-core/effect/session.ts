@@ -37,8 +37,7 @@ export class SQLiteEffectPreparedQuery<
   T extends PreparedQueryConfig,
   TEffectHKT extends QueryEffectHKTBase = QueryEffectHKTBase,
   TIsRqbV2 extends boolean = false,
-> implements PreparedQuery
-{
+> implements PreparedQuery {
   static readonly [entityKind]: string = "SQLiteEffectPreparedQuery"
 
   /** @internal */

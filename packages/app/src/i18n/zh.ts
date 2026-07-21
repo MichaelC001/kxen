@@ -1080,4 +1080,4 @@ export const dict = {
   "session.header.reveal.fileExplorer": "Reveal in File Explorer",
   "session.header.reveal.containingFolder": "Open containing folder",
   "context.breakdown.note": 'Approximate breakdown of input tokens. "Other" includes tool definitions and overhead.',
-}satisfies Partial<Record<Keys, string>>
+} satisfies Partial<Record<Keys, string>>

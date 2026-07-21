@@ -71,9 +71,10 @@ export const ExecTool = Tool.define(
           const hint = validateDialect(params.type, params.command)
           if (hint) throw new Error(`Dialect mismatch for ${params.type}: ${hint}`)
 
-          const cwd = params.path.startsWith("/") || /^[A-Za-z]:/.test(params.path)
-            ? params.path
-            : `${instanceCtx.directory}/${params.path}`
+          const cwd =
+            params.path.startsWith("/") || /^[A-Za-z]:/.test(params.path)
+              ? params.path
+              : `${instanceCtx.directory}/${params.path}`
 
           // kxen-safety：与 shell 工具同一道硬拦截
           const verdict = evaluateShellCommand(params.command, cwd)
@@ -89,7 +90,9 @@ export const ExecTool = Tool.define(
 
           const [raw, exitCode] = yield* Effect.scoped(
             Effect.gen(function* () {
-              const handle = yield* spawner.spawn(ChildProcess.make(bin, args, { cwd, extendEnv: true, stdin: "ignore" }))
+              const handle = yield* spawner.spawn(
+                ChildProcess.make(bin, args, { cwd, extendEnv: true, stdin: "ignore" }),
+              )
               const collectText = Effect.gen(function* () {
                 let text = ""
                 yield* Stream.runForEach(Stream.decodeText(handle.all), (chunk) =>
