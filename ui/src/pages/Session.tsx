@@ -52,6 +52,25 @@ export default function Session() {
         });
         setStreaming(false);
       },
+      (event) => {
+        if (event.kind === "tool_call") {
+          setTools((prev) => [...prev, { name: event.name, call: event.summary ?? "" }]);
+        } else if (event.kind === "tool_result") {
+          setTools((prev) => {
+            // 回填最后一个同名未完成调用
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (prev[i].name === event.name && prev[i].result === undefined) {
+                const next = [...prev];
+                next[i] = { ...next[i], result: event.summary ?? "" };
+                return next;
+              }
+            }
+            return prev;
+          });
+        } else {
+          setTools((prev) => [...prev, { name: "phase", call: event.name }]);
+        }
+      },
     );
   });
 
@@ -68,7 +87,7 @@ export default function Session() {
       { role: "assistant", content: "" },
     ]);
     const history = messages().map((m) => ({ role: m.role, content: m.content }));
-    await sendMessage({ text, history });
+    await sendMessage(text, history);
   };
 
   return (
@@ -122,9 +141,7 @@ export default function Session() {
           </div>
         </Show>
         <Show when={messages().length === 0}>
-          <div class="text-gray-600 text-sm text-center mt-20">
-            发一条消息开始（M1：xai / grok-build-0.1 直连）
-          </div>
+          <div class="text-gray-600 text-sm text-center mt-20">发一条消息开始</div>
         </Show>
       </div>
       <div class="p-3 border-t border-gray-800 flex gap-2">

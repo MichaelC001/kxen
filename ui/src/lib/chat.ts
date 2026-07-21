@@ -27,10 +27,17 @@ export async function sendMessage(
   return rpc("send_message", { text, history });
 }
 
+export interface ToolEvent {
+  kind: "tool_call" | "tool_result" | "phase";
+  name: string;
+  summary?: string;
+}
+
 export function onLlmDelta(
   onText: (text: string) => void,
   onReasoning: (text: string) => void,
   onDone: (usage?: { input: number; output: number }, error?: string) => void,
+  onTool?: (event: ToolEvent) => void,
 ): Promise<() => void> {
   let usage: { input: number; output: number } | undefined;
   return subscribe(["llm.delta"], (_topic, payload) => {
@@ -41,7 +48,8 @@ export function onLlmDelta(
         input?: number;
         output?: number;
         message?: string;
-        tool?: string;
+        name?: string;
+        summary?: string;
       },
     );
   });
@@ -52,7 +60,8 @@ export function onLlmDelta(
     input?: number;
     output?: number;
     message?: string;
-    tool?: string;
+    name?: string;
+    summary?: string;
   }) {
     switch (event.kind) {
       case "text":
@@ -69,6 +78,11 @@ export function onLlmDelta(
         break;
       case "error":
         onDone(undefined, event.message ?? "unknown error");
+        break;
+      case "tool_call":
+      case "tool_result":
+      case "phase":
+        if (event.name) onTool?.({ kind: event.kind, name: event.name, summary: event.summary });
         break;
     }
   }
