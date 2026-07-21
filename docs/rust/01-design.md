@@ -248,7 +248,8 @@ Claude OAuth contract（jcode OAUTH.md 实证，五要素缺一不可）：
 ## 11. 开放问题
 
 1. ~~rquickjs 的 tokio 桥接形态~~（已关闭：async-rt 原生集成，AsyncRuntime + promise.into_future + Async fn 注册，见 2.2）
-2. 更新渠道细节：tauri-plugin-updater + GitHub Releases（签名 dmg，app 内提示）的具体发布管线
+2. 更新渠道细节：tauri-plugin-updater + GitHub Releases（签名 dmg，app 内提示）的具体发布管线（M5 处理）
+3. 已知风险（非阻塞）：Claude 订阅 refresh 端点（console.anthropic.com）曾观察到 Cloudflare 1010 拦截；M3 实证 jcode 的 refresh 走法（源码库可对照），不行则提示用户在官方 CLI 内刷新
 
 ## 附录 A：优点收纳矩阵
 

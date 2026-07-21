@@ -31,7 +31,7 @@ kxen 是 macOS Apple Silicon 专精的开源 Coding Agent Harness，**只做 cod
 
 ### 3.2 模型与订阅
 
-- provider 全通用：Rig 20+ 家 + openai-compatible，不特殊化任何一家
+- provider 全通用：自研薄层（endpoint + auth + SSE，jcode 同款）+ openai-compatible 通用实现，不特殊化任何一家
 - 订阅接入 = 通用「官方 CLI 凭证探测」机制：读官方 CLI 凭证存储、新鲜度优先、过期自动刷新；新增订阅 = 加一条探测规则
 - 当前四条规则：Claude（Keychain）、Codex（~/.codex）、Grok（~/.grok）、Kimi（~/.kimi-code）
 - 角色化模型路由（thinking/planning/execution/review/research）+ mrm 全局调度（并发/RPM/降级链/状态注入）
@@ -82,6 +82,5 @@ kxen 是 macOS Apple Silicon 专精的开源 Coding Agent Harness，**只做 cod
 
 ## 6. 开放问题
 
-- Rig 对 codex 订阅端点的适配度（不合则 codex 单独自写 ~200 行）
-- rquickjs 的 tokio 桥接形态（M4 首个技术验证点）
-- updater 发布管线细节
+- updater 发布管线细节（M5 处理）
+- 已知风险：Claude 订阅 refresh 端点（console.anthropic.com）曾观察到 Cloudflare 1010 拦截；备选路径待 M3 实证（jcode 的 refresh 走法已在源码库中可对照）
