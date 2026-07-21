@@ -275,14 +275,16 @@ fn classify_path(target: &str, cwd: &str) -> Option<PathHit> {
 
 fn normalize_path(target: &str, cwd: &str) -> String {
     let home = dirs::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
+    // macOS /var、/tmp 是 /private/* 软链：cwd 先 canonicalize，否则临时区被误判为系统区
+    let cwd_canon = std::fs::canonicalize(cwd).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| cwd.to_string());
     let mut s = if target == "~" {
         home.clone()
     } else if let Some(rest) = target.strip_prefix("~/") {
         format!("{home}/{rest}")
     } else if target.starts_with('/') {
-        target.to_string()
+        std::fs::canonicalize(target).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| target.to_string())
     } else {
-        format!("{cwd}/{target}")
+        format!("{cwd_canon}/{target}")
     };
     // 解析 . 与 .. 与多余斜杠
     let mut parts: Vec<&str> = Vec::new();
