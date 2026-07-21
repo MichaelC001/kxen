@@ -120,5 +120,16 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                 "required": ["role", "prompt"]
             }),
         ),
+        ToolDefinition::function(
+            "workflow",
+            "Run a JavaScript orchestration script (QuickJS, sandboxed). Globals: `await agent(role, prompt)` -> string (subagent dispatch, MRM-routed); `CONSTRAINTS` (role bindings + provider availability); `phase(name)` (progress marker); `log(msg)`. Use plain JS for control flow: Promise.all for fan-out, for-loops for pipelines. The script return value is the workflow result. Cap: 32 agent dispatches, 10min wall clock.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "script": { "type": "string", "description": "JavaScript body wrapped in an async function; use return for the result" }
+                },
+                "required": ["script"]
+            }),
+        ),
     ]
 }

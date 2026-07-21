@@ -28,12 +28,14 @@ async fn main() {
         store,
         max_turns: 8,
         mrm: Some(mrm),
+        allowed_tools: None,
         loop_detector: kxen_agent::loop_detect::LoopDetector::new(),
-        on_event: Box::new(|event| match event {
+        on_event: Arc::new(|event| match event {
             AgentEvent::Text { text } => print!("{text}"),
             AgentEvent::Reasoning { text } => eprint!("[r:{}]", first(&text, 30)),
             AgentEvent::ToolCall { name, summary } => println!("\n>>> {name}: {}", first(&summary, 90)),
             AgentEvent::ToolResult { name, summary } => println!("<<< {name}: {}", first(&summary, 90)),
+            AgentEvent::Phase { name } => println!("\n--- PHASE: {name} ---"),
             AgentEvent::Done { turns } => println!("\n=== DONE {turns} turns ==="),
             AgentEvent::Error { message } => println!("\n!!! {message}"),
         }),

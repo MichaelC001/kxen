@@ -249,8 +249,9 @@ async fn run_llm(text: String, history: Vec<HistoryMsg>, app: AppHandle) {
         store,
         max_turns: 12,
         mrm: Some(state.mrm.clone()),
+        allowed_tools: None,
         loop_detector: kxen_agent::loop_detect::LoopDetector::new(),
-        on_event: Box::new(move |event| {
+        on_event: Arc::new(move |event| {
             let payload = match serde_json::to_value(&event) {
                 Ok(v) => v,
                 Err(_) => return,

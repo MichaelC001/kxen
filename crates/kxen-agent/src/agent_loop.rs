@@ -20,6 +20,7 @@ pub enum AgentEvent {
     Reasoning { text: String },
     ToolCall { name: String, summary: String },
     ToolResult { name: String, summary: String },
+    Phase { name: String },
     Done { turns: u32 },
     Error { message: String },
 }
@@ -38,12 +39,20 @@ pub struct AgentContext {
     pub store: kxen_auth::credential::AuthStore,
     pub max_turns: u32,
     pub mrm: Option<Arc<kxen_llm::mrm::ModelResourceManager>>,
+    /// 子代理工具白名单（None = 全部常驻工具）。
+    pub allowed_tools: Option<&'static [&'static str]>,
     pub loop_detector: crate::loop_detect::LoopDetector,
-    pub on_event: Box<dyn Fn(AgentEvent) + Send>,
+    pub on_event: Arc<dyn Fn(AgentEvent) + Send + Sync>,
 }
 
 pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> AgentOutcome {
-    let tools = crate::tools_spec::core_tools();
+    let tools = match ctx.allowed_tools {
+        Some(allowed) => crate::tools_spec::core_tools()
+            .into_iter()
+            .filter(|t| allowed.contains(&t.function.name.as_str()))
+            .collect(),
+        None => crate::tools_spec::core_tools(),
+    };
     let mut turns = 0u32;
     let mut final_text = String::new();
 
@@ -183,10 +192,17 @@ async fn execute_tool(name: &str, arguments: &str, ctx: &mut AgentContext) -> Re
         "agent" => {
             let role = args.get("role").and_then(Value::as_str).ok_or("missing role")?.to_string();
             let prompt = args.get("prompt").and_then(Value::as_str).ok_or("missing prompt")?.to_string();
-            let Some(mrm) = ctx.mrm.clone() else {
+            let Some(deps) = crate::subagent::SubagentDeps::from_context(ctx) else {
                 return Err("agent tool unavailable: mrm not configured".into());
             };
-            Box::pin(crate::subagent::dispatch(&role, prompt, ctx, &mrm)).await
+            Box::pin(crate::subagent::dispatch(&role, prompt, &deps)).await
+        }
+        "workflow" => {
+            let script = args.get("script").and_then(Value::as_str).ok_or("missing script")?;
+            let Some(deps) = crate::subagent::SubagentDeps::from_context(ctx) else {
+                return Err("workflow unavailable: mrm not configured".into());
+            };
+            Box::pin(crate::workflow::run_tool(script, deps, ctx)).await
         }
         other => Err(format!("unknown tool: {other}")),
     }
