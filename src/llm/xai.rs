@@ -20,10 +20,51 @@ pub struct XaiProvider {
 #[derive(Serialize)]
 struct ChatRequest<'a> {
     model: &'a str,
-    messages: &'a [Message],
+    messages: Vec<WireMessage<'a>>,
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<&'a [crate::llm::tool::ToolDefinition]>,
+}
+
+/// wire 消息：content 无图片纯字符串，有图片走 image_url/text 块数组。
+#[derive(Serialize)]
+struct WireMessage<'a> {
+    role: &'a str,
+    content: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tool_calls: &'a Vec<crate::llm::types::AssistantToolCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<&'a str>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<&'a str>,
+}
+
+fn wire_message(m: &Message) -> WireMessage<'_> {
+    let content = if m.images.is_empty() {
+        serde_json::Value::String(m.content.clone())
+    } else {
+        let mut blocks: Vec<serde_json::Value> = m
+            .images
+            .iter()
+            .map(|img| serde_json::json!({ "type": "image_url", "image_url": { "url": img.data_url() } }))
+            .collect();
+        if !m.content.is_empty() {
+            blocks.push(serde_json::json!({ "type": "text", "text": m.content }));
+        }
+        serde_json::Value::Array(blocks)
+    };
+    WireMessage {
+        role: match m.role {
+            crate::llm::types::Role::System => "system",
+            crate::llm::types::Role::User => "user",
+            crate::llm::types::Role::Assistant => "assistant",
+            crate::llm::types::Role::Tool => "tool",
+        },
+        content,
+        tool_calls: &m.tool_calls,
+        tool_call_id: m.tool_call_id.as_deref(),
+        name: m.name.as_deref(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -75,7 +116,8 @@ impl XaiProvider {
         let self_url = self.url;
         let start = async move {
             let tools_opt = tools_owned.as_deref();
-            http.post(self_url).bearer_auth(bearer).json(&ChatRequest { model: &model, messages: &messages, stream: true, tools: tools_opt }).send().await
+            let wire: Vec<WireMessage> = messages.iter().map(wire_message).collect();
+            http.post(self_url).bearer_auth(bearer).json(&ChatRequest { model: &model, messages: wire, stream: true, tools: tools_opt }).send().await
         };
 
         Box::pin(futures::stream::once(start).flat_map(|result| match result {
@@ -147,5 +189,22 @@ mod tests {
         let json = r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":4}}"#;
         let frame = SseFrame::Data(json.into());
         assert!(matches!(delta_of(frame), Some(Delta::Usage { input: 10, output: 4 })));
+    }
+}
+
+
+#[cfg(test)]
+mod wire_tests {
+    use crate::llm::types::{ImagePart, Message};
+
+    #[test]
+    fn images_become_image_url_blocks() {
+        let m = Message::user_with_images("看图", vec![ImagePart { media_type: "image/jpeg".into(), data: "QUJD".into() }]);
+        let w = super::wire_message(&m);
+        let v = serde_json::to_value(&w).unwrap();
+        let arr = v["content"].as_array().unwrap();
+        assert_eq!(arr[0]["type"], "image_url");
+        assert_eq!(arr[0]["image_url"]["url"], "data:image/jpeg;base64,QUJD");
+        assert_eq!(arr[1]["type"], "text");
     }
 }

@@ -53,7 +53,7 @@ struct SystemBlock<'a> {
 #[derive(Serialize)]
 struct ApiMessage<'a> {
     role: &'a str,
-    content: &'a str,
+    content: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -61,6 +61,25 @@ struct ApiTool<'a> {
     name: &'a str,
     description: &'a str,
     input_schema: serde_json::Value,
+}
+
+/// wire content：无图片保持纯字符串（OAuth 契约不动）；有图片走块数组。
+fn wire_content(m: &Message) -> serde_json::Value {
+    if m.images.is_empty() {
+        return serde_json::Value::String(m.content.clone());
+    }
+    let mut blocks: Vec<serde_json::Value> = m
+        .images
+        .iter()
+        .map(|img| serde_json::json!({
+            "type": "image",
+            "source": { "type": "base64", "media_type": img.media_type, "data": img.data }
+        }))
+        .collect();
+    if !m.content.is_empty() {
+        blocks.push(serde_json::json!({ "type": "text", "text": m.content }));
+    }
+    serde_json::Value::Array(blocks)
 }
 
 #[derive(Deserialize)]
@@ -120,7 +139,7 @@ impl AnthropicProvider {
                         Role::User | Role::Tool => "user",
                         _ => "assistant",
                     },
-                    content: &m.content,
+                    content: wire_content(m),
                 })
                 .collect();
             let tools_api: Option<Vec<ApiTool>> = if tools_owned.is_empty() {
@@ -213,5 +232,28 @@ mod tests {
     fn parses_text_delta() {
         let frame = SseFrame::Data(r#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"pong"}}"#.into());
         assert!(matches!(delta_of(frame), Some(Delta::Text(t)) if t == "pong"));
+    }
+}
+
+
+#[cfg(test)]
+mod wire_tests {
+    use crate::llm::types::{ImagePart, Message};
+
+    #[test]
+    fn images_become_base64_blocks() {
+        let m = Message::user_with_images("看图", vec![ImagePart { media_type: "image/png".into(), data: "QUJD".into() }]);
+        let v = super::wire_content(&m);
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr[0]["type"], "image");
+        assert_eq!(arr[0]["source"]["media_type"], "image/png");
+        assert_eq!(arr[0]["source"]["data"], "QUJD");
+        assert_eq!(arr[1]["type"], "text");
+    }
+
+    #[test]
+    fn no_images_stays_plain_string() {
+        let m = Message::user("hello");
+        assert!(super::wire_content(&m).is_string());
     }
 }

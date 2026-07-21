@@ -32,7 +32,7 @@ struct InputItem<'a> {
     #[serde(rename = "type")]
     kind: &'static str,
     role: &'a str,
-    content: String,
+    content: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -42,6 +42,22 @@ struct ResponsesTool<'a> {
     name: &'a str,
     description: &'a str,
     parameters: serde_json::Value,
+}
+
+/// Responses API wire content：无图片纯字符串；有图片走 input_image/input_text 块。
+fn wire_content(m: &Message) -> serde_json::Value {
+    if m.images.is_empty() {
+        return serde_json::Value::String(m.content.clone());
+    }
+    let mut blocks: Vec<serde_json::Value> = m
+        .images
+        .iter()
+        .map(|img| serde_json::json!({ "type": "input_image", "image_url": img.data_url() }))
+        .collect();
+    if !m.content.is_empty() {
+        blocks.push(serde_json::json!({ "type": "input_text", "text": m.content }));
+    }
+    serde_json::Value::Array(blocks)
 }
 
 #[derive(Deserialize)]
@@ -94,7 +110,7 @@ impl OpenAiProvider {
                         Role::User | Role::Tool => "user",
                         Role::Assistant => "assistant",
                     },
-                    content: m.content.clone(),
+                    content: wire_content(m),
                 })
                 .collect();
             let tools_api: Vec<ResponsesTool> = tools_owned
@@ -155,4 +171,20 @@ fn delta_of(frame: SseFrame) -> Option<Delta> {
 
 fn truncate(s: &str, max: usize) -> &str {
     if s.len() <= max { s } else { &s[..s.floor_char_boundary(max)] }
+}
+
+
+#[cfg(test)]
+mod wire_tests {
+    use crate::llm::types::{ImagePart, Message};
+
+    #[test]
+    fn images_become_input_image_blocks() {
+        let m = Message::user_with_images("看图", vec![ImagePart { media_type: "image/png".into(), data: "QUJD".into() }]);
+        let v = super::wire_content(&m);
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr[0]["type"], "input_image");
+        assert_eq!(arr[0]["image_url"], "data:image/png;base64,QUJD");
+        assert_eq!(arr[1]["type"], "input_text");
+    }
 }
