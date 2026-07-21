@@ -58,6 +58,15 @@ impl HookRunner {
         }
     }
 
+    /// 命名事件通用入口（teammate_idle / task_completed 等 team 挂点）：
+    /// matcher 正则匹配 subject（agent 名 / task 标题），非零退出即打回。
+    pub async fn run_named(&self, event: &str, subject: &str, payload: &Value) -> Result<(), String> {
+        for hook in self.matching(event, subject) {
+            self.execute(hook, event, subject, payload).await?;
+        }
+        Ok(())
+    }
+
     fn matching(&self, event: &str, tool: &str) -> Vec<&CompiledHook> {
         self.hooks
             .get(event)

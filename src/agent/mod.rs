@@ -9,6 +9,7 @@ pub mod okf;
 pub mod prompt;
 pub mod skills;
 pub mod subagent;
+pub mod team;
 pub mod tools_spec;
 pub mod workflow;
 

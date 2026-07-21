@@ -14,6 +14,7 @@ pub struct AppState {
     pub mrm: std::sync::Arc<kxen_app::llm::mrm::ModelResourceManager>,
     pub extras: std::sync::Arc<kxen_app::agent::agent_loop::SessionExtras>,
     pub hooks: std::sync::Arc<kxen_app::tools::hooks::HookRunner>,
+    pub team: std::sync::Arc<kxen_app::agent::team::TeamManager>,
     /// session_id -> 进行中 run 的取消令牌（session.abort 用；run 结束自行移除）
     pub active_runs: std::sync::Mutex<std::collections::HashMap<String, kxen_app::agent::cancel::CancelToken>>,
     pub workdir: std::sync::Arc<std::path::Path>,
@@ -34,16 +35,36 @@ impl AppState {
             None,
         )
         .unwrap_or_default();
+        let registry = std::sync::Arc::new(kxen_app::tools::task::TaskRegistry::new());
+        let extras = std::sync::Arc::new(kxen_app::agent::agent_loop::SessionExtras::default());
+        let hooks = std::sync::Arc::new(kxen_app::tools::hooks::HookRunner::from_config(&config));
+        let mrm = std::sync::Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(config));
+        let workdir: std::sync::Arc<std::path::Path> =
+            std::sync::Arc::from(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
+        let bus = kxen_app::core::event::EventBus::default();
+        let team = kxen_app::agent::team::TeamManager::new(
+            kxen_app::core::paths::data_dir().join("teams"),
+            kxen_app::agent::team::SpawnDeps {
+                registry: registry.clone(),
+                workdir: workdir.clone(),
+                store: store.clone(),
+                mrm: mrm.clone(),
+                hooks: Some(hooks.clone()),
+                extras: extras.clone(),
+            },
+            bus.clone(),
+        );
         Self {
             auth_store: Mutex::new(store),
             model: Mutex::new(ModelRef::new("xai", "grok-build-0.1")),
-            bus: kxen_app::core::event::EventBus::default(),
-            registry: std::sync::Arc::new(kxen_app::tools::task::TaskRegistry::new()),
-            extras: std::sync::Arc::new(kxen_app::agent::agent_loop::SessionExtras::default()),
-            hooks: std::sync::Arc::new(kxen_app::tools::hooks::HookRunner::from_config(&config)),
+            bus,
+            registry,
+            extras,
+            hooks,
+            team,
             active_runs: std::sync::Mutex::new(std::collections::HashMap::new()),
-            mrm: std::sync::Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(config)),
-            workdir: std::sync::Arc::from(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))),
+            mrm,
+            workdir,
         }
     }
 }

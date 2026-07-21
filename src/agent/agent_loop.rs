@@ -60,6 +60,12 @@ pub struct AgentContext {
     pub loop_detector: crate::agent::loop_detect::LoopDetector,
     /// 取消令牌：loop 顶 / stream 消费 / 工具执行 三处检查点；子代理级联继承。
     pub cancel: Option<crate::agent::cancel::CancelToken>,
+    /// lead 身份的 team 访问（None = 无 team 能力：subagent/workflow 子环境）。
+    pub team: Option<Arc<crate::agent::team::TeamManager>>,
+    /// teammate 身份（session_id, agent_name）：决定 send_message/team_task 可用。
+    pub team_identity: Option<(String, String)>,
+    /// lead 的 session id（team 工具路由用）。
+    pub session_id: Option<String>,
     pub on_event: Arc<dyn Fn(AgentEvent) + Send + Sync>,
 }
 
@@ -95,8 +101,13 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
             break 'outer;
         }
 
-        // 渐进披露：每轮重建，tool_search 本轮挂载的工具下一轮即对模型可见
+        // 渐进披露 + 身份过滤：每轮重建（tool_search 挂载下轮可见；team 系工具按身份开关）
         let mut tools = base_tools.clone();
+        tools.retain(|t| match t.function.name.as_str() {
+            "team" => ctx.team.is_some() && ctx.team_identity.is_none(),
+            "send_message" | "team_task" => ctx.team_identity.is_some(),
+            _ => true,
+        });
         if let Some(extras) = &ctx.extras {
             let enabled = crate::core::shared::lock(&extras.extra_tools);
             tools.extend(crate::agent::tools_spec::deferred_tools().into_iter().filter(|t| enabled.contains(&t.function.name)));
@@ -346,6 +357,24 @@ fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a mut 
         "webfetch" => {
             let url = args.get("url").and_then(Value::as_str).ok_or("missing url")?;
             crate::tools::webfetch::fetch_text(url).await
+        }
+        "team" => {
+            let Some(team) = &ctx.team else {
+                return Err("team tool unavailable in this context".into());
+            };
+            let Some(sid) = &ctx.session_id else {
+                return Err("team tool needs a session".into());
+            };
+            team.lead_action(sid, &args).await
+        }
+        "send_message" | "team_task" => {
+            let Some(team) = &ctx.team else {
+                return Err("team tools unavailable in this context".into());
+            };
+            let Some((sid, name)) = &ctx.team_identity else {
+                return Err(format!("{name} is teammate-only"));
+            };
+            team.teammate_action(sid, name, &args).await
         }
         "skill" => {
             let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?;

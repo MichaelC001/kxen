@@ -28,6 +28,9 @@ async fn main() {
         extras: None,
         hooks: None,
         cancel: None,
+        team: None,
+        team_identity: None,
+        session_id: None,
         loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
         on_event: Arc::new(|event| match event {
             AgentEvent::Text { text } => print!("{text}"),

@@ -103,6 +103,9 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps) -> Result
         extras: None,
         hooks: deps.hooks.clone(),
         cancel: deps.cancel.clone(),
+        team: None,
+        team_identity: None,
+        session_id: None,
         loop_detector: crate::agent::loop_detect::LoopDetector::new(),
         on_event: {
             let role_owned = agent.name.clone();

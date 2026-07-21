@@ -181,6 +181,18 @@ async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value,
             let token = kxen_app::core::shared::lock(&state.active_runs).get(id).cloned();
             Ok(json!(token.map(|t| t.cancel()).is_some()))
         }
+        "team.list" => {
+            let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
+            let state = app.state::<Arc<AppState>>();
+            Ok(state.team.list_json(id))
+        }
+        "team.message" => {
+            let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
+            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
+            let text = params.get("text").and_then(Value::as_str).ok_or("missing text")?;
+            let state = app.state::<Arc<AppState>>();
+            state.team.lead_action(session_id, &json!({ "action": "message", "name": name, "text": text })).await.map(Value::String)
+        }
         "fs.complete" => {
             let query = params.get("query").and_then(Value::as_str).unwrap_or("");
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
@@ -332,6 +344,11 @@ async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent:
             })
         })
         .collect();
+    // lead inbox：teammate 来信作为用户角色消息注入（排在本轮新消息之前）
+    let inbox = state.team.drain_lead_inbox(&session_id);
+    for (from, note) in inbox {
+        messages.push(Message::user(format!("[teammate {from}] {note}")));
+    }
     if messages.is_empty() {
         messages.push(Message::user(text));
     }
@@ -358,6 +375,9 @@ async fn run_llm(session_id: String, text: String, context: Vec<kxen_app::agent:
         hooks: Some(state.hooks.clone()),
         loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
         cancel: Some(cancel.clone()),
+        team: Some(state.team.clone()),
+        team_identity: None,
+        session_id: Some(session_id.clone()),
         on_event: Arc::new(move |event| {
             use kxen_app::agent::agent_loop::AgentEvent as AE;
             match &event {

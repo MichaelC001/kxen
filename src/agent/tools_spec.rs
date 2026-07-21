@@ -194,6 +194,51 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                 "required": ["action", "name"]
             }),
         ),
+        ToolDefinition::function(
+            "team",
+            "Lead an agent team. spawn (name, role, prompt, model? as provider/model, plan_approval?) creates a teammate with its own context and model; message (name, text) sends to its inbox; approve/reject (name, feedback?) answers a plan approval request; shutdown (name); task_create (title, depends_on?); list shows members and tasks. Teammates report back automatically - do not poll.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["spawn", "message", "approve", "reject", "shutdown", "list", "task_create"] },
+                    "name": { "type": "string" },
+                    "role": { "type": "string", "enum": ["thinking", "planning", "execution", "review", "research"] },
+                    "prompt": { "type": "string" },
+                    "model": { "type": "string", "description": "provider/model override, e.g. anthropic/claude-sonnet-4-5-20250929" },
+                    "plan_approval": { "type": "boolean" },
+                    "text": { "type": "string" },
+                    "feedback": { "type": "string" },
+                    "title": { "type": "string" },
+                    "depends_on": { "type": "array", "items": { "type": "integer" } }
+                },
+                "required": ["action"]
+            }),
+        ),
+        ToolDefinition::function(
+            "send_message",
+            "(teammate only) Send a message to the lead or another teammate by name.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["send"] },
+                    "to": { "type": "string" },
+                    "text": { "type": "string" }
+                },
+                "required": ["action", "to", "text"]
+            }),
+        ),
+        ToolDefinition::function(
+            "team_task",
+            "(teammate only) Shared team task list: claim (next unblocked unassigned), complete (id), list.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["claim", "complete", "list"] },
+                    "id": { "type": "integer" }
+                },
+                "required": ["action"]
+            }),
+        ),
     ]
 }
 
