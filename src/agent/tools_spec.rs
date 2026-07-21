@@ -151,9 +151,23 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                 "type": "object",
                 "properties": {
                     "role": { "type": "string", "enum": ["thinking", "planning", "execution", "review", "research"] },
-                    "prompt": { "type": "string", "description": "The task for the subagent to perform" }
+                    "prompt": { "type": "string", "description": "The task for the subagent to perform" },
+                    "worktree": { "type": "string", "description": "Optional: run this dispatch inside an isolated git worktree with this name (branch kxen/<name>, main tree untouched)" }
                 },
                 "required": ["role", "prompt"]
+            }),
+        ),
+        ToolDefinition::function(
+            "worktree",
+            "Manage isolated git worktrees under .kxen/worktrees (for parallel or bulk-change isolation). Actions: create (name), remove (name, delete_branch?), list, diff (name -> diff --stat vs main tree).",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["create", "remove", "list", "diff"] },
+                    "name": { "type": "string" },
+                    "delete_branch": { "type": "boolean" }
+                },
+                "required": ["action"]
             }),
         ),
         ToolDefinition::function(

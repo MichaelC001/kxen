@@ -291,10 +291,48 @@ fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a mut 
         "agent" => {
             let role = args.get("role").and_then(Value::as_str).ok_or("missing role")?.to_string();
             let prompt = args.get("prompt").and_then(Value::as_str).ok_or("missing prompt")?.to_string();
-            let Some(deps) = crate::agent::subagent::SubagentDeps::from_context(ctx) else {
+            let Some(mut deps) = crate::agent::subagent::SubagentDeps::from_context(ctx) else {
                 return Err("agent tool unavailable: mrm not configured".into());
             };
-            Box::pin(crate::agent::subagent::dispatch(&role, prompt, &deps)).await
+            // worktree 隔离：该次派发在独立树执行，主树零接触
+            let mut note = String::new();
+            if let Some(wt) = args.get("worktree").and_then(Value::as_str) {
+                let info = crate::tools::worktree::create(&ctx.workdir, wt).await?;
+                note = format!("\n[worktree: {} (branch {})]", info.path.display(), info.branch);
+                deps.workdir = Arc::from(info.path.as_path());
+            }
+            let result = Box::pin(crate::agent::subagent::dispatch(&role, prompt, &deps)).await?;
+            Ok(format!("{result}{note}"))
+        }
+        "worktree" => {
+            let repo = ctx.workdir.clone();
+            match args.get("action").and_then(Value::as_str).ok_or("missing action")? {
+                "create" => {
+                    let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?;
+                    let info = crate::tools::worktree::create(&repo, name).await?;
+                    Ok(format!("worktree {} at {} (branch {})", info.name, info.path.display(), info.branch))
+                }
+                "remove" => {
+                    let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?;
+                    let delete_branch = args.get("delete_branch").and_then(Value::as_bool).unwrap_or(false);
+                    crate::tools::worktree::remove(&repo, name, delete_branch).await?;
+                    Ok(format!("removed worktree {name}{}", if delete_branch { " (branch deleted)" } else { " (branch kept)" }))
+                }
+                "list" => {
+                    let list = crate::tools::worktree::list(&repo).await?;
+                    Ok(if list.is_empty() {
+                        "no kxen worktrees".into()
+                    } else {
+                        list.iter().map(|i| format!("{} -> {} ({})", i.name, i.path.display(), i.branch)).collect::<Vec<_>>().join("\n")
+                    })
+                }
+                "diff" => {
+                    let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?;
+                    let stat = crate::tools::worktree::diff_stat(&repo, name).await?;
+                    Ok(if stat.trim().is_empty() { "no changes on branch".into() } else { stat })
+                }
+                other => Err(format!("unknown worktree action: {other}")),
+            }
         }
         "workflow" => {
             let script = args.get("script").and_then(Value::as_str).ok_or("missing script")?;

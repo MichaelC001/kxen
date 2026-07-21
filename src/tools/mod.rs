@@ -11,5 +11,6 @@ pub mod shell;
 pub mod task;
 pub mod todo;
 pub mod webfetch;
+pub mod worktree;
 
 pub use safety::{evaluate_shell_command, guard_path, Verdict};
