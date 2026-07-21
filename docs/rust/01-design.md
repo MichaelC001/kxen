@@ -220,10 +220,21 @@ Claude OAuth contract（jcode OAUTH.md 实证，五要素缺一不可）：
 
 ## 8. GUI
 
-- Tauri 内嵌静态页（vanilla TS + marked + mermaid），不打包框架运行时
-- 页面：会话列表 / 会话视图（流式渲染）/ 角色与模型选择 / goal 面板 / 后台任务页 / doctor 状态页（凭证与环境自检）
-- Rust -> 前端 events：`llm://delta`、`tool://call`、`task://update`、`goal://update`；前端 -> Rust commands：send_message / dispatch_task / goal_action / task_action / doctor
-- 目录选择：Rust read_dir 经 command 直返（无 HTTP 层）
+**前端栈（2026-07-21 定案）**：
+
+- **SolidJS**：UI 框架。无 VDOM 细粒度 signals，会话流式渲染（消息增量）天然匹配；runtime ~7KB，与 < 80MB / < 500ms 首绘目标一致
+- Vite + vite-plugin-solid：构建为静态资产，Tauri 内嵌
+- Tailwind CSS v4：样式（构建时 purge，产物极小）
+- Kobalte：Solid 无头组件（对话框 / 菜单 / 弹层）
+- marked + mermaid：markdown 与图渲染
+- shiki（marked-shiki）：代码高亮
+- 自写极简 hash router（~50 行；单页几个视图，不引路由库）
+
+页面：会话列表 / 会话视图（流式渲染）/ 角色与模型选择 / goal 面板 / 后台任务页 / doctor 状态页（凭证与环境自检）。
+
+Rust -> 前端 events：`llm://delta`、`tool://call`、`task://update`、`goal://update`；前端 -> Rust commands：send_message / dispatch_task / goal_action / task_action / doctor。
+
+目录选择：Rust read_dir 经 command 直返（无 HTTP 层）。
 
 ## 9. 里程碑（0 -> 1，每个可验证）
 
