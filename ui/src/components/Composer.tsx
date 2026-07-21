@@ -85,6 +85,9 @@ export default function Composer(props: {
   let voiceSession: VoiceSession | null = null;
   let voiceBase = "";
   let voiceFinals = "";
+  let pttTimer: ReturnType<typeof setTimeout> | undefined;
+  let pttActive = false;
+  let spaceCountAtDown = 0;
 
   /** 自增高（上限 ~8 行），发送后复位。 */
   function autoGrow() {
@@ -93,13 +96,7 @@ export default function Composer(props: {
     textareaRef.style.height = `${Math.min(textareaRef.scrollHeight, 180)}px`;
   }
 
-  function toggleVoice() {
-    if (recording()) {
-      voiceSession?.stop();
-      voiceSession = null;
-      setRecording(false);
-      return;
-    }
+  function startRecording() {
     setVoiceError("");
     voiceBase = text();
     voiceFinals = "";
@@ -113,8 +110,7 @@ export default function Composer(props: {
       },
       (error) => {
         setVoiceError(error === "not-allowed" ? "麦克风权限被拒" : `语音识别错误: ${error}`);
-        setRecording(false);
-        voiceSession = null;
+        stopRecording();
       },
     );
     if (!session) {
@@ -123,6 +119,46 @@ export default function Composer(props: {
     }
     voiceSession = session;
     setRecording(true);
+  }
+
+  function stopRecording() {
+    voiceSession?.stop();
+    voiceSession = null;
+    setRecording(false);
+  }
+
+  function toggleVoice() {
+    if (recording()) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }
+
+  /** 长按空格 PTT（>=400ms 进入语音，松开提交；短按正常输入空格）。 */
+  function onSpaceKeyDown(e: KeyboardEvent) {
+    if (e.key !== " " || e.repeat || pttActive) return;
+    spaceCountAtDown = text().length;
+    pttTimer = setTimeout(() => {
+      pttActive = true;
+      // 撤销按下期间输入的空格，再进语音
+      if (text().length > spaceCountAtDown) {
+        setText(text().slice(0, spaceCountAtDown));
+      }
+      startRecording();
+    }, 400);
+  }
+
+  function onSpaceKeyUp(e: KeyboardEvent) {
+    if (e.key !== " ") return;
+    if (pttTimer) {
+      clearTimeout(pttTimer);
+      pttTimer = undefined;
+    }
+    if (pttActive) {
+      pttActive = false;
+      stopRecording();
+    }
   }
 
   const estimate = () => Math.ceil(text().length / 4);
@@ -399,7 +435,13 @@ export default function Composer(props: {
       </Show>
 
       {/* 整卡 composer：chips + 自增高 textarea + 内嵌 action bar（Cursor 形态） */}
-      <div class="composer-card rounded-xl border border-[var(--border)] bg-[var(--bg-raised)] focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_3px_rgba(99,102,241,0.15)]">
+      <div
+        class="composer-card rounded-xl border bg-[var(--bg-raised)] focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_3px_rgba(99,102,241,0.15)]"
+        classList={{
+          "border-[var(--border)]": !recording(),
+          "border-[var(--err)] shadow-[0_0_0_3px_rgba(251,113,133,0.18)]": recording(),
+        }}
+      >
         {/* chips 行 */}
         <Show when={chips().length > 0}>
           <div class="flex flex-wrap gap-1.5 px-2 pt-2">
@@ -433,10 +475,18 @@ export default function Composer(props: {
           ref={(el) => (textareaRef = el)}
           class="w-full bg-transparent px-3 py-2 text-sm resize-none focus:outline-none placeholder:text-[var(--text-faint)] overflow-y-auto"
           rows={2}
-          placeholder="输入消息，@ 引用文件，/ 命令，# 沉淀知识，Enter 发送"
+          placeholder={
+            recording()
+              ? "语音输入中…松开空格完成"
+              : "输入消息，@ 引用文件，/ 命令，# 沉淀知识，长按空格语音"
+          }
           value={text()}
           onInput={onInput}
-          onKeyDown={onKeyDown}
+          onKeyDown={(e) => {
+            onSpaceKeyDown(e);
+            onKeyDown(e);
+          }}
+          onKeyUp={onSpaceKeyUp}
           onPaste={onPaste}
         />
 
