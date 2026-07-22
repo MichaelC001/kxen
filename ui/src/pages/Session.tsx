@@ -12,7 +12,7 @@ import {
 import { activeSessionId, ensureActiveSession, sessions, setHasConversation } from "../lib/state";
 import Markdown from "../components/Markdown";
 import ToolCard from "../components/ToolCard";
-import Composer from "../components/composer/TextComposer";
+import Composer from "../components/composer/LexicalComposer";
 import { FolderOpen, Target, Users, Workflow, Wrench } from "lucide-solid";
 
 interface MsgItem {

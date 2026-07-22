@@ -362,12 +362,14 @@ code {
     box-shadow var(--dur-fade) var(--ease-out);
 }
 
-/* Lexical 编辑器：placeholder + mention token */
-.editor-root:empty::before {
-  content: "输入消息，@ 引用文件，/ 命令，# 沉淀知识，长按空格语音";
+/* Lexical 编辑器：placeholder（空态时由组件渲染）+ mention token */
+.editor-placeholder {
+  position: absolute;
+  top: 10px;
+  left: 12px;
   color: var(--text-faint);
   pointer-events: none;
-  position: absolute;
+  font-size: var(--text-sm, 14px);
 }
 .editor-root {
   position: relative;
