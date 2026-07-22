@@ -5,6 +5,7 @@ import KnowledgeSection from "../components/settings/KnowledgeSection";
 import ProvidersSection from "../components/settings/ProvidersSection";
 import RoutingSection from "../components/settings/RoutingSection";
 import VoiceSection from "../components/settings/VoiceSection";
+import { client } from "../lib/client";
 import { onDragStart } from "../lib/drag";
 import { mode, setMode } from "../lib/theme";
 
@@ -21,6 +22,13 @@ const SECTIONS = [
 export default function Settings() {
   const [section, setSection] = createSignal<(typeof SECTIONS)[number]>("通用");
   const [saved] = createSignal("");
+  const [diagNote, setDiagNote] = createSignal("");
+
+  const exportDiag = async () => {
+    const r = await client.rpc<{ path: string }>("diagnostics.export").catch(() => null);
+    setDiagNote(r ? `已导出 ${r.path}` : "导出失败");
+    setTimeout(() => setDiagNote(""), 3000);
+  };
 
   return (
     <div class="h-full overflow-auto">
@@ -105,11 +113,22 @@ export default function Settings() {
           </Show>
 
           <Show when={section() === "高级"}>
-            <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-4 space-y-2 text-sm text-[var(--text-dim)]">
+            <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-4 space-y-3 text-sm text-[var(--text-dim)]">
               <div>
                 hooks：`~/.config/kxen/config.toml` 的 [hooks]（默认全关，pre_tool_use 可阻断）
               </div>
               <div>statusline：同文件 [statusline] items 白名单控制显隐</div>
+              <div class="pt-1 border-t border-[var(--border)] flex items-center gap-3">
+                <button
+                  class="pressable px-3 py-1.5 rounded-md text-xs border border-[var(--border)] text-[var(--text)]"
+                  onClick={() => void exportDiag()}
+                >
+                  导出诊断包（markdown）
+                </button>
+                <Show when={diagNote()}>
+                  <span class="text-xs text-[var(--ok)]">{diagNote()}</span>
+                </Show>
+              </div>
             </div>
           </Show>
         </div>

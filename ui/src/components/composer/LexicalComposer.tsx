@@ -56,10 +56,7 @@ export default function LexicalComposer(props: {
       : estimate() > 160_000
         ? "text-[var(--warn)]"
         : "text-[var(--text-faint)]";
-  const empty = () => {
-    void tick(); // 依赖文本变化信号
-    return (core?.getText() ?? "") === "" && rowChips().length === 0;
-  };
+  const empty = () => (void tick(), (core?.getText() ?? "") === "" && rowChips().length === 0);
 
   onMount(() => {
     if (rootEl) {

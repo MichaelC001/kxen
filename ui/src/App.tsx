@@ -6,7 +6,9 @@ import CommandPalette from "./components/CommandPalette";
 import Session from "./pages/Session";
 import Settings from "./pages/Settings";
 import { hasConversation, setNavigator } from "./lib/state";
+import { mountShortcuts } from "./lib/shortcuts";
 import { useNavigate } from "@solidjs/router";
+import { onCleanup, onMount } from "solid-js";
 
 function Home() {
   return (
@@ -27,6 +29,11 @@ function Home() {
 function Layout(props: { children?: import("solid-js").JSX.Element }) {
   const navigate = useNavigate();
   setNavigator(navigate);
+  let unmount: (() => void) | undefined;
+  onMount(() => {
+    unmount = mountShortcuts();
+  });
+  onCleanup(() => unmount?.());
   return (
     <div class="h-screen flex overflow-hidden">
       <Sidebar />

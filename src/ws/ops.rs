@@ -18,6 +18,7 @@ const METHODS: &[&str] = &[
     "schedule.list",
     "schedule.add",
     "schedule.remove",
+    "diagnostics.export",
     "voice.engines",
     "voice.transcribe_file",
     "voice.set_provider_key",
@@ -109,6 +110,26 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
         "schedule.remove" => {
             let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
             Ok(json!(kxen_app::core::schedule::remove(id)))
+        }
+        "diagnostics.export" => {
+            let state = app.state::<Arc<AppState>>();
+            let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
+            let report = crate::doctor::doctor_report(&store);
+            let config_text = std::fs::read_to_string(kxen_app::core::paths::config_dir().join("config.toml")).unwrap_or_default();
+            let mrm = state.mrm.read().expect("mrm").clone();
+            let describe = mrm.describe().await;
+            let mut md = format!("# kxen diagnostics\n\n- version: {}\n- at: {:?}\n\n", env!("CARGO_PKG_VERSION"), std::time::SystemTime::now());
+            md.push_str("## providers\n\n");
+            for e in &report.entries {
+                md.push_str(&format!("- {} [{}]: {} ({})\n", e.display, e.provider, e.status, e.detail));
+            }
+            md.push_str(&format!("\n## mrm\n\n```\n{describe}\n```\n\n## config.toml\n\n```toml\n{config_text}\n```\n"));
+            let path = dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+                .join("Downloads")
+                .join(format!("kxen-diagnostics-{}.md", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
+            std::fs::write(&path, md).map_err(|e| e.to_string())?;
+            Ok(json!({ "path": path.to_string_lossy() }))
         }
         "voice.engines" => {
             let config = load_config()?;

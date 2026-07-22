@@ -30,9 +30,14 @@ export async function refreshSessions(): Promise<void> {
 }
 
 /** 路由导航 hook（App 装配时注入；state 不直接依赖 router）。 */
-let navigate: ((path: string) => void) | null = null;
+let nav: ((path: string) => void) | null = null;
 export function setNavigator(fn: (path: string) => void): void {
-  navigate = fn;
+  nav = fn;
+}
+
+/** 已注入则跳转，未注入静默（测试环境）。 */
+export function navigate(path: string): void {
+  nav?.(path);
 }
 
 export async function newSession(): Promise<void> {

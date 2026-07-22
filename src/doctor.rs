@@ -5,18 +5,18 @@ use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 pub struct DoctorEntry {
-    provider: String,
-    display: String,
-    status: String,
-    detail: String,
+    pub provider: String,
+    pub display: String,
+    pub status: String,
+    pub detail: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct DoctorReport {
-    runtime: String,
-    data_dir: String,
-    config_dir: String,
-    entries: Vec<DoctorEntry>,
+    pub runtime: String,
+    pub data_dir: String,
+    pub config_dir: String,
+    pub entries: Vec<DoctorEntry>,
 }
 
 /// 渲染当前 store 状态。探测只发生在启动后台任务（keychain 可阻塞），RPC 路径绝不触发 keychain。
