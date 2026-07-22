@@ -4,7 +4,7 @@
 //! - 系统方法：rpc.subscribe / rpc.unsubscribe / rpc.cancelStream / rpc.heartbeat
 //! 端口启动时随机分配，前端经 ws_port command 获取。
 
-mod llm_task;
+pub mod llm_task;
 mod ops;
 mod ops_provider;
 pub mod protocol;

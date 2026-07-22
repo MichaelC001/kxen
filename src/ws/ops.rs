@@ -15,6 +15,9 @@ const METHODS: &[&str] = &[
     "knowledge.set_enabled",
     "knowledge.move",
     "knowledge.injection_preview",
+    "schedule.list",
+    "schedule.add",
+    "schedule.remove",
     "voice.engines",
     "voice.transcribe_file",
     "voice.set_provider_key",
@@ -93,6 +96,19 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             let project = kxen_app::agent::okf::render_context(&dir, &[]);
             let extra = kxen_app::knowledge::render_extra(&dir);
             Ok(json!({ "project": project, "extra": extra }))
+        }
+        "schedule.list" => Ok(serde_json::to_value(kxen_app::core::schedule::list()).map_err(|e| e.to_string())?),
+        "schedule.add" => {
+            let cron = params.get("cron").and_then(Value::as_str).ok_or("missing cron")?;
+            let prompt = params.get("prompt").and_then(Value::as_str).ok_or("missing prompt")?;
+            let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
+            let once = params.get("once").and_then(Value::as_bool).unwrap_or(false);
+            let job = kxen_app::core::schedule::add(cron, prompt, session_id, once)?;
+            Ok(serde_json::to_value(job).map_err(|e| e.to_string())?)
+        }
+        "schedule.remove" => {
+            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
+            Ok(json!(kxen_app::core::schedule::remove(id)))
         }
         "voice.engines" => {
             let config = load_config()?;

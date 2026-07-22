@@ -158,6 +158,24 @@ export async function sessionExport(sessionId: string): Promise<{ path: string }
   return client.rpc("session.export", { session_id: sessionId });
 }
 
+export interface WorktreeInfo {
+  name: string;
+  path: string;
+  branch: string;
+}
+
+export async function worktreeList(): Promise<WorktreeInfo[]> {
+  return client.rpc("worktree.list");
+}
+
+export async function worktreeCreate(name: string): Promise<WorktreeInfo> {
+  return client.rpc("worktree.create", { name });
+}
+
+export async function worktreeRemove(name: string, deleteBranch = false): Promise<void> {
+  return client.rpc("worktree.remove", { name, delete_branch: deleteBranch });
+}
+
 // ---------------- workspace ----------------
 
 export interface Workspace {

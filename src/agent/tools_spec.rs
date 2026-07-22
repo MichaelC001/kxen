@@ -255,6 +255,21 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                 "required": ["action"]
             }),
         ),
+        ToolDefinition::function(
+            "schedule",
+            "Cron-based scheduled agent wakeups (in-process, lives with the app). add (cron 5-field, prompt, once?) schedules a run in THIS session at each fire time; list shows jobs with next fire; remove (id). Use for reminders, periodic checks, or one-shot follow-ups.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["add", "list", "remove"] },
+                    "cron": { "type": "string", "description": "5-field cron, e.g. '30 9 * * *' or '*/10 * * * *'" },
+                    "prompt": { "type": "string" },
+                    "once": { "type": "boolean" },
+                    "id": { "type": "string" }
+                },
+                "required": ["action"]
+            }),
+        ),
     ]
 }
 

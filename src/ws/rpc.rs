@@ -105,6 +105,27 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let path = kxen_app::core::session::export_to_file(&kxen_app::core::paths::sessions_dir(), session_id, out.as_deref()).map_err(|e| e.to_string())?;
             Ok(json!({ "path": path.to_string_lossy() }))
         }
+        "worktree.list" => {
+            let state = app.state::<Arc<AppState>>();
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            let infos = kxen_app::tools::worktree::list(&dir).await?;
+            Ok(json!(infos.iter().map(|i| json!({ "name": i.name, "path": i.path.to_string_lossy(), "branch": i.branch })).collect::<Vec<_>>()))
+        }
+        "worktree.create" => {
+            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
+            let state = app.state::<Arc<AppState>>();
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            let info = kxen_app::tools::worktree::create(&dir, name).await?;
+            Ok(json!({ "name": info.name, "path": info.path.to_string_lossy(), "branch": info.branch }))
+        }
+        "worktree.remove" => {
+            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
+            let delete_branch = params.get("delete_branch").and_then(Value::as_bool).unwrap_or(false);
+            let state = app.state::<Arc<AppState>>();
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            kxen_app::tools::worktree::remove(&dir, name, delete_branch).await?;
+            Ok(json!(true))
+        }
         "diff.status" => {
             let state = app.state::<Arc<AppState>>();
             let dir = state.active_workspace.read().expect("workspace").clone();

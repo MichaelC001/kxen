@@ -117,6 +117,24 @@ pub fn run() {
                         Err(e) => tracing::error!(error = %e, "ws server failed"),
                     }
                 });
+                // cron tick：15s 一轮，到期任务注入会话起 run（进程内调度，随 app 存活）
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as u64)
+                            .unwrap_or(0);
+                        for job in kxen_app::core::schedule::drain_due(now) {
+                            let stream_id = ws::protocol::stream_id("run");
+                            let state = handle.state::<Arc<AppState>>();
+                            kxen_app::core::shared::lock(&state.run_streams).insert(stream_id.clone(), job.session_id.clone());
+                            let text = format!("[cron {}] {}", job.id, job.prompt);
+                            tokio::spawn(ws::llm_task::run_llm(stream_id, job.session_id, text, vec![], vec![], handle.clone()));
+                        }
+                    }
+                });
                 // 凭证探测走后台：keychain 读取可被 ACL 弹窗无限阻塞，绝不能卡启动路径
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {

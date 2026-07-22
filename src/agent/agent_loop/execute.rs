@@ -103,6 +103,24 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
                 other => Err(format!("unknown knowledge action: {other}")),
             }
         }
+        "schedule" => {
+            match args.get("action").and_then(Value::as_str).ok_or("missing action")? {
+                "add" => {
+                    let cron = args.get("cron").and_then(Value::as_str).ok_or("missing cron")?;
+                    let prompt = args.get("prompt").and_then(Value::as_str).ok_or("missing prompt")?;
+                    let once = args.get("once").and_then(Value::as_bool).unwrap_or(false);
+                    let session_id = ctx.session_id.clone().unwrap_or_else(|| "default".into());
+                    let job = crate::core::schedule::add(cron, prompt, &session_id, once)?;
+                    Ok(format!("scheduled {} (next fire at {})", job.id, job.next_fire))
+                }
+                "list" => Ok(serde_json::to_string_pretty(&crate::core::schedule::list()).unwrap_or_default()),
+                "remove" => {
+                    let id = args.get("id").and_then(Value::as_str).ok_or("missing id")?;
+                    Ok(if crate::core::schedule::remove(id) { format!("removed {id}") } else { format!("not found: {id}") })
+                }
+                other => Err(format!("unknown schedule action: {other}")),
+            }
+        }
         "task" => execute_task_tool(&args, ctx).await,
         "goal" => execute_goal_tool(&args).await,
         "glob" => {

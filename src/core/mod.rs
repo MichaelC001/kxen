@@ -6,6 +6,7 @@ pub mod error;
 pub mod event;
 pub mod goal;
 pub mod paths;
+pub mod schedule;
 pub mod session;
 pub mod shared;
 pub mod workspace;

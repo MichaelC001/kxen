@@ -12,6 +12,7 @@ import {
   type TaskInfo,
 } from "../lib/chat";
 import Markdown from "./Markdown";
+import DockWorktree from "./DockWorktree";
 import { FileDiff, SquareTerminal, Target } from "lucide-solid";
 
 const GOAL_STATUS: Record<string, { text: string; cls: string }> = {
@@ -270,6 +271,7 @@ export default function Dock() {
         tasks={tasks()}
         reloadTasks={() => void reloadTasks()}
       />
+      <DockWorktree />
     </aside>
   );
 }

@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::AppState;
 
-pub(super) async fn run_llm(stream_id: String, session_id: String, text: String, context: Vec<kxen_app::agent::context::ContextItem>, images: Vec<kxen_app::llm::types::ImagePart>, app: AppHandle) {
+pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String, context: Vec<kxen_app::agent::context::ContextItem>, images: Vec<kxen_app::llm::types::ImagePart>, app: AppHandle) {
     use kxen_app::core::session as ses;
 
     let state = app.state::<Arc<AppState>>();
