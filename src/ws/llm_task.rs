@@ -74,8 +74,14 @@ pub(super) async fn run_llm(stream_id: String, session_id: String, text: String,
     for (from, note) in inbox {
         messages.push(Message::user(format!("[teammate {from}] {note}")));
     }
-    if messages.is_empty() {
-        messages.push(if with_images { Message::user_with_images(text, images) } else { Message::user(text) });
+    // 图片挂到当前用户消息（刚落盘为纯文本）：原位替换，历史其余不变
+    if with_images {
+        match messages.iter().rposition(|m| m.role == kxen_app::llm::types::Role::User && m.content == text) {
+            Some(pos) => messages[pos] = Message::user_with_images(text, images),
+            None => messages.push(Message::user_with_images(text, images)),
+        }
+    } else if messages.is_empty() {
+        messages.push(Message::user(text));
     }
 
     // 转录件：run 结束后整条 assistant 消息（文本 + 工具调用）落盘

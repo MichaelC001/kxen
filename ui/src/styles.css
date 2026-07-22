@@ -417,6 +417,31 @@ code {
   object-fit: cover;
 }
 
+/* ctx 占用进度条（状态栏，阈值变色） */
+.ctx-bar {
+  display: inline-block;
+  width: 44px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-overlay);
+  overflow: hidden;
+}
+.ctx-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition:
+    width var(--dur-fade) var(--ease-out),
+    background-color var(--dur-fade) var(--ease-out);
+}
+.ctx-bar-fill.ctx-warn {
+  background: var(--warn);
+}
+.ctx-bar-fill.ctx-err {
+  background: var(--err);
+}
+
 /* 尺寸 tokens（禁用任意值：全库统一引用这些工具类） */
 .text-2xs {
   font-size: 0.625rem;
@@ -578,9 +603,9 @@ code {
   }
 }
 
-/* 完成瞬间：左缘 accent 一闪（300ms 淡出，GPU 属性） */
+/* 完成瞬间：左缘 accent 一闪（280ms 淡出，GPU 属性） */
 .done-flash {
-  animation: done-flash 400ms var(--ease-out);
+  animation: done-flash 280ms var(--ease-out);
 }
 @keyframes done-flash {
   from {

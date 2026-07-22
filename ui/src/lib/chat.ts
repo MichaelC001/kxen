@@ -79,6 +79,7 @@ export interface StatuslineReport {
   goal?: { id: string; status: string } | null;
   tasks_running: number;
   tokens: { input: number; output: number };
+  ctx_pct: number;
   model: string;
 }
 

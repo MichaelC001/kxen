@@ -58,6 +58,28 @@ export default function StatusBar() {
             {report()?.tokens.input}/{report()?.tokens.output}
           </span>
         </Show>
+        <Show when={has("ctx")}>
+          <span class="flex items-center gap-1.5" title="上下文占用（最近 run input / 200k 窗）">
+            <span class="ctx-bar">
+              <span
+                class="ctx-bar-fill"
+                classList={{
+                  "ctx-warn": (report()?.ctx_pct ?? 0) > 70 && (report()?.ctx_pct ?? 0) <= 90,
+                  "ctx-err": (report()?.ctx_pct ?? 0) > 90,
+                }}
+                style={`width:${report()?.ctx_pct ?? 0}%`}
+              />
+            </span>
+            <span
+              classList={{
+                "text-[var(--warn)]": (report()?.ctx_pct ?? 0) > 70 && (report()?.ctx_pct ?? 0) <= 90,
+                "text-[var(--err)]": (report()?.ctx_pct ?? 0) > 90,
+              }}
+            >
+              {report()?.ctx_pct}%
+            </span>
+          </span>
+        </Show>
         <Show when={has("model")}>
           <span class="text-[var(--text-faint)]">{report()?.model}</span>
         </Show>

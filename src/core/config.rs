@@ -65,7 +65,7 @@ pub struct StatuslineConfig {
 impl Default for StatuslineConfig {
     fn default() -> Self {
         Self {
-            items: ["workdir", "git", "goal", "tasks", "tokens", "model"].iter().map(|s| s.to_string()).collect(),
+            items: ["workdir", "git", "goal", "tasks", "tokens", "ctx", "model"].iter().map(|s| s.to_string()).collect(),
         }
     }
 }
