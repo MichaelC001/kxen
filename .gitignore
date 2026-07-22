@@ -8,3 +8,4 @@ ui/dist/
 .kxen/
 ui/.vitest-attachments/
 ui/src/components/composer/__screenshots__/
+.DS_Store
