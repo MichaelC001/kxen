@@ -2,6 +2,7 @@ import { Route, Router } from "@solidjs/router";
 import Sidebar from "./components/Sidebar";
 import RightColumn from "./components/RightColumn";
 import StatusBar from "./components/StatusBar";
+import CommandPalette from "./components/CommandPalette";
 import Session from "./pages/Session";
 import Settings from "./pages/Settings";
 import { hasConversation, setNavigator } from "./lib/state";
@@ -30,6 +31,7 @@ function Layout(props: { children?: import("solid-js").JSX.Element }) {
     <div class="h-screen flex overflow-hidden">
       <Sidebar />
       <main class="flex-1 min-w-0 flex">{props.children}</main>
+      <CommandPalette />
     </div>
   );
 }

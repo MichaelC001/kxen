@@ -154,6 +154,67 @@ pub fn fork(dir: &Path, id: &str, message_id: &str) -> std::io::Result<Session> 
     Ok(session)
 }
 
+/// 导出 markdown：user/assistant 正文 + 工具调用摘要（reasoning 略）。
+pub fn export_markdown(dir: &Path, id: &str) -> std::io::Result<String> {
+    let session = load_meta(dir, id)?;
+    let messages = load_messages(dir, id);
+    let mut out = format!(
+        "# {}\n\n- session: {}\n- directory: {}\n\n",
+        session.title, session.id, session.directory
+    );
+    for m in &messages {
+        let role = match m.role {
+            Role::User => "user",
+            Role::Assistant => "assistant",
+            Role::System => continue,
+        };
+        let mut body = String::new();
+        for p in &m.parts {
+            match p {
+                Part::Text { text } => {
+                    body.push_str(text);
+                    body.push('\n');
+                }
+                Part::ToolCall { name, input, output } => {
+                    let summary: String = output.chars().take(120).collect();
+                    body.push_str(&format!("\n> tool `{name}`: {input} -> {summary}\n"));
+                }
+                Part::Reasoning { .. } => {}
+            }
+        }
+        if !body.trim().is_empty() {
+            out.push_str(&format!("\n## {role}\n\n{body}\n"));
+        }
+    }
+    Ok(out)
+}
+
+/// 导出到指定路径（空则 ~/Downloads/kxen-<title>-<ts>.md），返回落盘路径。
+pub fn export_to_file(dir: &Path, id: &str, out: Option<&Path>) -> std::io::Result<PathBuf> {
+    let md = export_markdown(dir, id)?;
+    let path = match out {
+        Some(p) => p.to_path_buf(),
+        None => {
+            let session = load_meta(dir, id)?;
+            let slug: String = session
+                .title
+                .chars()
+                .map(|c| if c.is_alphanumeric() { c } else { '-' })
+                .take(40)
+                .collect();
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("/tmp"))
+                .join("Downloads")
+                .join(format!("kxen-{slug}-{}.md", now_ms()))
+        }
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, md)?;
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,7 +229,7 @@ mod tests {
         let meta = append_message(&dir, &m1).unwrap();
         assert_eq!(meta.title, "帮我改一下 README 的开头");
 
-        let m2 = new_message(&s.id, Role::Assistant, vec![Part::Text { text: "好的".into() }]);
+        let m2 = new_message(&s.id, Role::Assistant, vec![Part::Text { text: "好的".into() }, Part::ToolCall { name: "exec".into(), input: serde_json::json!({"command": "ls"}), output: "a.txt b.txt".into() }]);
         append_message(&dir, &m2).unwrap();
 
         let messages = load_messages(&dir, &s.id);
@@ -181,6 +242,14 @@ mod tests {
         let forked_msgs = load_messages(&dir, &forked.id);
         assert_eq!(forked_msgs.len(), 1);
         assert_eq!(forked_msgs[0].role, Role::User);
+
+        // 导出 markdown：标题 + user 正文 + tool 摘要
+        let md = export_markdown(&dir, &s.id).unwrap();
+        assert!(md.contains("帮我改一下 README 的开头"));
+        assert!(md.contains("tool `exec`"));
+        assert!(md.contains("a.txt b.txt"));
+        let out = export_to_file(&dir, &s.id, None).unwrap();
+        assert!(out.exists());
 
         remove(&dir, &s.id);
         remove(&dir, &forked.id);

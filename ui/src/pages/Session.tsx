@@ -3,6 +3,7 @@ import {
   onLlmDelta,
   sendMessage,
   sessionAbort,
+  sessionExport,
   sessionFork,
   sessionMessages,
   statusline,
@@ -22,7 +23,7 @@ import ThinkingOrb from "../components/ThinkingOrb";
 import type { OrbState } from "../lib/orb";
 import ToolCard from "../components/ToolCard";
 import Composer from "../components/composer/LexicalComposer";
-import { FolderOpen, GitFork, Target, Users, Workflow, Wrench } from "lucide-solid";
+import { Download, FolderOpen, GitFork, Target, Users, Workflow, Wrench } from "lucide-solid";
 import { toItems, type Item } from "../lib/items";
 
 export default function Session() {
@@ -158,6 +159,13 @@ export default function Session() {
     }
   };
 
+  const [exportNote, setExportNote] = createSignal("");
+  const doExport = async () => {
+    const r = await sessionExport(activeSessionId()).catch(() => null);
+    setExportNote(r ? `已导出 ${r.path}` : "导出失败");
+    setTimeout(() => setExportNote(""), 3000);
+  };
+
   return (
     <div class="h-full flex-1 min-w-0 flex flex-col">
       <div
@@ -182,6 +190,18 @@ export default function Session() {
             {orbPhase() === "error" && "出错"}
           </span>
         </Show>
+        <span class="ml-auto flex items-center gap-1">
+          <Show when={exportNote()}>
+            <span class="text-2xs text-[var(--ok)]">{exportNote()}</span>
+          </Show>
+          <button
+            class="pressable px-1.5 py-1 rounded text-[var(--text-faint)] hover:text-[var(--text)]"
+            title="导出会话为 markdown"
+            onClick={() => void doExport()}
+          >
+            <Download size={13} />
+          </button>
+        </span>
       </div>
 
       <div ref={(el) => (listRef = el)} class="flex-1 overflow-auto px-4 py-5">
@@ -245,7 +265,17 @@ export default function Session() {
                     )}
                   </Show>
                   <Show when={item.error}>
-                    <div class="text-xs text-[var(--err)] mt-1.5">{item.error}</div>
+                    <div class="text-xs text-[var(--err)] mt-1.5 flex items-center gap-2">
+                      {item.error}
+                      <Show when={item.error === "(已中断)" && !streaming()}>
+                        <button
+                          class="pressable px-2 py-0.5 rounded text-2xs border border-[var(--border)] text-[var(--text-dim)]"
+                          onClick={() => void send("继续", [], [])}
+                        >
+                          继续
+                        </button>
+                      </Show>
+                    </div>
                   </Show>
                 </div>
               );

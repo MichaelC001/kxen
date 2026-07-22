@@ -1,0 +1,150 @@
+// Cmd-K 命令面板：命令 / 会话 / 模型三路搜索，键盘可达（全局挂载）。
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { Search } from "lucide-solid";
+import { commandList, setModel, type CommandInfo } from "../lib/chat";
+import { PRESETS } from "../lib/models";
+import { sessions, switchSession } from "../lib/state";
+import { insertComposerText } from "../lib/composer-bus";
+
+interface Row {
+  kind: "command" | "session" | "model";
+  label: string;
+  detail?: string;
+  apply: () => void;
+}
+
+export default function CommandPalette() {
+  const [open, setOpen] = createSignal(false);
+  const [query, setQuery] = createSignal("");
+  const [selected, setSelected] = createSignal(0);
+  const [commands, setCommands] = createSignal<CommandInfo[]>([]);
+  let inputRef: HTMLInputElement | undefined;
+
+  const onKey = (e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      setOpen(!open());
+      if (!open()) {
+        setQuery("");
+        setSelected(0);
+        void commandList().then(setCommands);
+        setTimeout(() => inputRef?.focus(), 0);
+      }
+    }
+  };
+  onMount(() => window.addEventListener("keydown", onKey));
+  onCleanup(() => window.removeEventListener("keydown", onKey));
+
+  const rows = (): Row[] => {
+    const q = query().toLowerCase();
+    const out: Row[] = [];
+    for (const c of commands()) {
+      const label = `/${c.name}`;
+      if (!q || label.includes(q) || c.description.toLowerCase().includes(q)) {
+        out.push({
+          kind: "command",
+          label,
+          detail: c.description,
+          apply: () => insertComposerText(`${label} `),
+        });
+      }
+    }
+    for (const s of sessions()) {
+      if (!q || s.title.toLowerCase().includes(q)) {
+        out.push({
+          kind: "session",
+          label: s.title,
+          detail: s.directory,
+          apply: () => switchSession(s.id),
+        });
+      }
+    }
+    for (const m of PRESETS) {
+      const text = `${m.brand} ${m.label} ${m.model}`;
+      if (!q || text.toLowerCase().includes(q)) {
+        out.push({
+          kind: "model",
+          label: m.label,
+          detail: `${m.provider}/${m.model}`,
+          apply: () => void setModel(m.provider, m.model),
+        });
+      }
+    }
+    return out.slice(0, 20);
+  };
+
+  const apply = (row: Row) => {
+    row.apply();
+    setOpen(false);
+  };
+
+  const KIND_BADGE: Record<Row["kind"], string> = {
+    command: "命令",
+    session: "会话",
+    model: "模型",
+  };
+
+  return (
+    <Show when={open()}>
+      <div class="fixed inset-0 z-50 bg-black/40" onClick={() => setOpen(false)}>
+        <div
+          class="mx-auto mt-24 w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--bg-raised)] shadow-2xl shadow-black/50 overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div class="flex items-center gap-2 px-3.5 py-2.5 border-b border-[var(--border)]">
+            <Search size={13} class="text-[var(--text-faint)]" />
+            <input
+              ref={(el) => (inputRef = el)}
+              class="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-[var(--text-faint)]"
+              placeholder="命令、会话、模型…"
+              value={query()}
+              onInput={(e) => {
+                setQuery(e.currentTarget.value);
+                setSelected(0);
+              }}
+              onKeyDown={(e) => {
+                const list = rows();
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const d = e.key === "ArrowDown" ? 1 : -1;
+                  setSelected((s) => Math.max(0, Math.min(list.length - 1, s + d)));
+                } else if (e.key === "Enter") {
+                  e.preventDefault();
+                  const row = list[selected()];
+                  if (row) apply(row);
+                } else if (e.key === "Escape") {
+                  setOpen(false);
+                }
+              }}
+            />
+          </div>
+          <div class="max-h-80 overflow-y-auto py-1">
+            <For each={rows()}>
+              {(row, i) => (
+                <button
+                  class="w-full flex items-center gap-2.5 px-3.5 py-2 text-left"
+                  classList={{ "bg-[var(--bg-overlay)]": i() === selected() }}
+                  onMouseEnter={() => setSelected(i())}
+                  onClick={() => apply(row)}
+                >
+                  <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)] shrink-0">
+                    {KIND_BADGE[row.kind]}
+                  </span>
+                  <span class="text-sm truncate flex-1">{row.label}</span>
+                  <Show when={row.detail}>
+                    <span class="text-2xs text-[var(--text-faint)] truncate max-w-48">
+                      {row.detail}
+                    </span>
+                  </Show>
+                </button>
+              )}
+            </For>
+            <Show when={rows().length === 0}>
+              <div class="px-3.5 py-3 text-xs text-[var(--text-faint)]">无匹配</div>
+            </Show>
+          </div>
+        </div>
+      </div>
+    </Show>
+  );
+}

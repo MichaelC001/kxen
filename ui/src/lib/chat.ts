@@ -154,6 +154,10 @@ export async function sessionFork(sessionId: string, messageId: string): Promise
   return client.rpc<SessionMeta>("session.fork", { session_id: sessionId, message_id: messageId });
 }
 
+export async function sessionExport(sessionId: string): Promise<{ path: string }> {
+  return client.rpc("session.export", { session_id: sessionId });
+}
+
 // ---------------- workspace ----------------
 
 export interface Workspace {

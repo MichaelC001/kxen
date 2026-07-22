@@ -99,6 +99,12 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let session = kxen_app::core::session::fork(&kxen_app::core::paths::sessions_dir(), session_id, message_id).map_err(|e| e.to_string())?;
             Ok(json!(session))
         }
+        "session.export" => {
+            let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
+            let out = params.get("path").and_then(Value::as_str).map(std::path::PathBuf::from);
+            let path = kxen_app::core::session::export_to_file(&kxen_app::core::paths::sessions_dir(), session_id, out.as_deref()).map_err(|e| e.to_string())?;
+            Ok(json!({ "path": path.to_string_lossy() }))
+        }
         "diff.status" => {
             let state = app.state::<Arc<AppState>>();
             let dir = state.active_workspace.read().expect("workspace").clone();

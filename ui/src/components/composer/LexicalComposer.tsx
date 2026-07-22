@@ -2,6 +2,7 @@
 import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import { Image as ImageIcon, Mic, MicOff, Plus, Send, Square, X } from "lucide-solid";
 import { commandList, type CommandInfo, type ContextItem } from "../../lib/chat";
+import { COMPOSER_INSERT_EVENT } from "../../lib/composer-bus";
 import { buildItems, detectTrigger, type PopupState, type Trigger } from "./triggers";
 import { mountComposer, type ChipData, type ComposerCore } from "./lexical-core";
 import { createVoicePtt } from "./voice-ptt";
@@ -69,6 +70,12 @@ export default function LexicalComposer(props: {
       });
       core.focus();
     }
+    const onInsert = (e: Event) => {
+      core?.insertPlain((e as CustomEvent<string>).detail);
+      core?.focus();
+    };
+    window.addEventListener(COMPOSER_INSERT_EVENT, onInsert);
+    onCleanup(() => window.removeEventListener(COMPOSER_INSERT_EVENT, onInsert));
   });
   onCleanup(() => debounceTimer && clearTimeout(debounceTimer));
 
