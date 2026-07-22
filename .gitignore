@@ -9,3 +9,4 @@ ui/dist/
 ui/.vitest-attachments/
 ui/src/components/composer/__screenshots__/
 .DS_Store
+ui/src/components/__screenshots__/
