@@ -78,9 +78,11 @@ pub struct MicSession {
     engine: Retained<AnyObject>,
     request: Retained<AnyObject>,
     rx: std::sync::mpsc::Receiver<SessionEvent>,
+    samples: std::sync::Arc<std::sync::Mutex<Vec<f32>>>,
+    sample_rate: u32,
 }
 
-/// 启动麦克风识别（PTT 按下）。
+/// 启动麦克风识别（PTT 按下）。tap 同时喂 Speech（本地流式）与 PCM 缓冲（云转写终稿用）。
 pub fn start_mic(locale: &str) -> Result<MicSession, String> {
     ensure_authorized()?;
     let recognizer = objc::new_recognizer(locale).ok_or_else(|| format!("无法创建识别器（locale {locale}）"))?;
@@ -102,16 +104,21 @@ pub fn start_mic(locale: &str) -> Result<MicSession, String> {
     // tap 线程持有 request 一份（防悬垂）；session 结束时进程级泄漏回收
     let req_ptr = &*request as *const AnyObject as *mut AnyObject;
     let req_kept = unsafe { objc::retain_autoreleased(req_ptr) }.ok_or("request 持有失败")?;
-    let engine = objc::start_mic_capture(move |_input| {
+    let samples: std::sync::Arc<std::sync::Mutex<Vec<f32>>> = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = samples.clone();
+    let (engine, rate) = objc::start_mic_capture(move |_input| {
         objc::TapHandler::new(move |buffer: *mut AnyObject, _time: *mut AnyObject| {
             if !buffer.is_null() {
                 objc::append_buffer(unsafe { &*req_ptr }, buffer);
+                let chunk = objc::pcm_samples(buffer);
+                if !chunk.is_empty() {
+                    crate::core::shared::lock(&sink).extend_from_slice(&chunk);
+                }
             }
         })
-    })
-    .map(|(e, _rate)| e)?;
+    })?;
     std::mem::forget(req_kept);
-    Ok(MicSession { task, engine, request, rx })
+    Ok(MicSession { task, engine, request, rx, samples, sample_rate: rate as u32 })
 }
 
 impl MicSession {
@@ -125,7 +132,8 @@ impl MicSession {
     }
 
     /// PTT 松开：停止采集 -> endAudio -> 等 final（3s 兜底）-> cancel。
-    pub fn stop(self) -> Option<String> {
+    /// 返回 (本地终稿, 云转写用 WAV 路径)。
+    pub fn stop(self) -> (Option<String>, Option<String>) {
         objc::stop_mic_engine(&self.engine);
         objc::end_audio(&self.request);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
@@ -145,6 +153,15 @@ impl MicSession {
             }
         }
         objc::cancel_task(&self.task);
-        last
+        let wav = {
+            let samples = crate::core::shared::lock(&self.samples);
+            if samples.is_empty() {
+                None
+            } else {
+                let path = std::env::temp_dir().join(format!("kxen-voice-{}.wav", std::process::id()));
+                super::provider::write_wav_pub(&path, &samples, self.sample_rate).ok().map(|_| path.to_string_lossy().into_owned())
+            }
+        };
+        (last, wav)
     }
 }

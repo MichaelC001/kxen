@@ -162,6 +162,11 @@ impl RecordSession {
 }
 
 /// 16-bit PCM 单声道 WAV（f32 -> i16 截断）。
+pub(crate) fn write_wav_pub(path: &std::path::Path, samples: &[f32], sample_rate: u32) -> std::io::Result<()> {
+    write_wav(path, samples, sample_rate)
+}
+
+/// 16-bit PCM 单声道 WAV（f32 -> i16 截断）。
 fn write_wav(path: &std::path::Path, samples: &[f32], sample_rate: u32) -> std::io::Result<()> {
     use std::io::Write;
     let data_len = (samples.len() * 2) as u32;

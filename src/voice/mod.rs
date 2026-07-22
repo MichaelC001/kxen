@@ -100,13 +100,29 @@ fn stop_now() -> Option<Active> {
     crate::core::shared::lock(&ACTIVE).take()
 }
 
-/// PTT 松开：apple 等 final；provider 落 WAV 上传转写。返回最终文本（可空）。
+/// PTT 松开：apple 先出本地终稿，有就绪云引擎则云转写升级（Wispr 双轨）；失败回落本地。
 pub async fn stop(config: &crate::core::config::Config, store: &crate::auth::credential::AuthStore) -> Result<Option<String>, String> {
     match stop_now() {
         None => Ok(None),
         Some(Active::Apple { session, alive }) => {
             alive.store(false, std::sync::atomic::Ordering::Relaxed);
-            Ok(session.0.stop())
+            let (local, wav) = session.0.stop();
+            // 云转写终稿：fallback 链里第一个有 key 的 provider（含 audio 自定义）
+            if let Some(path) = wav {
+                let cloud = match first_ready_cloud(config, store) {
+                    Some(engine) => {
+                        let r = provider::transcribe_file(config, store, &engine, &path).await.ok();
+                        let _ = std::fs::remove_file(&path);
+                        r
+                    }
+                    None => {
+                        let _ = std::fs::remove_file(&path);
+                        None
+                    }
+                };
+                return Ok(cloud.or(local));
+            }
+            Ok(local)
         }
         Some(Active::Record { session, provider }) => {
             let (path, _dur) = session.0.stop()?;
@@ -115,4 +131,20 @@ pub async fn stop(config: &crate::core::config::Config, store: &crate::auth::cre
             text.map(Some)
         }
     }
+}
+
+/// 云终稿引擎选择：fallback 链优先，其次 openai/xai/自定义 audio 里第一个有 key 的。
+fn first_ready_cloud(config: &crate::core::config::Config, store: &crate::auth::credential::AuthStore) -> Option<String> {
+    let mut candidates: Vec<String> = config.voice.fallback.clone();
+    candidates.extend(["openai", "xai"].map(String::from));
+    candidates.extend(
+        config
+            .custom_providers
+            .iter()
+            .filter(|(_, d)| d.capabilities.iter().any(|c| c == "audio"))
+            .map(|(n, _)| format!("custom:{n}")),
+    );
+    candidates
+        .into_iter()
+        .find(|id| provider::configured(store, id))
 }

@@ -1,4 +1,5 @@
-// 语音 PTT 状态机：长按空格 >=400ms 进语音（撤销误输入空格），松开提交；引擎由 MicMenu/设置页选择。
+// 语音 PTT 状态机：长按空格 >=400ms 进语音（激活期/激活后空格一律 preventDefault 防连打），
+// 松开提交；startSession 可注入（测试替身），默认走 RPC 引擎。
 import { startVoiceSession, type VoiceSession } from "../../lib/voice";
 
 export interface VoiceController {
@@ -8,6 +9,12 @@ export interface VoiceController {
   onSpaceUp: (e: KeyboardEvent) => void;
 }
 
+type StartSession = (
+  engine: string | undefined,
+  onPartial: (text: string) => void,
+  onError: (msg: string) => void,
+) => Promise<VoiceSession>;
+
 export function createVoicePtt(opts: {
   getText: () => string;
   setText: (v: string) => void;
@@ -15,7 +22,9 @@ export function createVoicePtt(opts: {
   setRecording: (v: boolean) => void;
   setError: (v: string) => void;
   engine: () => string;
+  startSession?: StartSession;
 }): VoiceController {
+  const startSession: StartSession = opts.startSession ?? startVoiceSession;
   let session: VoiceSession | null = null;
   let starting = false;
   let cancelled = false;
@@ -31,7 +40,7 @@ export function createVoicePtt(opts: {
     opts.setError("");
     base = opts.getText();
     try {
-      const s = await startVoiceSession(
+      const s = await startSession(
         opts.engine(),
         (partial) => {
           opts.setText(base + partial);
@@ -50,6 +59,8 @@ export function createVoicePtt(opts: {
       opts.setRecording(true);
     } catch (e) {
       opts.setError(e instanceof Error ? e.message : String(e));
+      // 失败复位：PTT 不留激活态（继续按住只剩普通空格键，keyup 自然结束）
+      pttActive = false;
     } finally {
       starting = false;
     }
@@ -59,6 +70,7 @@ export function createVoicePtt(opts: {
     const s = session;
     session = null;
     cancelled = true;
+    pttActive = false;
     opts.setRecording(false);
     if (!s) return;
     const finalText = await s.stop().catch(() => null);
@@ -75,13 +87,24 @@ export function createVoicePtt(opts: {
     },
     stop: () => void stop(),
     onSpaceDown: (e) => {
-      if (e.key !== " " || e.repeat || pttActive || session || starting) return;
+      if (e.key !== " ") return;
+      // PTT 已激活或启动中：空格一律不入字（防连打）
+      if (pttActive || session || starting) {
+        e.preventDefault();
+        return;
+      }
+      if (e.repeat) {
+        // 激活期（0-400ms）内的自动重复同样不入字
+        if (pttTimer) e.preventDefault();
+        return;
+      }
       spaceCountAtDown = opts.getText().length;
       pttTimer = setTimeout(() => {
         pttActive = true;
-        // 撤销按下期间误输入的空格再进语音
+        // 撤销激活期误输入的空格再进语音
         if (opts.getText().length > spaceCountAtDown) {
           opts.setText(opts.getText().slice(0, spaceCountAtDown));
+          opts.afterChange();
         }
         void start();
       }, 400);
