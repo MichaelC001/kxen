@@ -13,6 +13,12 @@ pub struct KnowledgeEntry {
     pub date: String,
     pub content: String,
     pub path: String,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 const KINDS: &[&str] = &["correction", "convention", "pitfall", "preference", "note"];
@@ -71,6 +77,7 @@ fn parse_file(scope: &str, path: &Path) -> Option<KnowledgeEntry> {
     let mut kind = "note".to_string();
     let mut description = String::new();
     let mut date = String::new();
+    let mut enabled = true;
     let mut content = text.as_str();
     if let Some(rest) = text.strip_prefix("---\n") {
         if let Some(end) = rest.find("\n---\n") {
@@ -80,6 +87,7 @@ fn parse_file(scope: &str, path: &Path) -> Option<KnowledgeEntry> {
                         "type" => kind = v.trim().to_string(),
                         "description" => description = v.trim().to_string(),
                         "date" => date = v.trim().to_string(),
+                        "enabled" => enabled = v.trim() != "false",
                         _ => {}
                     }
                 }
@@ -90,7 +98,7 @@ fn parse_file(scope: &str, path: &Path) -> Option<KnowledgeEntry> {
     if description.is_empty() {
         description = content.lines().next().unwrap_or("").chars().take(60).collect();
     }
-    Some(KnowledgeEntry { scope: scope.into(), slug, kind, description, date, content: content.into(), path: path.to_string_lossy().into_owned() })
+    Some(KnowledgeEntry { scope: scope.into(), slug, kind, description, date, content: content.into(), path: path.to_string_lossy().into_owned(), enabled })
 }
 
 /// 全 scope 列出（设置页审计 + 注入渲染共用）。
@@ -125,10 +133,58 @@ pub fn remove(scope: &str, workdir: &Path, slug: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 注入渲染：global + memory 全文（project 已由 OKF 扫描覆盖）。单篇截 500 字符。
+/// 启停开关：frontmatter 加/去 enabled:false（注入跳过但不删除）。
+pub fn set_enabled(scope: &str, workdir: &Path, slug: &str, enabled: bool) -> Result<(), String> {
+    let path = scope_dir(scope, workdir)?.join(format!("{}.md", slugify(slug)));
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("not found: {scope}/{slug}: {e}"))?;
+    let mut out = String::new();
+    let mut seen = false;
+    let mut in_fm = false;
+    for (i, line) in text.lines().enumerate() {
+        if i == 0 && line == "---" {
+            in_fm = true;
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        if in_fm && line == "---" {
+            if !seen && !enabled {
+                out.push_str("enabled: false\n");
+            }
+            in_fm = false;
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        if in_fm && line.starts_with("enabled:") {
+            seen = true;
+            if !enabled {
+                out.push_str("enabled: false\n");
+            }
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    std::fs::write(&path, out).map_err(|e| e.to_string())
+}
+
+/// 跨 scope 移动（memory -> global -> project 晋升路径）。
+pub fn move_entry(scope: &str, workdir: &Path, slug: &str, to: &str) -> Result<String, String> {
+    if scope == to {
+        return Err("scope 相同".into());
+    }
+    let entries = list(workdir);
+    let entry = entries.iter().find(|e| e.scope == scope && e.slug == slugify(slug)).ok_or_else(|| format!("not found: {scope}/{slug}"))?;
+    let path = add(to, workdir, Some(&entry.slug), &entry.kind, &entry.description, &entry.content)?;
+    remove(scope, workdir, slug)?;
+    Ok(path)
+}
+
+/// 注入渲染：global + memory 全文（project 已由 OKF 扫描覆盖）。单篇截 500 字符，enabled:false 跳过。
 pub fn render_extra(workdir: &Path) -> Option<String> {
     let all = list(workdir);
-    let entries: Vec<&KnowledgeEntry> = all.iter().filter(|e| e.scope != "project").collect();
+    let entries: Vec<&KnowledgeEntry> = all.iter().filter(|e| e.scope != "project" && e.enabled).collect();
     if entries.is_empty() {
         return None;
     }

@@ -1,32 +1,11 @@
-import { createSignal, For, Show, onMount } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { A } from "@solidjs/router";
-import { ArrowLeft, RefreshCw } from "lucide-solid";
-import {
-  configGet,
-  configSetRole,
-  doctor,
-  type DoctorReport,
-  type RoleBindingView,
-} from "../lib/chat";
+import { ArrowLeft } from "lucide-solid";
 import KnowledgeSection from "../components/settings/KnowledgeSection";
+import ProvidersSection from "../components/settings/ProvidersSection";
+import RoutingSection from "../components/settings/RoutingSection";
 import VoiceSection from "../components/settings/VoiceSection";
 import { theme, toggleTheme } from "../lib/theme";
-
-const ROLE_LABELS: Record<string, string> = {
-  chat: "主会话",
-  thinking: "思考分析",
-  planning: "任务规划",
-  execution: "高速执行",
-  review: "审查验证",
-  research: "调研搜索",
-};
-
-const PROVIDERS = [
-  { id: "anthropic", label: "Claude" },
-  { id: "openai", label: "GPT/Codex" },
-  { id: "xai", label: "Grok Build" },
-  { id: "kimi-for-coding", label: "Kimi Code" },
-];
 
 const SECTIONS = [
   "通用",
@@ -38,45 +17,9 @@ const SECTIONS = [
   "高级",
 ] as const;
 
-const STATUS_STYLE: Record<string, { text: string; cls: string }> = {
-  imported: { text: "已导入", cls: "text-[var(--ok)]" },
-  ok: { text: "正常", cls: "text-[var(--ok)]" },
-  missing: { text: "缺失", cls: "text-[var(--warn)]" },
-  expired: { text: "过期", cls: "text-[var(--err)]" },
-  ready: { text: "就绪", cls: "text-[var(--ok)]" },
-  needs_auth: { text: "待授权", cls: "text-[var(--warn)]" },
-  unconfigured: { text: "未配置", cls: "text-[var(--warn)]" },
-  unavailable: { text: "不可用", cls: "text-[var(--err)]" },
-};
-
 export default function Settings() {
   const [section, setSection] = createSignal<(typeof SECTIONS)[number]>("通用");
-  const [roles, setRoles] = createSignal<Record<string, RoleBindingView>>({});
-  const [report, setReport] = createSignal<DoctorReport | null>(null);
-  const [doctorLoading, setDoctorLoading] = createSignal(false);
-  const [saved, setSaved] = createSignal("");
-
-  const runDoctor = async () => {
-    setDoctorLoading(true);
-    try {
-      setReport(await doctor());
-    } finally {
-      setDoctorLoading(false);
-    }
-  };
-
-  onMount(async () => {
-    const config = await configGet().catch(() => null);
-    if (config?.roles) setRoles(config.roles);
-    void runDoctor();
-  });
-
-  const update = async (role: string, provider: string, model: string) => {
-    await configSetRole(role, provider, model);
-    setRoles((prev) => ({ ...prev, [role]: { provider, model } }));
-    setSaved(`${ROLE_LABELS[role] ?? role} 已保存并热生效`);
-    setTimeout(() => setSaved(""), 2000);
-  };
+  const [saved] = createSignal("");
 
   return (
     <div class="h-full overflow-auto">
@@ -127,96 +70,11 @@ export default function Settings() {
           </Show>
 
           <Show when={section() === "提供商"}>
-            <div class="flex items-center justify-between">
-              <div class="text-xs text-[var(--text-faint)]">
-                订阅凭证状态（官方 CLI 凭证复用，零明文存储）
-              </div>
-              <button
-                class="pressable flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60"
-                onClick={() => void runDoctor()}
-                disabled={doctorLoading()}
-              >
-                <RefreshCw size={12} class={doctorLoading() ? "animate-spin" : ""} />
-                重新检查
-              </button>
-            </div>
-            <Show when={report()}>
-              {(r) => (
-                <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] divide-y divide-[var(--border)]">
-                  <For each={r().entries}>
-                    {(entry) => {
-                      const badge = () =>
-                        STATUS_STYLE[entry.status] ?? { text: entry.status, cls: "" };
-                      return (
-                        <div class="flex items-center justify-between px-4 py-3">
-                          <div>
-                            <div class="text-sm font-medium">{entry.display}</div>
-                            <div class="text-xs text-[var(--text-faint)]">{entry.provider}</div>
-                          </div>
-                          <div class="text-right">
-                            <div class={`text-sm font-medium ${badge().cls}`}>{badge().text}</div>
-                            <div class="text-xs text-[var(--text-faint)]">{entry.detail}</div>
-                          </div>
-                        </div>
-                      );
-                    }}
-                  </For>
-                </div>
-              )}
-            </Show>
-            <Show when={report()}>
-              {(r) => (
-                <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-3 text-xs font-mono text-[var(--text-dim)] space-y-1">
-                  <div>{r().bun_like_runtime}</div>
-                  <div>data: {r().data_dir}</div>
-                  <div>config: {r().config_dir}</div>
-                </div>
-              )}
-            </Show>
+            <ProvidersSection />
           </Show>
 
           <Show when={section() === "模型路由"}>
-            <div class="text-xs text-[var(--text-faint)]">
-              不同用途走不同订阅/模型（MRM 全局调度，改动热生效）
-            </div>
-            <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] divide-y divide-[var(--border)]">
-              <For each={Object.keys(ROLE_LABELS)}>
-                {(role) => {
-                  const binding = () => roles()[role] ?? { provider: "anthropic", model: "" };
-                  return (
-                    <div class="flex items-center gap-3 px-4 py-3">
-                      <div class="w-20 shrink-0">
-                        <div class="text-sm">{ROLE_LABELS[role]}</div>
-                        <div class="text-2xs text-[var(--text-faint)]">{role}</div>
-                      </div>
-                      <select
-                        class="bg-transparent border border-[var(--border)] rounded px-1.5 py-1 text-xs text-[var(--text-dim)]"
-                        value={binding().provider}
-                        onChange={(e) =>
-                          void update(
-                            role,
-                            e.currentTarget.value,
-                            binding().model || defaultModelOf(e.currentTarget.value),
-                          )
-                        }
-                      >
-                        {PROVIDERS.map((p) => (
-                          <option value={p.id}>{p.label}</option>
-                        ))}
-                      </select>
-                      <input
-                        class="flex-1 bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs font-mono"
-                        value={binding().model}
-                        placeholder="model id"
-                        onChange={(e) =>
-                          void update(role, binding().provider, e.currentTarget.value)
-                        }
-                      />
-                    </div>
-                  );
-                }}
-              </For>
-            </div>
+            <RoutingSection />
           </Show>
 
           <Show when={section() === "语音"}>
@@ -244,16 +102,5 @@ export default function Settings() {
         </div>
       </div>
     </div>
-  );
-}
-
-function defaultModelOf(provider: string): string {
-  return (
-    {
-      anthropic: "claude-sonnet-4-5-20250929",
-      openai: "gpt-5.4",
-      xai: "grok-build-0.1",
-      "kimi-for-coding": "kimi-for-coding",
-    }[provider] ?? ""
   );
 }

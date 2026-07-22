@@ -11,6 +11,16 @@ pub struct ModelResourceManager {
     config: Config,
     semaphores: Mutex<HashMap<String, Arc<Semaphore>>>,
     rpm_windows: Mutex<HashMap<String, Vec<Instant>>>,
+    history: Mutex<std::collections::VecDeque<DispatchRecord>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DispatchRecord {
+    pub role: String,
+    pub provider: String,
+    pub model: String,
+    pub degraded_from: Option<String>,
+    pub at: u64,
 }
 
 pub struct Slot {
@@ -27,7 +37,7 @@ pub struct Resolved {
 
 impl ModelResourceManager {
     pub fn new(config: Config) -> Self {
-        Self { config, semaphores: Mutex::new(HashMap::new()), rpm_windows: Mutex::new(HashMap::new()) }
+        Self { config, semaphores: Mutex::new(HashMap::new()), rpm_windows: Mutex::new(HashMap::new()), history: Mutex::new(std::collections::VecDeque::new()) }
     }
 
     pub fn role(&self, role: &str) -> Option<&RoleBinding> {
@@ -41,15 +51,33 @@ impl ModelResourceManager {
         for r in chain {
             let binding = self.config.roles.get(&r)?;
             if self.available(&binding.provider).await {
-                return Some(Resolved {
+                let resolved = Resolved {
                     provider: binding.provider.clone(),
                     model: binding.model.clone(),
                     degraded_from: if first { None } else { Some(role.to_string()) },
+                };
+                // 派发实况：设置页调度台数据源（50 条环形）
+                let mut history = self.history.lock().await;
+                history.push_back(DispatchRecord {
+                    role: role.to_string(),
+                    provider: resolved.provider.clone(),
+                    model: resolved.model.clone(),
+                    degraded_from: resolved.degraded_from.clone(),
+                    at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
                 });
+                if history.len() > 50 {
+                    history.pop_front();
+                }
+                return Some(resolved);
             }
             first = false;
         }
         None
+    }
+
+    /// 派发历史（新->旧）。
+    pub async fn history(&self) -> Vec<DispatchRecord> {
+        self.history.lock().await.iter().rev().cloned().collect()
     }
 
     fn role_chain(&self, role: &str) -> Vec<String> {

@@ -5,6 +5,7 @@
 //! 端口启动时随机分配，前端经 ws_port command 获取。
 
 mod llm_task;
+mod ops;
 pub mod protocol;
 mod rpc;
 mod settings;

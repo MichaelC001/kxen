@@ -12,6 +12,7 @@ pub struct OkfDoc {
     pub globs: Vec<String>,
     pub description: String,
     pub content: String,
+    pub enabled: bool,
 }
 
 /// 扫描 workdir：根 AGENTS.md + .agents/ 下全部 .md（含多层子目录，就近原则由路径顺序体现）。
@@ -26,6 +27,7 @@ pub fn scan(workdir: &Path) -> Vec<OkfDoc> {
             globs: vec![],
             description: "root AGENTS.md".into(),
             content,
+            enabled: true,
         });
     }
     let agents_dir = workdir.join(".agents");
@@ -56,6 +58,7 @@ fn parse_doc(path: PathBuf, text: String) -> OkfDoc {
     let mut always_apply = false;
     let mut globs: Vec<String> = Vec::new();
     let mut description = String::new();
+    let mut enabled = true;
     let mut content = text.as_str();
 
     if let Some(rest) = text.strip_prefix("---") {
@@ -68,6 +71,7 @@ fn parse_doc(path: PathBuf, text: String) -> OkfDoc {
                     "type" => doc_type = value.to_string(),
                     "alwaysApply" | "always_apply" | "always" => always_apply = matches!(value, "true" | "yes" | "1"),
                     "description" => description = value.to_string(),
+                    "enabled" => enabled = value != "false",
                     "globs" | "glob" => {
                         globs = value
                             .trim_start_matches('[')
@@ -93,13 +97,13 @@ fn parse_doc(path: PathBuf, text: String) -> OkfDoc {
             .unwrap_or_default();
     }
 
-    OkfDoc { path, doc_type, always_apply, globs, description, content: content.to_string() }
+    OkfDoc { path, doc_type, always_apply, globs, description, content: content.to_string(), enabled }
 }
 
 /// 渲染注入段：rules + alwaysApply 全文；globs 命中的 rule 动态激活；其余一行索引。
 /// involved = 本会话涉及文件（@chip + tracker）；无 .agents / AGENTS.md 时返回 None。
 pub fn render_context(workdir: &Path, involved: &[PathBuf]) -> Option<String> {
-    let mut docs = scan(workdir);
+    let mut docs: Vec<OkfDoc> = scan(workdir).into_iter().filter(|d| d.enabled).collect();
     docs.extend(nearby_docs(workdir, involved));
     if docs.is_empty() {
         return None;
@@ -172,6 +176,7 @@ fn nearby_docs(workdir: &Path, involved: &[PathBuf]) -> Vec<OkfDoc> {
                         globs: vec![],
                         description: format!("AGENTS.md ({})", d.display()),
                         content,
+                        enabled: true,
                     });
                 }
             }

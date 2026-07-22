@@ -12,6 +12,10 @@ use crate::AppState;
 
 
 pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value, String> {
+    // 领域分组先走 ops.rs（voice/knowledge/provider/mrm/test_dispatch）
+    if let Some(result) = super::ops::try_handle(method, &params, app).await {
+        return result;
+    }
     match method {
         "doctor" => {
             let state = app.state::<Arc<AppState>>();
@@ -158,118 +162,6 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let fallback = params.get("fallback").and_then(Value::as_str);
             let state = app.state::<Arc<AppState>>();
             set_role(role, provider, model, fallback, &state)
-        }
-        "knowledge.list" => {
-            let state = app.state::<Arc<AppState>>();
-            let dir = state.active_workspace.read().expect("workspace").clone();
-            Ok(serde_json::to_value(kxen_app::knowledge::list(&dir)).map_err(|e| e.to_string())?)
-        }
-        "knowledge.add" => {
-            let scope = params.get("scope").and_then(Value::as_str).unwrap_or("memory");
-            let slug = params.get("slug").and_then(Value::as_str);
-            let kind = params.get("type").and_then(Value::as_str).unwrap_or("note");
-            let description = params.get("description").and_then(Value::as_str).ok_or("missing description")?;
-            let content = params.get("content").and_then(Value::as_str).ok_or("missing content")?;
-            let state = app.state::<Arc<AppState>>();
-            let dir = state.active_workspace.read().expect("workspace").clone();
-            let path = kxen_app::knowledge::add(scope, &dir, slug, kind, description, content)?;
-            Ok(json!({ "path": path }))
-        }
-        "knowledge.remove" => {
-            let scope = params.get("scope").and_then(Value::as_str).ok_or("missing scope")?;
-            let slug = params.get("slug").and_then(Value::as_str).ok_or("missing slug")?;
-            let state = app.state::<Arc<AppState>>();
-            let dir = state.active_workspace.read().expect("workspace").clone();
-            kxen_app::knowledge::remove(scope, &dir, slug)?;
-            Ok(json!({ "removed": true }))
-        }
-        "voice.engines" => {
-            let config = kxen_app::core::config::Config::load(
-                &kxen_app::core::paths::config_dir().join("config.toml"),
-                None,
-            )
-            .map_err(|e| e.to_string())?;
-            let state = app.state::<Arc<AppState>>();
-            let store = state.auth_store.lock().map_err(|e| e.to_string())?;
-            Ok(json!({
-                "engine": config.voice.engine,
-                "fallback": config.voice.fallback,
-                "locale": config.voice.locale,
-                "engines": kxen_app::voice::engines(&config.voice, &store),
-            }))
-        }
-        "voice.transcribe_file" => {
-            let engine = params.get("engine").and_then(Value::as_str);
-            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
-            let locale = params.get("locale").and_then(Value::as_str);
-            let config = kxen_app::core::config::Config::load(
-                &kxen_app::core::paths::config_dir().join("config.toml"),
-                None,
-            )
-            .map_err(|e| e.to_string())?;
-            let locale = locale.unwrap_or(&config.voice.locale);
-            let state = app.state::<Arc<AppState>>();
-            let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
-            let text = kxen_app::voice::transcribe_file(&config.voice, &store, engine, path, locale).await?;
-            Ok(json!({ "text": text }))
-        }
-        "voice.start" => {
-            let config = kxen_app::core::config::Config::load(
-                &kxen_app::core::paths::config_dir().join("config.toml"),
-                None,
-            )
-            .map_err(|e| e.to_string())?;
-            let locale = params.get("locale").and_then(Value::as_str).unwrap_or(&config.voice.locale);
-            let engine_override = params.get("engine").and_then(Value::as_str);
-            let mut voice = config.voice.clone();
-            if let Some(e) = engine_override {
-                voice.engine = e.to_string();
-            }
-            let state = app.state::<Arc<AppState>>();
-            let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
-            let started = kxen_app::voice::start(&voice, &store, locale, state.bus.clone())?;
-            Ok(json!({ "engine": started, "recording": true }))
-        }
-        "voice.stop" => {
-            let config = kxen_app::core::config::Config::load(
-                &kxen_app::core::paths::config_dir().join("config.toml"),
-                None,
-            )
-            .map_err(|e| e.to_string())?;
-            let state = app.state::<Arc<AppState>>();
-            let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
-            let text = kxen_app::voice::stop(&config.voice, &store).await?;
-            Ok(json!({ "text": text }))
-        }
-        "voice.set_provider_key" => {
-            let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
-            let key = params.get("key").and_then(Value::as_str).ok_or("missing key")?;
-            let state = app.state::<Arc<AppState>>();
-            let mut store = state.auth_store.lock().map_err(|e| e.to_string())?;
-            let path = kxen_app::core::paths::auth_file();
-            kxen_app::voice::provider::set_key(&mut store, provider, key, &path)?;
-            Ok(json!({ "provider": provider, "configured": true }))
-        }
-        "voice.set_engine" => {
-            let engine = params.get("engine").and_then(Value::as_str).ok_or("missing engine")?;
-            let fallback: Vec<String> = params
-                .get("fallback")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                .unwrap_or_default();
-            let path = kxen_app::core::paths::config_dir().join("config.toml");
-            let text = std::fs::read_to_string(&path).unwrap_or_default();
-            let mut doc: toml::Table = if text.trim().is_empty() { toml::Table::new() } else { toml::from_str(&text).map_err(|e| format!("config.toml parse: {e}"))? };
-            let mut voice = toml::map::Map::new();
-            voice.insert("engine".into(), toml::Value::String(engine.into()));
-            if !fallback.is_empty() {
-                voice.insert("fallback".into(), toml::Value::Array(fallback.into_iter().map(toml::Value::String).collect()));
-            }
-            doc.insert("voice".into(), toml::Value::Table(voice));
-            let tmp = path.with_extension("toml.tmp");
-            std::fs::write(&tmp, toml::to_string(&doc).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-            std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-            Ok(json!({ "engine": engine }))
         }
         "fs.complete" => {
             let query = params.get("query").and_then(Value::as_str).unwrap_or("");

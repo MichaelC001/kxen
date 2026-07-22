@@ -9,6 +9,7 @@ pub mod openai;
 pub mod sse;
 pub mod tool;
 pub mod types;
+pub mod verify;
 pub mod xai;
 
 pub use client::LlmClient;

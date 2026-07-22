@@ -261,7 +261,10 @@ mod tests {
     }
 
     fn rand() -> u32 {
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0)
+        // 纳秒 + 进程内序号混合：并行测试同纳秒也不再撞目录（flake 实证）
+        static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+        nanos ^ SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed).wrapping_mul(0x9e37)
     }
 
     #[test]
