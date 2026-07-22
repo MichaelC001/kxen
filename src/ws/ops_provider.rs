@@ -15,6 +15,7 @@ pub(super) const METHODS: &[&str] = &[
     "provider.add_custom",
     "provider.remove_custom",
     "provider.accounts",
+    "provider.models",
 ];
 
 pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, String> {
@@ -26,6 +27,14 @@ pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Res
             let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
             serde_json::to_value(kxen_app::llm::verify::verify_provider(&store, provider, account, model).await).map_err(|e| e.to_string())
+        }
+        "provider.models" => {
+            let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
+            let account = params.get("account").and_then(Value::as_str);
+            let state = app.state::<Arc<AppState>>();
+            let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
+            let out = kxen_app::llm::models::fetch_models(&store, provider, account, 15).await;
+            Ok(json!({ "models": out.models, "source": out.source, "detail": out.detail }))
         }
         "provider.accounts" => {
             let state = app.state::<Arc<AppState>>();

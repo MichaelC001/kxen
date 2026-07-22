@@ -4,6 +4,7 @@
 pub mod anthropic;
 pub mod anthropic_sse;
 pub mod client;
+pub mod models;
 pub mod mrm;
 pub mod openai;
 pub mod sse;

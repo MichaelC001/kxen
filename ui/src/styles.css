@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+/* macOS 橡皮筋滚动（overscroll 拖整页）全局关闭 */
+html,
+body {
+  overscroll-behavior: none;
+}
+
+/* 桌面应用惯例：按钮/链接内文本同样可选中复制（webkit 默认按钮不可选） */
+button,
+a,
+[role="button"] {
+  user-select: text;
+}
+
 /* ============ 主题 tokens：暗色为默认，[data-theme="light"] 覆盖 ============ */
 :root,
 [data-theme="dark"] {

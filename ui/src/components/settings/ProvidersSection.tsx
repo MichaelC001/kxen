@@ -4,6 +4,7 @@ import { Plus, RefreshCw, Trash2, Wrench } from "lucide-solid";
 import { configGet } from "../../lib/chat";
 import {
   providerAccounts,
+  providerModels,
   providerReprobe,
   providerVerify,
   removeAccount,
@@ -16,6 +17,7 @@ interface Row extends AccountInfo {
   verify?: VerifyOutcome;
   verifying: boolean;
   usedBy: string[];
+  modelCount?: number;
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -66,6 +68,17 @@ export default function ProvidersSection() {
     }));
     setRows((prev) =>
       prev.map((r) => (r.id === row.id ? { ...r, verifying: false, verify: v } : r)),
+    );
+  };
+
+  /** 手动拉取模型清单（端点 /models），条数就地显示。 */
+  const fetchModels = async (row: Row) => {
+    const account = row.account === "default" ? undefined : row.account;
+    const r = await providerModels(row.provider, account).catch(() => null);
+    setRows((prev) =>
+      prev.map((x) =>
+        x.id === row.id ? { ...x, modelCount: r && r.models.length > 0 ? r.models.length : 0 } : x,
+      ),
     );
   };
 
@@ -176,6 +189,13 @@ export default function ProvidersSection() {
                     >
                       实测
                     </button>
+                    <button
+                      class="pressable px-2 py-1 rounded text-2xs border border-[var(--border)]"
+                      title="从端点拉取模型清单"
+                      onClick={() => void fetchModels(r)}
+                    >
+                      拉模型
+                    </button>
                     <Show when={r.account === "default"}>
                       <button
                         class="pressable px-2 py-1 rounded text-2xs border border-[var(--border)]"
@@ -196,6 +216,11 @@ export default function ProvidersSection() {
                 </div>
                 <Show when={r.verify && !r.verify.ok}>
                   <div class="mt-1.5 text-xs text-[var(--err)] break-all">{r.verify?.detail}</div>
+                </Show>
+                <Show when={r.modelCount !== undefined}>
+                  <div class="mt-1 text-2xs text-[var(--text-faint)]">
+                    端点模型：{r.modelCount} 个（已并入 composer 模型选择器）
+                  </div>
                 </Show>
                 <Show when={guideFor() === r.provider && r.account === "default"}>
                   <div class="mt-2 rounded border border-[var(--border)] bg-[var(--bg-overlay)]/50 px-3 py-2 text-xs space-y-1">

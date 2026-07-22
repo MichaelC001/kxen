@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" xmlns:bx="https://boxy-svg.com">
+  <bx:title>kxen thinkbar preview</bx:title>
+  <rect width="1024" height="1024" rx="224" fill="#F2F2F0"></rect>
+  <g transform="matrix(1, 0, 0, 1, -5.780319, 0)">
+    <g id="layer-01-thinkbar" data-layer-name="01 Thinkbar" transform="matrix(1, 0, 0, 1, 99.562645, -59.952816)">
+      <path fill="#B7BBC0" d="M272 184h480c44.183 0 80 35.817 80 80s-35.817 80-80 80H272c-44.183 0-80-35.817-80-80s35.817-80 80-80Z"></path>
+    </g>
+    <g id="layer-02-chiclet-apricot" data-layer-name="02 Chiclet Apricot" transform="matrix(0.64579, 0, 0, 0.64579, -32.557457, -131.763641)" style="">
+      <path fill="#E3A06F" d="M304 416h80c35.346 0 64 28.654 64 64v80c0 35.346-28.654 64-64 64h-80c-35.346 0-64-28.654-64-64v-80c0-35.346 28.654-64 64-64Z"></path>
+    </g>
+  </g>
+  <g id="layer-03-chiclet-rose" data-layer-name="03 Chiclet Rose"></g>
+  <g id="group-2" data-layer-name="02 Chiclet Apricot" transform="matrix(1.190644, 0, 0, 1.190644, -79.703629, 187.782867)" style=""></g>
+  <g id="group-4" data-layer-name="01 Thinkbar" transform="matrix(1, 0, 0, 1, -84.541039, 516.585449)"></g>
+  <g transform="matrix(-1, 0, 0, 1, 1048.214478, 189.101151)" style="">
+    <g id="group-1" data-layer-name="01 Thinkbar" transform="matrix(1, 0, 0, 1, 99.562645, -59.952816)">
+      <path fill="#B7BBC0" d="M272 184h480c44.183 0 80 35.817 80 80s-35.817 80-80 80H272c-44.183 0-80-35.817-80-80s35.817-80 80-80Z"></path>
+    </g>
+    <g id="group-3" data-layer-name="02 Chiclet Apricot" transform="matrix(0.64579, 0, 0, 0.64579, -32.557457, -131.763641)" style="">
+      <path fill="#E3A06F" d="M304 416h80c35.346 0 64 28.654 64 64v80c0 35.346-28.654 64-64 64h-80c-35.346 0-64-28.654-64-64v-80c0-35.346 28.654-64 64-64Z"></path>
+    </g>
+  </g>
+  <g transform="matrix(1, 0, 0, 1, -5.780319, 406.944061)" style="">
+    <g id="group-5" data-layer-name="01 Thinkbar" transform="matrix(1, 0, 0, 1, 99.562645, -59.952816)">
+      <path fill="#B7BBC0" d="M272 184h480c44.183 0 80 35.817 80 80s-35.817 80-80 80H272c-44.183 0-80-35.817-80-80s35.817-80 80-80Z"></path>
+    </g>
+    <g id="group-6" data-layer-name="02 Chiclet Apricot" transform="matrix(0.64579, 0, 0, 0.64579, -32.557457, -131.763641)" style="">
+      <path fill="#E3A06F" d="M304 416h80c35.346 0 64 28.654 64 64v80c0 35.346-28.654 64-64 64h-80c-35.346 0-64-28.654-64-64v-80c0-35.346 28.654-64 64-64Z"></path>
+    </g>
+  </g>
+  <g transform="matrix(-1, 0, 0, 1, 1048.214478, 586.691162)" style="">
+    <g id="group-7" data-layer-name="01 Thinkbar" transform="matrix(1, 0, 0, 1, 99.562645, -59.952816)">
+      <path fill="#B7BBC0" d="M272 184h480c44.183 0 80 35.817 80 80s-35.817 80-80 80H272c-44.183 0-80-35.817-80-80s35.817-80 80-80Z"></path>
+    </g>
+    <g id="group-8" data-layer-name="02 Chiclet Apricot" transform="matrix(0.64579, 0, 0, 0.64579, -32.557457, -131.763641)" style="">
+      <path fill="#E3A06F" d="M304 416h80c35.346 0 64 28.654 64 64v80c0 35.346-28.654 64-64 64h-80c-35.346 0-64-28.654-64-64v-80c0-35.346 28.654-64 64-64Z"></path>
+    </g>
+  </g>
+</svg>

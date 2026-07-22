@@ -10,11 +10,26 @@ export function providerVerify(provider: string, account?: string): Promise<Veri
   return client.rpc("provider.verify", account ? { provider, account } : { provider });
 }
 
+export interface ModelsResult {
+  models: string[];
+  source: string;
+  detail: string;
+}
+
+export function providerModels(provider: string, account?: string): Promise<ModelsResult> {
+  return client.rpc("provider.models", account ? { provider, account } : { provider });
+}
+
 export interface AccountInfo {
   provider: string;
   account: string;
   id: string;
   expired: boolean;
+  custom?: boolean;
+  base_url?: string;
+  models?: string[];
+  protocol?: string;
+  capabilities?: string[];
 }
 
 export function providerAccounts(): Promise<AccountInfo[]> {

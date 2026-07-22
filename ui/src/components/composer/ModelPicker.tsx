@@ -1,7 +1,8 @@
-// ModelPicker：富模型选择器——[Provider][名称][信息] + 搜索 + 右键分配角色。
+// ModelPicker：富模型选择器——[Provider][名称][信息] + 搜索 + 右键分配角色 + 端点懒拉取。
 import { createSignal, For, onMount, Show } from "solid-js";
 import { Check, ChevronDown, Search } from "lucide-solid";
 import { configSetRole, currentModel, setModel } from "../../lib/chat";
+import { providerAccounts, providerModels } from "../../lib/provider";
 
 interface ModelPreset {
   provider: string;
@@ -69,17 +70,48 @@ export default function ModelPicker() {
   const [open, setOpen] = createSignal(false);
   const [query, setQuery] = createSignal("");
   const [roleMsg, setRoleMsg] = createSignal("");
+  const [fetched, setFetched] = createSignal<Record<string, string[]>>({});
+  let fetchStarted = false;
 
   onMount(async () => {
     const m = await currentModel();
     setLabel(`${m.provider}/${m.model}`);
   });
 
+  /** 打开时懒拉取：可拉型（xai/openai/自定义）各拉一次，失败静默回退 PRESETS。 */
+  const lazyFetch = async () => {
+    if (fetchStarted) return;
+    fetchStarted = true;
+    const accounts = await providerAccounts().catch(() => []);
+    const customs = [...new Set(accounts.filter((a) => a.custom).map((a) => a.provider))];
+    const targets = ["openai", "xai", ...customs];
+    for (const p of targets) {
+      const r = await providerModels(p).catch(() => null);
+      if (r && r.models.length > 0) {
+        setFetched((prev) => ({ ...prev, [p]: r.models }));
+      }
+    }
+  };
+
   const current = () => PRESETS.find((p) => `${p.provider}/${p.model}` === label());
+  const allModels = (): ModelPreset[] => {
+    const seen = new Set(PRESETS.map((p) => `${p.provider}/${p.model}`));
+    const extra: ModelPreset[] = [];
+    for (const [provider, models] of Object.entries(fetched())) {
+      const brand = provider.startsWith("custom:") ? provider.slice(7) : provider;
+      for (const m of models) {
+        const key = `${provider}/${m}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        extra.push({ provider, brand, model: m, label: m, context: "—", note: "端点拉取" });
+      }
+    }
+    return [...PRESETS, ...extra];
+  };
   const filtered = () => {
     const q = query().toLowerCase();
-    if (!q) return PRESETS;
-    return PRESETS.filter((p) => `${p.brand} ${p.label} ${p.model}`.toLowerCase().includes(q));
+    if (!q) return allModels();
+    return allModels().filter((p) => `${p.brand} ${p.label} ${p.model}`.toLowerCase().includes(q));
   };
 
   const pick = (p: ModelPreset) => {
@@ -97,7 +129,13 @@ export default function ModelPicker() {
 
   return (
     <div class="relative">
-      <button class="pressable model-pill" onClick={() => setOpen(!open())}>
+      <button
+        class="pressable model-pill"
+        onClick={() => {
+          setOpen(!open());
+          if (!open()) void lazyFetch();
+        }}
+      >
         <span class="text-2xs text-[var(--text-faint)]">{current()?.brand ?? "模型"}</span>
         <span class="model-pill-name">{current()?.label ?? label()}</span>
         <ChevronDown size={12} />
