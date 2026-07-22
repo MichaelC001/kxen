@@ -15,7 +15,7 @@ describe("thinking orb (webkit canvas)", () => {
       const data = ctx.getImageData(0, 0, 64, 64).data;
       let inked = 0;
       for (let i = 3; i < data.length; i += 4) {
-        if (data[i] > 0) inked++;
+        if ((data[i] ?? 0) > 0) inked++;
       }
       expect(inked).toBeGreaterThan(10);
       canvas.remove();
