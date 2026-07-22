@@ -2,6 +2,7 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import { GitBranch, Plus, Trash2 } from "lucide-solid";
 import { worktreeCreate, worktreeList, worktreeRemove, type WorktreeInfo } from "../lib/chat";
+import EmptyLine from "./EmptyLine";
 
 export default function DockWorktree() {
   const [trees, setTrees] = createSignal<WorktreeInfo[]>([]);
@@ -45,10 +46,7 @@ export default function DockWorktree() {
         <div class="text-2xs text-[var(--ok)] mb-1.5">{note()}</div>
       </Show>
       <div class="space-y-1">
-        <For
-          each={trees()}
-          fallback={<div class="text-2xs text-[var(--text-faint)]">无隔离树</div>}
-        >
+        <For each={trees()} fallback={<EmptyLine text="无隔离树" />}>
           {(t) => (
             <div class="group flex items-center gap-1.5 text-xs">
               <span class="font-mono flex-1 truncate" title={t.path}>

@@ -1,6 +1,7 @@
 // 知识注入控制台：模型实际看到什么（注入预览）+ 启停（不删只关）+ scope 晋升 + 去重提示。
 import { createSignal, For, onMount, Show } from "solid-js";
 import { ChevronDown, ChevronRight, Eye, Trash2 } from "lucide-solid";
+import EmptyLine from "../EmptyLine";
 import {
   knowledgeAdd,
   knowledgeInjectionPreview,
@@ -124,10 +125,7 @@ export default function KnowledgeSection() {
       </Show>
 
       <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] divide-y divide-[var(--border)]">
-        <For
-          each={entries()}
-          fallback={<div class="px-4 py-3 text-xs text-[var(--text-faint)]">暂无知识条目</div>}
-        >
+        <For each={entries()} fallback={<EmptyLine text="暂无知识条目" />}>
           {(e) => (
             <div class="flex items-start gap-2 px-4 py-3" classList={{ "opacity-45": !e.enabled }}>
               <button

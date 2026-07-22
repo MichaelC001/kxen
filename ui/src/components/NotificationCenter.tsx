@@ -1,6 +1,7 @@
 // 通知中心：铃铛 + 未读计数 + 下拉面板（时间/文本/清空）。未读基线存 localStorage。
 import { createSignal, For, onMount, Show } from "solid-js";
 import { Bell, Trash2 } from "lucide-solid";
+import EmptyLine from "./EmptyLine";
 import { client } from "../lib/client";
 import { relTime } from "../lib/time";
 
@@ -54,7 +55,7 @@ export default function NotificationCenter() {
       >
         <Bell size={13} />
         <Show when={unread() > 0}>
-          <span class="absolute -top-0.5 -right-0.5 min-w-3.5 h-3.5 px-0.5 rounded-full bg-[var(--err)] text-white text-[9px] leading-3.5 text-center">
+          <span class="absolute -top-0.5 -right-0.5 min-w-3.5 h-3.5 px-0.5 rounded-full bg-[var(--err)] text-white text-2xs leading-3.5 text-center">
             {unread() > 9 ? "9+" : unread()}
           </span>
         </Show>
@@ -79,10 +80,7 @@ export default function NotificationCenter() {
               </button>
             </div>
           </div>
-          <For
-            each={items()}
-            fallback={<div class="px-3 py-3 text-2xs text-[var(--text-faint)]">暂无通知</div>}
-          >
+          <For each={items()} fallback={<EmptyLine text="暂无通知" />}>
             {(n) => (
               <div class="px-3 py-2 border-b border-[var(--border)] last:border-0">
                 <div class="text-2xs text-[var(--text-faint)]">{relTime(n.at)}</div>

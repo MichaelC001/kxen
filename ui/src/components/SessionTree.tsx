@@ -13,6 +13,7 @@ import {
 import { newSession, refreshSessions, sessions, switchSession } from "../lib/state";
 import { sortGroup } from "../lib/order";
 import SessionRow from "./SessionRow";
+import EmptyLine from "./EmptyLine";
 
 const MAX_PER_GROUP = 5;
 
@@ -175,7 +176,7 @@ export default function SessionTree() {
                     </div>
                   </Show>
                   <Show when={group.sessions.length === 0}>
-                    <div class="px-2 py-0.5 text-2xs text-[var(--text-faint)]">无会话</div>
+                    <EmptyLine text="无会话" />
                   </Show>
                 </div>
               </Show>

@@ -39,17 +39,21 @@ export default function LexicalComposer(props: {
   const [recording, setRecording] = createSignal(false);
   const [voiceError, setVoiceError] = createSignal("");
   const [voiceEngine, setVoiceEngine] = createSignal("apple");
-  const [tick, setTick] = createSignal(0); // 文本变化驱动（estimate / 触发检测）
+  const [_tick, setTick] = createSignal(0); // 文本变化驱动（estimate / 触发检测）
   let rootEl: HTMLDivElement | undefined;
   let core: ComposerCore | undefined;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   const images = new Map<string, { media_type: string; data: string }>();
   const draftMap = new Map<string, string>(); // 每会话草稿（进程内）
 
-  const estimate = () => (void tick(), Math.ceil((core?.getText().length ?? 0) / 4));
+  const estimate = () => (void _tick(), Math.ceil((core?.getText().length ?? 0) / 4));
   const estimateCls = () =>
-    estimate() > 190_000 ? "text-[var(--err)]" : estimate() > 160_000 ? "text-[var(--warn)]" : "text-[var(--text-faint)]";
-  const empty = () => (void tick(), (core?.getText() ?? "") === "" && rowChips().length === 0);
+    estimate() > 190_000
+      ? "text-[var(--err)]"
+      : estimate() > 160_000
+        ? "text-[var(--warn)]"
+        : "text-[var(--text-faint)]";
+  const empty = () => (void _tick(), (core?.getText() ?? "") === "" && rowChips().length === 0);
 
   onMount(() => {
     if (rootEl) {
