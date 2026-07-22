@@ -93,6 +93,12 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             kxen_app::core::session::remove(&kxen_app::core::paths::sessions_dir(), id);
             Ok(Value::Null)
         }
+        "session.fork" => {
+            let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
+            let message_id = params.get("message_id").and_then(Value::as_str).ok_or("missing message_id")?;
+            let session = kxen_app::core::session::fork(&kxen_app::core::paths::sessions_dir(), session_id, message_id).map_err(|e| e.to_string())?;
+            Ok(json!(session))
+        }
         "diff.status" => {
             let state = app.state::<Arc<AppState>>();
             let dir = state.active_workspace.read().expect("workspace").clone();

@@ -135,6 +135,25 @@ pub fn new_message(session_id: &str, role: Role, parts: Vec<Part>) -> Message {
     Message { id: new_id("msg"), session_id: session_id.into(), role, parts, created_at: now_ms() }
 }
 
+/// 从指定消息分叉：新会话携带 [..=message_id] 前缀历史（parent_id 指向源会话）。
+pub fn fork(dir: &Path, id: &str, message_id: &str) -> std::io::Result<Session> {
+    let parent = load_meta(dir, id)?;
+    let messages = load_messages(dir, id);
+    let Some(idx) = messages.iter().position(|m| m.id == message_id) else {
+        return Err(std::io::Error::new(std::io::ErrorKind::NotFound, format!("message not found: {message_id}")));
+    };
+    let mut session = create(dir, &parent.directory)?;
+    session.parent_id = Some(id.to_string());
+    session.title = format!("分叉: {}", parent.title.chars().take(24).collect::<String>());
+    save_meta(dir, &session)?;
+    for m in &messages[..=idx] {
+        let mut cloned = m.clone();
+        cloned.session_id = session.id.clone();
+        append_message(dir, &cloned)?;
+    }
+    Ok(session)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,7 +175,15 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, Role::User);
 
+        // fork 到第一条消息：前缀历史只有 user 一条，parent_id 指源
+        let forked = fork(&dir, &s.id, &m1.id).unwrap();
+        assert_eq!(forked.parent_id.as_deref(), Some(s.id.as_str()));
+        let forked_msgs = load_messages(&dir, &forked.id);
+        assert_eq!(forked_msgs.len(), 1);
+        assert_eq!(forked_msgs[0].role, Role::User);
+
         remove(&dir, &s.id);
+        remove(&dir, &forked.id);
         assert!(list(&dir).is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }

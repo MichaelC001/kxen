@@ -3,71 +3,27 @@ import {
   onLlmDelta,
   sendMessage,
   sessionAbort,
+  sessionFork,
   sessionMessages,
   statusline,
   type ContextItem,
-  type RunStats,
-  type StoredMessage,
 } from "../lib/chat";
-import { activeSessionId, ensureActiveSession, sessions, setHasConversation } from "../lib/state";
+import {
+  activeSessionId,
+  ensureActiveSession,
+  refreshSessions,
+  sessions,
+  setHasConversation,
+  switchSession,
+} from "../lib/state";
 import { onDragStart } from "../lib/drag";
 import Markdown from "../components/Markdown";
 import ThinkingOrb from "../components/ThinkingOrb";
 import type { OrbState } from "../lib/orb";
 import ToolCard from "../components/ToolCard";
 import Composer from "../components/composer/LexicalComposer";
-import { FolderOpen, Target, Users, Workflow, Wrench } from "lucide-solid";
-
-interface MsgItem {
-  kind: "msg";
-  role: "user" | "assistant";
-  content: string;
-  reasoning?: string | undefined;
-  stats?: RunStats | undefined;
-  error?: string | undefined;
-}
-interface ToolItem {
-  kind: "tool";
-  name: string;
-  call: string;
-  result?: string | undefined;
-}
-interface PhaseItem {
-  kind: "phase";
-  name: string;
-}
-type Item = MsgItem | ToolItem | PhaseItem;
-
-/** 存储消息 -> 时间线条目（工具调用/推理/文本按序还原）。 */
-function toItems(messages: StoredMessage[]): Item[] {
-  const items: Item[] = [];
-  for (const m of messages) {
-    if (m.role === "system") continue;
-    for (const p of m.parts) {
-      if (p.type === "text" && p.text) {
-        const last = items.at(-1);
-        if (last?.kind === "msg" && last.role === m.role) {
-          items[items.length - 1] = { ...last, content: `${last.content}\n${p.text}` };
-        } else {
-          items.push({ kind: "msg", role: m.role, content: p.text });
-        }
-      } else if (p.type === "reasoning" && p.text && m.role === "assistant") {
-        const last = items.at(-1);
-        if (last?.kind === "msg" && last.role === "assistant") {
-          items[items.length - 1] = { ...last, reasoning: `${last.reasoning ?? ""}${p.text}` };
-        }
-      } else if (p.type === "tool_call" && p.name) {
-        items.push({
-          kind: "tool",
-          name: p.name,
-          call: typeof p.input === "string" ? p.input : JSON.stringify(p.input),
-          result: p.output || undefined,
-        });
-      }
-    }
-  }
-  return items;
-}
+import { FolderOpen, GitFork, Target, Users, Workflow, Wrench } from "lucide-solid";
+import { toItems, type Item } from "../lib/items";
 
 export default function Session() {
   const [items, setItems] = createSignal<Item[]>([]);
@@ -193,6 +149,15 @@ export default function Session() {
     if (sid) void sessionAbort(sid);
   };
 
+  /** 从指定消息分叉：新会话带前缀历史并切入。 */
+  const forkAt = async (messageId: string) => {
+    const forked = await sessionFork(activeSessionId(), messageId).catch(() => null);
+    if (forked) {
+      await refreshSessions();
+      switchSession(forked.id);
+    }
+  };
+
   return (
     <div class="h-full flex-1 min-w-0 flex flex-col">
       <div
@@ -236,7 +201,16 @@ export default function Session() {
               }
               if (item.role === "user") {
                 return (
-                  <div class="flex justify-end">
+                  <div class="group relative flex justify-end items-start gap-1.5">
+                    <Show when={item.messageId}>
+                      <button
+                        class="opacity-0 group-hover:opacity-100 pressable mt-1 px-1 rounded text-[var(--text-faint)] hover:text-[var(--text)]"
+                        title="从此消息分叉"
+                        onClick={() => void forkAt(item.messageId!)}
+                      >
+                        <GitFork size={12} />
+                      </button>
+                    </Show>
                     <div class="max-w-[80%] rounded-2xl rounded-br-md px-3.5 py-2 text-sm bg-[var(--accent)] text-[var(--accent-contrast)] whitespace-pre-wrap">
                       {item.content}
                     </div>
@@ -245,7 +219,16 @@ export default function Session() {
               }
               // assistant：全宽排版，无气泡（现代 agent UI 形态）
               return (
-                <div class="text-sm">
+                <div class="group relative text-sm">
+                  <Show when={item.messageId}>
+                    <button
+                      class="absolute -left-6 top-0.5 opacity-0 group-hover:opacity-100 pressable px-1 rounded text-[var(--text-faint)] hover:text-[var(--text)]"
+                      title="从此消息分叉"
+                      onClick={() => void forkAt(item.messageId!)}
+                    >
+                      <GitFork size={12} />
+                    </button>
+                  </Show>
                   <Show when={item.reasoning}>
                     <div class="text-xs text-[var(--text-faint)] border-l-2 border-[var(--border)] pl-2.5 mb-2 whitespace-pre-wrap">
                       {item.reasoning}

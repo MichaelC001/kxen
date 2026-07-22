@@ -150,6 +150,10 @@ export async function sessionDelete(id: string): Promise<void> {
   return client.rpc("session.delete", { id });
 }
 
+export async function sessionFork(sessionId: string, messageId: string): Promise<SessionMeta> {
+  return client.rpc<SessionMeta>("session.fork", { session_id: sessionId, message_id: messageId });
+}
+
 // ---------------- workspace ----------------
 
 export interface Workspace {
