@@ -44,8 +44,11 @@ pub(super) fn unmap_tool_name(name: &str) -> String {
 }
 
 pub struct AnthropicProvider {
+    url: std::borrow::Cow<'static, str>,
     http: reqwest::Client,
     bearer: crate::core::shared::SharedStr,
+    /// true = OAuth 契约（identity 行 + beta 头 + claude-cli UA）；false = api-key 直连（自定义端点）
+    oauth: bool,
 }
 
 #[derive(Serialize)]
@@ -156,19 +159,29 @@ fn api_messages_of(messages: &[Message]) -> Vec<ApiMessage<'_>> {
 
 impl AnthropicProvider {
     pub fn new(bearer: impl Into<String>) -> Self {
-        Self { http: crate::llm::client::shared_http(), bearer: crate::core::shared::SharedStr::from(bearer.into()) }
+        Self { url: API_URL.into(), http: crate::llm::client::shared_http(), bearer: crate::core::shared::SharedStr::from(bearer.into()), oauth: true }
+    }
+
+    /// 自定义 anthropic 兼容端点：x-api-key 直连，无 OAuth 契约要素。
+    pub fn custom(base_url: String, api_key: impl Into<String>) -> Self {
+        Self { url: base_url.into(), http: crate::llm::client::shared_http(), bearer: crate::core::shared::SharedStr::from(api_key.into()), oauth: false }
     }
 
     pub fn stream_chat(&self, model: &str, messages: &[Message], tools: &[crate::llm::tool::ToolDefinition]) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
         let bearer = self.bearer.clone();
+        let url = self.url.clone();
+        let oauth = self.oauth;
         let model = model.to_string();
         let messages_owned: Vec<Message> = messages.to_vec();
         let tools_owned: Vec<crate::llm::tool::ToolDefinition> = tools.to_vec();
         let http = self.http.clone();
 
         let start = async move {
-            // OAuth contract: 系统块第一行固定身份行，用户 system 追加在后
-            let mut system: Vec<SystemBlock> = vec![SystemBlock { kind: "text", text: IDENTITY_LINE }];
+            // OAuth contract: 系统块第一行固定身份行，用户 system 追加在后；api-key 直连不注入
+            let mut system: Vec<SystemBlock> = Vec::new();
+            if oauth {
+                system.push(SystemBlock { kind: "text", text: IDENTITY_LINE });
+            }
             for m in &messages_owned {
                 if m.role == Role::System {
                     system.push(SystemBlock { kind: "text", text: &m.content });
@@ -190,11 +203,17 @@ impl AnthropicProvider {
                 )
             };
             let req = MessagesRequest { model: &model, max_tokens: 8192, system, messages: api_messages, stream: true, tools: tools_api };
-            http.post(API_URL)
-                .header("authorization", format!("Bearer {bearer}"))
+            let mut builder = http.post(url.as_ref());
+            if oauth {
+                builder = builder
+                    .header("authorization", format!("Bearer {bearer}"))
+                    .header("anthropic-beta", OAUTH_BETA)
+                    .header("user-agent", USER_AGENT);
+            } else {
+                builder = builder.header("x-api-key", bearer.as_ref());
+            }
+            builder
                 .header("anthropic-version", "2023-06-01")
-                .header("anthropic-beta", OAUTH_BETA)
-                .header("user-agent", USER_AGENT)
                 .header("content-type", "application/json")
                 .json(&req)
                 .send()

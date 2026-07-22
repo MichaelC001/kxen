@@ -16,15 +16,15 @@ pub struct EngineStatus {
 }
 
 /// 引擎状态总览（设置页语音区 + mic 菜单数据源）。
-pub fn engines(config: &crate::core::config::VoiceConfig, store: &crate::auth::credential::AuthStore) -> Vec<EngineStatus> {
+pub fn engines(config: &crate::core::config::Config, store: &crate::auth::credential::AuthStore) -> Vec<EngineStatus> {
     let mut out = vec![apple::status()];
     out.extend(provider::statuses(config, store));
     out
 }
 
 /// 文件识别统一入口（E2E 与排障共用）：按引擎 id 分发，空 id 走默认链。
-pub async fn transcribe_file(config: &crate::core::config::VoiceConfig, store: &crate::auth::credential::AuthStore, engine: Option<&str>, path: &str, locale: &str) -> Result<String, String> {
-    let id = engine.unwrap_or(&config.engine);
+pub async fn transcribe_file(config: &crate::core::config::Config, store: &crate::auth::credential::AuthStore, engine: Option<&str>, path: &str, locale: &str) -> Result<String, String> {
+    let id = engine.unwrap_or(&config.voice.engine);
     match id {
         "apple" => apple::recognize_file(path, locale),
         other => provider::transcribe_file(config, store, other, path).await,
@@ -101,7 +101,7 @@ fn stop_now() -> Option<Active> {
 }
 
 /// PTT 松开：apple 等 final；provider 落 WAV 上传转写。返回最终文本（可空）。
-pub async fn stop(config: &crate::core::config::VoiceConfig, store: &crate::auth::credential::AuthStore) -> Result<Option<String>, String> {
+pub async fn stop(config: &crate::core::config::Config, store: &crate::auth::credential::AuthStore) -> Result<Option<String>, String> {
     match stop_now() {
         None => Ok(None),
         Some(Active::Apple { session, alive }) => {

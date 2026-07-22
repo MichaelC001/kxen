@@ -12,7 +12,7 @@ const API_URL: &str = "https://api.x.ai/v1/chat/completions";
 const KIMI_URL: &str = "https://api.kimi.com/coding/v1/chat/completions";
 
 pub struct XaiProvider {
-    url: &'static str,
+    url: std::borrow::Cow<'static, str>,
     http: reqwest::Client,
     bearer: SharedStr,
 }
@@ -94,11 +94,16 @@ struct Usage {
 
 impl XaiProvider {
     pub fn new(bearer: impl Into<String>) -> Self {
-        Self { url: API_URL, http: crate::llm::client::shared_http(), bearer: SharedStr::from(bearer.into()) }
+        Self { url: API_URL.into(), http: crate::llm::client::shared_http(), bearer: SharedStr::from(bearer.into()) }
     }
 
     pub fn kimi(bearer: impl Into<String>) -> Self {
-        Self { url: KIMI_URL, http: crate::llm::client::shared_http(), bearer: SharedStr::from(bearer.into()) }
+        Self { url: KIMI_URL.into(), http: crate::llm::client::shared_http(), bearer: SharedStr::from(bearer.into()) }
+    }
+
+    /// 自定义 OpenAI 兼容端点（自定义类型提供商：base_url + api key）。
+    pub fn custom(base_url: String, bearer: impl Into<String>) -> Self {
+        Self { url: base_url.into(), http: crate::llm::client::shared_http(), bearer: SharedStr::from(bearer.into()) }
     }
 
     /// 流式调用：返回 Delta 的异步流（'static，不借 provider）。
@@ -113,11 +118,11 @@ impl XaiProvider {
         let messages = messages.to_vec();
         let http = self.http.clone();
 
-        let self_url = self.url;
+        let self_url = self.url.clone();
         let start = async move {
             let tools_opt = tools_owned.as_deref();
             let wire: Vec<WireMessage> = messages.iter().map(wire_message).collect();
-            http.post(self_url).bearer_auth(bearer).json(&ChatRequest { model: &model, messages: wire, stream: true, tools: tools_opt }).send().await
+            http.post(self_url.as_ref()).bearer_auth(bearer).json(&ChatRequest { model: &model, messages: wire, stream: true, tools: tools_opt }).send().await
         };
 
         Box::pin(futures::stream::once(start).flat_map(|result| match result {

@@ -21,9 +21,13 @@ const DEFAULT_MODELS: &[(&str, &str)] = &[
 
 /// 发一条真实 ping：首个有效 delta 即判活；Error/超时即判死（带原始错误文案）。
 pub async fn verify_provider(store: &crate::auth::credential::AuthStore, provider: &str, account: Option<&str>, model: Option<&str>) -> VerifyOutcome {
-    let model_id = model
-        .map(String::from)
-        .or_else(|| DEFAULT_MODELS.iter().find(|(p, _)| *p == provider).map(|(_, m)| m.to_string()));
+    let model_id = model.map(String::from).or_else(|| {
+        if let Some(name) = provider.strip_prefix("custom:") {
+            let cfg = crate::core::config::Config::load(&crate::core::paths::config_dir().join("config.toml"), None).unwrap_or_default();
+            return cfg.custom_providers.get(name).and_then(|d| d.models.first().cloned());
+        }
+        DEFAULT_MODELS.iter().find(|(p, _)| *p == provider).map(|(_, m)| m.to_string())
+    });
     let Some(model_id) = model_id else {
         return VerifyOutcome { ok: false, latency_ms: 0, detail: format!("unknown provider: {provider}") };
     };

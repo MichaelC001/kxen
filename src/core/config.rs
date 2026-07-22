@@ -12,6 +12,24 @@ pub struct Config {
     pub hooks: HashMap<String, Vec<HookDef>>,
     pub statusline: StatuslineConfig,
     pub voice: VoiceConfig,
+    pub custom_providers: HashMap<String, CustomProviderDef>,
+}
+
+/// 自定义类型提供商：base_url + 模型清单 + 协议（openai|anthropic）+ 能力标记（text/vision/audio）。
+/// api key 存 auth.json（custom:<name>）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomProviderDef {
+    pub base_url: String,
+    pub models: Vec<String>,
+    pub protocol: String,
+    pub capabilities: Vec<String>,
+}
+
+impl Default for CustomProviderDef {
+    fn default() -> Self {
+        Self { base_url: String::new(), models: vec![], protocol: "openai".into(), capabilities: vec!["text".into()] }
+    }
 }
 
 /// 语音输入：引擎选择 + 降级链 + locale（API key 不落 config，走 auth.json）。
@@ -124,5 +142,6 @@ impl Config {
         if other.voice != VoiceConfig::default() {
             self.voice = other.voice;
         }
+        self.custom_providers.extend(other.custom_providers);
     }
 }

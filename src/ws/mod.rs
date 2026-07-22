@@ -6,6 +6,7 @@
 
 mod llm_task;
 mod ops;
+mod ops_provider;
 pub mod protocol;
 mod rpc;
 mod settings;

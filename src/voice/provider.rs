@@ -2,7 +2,6 @@
 
 use super::EngineStatus;
 use crate::auth::credential::{AuthStore, CredentialKind};
-use crate::core::config::VoiceConfig;
 
 pub const PROVIDERS: &[(&str, &str, &str)] = &[
     ("openai", "OpenAI 转写", "https://api.openai.com/v1/audio/transcriptions"),
@@ -23,11 +22,14 @@ pub fn set_key(store: &mut AuthStore, provider: &str, key: &str, path: &std::pat
 }
 
 pub(crate) fn configured(store: &crate::auth::credential::AuthStore, provider: &str) -> bool {
+    if provider.starts_with("custom:") {
+        return matches!(store.get(provider), Some(CredentialKind::Api { .. }));
+    }
     matches!(store.get(&store_key(provider)), Some(CredentialKind::Api { .. }))
 }
 
-pub fn statuses(_config: &VoiceConfig, store: &AuthStore) -> Vec<EngineStatus> {
-    PROVIDERS
+pub fn statuses(config: &crate::core::config::Config, store: &AuthStore) -> Vec<EngineStatus> {
+    let mut out: Vec<EngineStatus> = PROVIDERS
         .iter()
         .map(|(id, label, _)| {
             let has_key = configured(store, id);
@@ -38,21 +40,49 @@ pub fn statuses(_config: &VoiceConfig, store: &AuthStore) -> Vec<EngineStatus> {
                 detail: if has_key { "API key 已配置" } else { "未配置 API key（设置页语音区添加）" }.into(),
             }
         })
-        .collect()
+        .collect();
+    // audio 标记的自定义提供商并入转写引擎
+    for (name, def) in &config.custom_providers {
+        if !def.capabilities.iter().any(|c| c == "audio") {
+            continue;
+        }
+        let id = format!("custom:{name}");
+        let has_key = configured(store, &id);
+        out.push(EngineStatus {
+            id: id.clone(),
+            label: format!("{name} 转写（自定义）"),
+            status: if has_key { "ready" } else { "unconfigured" }.into(),
+            detail: if has_key { def.base_url.clone() } else { "未配置 API key".into() },
+        });
+    }
+    out
 }
 
 /// multipart 上传整文件 -> 转写文本。
-pub async fn transcribe_file(config: &VoiceConfig, store: &AuthStore, provider: &str, path: &str) -> Result<String, String> {
-    let (_, label, url) = PROVIDERS.iter().find(|(id, _, _)| *id == provider).ok_or_else(|| format!("未知转写 provider: {provider}"))?;
-    let Some(CredentialKind::Api { key }) = store.get(&store_key(provider)) else {
-        return Err(format!("{label}未配置 API key"));
+pub async fn transcribe_file(config: &crate::core::config::Config, store: &AuthStore, provider: &str, path: &str) -> Result<String, String> {
+    // 自定义提供商（audio 标记）：端点 = base_url + /audio/transcriptions，key 直取 custom:<name>
+    let (label, url, key) = if let Some(name) = provider.strip_prefix("custom:") {
+        let def = config.custom_providers.get(name).ok_or_else(|| format!("自定义提供商未配置: {name}"))?;
+        if !def.capabilities.iter().any(|c| c == "audio") {
+            return Err(format!("自定义提供商 {name} 未标记 audio 能力"));
+        }
+        let Some(CredentialKind::Api { key }) = store.get(provider) else {
+            return Err(format!("{name} 未配置 API key"));
+        };
+        (name.to_string(), format!("{}/audio/transcriptions", def.base_url.trim_end_matches('/')), key.clone())
+    } else {
+        let (_, label, url) = PROVIDERS.iter().find(|(id, _, _)| *id == provider).ok_or_else(|| format!("未知转写 provider: {provider}"))?;
+        let Some(CredentialKind::Api { key }) = store.get(&store_key(provider)) else {
+            return Err(format!("{label}未配置 API key"));
+        };
+        (label.to_string(), url.to_string(), key.clone())
     };
     let bytes = std::fs::read(path).map_err(|e| format!("读取音频失败: {e}"))?;
     let file_name = std::path::Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or("audio.wav").to_string();
     let part = reqwest::multipart::Part::bytes(bytes).file_name(file_name);
-    let form = reqwest::multipart::Form::new().text("model", config.transcribe_model.clone()).part("file", part);
+    let form = reqwest::multipart::Form::new().text("model", config.voice.transcribe_model.clone()).part("file", part);
     let resp = crate::llm::client::shared_http()
-        .post(*url)
+        .post(&url)
         .header("authorization", format!("Bearer {key}"))
         .multipart(form)
         .send()
@@ -74,7 +104,7 @@ mod tests {
     #[test]
     fn unconfigured_shows_explicitly() {
         let store = AuthStore::new();
-        let statuses = statuses(&VoiceConfig::default(), &store);
+        let statuses = statuses(&crate::core::config::Config::default(), &store);
         assert!(statuses.iter().all(|s| s.status == "unconfigured"));
         assert!(statuses.iter().all(|s| s.detail.contains("未配置")));
     }
@@ -83,7 +113,7 @@ mod tests {
     fn configured_is_ready() {
         let mut store = AuthStore::new();
         store.insert(store_key("xai"), CredentialKind::Api { key: "k".into() });
-        let statuses = statuses(&VoiceConfig::default(), &store);
+        let statuses = statuses(&crate::core::config::Config::default(), &store);
         let xai = statuses.iter().find(|s| s.id == "xai").unwrap();
         assert_eq!(xai.status, "ready");
     }

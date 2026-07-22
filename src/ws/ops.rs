@@ -7,11 +7,6 @@ use tauri::{AppHandle, Manager};
 use crate::AppState;
 
 const METHODS: &[&str] = &[
-    "provider.verify",
-    "provider.reprobe",
-    "provider.import_account",
-    "provider.remove_account",
-    "provider.accounts",
     "mrm.stats",
     "agent.test_dispatch",
     "knowledge.list",
@@ -30,6 +25,9 @@ const METHODS: &[&str] = &[
 
 /// 返回 Some(result) 表示命中；None 表示不是本组方法。
 pub(super) async fn try_handle(method: &str, params: &Value, app: &AppHandle) -> Option<Result<Value, String>> {
+    if super::ops_provider::METHODS.contains(&method) {
+        return Some(super::ops_provider::handle(method, params, app).await);
+    }
     if !METHODS.contains(&method) {
         return None;
     }
@@ -38,67 +36,6 @@ pub(super) async fn try_handle(method: &str, params: &Value, app: &AppHandle) ->
 
 async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, String> {
     match method {
-        "provider.verify" => {
-            let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
-            let account = params.get("account").and_then(Value::as_str);
-            let model = params.get("model").and_then(Value::as_str);
-            let state = app.state::<Arc<AppState>>();
-            let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
-            serde_json::to_value(kxen_app::llm::verify::verify_provider(&store, provider, account, model).await).map_err(|e| e.to_string())
-        }
-        "provider.accounts" => {
-            let state = app.state::<Arc<AppState>>();
-            let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
-            let out: Vec<Value> = ["anthropic", "openai", "xai", "kimi-for-coding"]
-                .iter()
-                .flat_map(|p| {
-                    kxen_app::auth::credential::accounts_of(&store, p).into_iter().map(|key| {
-                        let expired = store.get(&key).is_some_and(|c| c.is_expired());
-                        json!({ "provider": p, "account": key.strip_prefix(&format!("{p}:")).map(String::from).unwrap_or_else(|| "default".to_string()), "id": key, "expired": expired })
-                    }).collect::<Vec<_>>()
-                })
-                .collect();
-            Ok(json!(out))
-        }
-        "provider.import_account" => {
-            let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
-            let account = params.get("account").and_then(Value::as_str).ok_or("missing account")?;
-            let access = params.get("access").and_then(Value::as_str).ok_or("missing access token")?;
-            let refresh = params.get("refresh").and_then(Value::as_str).unwrap_or("");
-            let expires = params.get("expires").and_then(Value::as_u64).unwrap_or(0);
-            let key = kxen_app::auth::credential::account_id(provider, account);
-            let state = app.state::<Arc<AppState>>();
-            let mut store = state.auth_store.lock().map_err(|e| e.to_string())?;
-            store.insert(
-                key.clone(),
-                kxen_app::auth::credential::CredentialKind::Oauth {
-                    access: access.to_string(),
-                    refresh: refresh.to_string(),
-                    expires,
-                    account_id: params.get("account_id").and_then(Value::as_str).map(String::from),
-                },
-            );
-            let path = kxen_app::core::paths::auth_file();
-            kxen_app::auth::credential::write_auth_file(&path, &store).map_err(|e| e.to_string())?;
-            Ok(json!({ "id": key }))
-        }
-        "provider.remove_account" => {
-            let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
-            let account = params.get("account").and_then(Value::as_str).ok_or("missing account")?;
-            if account == "default" {
-                return Err("默认账号由官方 CLI 导入管理，不可在此删除".into());
-            }
-            let key = kxen_app::auth::credential::account_id(provider, account);
-            let state = app.state::<Arc<AppState>>();
-            let mut store = state.auth_store.lock().map_err(|e| e.to_string())?;
-            if store.remove(&key).is_none() {
-                return Err(format!("账号不存在: {key}"));
-            }
-            let path = kxen_app::core::paths::auth_file();
-            kxen_app::auth::credential::write_auth_file(&path, &store).map_err(|e| e.to_string())?;
-            Ok(json!({ "removed": key }))
-        }
-        "provider.reprobe" => reprobe(app).await,
         "mrm.stats" => {
             let state = app.state::<Arc<AppState>>();
             let mrm = state.mrm.read().expect("mrm").clone();
@@ -165,7 +102,7 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
                 "engine": config.voice.engine,
                 "fallback": config.voice.fallback,
                 "locale": config.voice.locale,
-                "engines": kxen_app::voice::engines(&config.voice, &store),
+                "engines": kxen_app::voice::engines(&config, &store),
             }))
         }
         "voice.transcribe_file" => {
@@ -176,7 +113,7 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             let locale = locale.unwrap_or(&config.voice.locale);
             let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
-            let text = kxen_app::voice::transcribe_file(&config.voice, &store, engine, path, locale).await?;
+            let text = kxen_app::voice::transcribe_file(&config, &store, engine, path, locale).await?;
             Ok(json!({ "text": text }))
         }
         "voice.set_provider_key" => {
@@ -196,17 +133,14 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
                 .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
                 .unwrap_or_default();
             let path = kxen_app::core::paths::config_dir().join("config.toml");
-            let text = std::fs::read_to_string(&path).unwrap_or_default();
-            let mut doc: toml::Table = if text.trim().is_empty() { toml::Table::new() } else { toml::from_str(&text).map_err(|e| format!("config.toml parse: {e}"))? };
+            let mut doc = read_toml(&path)?;
             let mut voice = toml::map::Map::new();
             voice.insert("engine".into(), toml::Value::String(engine.into()));
             if !fallback.is_empty() {
                 voice.insert("fallback".into(), toml::Value::Array(fallback.into_iter().map(toml::Value::String).collect()));
             }
             doc.insert("voice".into(), toml::Value::Table(voice));
-            let tmp = path.with_extension("toml.tmp");
-            std::fs::write(&tmp, toml::to_string(&doc).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-            std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+            write_toml(&path, &doc)?;
             Ok(json!({ "engine": engine }))
         }
         "voice.start" => {
@@ -226,7 +160,7 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             let config = load_config()?;
             let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
-            let text = kxen_app::voice::stop(&config.voice, &store).await?;
+            let text = kxen_app::voice::stop(&config, &store).await?;
             Ok(json!({ "text": text }))
         }
         other => Err(format!("unknown method: {other}")),
@@ -237,21 +171,20 @@ fn load_config() -> Result<kxen_app::core::config::Config, String> {
     kxen_app::core::config::Config::load(&kxen_app::core::paths::config_dir().join("config.toml"), None).map_err(|e| e.to_string())
 }
 
-async fn reprobe(app: &AppHandle) -> Result<Value, String> {
-    let state = app.state::<Arc<AppState>>();
-    let probed = tokio::task::spawn_blocking(|| {
-        let path = kxen_app::core::paths::auth_file();
-        let mut store = kxen_app::auth::credential::read_auth_file(&path);
-        let outcomes = kxen_app::auth::probe_all(&mut store, true);
-        let _ = kxen_app::auth::credential::write_auth_file(&path, &store);
-        (store, outcomes)
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-    let (store, outcomes) = probed;
-    *state.auth_store.lock().map_err(|e| e.to_string())? = store.clone();
-    let report = crate::doctor::doctor_report(&store);
-    Ok(json!({ "report": report, "outcomes": outcomes.iter().map(|(p, o, _)| format!("{p}: {o:?}")).collect::<Vec<_>>() }))
+/// toml 1.x 文档读（Value::from_str 解析的是值不是文档）。
+pub(super) fn read_toml(path: &std::path::Path) -> Result<toml::Table, String> {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    if text.trim().is_empty() {
+        return Ok(toml::Table::new());
+    }
+    toml::from_str(&text).map_err(|e| format!("config.toml parse: {e}"))
+}
+
+/// 原子写回（tmp + rename）。
+pub(super) fn write_toml(path: &std::path::Path, doc: &toml::Table) -> Result<(), String> {
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, toml::to_string(doc).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
 async fn test_dispatch(app: &AppHandle, params: &Value) -> Result<Value, String> {

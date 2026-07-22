@@ -3,7 +3,6 @@ import { createSignal, For, onMount, Show } from "solid-js";
 import { Plus, RefreshCw, Trash2, Wrench } from "lucide-solid";
 import { configGet } from "../../lib/chat";
 import {
-  importAccount,
   providerAccounts,
   providerReprobe,
   providerVerify,
@@ -11,6 +10,7 @@ import {
   type AccountInfo,
   type VerifyOutcome,
 } from "../../lib/provider";
+import AddAccountPanel from "./AddAccountPanel";
 
 interface Row extends AccountInfo {
   verify?: VerifyOutcome;
@@ -41,9 +41,6 @@ export default function ProvidersSection() {
   const [reprobing, setReprobing] = createSignal(false);
   const [note, setNote] = createSignal("");
   const [adding, setAdding] = createSignal(false);
-  const [newProvider, setNewProvider] = createSignal("anthropic");
-  const [newName, setNewName] = createSignal("");
-  const [newToken, setNewToken] = createSignal("");
   const [guideFor, setGuideFor] = createSignal("");
 
   const load = async () => {
@@ -90,37 +87,6 @@ export default function ProvidersSection() {
       setReprobing(false);
       setTimeout(() => setNote(""), 4000);
     }
-  };
-
-  const addAccount = async () => {
-    const name = newName().trim();
-    const raw = newToken().trim();
-    if (!name || !raw) return;
-    // 支持整段 OAuth JSON 或裸 access token
-    let access = raw;
-    let refresh = "";
-    let expires = 0;
-    if (raw.startsWith("{")) {
-      try {
-        const j = JSON.parse(raw) as {
-          access_token?: string;
-          refresh_token?: string;
-          expires_at?: number;
-        };
-        access = j.access_token ?? raw;
-        refresh = j.refresh_token ?? "";
-        expires = j.expires_at ?? 0;
-      } catch {
-        /* 按裸 token 处理 */
-      }
-    }
-    await importAccount(newProvider(), name, access, refresh, expires);
-    setNewName("");
-    setNewToken("");
-    setAdding(false);
-    await load();
-    setNote(`账号 ${newProvider()}:${name} 已添加`);
-    setTimeout(() => setNote(""), 3000);
   };
 
   const remove = async (row: Row) => {
@@ -173,38 +139,14 @@ export default function ProvidersSection() {
       </Show>
 
       <Show when={adding()}>
-        <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-3 space-y-2">
-          <div class="flex gap-2">
-            <select
-              class="bg-transparent border border-[var(--border)] rounded px-1.5 py-1 text-xs text-[var(--text-dim)]"
-              value={newProvider()}
-              onChange={(e) => setNewProvider(e.currentTarget.value)}
-            >
-              {Object.entries(PROVIDER_LABELS).map(([id, label]) => (
-                <option value={id}>{label}</option>
-              ))}
-            </select>
-            <input
-              class="flex-1 bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs"
-              placeholder="账号名（如 work / personal）"
-              value={newName()}
-              onInput={(e) => setNewName(e.currentTarget.value)}
-            />
-          </div>
-          <textarea
-            class="w-full bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs font-mono h-14"
-            placeholder="OAuth JSON（access_token/refresh_token/expires_at）或裸 access token"
-            value={newToken()}
-            onInput={(e) => setNewToken(e.currentTarget.value)}
-          />
-          <button
-            class="pressable px-3 py-1 rounded-md text-xs border border-[var(--border)] disabled:opacity-40"
-            disabled={!newName().trim() || !newToken().trim()}
-            onClick={() => void addAccount()}
-          >
-            保存账号
-          </button>
-        </div>
+        <AddAccountPanel
+          onDone={(msg) => {
+            setAdding(false);
+            setNote(msg);
+            setTimeout(() => setNote(""), 3000);
+            void load();
+          }}
+        />
       </Show>
 
       <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] divide-y divide-[var(--border)]">

@@ -25,10 +25,40 @@ export function importAccount(
   provider: string,
   account: string,
   access: string,
+  kind: "oauth" | "api" = "oauth",
   refresh = "",
   expires = 0,
 ): Promise<void> {
-  return client.rpc("provider.import_account", { provider, account, access, refresh, expires });
+  return client.rpc("provider.import_account", {
+    provider,
+    account,
+    access,
+    kind,
+    refresh,
+    expires,
+  });
+}
+
+export function addCustomProvider(
+  name: string,
+  baseUrl: string,
+  apiKey: string,
+  models: string[],
+  protocol: "openai" | "anthropic",
+  capabilities: string[],
+): Promise<void> {
+  return client.rpc("provider.add_custom", {
+    name,
+    base_url: baseUrl,
+    api_key: apiKey,
+    models,
+    protocol,
+    capabilities,
+  });
+}
+
+export function removeCustomProvider(name: string): Promise<void> {
+  return client.rpc("provider.remove_custom", { name });
 }
 
 export function removeAccount(provider: string, account: string): Promise<void> {

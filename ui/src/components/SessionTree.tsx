@@ -1,6 +1,6 @@
 // SessionTree：Codex 式项目-会话树（每组 ≤5 条，组可折叠，底部内嵌添加目录）。
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { ChevronDown, ChevronRight, FolderOpen, FolderPlus, X } from "lucide-solid";
+import { ChevronDown, ChevronRight, FolderOpen, FolderPlus, Plus, X } from "lucide-solid";
 import {
   sessionDelete,
   workspaceAdd,
@@ -9,7 +9,13 @@ import {
   type SessionMeta,
   type Workspace,
 } from "../lib/chat";
-import { activeSessionId, refreshSessions, sessions, switchSession } from "../lib/state";
+import {
+  activeSessionId,
+  newSession,
+  refreshSessions,
+  sessions,
+  switchSession,
+} from "../lib/state";
 
 const MAX_PER_GROUP = 5;
 
@@ -77,6 +83,12 @@ export default function SessionTree() {
     switchSession(id);
   };
 
+  /** 项目行快捷新会话：切到该项目目录并开草稿。 */
+  const quickNew = async (path: string) => {
+    await workspaceSwitch(path).catch(() => {});
+    await newSession();
+  };
+
   const remove = async (id: string) => {
     await sessionDelete(id);
     await refreshSessions();
@@ -102,7 +114,7 @@ export default function SessionTree() {
           return (
             <div>
               <button
-                class="w-full flex items-center gap-1 px-1.5 py-1 rounded text-xs text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60"
+                class="group w-full flex items-center gap-1 px-1.5 py-1 rounded text-xs text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60"
                 onClick={() => toggle(group.path)}
               >
                 <Show when={isCollapsed()} fallback={<ChevronDown size={11} />}>
@@ -111,6 +123,18 @@ export default function SessionTree() {
                 <FolderOpen size={12} class="text-[var(--accent-hover)]" />
                 <span class="flex-1 text-left truncate font-medium" title={group.path}>
                   {group.name}
+                </span>
+                <span
+                  role="button"
+                  tabindex="0"
+                  class="opacity-0 group-hover:opacity-100 px-0.5 rounded hover:text-[var(--text)]"
+                  title="在此项目下新建会话"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void quickNew(group.path);
+                  }}
+                >
+                  <Plus size={12} />
                 </span>
                 <Show when={group.sessions.length > 0}>
                   <span class="text-2xs text-[var(--text-faint)]">{group.sessions.length}</span>

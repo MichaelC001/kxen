@@ -244,6 +244,7 @@ mod tests {
             hooks: HashMap::new(),
             statusline: Default::default(),
             voice: Default::default(),
+            custom_providers: Default::default(),
         }
     }
 
@@ -284,6 +285,7 @@ mod tests {
             hooks: HashMap::new(),
             statusline: Default::default(),
             voice: Default::default(),
+            custom_providers: Default::default(),
         };
         let mrm = ModelResourceManager::new(config);
         let mut store = store();

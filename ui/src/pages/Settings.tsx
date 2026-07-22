@@ -5,6 +5,7 @@ import KnowledgeSection from "../components/settings/KnowledgeSection";
 import ProvidersSection from "../components/settings/ProvidersSection";
 import RoutingSection from "../components/settings/RoutingSection";
 import VoiceSection from "../components/settings/VoiceSection";
+import { onDragStart } from "../lib/drag";
 import { theme, toggleTheme } from "../lib/theme";
 
 const SECTIONS = [
@@ -23,8 +24,8 @@ export default function Settings() {
 
   return (
     <div class="h-full overflow-auto">
-      <div class="h-8" data-tauri-drag-region />
-      <div class="p-6 pt-2 max-w-4xl mx-auto flex gap-6">
+      <div class="h-8" data-tauri-drag-region onMouseDown={onDragStart} />
+      <div class="px-8 py-6 pt-2 flex gap-8">
         <nav class="w-36 shrink-0 space-y-0.5">
           <A
             href="/"

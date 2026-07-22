@@ -185,6 +185,7 @@ mod tests {
             hooks: HashMap::new(),
             statusline: Default::default(),
             voice: Default::default(),
+            custom_providers: Default::default(),
         };
         SubagentDeps {
             registry: Arc::new(crate::tools::task::TaskRegistry::new()),
