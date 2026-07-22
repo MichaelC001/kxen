@@ -19,6 +19,8 @@ const METHODS: &[&str] = &[
     "schedule.add",
     "schedule.remove",
     "diagnostics.export",
+    "notifications.list",
+    "notifications.clear",
     "voice.engines",
     "voice.transcribe_file",
     "voice.set_provider_key",
@@ -130,6 +132,16 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
                 .join(format!("kxen-diagnostics-{}.md", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
             std::fs::write(&path, md).map_err(|e| e.to_string())?;
             Ok(json!({ "path": path.to_string_lossy() }))
+        }
+        "notifications.list" => {
+            let state = app.state::<Arc<AppState>>();
+            let buf = state.notifications.lock().map_err(|e| e.to_string())?;
+            Ok(json!(buf.iter().map(|(at, text)| json!({ "at": at, "text": text })).collect::<Vec<_>>()))
+        }
+        "notifications.clear" => {
+            let state = app.state::<Arc<AppState>>();
+            state.notifications.lock().map_err(|e| e.to_string())?.clear();
+            Ok(json!(true))
         }
         "voice.engines" => {
             let config = load_config()?;

@@ -46,16 +46,9 @@ export default function LexicalComposer(props: {
   const images = new Map<string, { media_type: string; data: string }>();
   const draftMap = new Map<string, string>(); // 每会话草稿（进程内）
 
-  const estimate = () => {
-    void tick(); // 依赖文本变化信号
-    return Math.ceil((core?.getText().length ?? 0) / 4);
-  };
+  const estimate = () => (void tick(), Math.ceil((core?.getText().length ?? 0) / 4));
   const estimateCls = () =>
-    estimate() > 190_000
-      ? "text-[var(--err)]"
-      : estimate() > 160_000
-        ? "text-[var(--warn)]"
-        : "text-[var(--text-faint)]";
+    estimate() > 190_000 ? "text-[var(--err)]" : estimate() > 160_000 ? "text-[var(--warn)]" : "text-[var(--text-faint)]";
   const empty = () => (void tick(), (core?.getText() ?? "") === "" && rowChips().length === 0);
 
   onMount(() => {

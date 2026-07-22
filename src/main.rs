@@ -34,6 +34,8 @@ pub struct AppState {
     pub workdir: std::sync::Arc<std::path::Path>,
     /// 当前活跃 workspace（多项目目录，可切换；初始 = workdir）
     pub active_workspace: std::sync::RwLock<std::path::PathBuf>,
+    /// 通知环形缓冲（teammate/cron/系统事件，顶栏通知中心数据源，50 条）
+    pub notifications: std::sync::Mutex<std::collections::VecDeque<(u64, String)>>,
 }
 
 impl AppState {
@@ -88,6 +90,7 @@ impl AppState {
             statusline_items: std::sync::Mutex::new(statusline_items),
             git_cache: std::sync::Mutex::new((std::time::Instant::now() - std::time::Duration::from_secs(60), String::new())),
             active_workspace: std::sync::RwLock::new(workdir.to_path_buf()),
+            notifications: std::sync::Mutex::new(std::collections::VecDeque::new()),
             workdir,
         }
     }
@@ -115,6 +118,23 @@ pub fn run() {
                             }
                         }
                         Err(e) => tracing::error!(error = %e, "ws server failed"),
+                    }
+                });
+                // 通知落盘：bus 订阅一条，Notification 事件进环形缓冲（通知中心数据源）
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut rx = handle.state::<Arc<AppState>>().bus.subscribe();
+                    while let Ok(event) = rx.recv().await {
+                        if let kxen_app::core::event::Event::Notification(text) = event {
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis() as u64)
+                                .unwrap_or(0);
+                            let state = handle.state::<Arc<AppState>>();
+                            let mut buf = state.notifications.lock().expect("notifications");
+                            buf.push_front((now, text));
+                            buf.truncate(50);
+                        }
                     }
                 });
                 // cron tick：15s 一轮，到期任务注入会话起 run（进程内调度，随 app 存活）

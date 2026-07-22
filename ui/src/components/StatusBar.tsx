@@ -1,5 +1,6 @@
 import { createSignal, Show, onCleanup, onMount } from "solid-js";
 import { GitBranch, Target, ListTodo } from "lucide-solid";
+import NotificationCenter from "./NotificationCenter";
 import { statusline, type StatuslineReport } from "../lib/chat";
 import { activeSessionId } from "../lib/state";
 
@@ -53,6 +54,7 @@ export default function StatusBar() {
         </span>
       </Show>
       <span class="ml-auto flex items-center gap-3 tabular-nums">
+        <NotificationCenter />
         <Show when={has("tokens")}>
           <span title="本会话 tokens（input/output）">
             {report()?.tokens.input}/{report()?.tokens.output}
