@@ -98,6 +98,32 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
         }
         "session.delete" => {
             let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
+            // 删除前兜底蒸馏：持久知识落 notes/，任何失败静默照删（OKF：纯 md 可审计，非 silent auto-write）
+            let sessions_dir = kxen_app::core::paths::sessions_dir();
+            let transcript: Vec<String> = kxen_app::core::session::load_messages(&sessions_dir, id)
+                .into_iter()
+                .map(|m| {
+                    m.parts
+                        .iter()
+                        .filter_map(|p| match p {
+                            kxen_app::core::session::Part::Text { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .filter(|t| !t.is_empty())
+                .collect();
+            {
+                let state = app.state::<Arc<AppState>>();
+                let model = state.model.lock().map(|m| m.clone()).unwrap_or_default();
+                let store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
+                let dir = state.active_workspace.read().expect("workspace").clone();
+                let written = kxen_app::knowledge::distill::distill_on_delete(&model, &store, &dir, transcript).await;
+                if written > 0 {
+                    tracing::info!(written, "session distilled before delete");
+                }
+            }
             kxen_app::core::session::remove(&kxen_app::core::paths::sessions_dir(), id);
             Ok(Value::Null)
         }

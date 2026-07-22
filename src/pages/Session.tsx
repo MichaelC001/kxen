@@ -261,7 +261,7 @@ export default function Session() {
               if (item.role === "user") {
                 return (
                   <div class="group relative flex flex-col items-end gap-1">
-                    <div class="max-w-[80%] rounded-2xl rounded-br-md px-3.5 py-2 text-sm bg-[var(--accent)] text-[var(--accent-contrast)] whitespace-pre-wrap">
+                    <div class="selectable max-w-[80%] rounded-2xl rounded-br-md px-3.5 py-2 text-sm bg-[var(--accent)] text-[var(--accent-contrast)] whitespace-pre-wrap">
                       {item.content}
                     </div>
                     <Show when={item.messageId}>
@@ -291,7 +291,7 @@ export default function Session() {
                     </div>
                   </Show>
                   <Show when={item.reasoning}>
-                    <div class="text-xs text-[var(--text-faint)] border-l-2 border-[var(--border)] pl-2.5 mb-2 whitespace-pre-wrap">
+                    <div class="selectable text-xs text-[var(--text-faint)] border-l-2 border-[var(--border)] pl-2.5 mb-2 whitespace-pre-wrap">
                       {item.reasoning}
                     </div>
                   </Show>

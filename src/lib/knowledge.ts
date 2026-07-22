@@ -1,14 +1,30 @@
 import { client } from "./client";
 
+export type KnowledgeScope = "project" | "personal";
+export type KnowledgeKind =
+  | "rule"
+  | "reference"
+  | "skill"
+  | "command"
+  | "note"
+  | "memory"
+  | "history";
+
 export interface KnowledgeEntry {
-  scope: string;
+  scope: KnowledgeScope;
+  kind: KnowledgeKind;
   slug: string;
-  type: string;
   description: string;
-  date: string;
   content: string;
   path: string;
   enabled: boolean;
+  always_apply: boolean;
+  globs: string[];
+  needs: string[];
+  when_to_use?: string;
+  argument_hint?: string;
+  note_type?: string;
+  date: string;
 }
 
 export function knowledgeList(): Promise<KnowledgeEntry[]> {
@@ -16,7 +32,7 @@ export function knowledgeList(): Promise<KnowledgeEntry[]> {
 }
 
 export function knowledgeAdd(
-  scope: string,
+  scope: KnowledgeScope,
   type: string,
   description: string,
   content: string,
@@ -24,21 +40,28 @@ export function knowledgeAdd(
   return client.rpc("knowledge.add", { scope, type, description, content });
 }
 
-export function knowledgeRemove(scope: string, slug: string): Promise<void> {
+export function knowledgeRemove(scope: KnowledgeScope, slug: string): Promise<void> {
   return client.rpc("knowledge.remove", { scope, slug });
 }
 
-export function knowledgeSetEnabled(scope: string, slug: string, enabled: boolean): Promise<void> {
+export function knowledgeSetEnabled(
+  scope: KnowledgeScope,
+  slug: string,
+  enabled: boolean,
+): Promise<void> {
   return client.rpc("knowledge.set_enabled", { scope, slug, enabled });
 }
 
-export function knowledgeMove(scope: string, slug: string, to: string): Promise<void> {
+export function knowledgeMove(
+  scope: KnowledgeScope,
+  slug: string,
+  to: KnowledgeScope,
+): Promise<void> {
   return client.rpc("knowledge.move", { scope, slug, to });
 }
 
 export interface InjectionPreview {
-  project: string | null;
-  extra: string | null;
+  block: string | null;
 }
 
 export function knowledgeInjectionPreview(): Promise<InjectionPreview> {

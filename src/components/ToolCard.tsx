@@ -26,7 +26,7 @@ export default function ToolCard(props: {
         />
       </summary>
       <Show when={props.result !== undefined}>
-        <pre class="px-2.5 pb-2 pt-1 text-[var(--text-dim)] whitespace-pre-wrap break-all max-h-64 overflow-auto border-t border-[var(--border)]">
+        <pre class="selectable px-2.5 pb-2 pt-1 text-[var(--text-dim)] whitespace-pre-wrap break-all max-h-64 overflow-auto border-t border-[var(--border)]">
           {props.result}
         </pre>
       </Show>

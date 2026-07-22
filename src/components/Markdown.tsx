@@ -26,5 +26,5 @@ export default function Markdown(props: { text: string }) {
     });
   });
 
-  return <div ref={(node) => (el = node)} class="md" onClick={onClick} />;
+  return <div ref={(node) => (el = node)} class="md selectable" onClick={onClick} />;
 }

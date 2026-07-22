@@ -1,5 +1,6 @@
-//! / 命令：内置命令 + 自定义模板（.kxen/commands/*.md + ~/.kxen/commands/*.md，文件名=命令名）。
+//! / 命令：builtin + 统一知识系统 kind=Command 条目（模板正文 + argument-hint + needs 懒加载）。
 
+use crate::knowledge::{self, Kind};
 use serde::Serialize;
 use std::path::Path;
 
@@ -23,51 +24,7 @@ const BUILTIN: &[(&str, &str, Option<&str>)] = &[
     ("abort", "中断当前生成", None),
 ];
 
-/// 自定义模板：.kxen/commands/*.md（frontmatter description/argument-hint，正文 $ARGUMENTS 模板）。
-fn scan_custom(workdir: &Path) -> Vec<CommandInfo> {
-    let mut roots = vec![workdir.join(".kxen/commands")];
-    if let Some(home) = dirs::home_dir() {
-        roots.push(home.join(".kxen/commands"));
-    }
-    let mut out: Vec<CommandInfo> = Vec::new();
-    for root in roots {
-        let Ok(entries) = std::fs::read_dir(&root) else { continue };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.extension().is_some_and(|x| x == "md") {
-                continue;
-            }
-            let Some(name) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else { continue };
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
-            let (description, argument_hint) = parse_meta(&text);
-            if out.iter().any(|c: &CommandInfo| c.name == name) {
-                continue; // 项目覆盖用户（first-wins）
-            }
-            out.push(CommandInfo { name, description, kind: "custom", argument_hint });
-        }
-    }
-    out
-}
-
-fn parse_meta(text: &str) -> (String, Option<String>) {
-    let mut description = String::new();
-    let mut hint = None;
-    if let Some(rest) = text.strip_prefix("---") {
-        if let Some(end) = rest.find("\n---") {
-            for line in rest[..end].lines() {
-                let Some((key, value)) = line.split_once(':') else { continue };
-                match key.trim() {
-                    "description" => description = value.trim().trim_matches('"').to_string(),
-                    "argument-hint" | "argument_hint" => hint = Some(value.trim().trim_matches('"').to_string()),
-                    _ => {}
-                }
-            }
-        }
-    }
-    (description, hint)
-}
-
-/// command.list 数据源：builtin + custom + skills（skills 由调用方拼）。
+/// command.list 数据源：builtin + custom（skills 由调用方拼）。
 pub fn list(workdir: &Path) -> Vec<CommandInfo> {
     let mut out: Vec<CommandInfo> = BUILTIN
         .iter()
@@ -78,27 +35,61 @@ pub fn list(workdir: &Path) -> Vec<CommandInfo> {
             argument_hint: hint.map(String::from),
         })
         .collect();
-    out.extend(scan_custom(workdir));
+    out.extend(
+        knowledge::scan(workdir)
+            .into_iter()
+            .filter(|e| e.kind == Kind::Command && e.enabled)
+            .map(|e| CommandInfo {
+                name: e.slug,
+                description: e.description,
+                kind: "custom",
+                argument_hint: e.argument_hint,
+            }),
+    );
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
+}
+
+/// 发送时展开自定义命令：$ARGUMENTS 模板 + needs 依赖懒加载注入。非自定义命令返回 None。
+pub fn expand(workdir: &Path, name: &str, args: &str) -> Option<String> {
+    let entry = knowledge::scan(workdir)
+        .into_iter()
+        .find(|e| e.kind == Kind::Command && e.enabled && e.slug == name)?;
+    let content = crate::agent::skills::expand_args(&entry.content, args, &[]);
+    let deps = knowledge::resolve_needs(workdir, &entry.needs);
+    Some(format!("{content}\n{deps}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn builtin_and_custom() {
-        let dir = std::env::temp_dir().join(format!("kxen-cmd-{}", std::process::id()));
-        let cmds = dir.join(".kxen/commands");
+    fn fixture(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("kxen-cmd-{tag}-{}", std::process::id()));
+        let cmds = dir.join(".agents/commands");
         std::fs::create_dir_all(&cmds).unwrap();
         std::fs::write(cmds.join("review.md"), "---\ndescription: 审查指定路径\nargument-hint: <路径>\n---\n审查 $ARGUMENTS\n").unwrap();
+        dir
+    }
+
+    #[test]
+    fn builtin_and_custom() {
+        let dir = fixture("list");
         let list = list(&dir);
         assert!(list.iter().any(|c| c.name == "write-goal" && c.kind == "builtin"));
         let custom = list.iter().find(|c| c.name == "review").unwrap();
         assert_eq!(custom.kind, "custom");
         assert_eq!(custom.description, "审查指定路径");
         assert_eq!(custom.argument_hint.as_deref(), Some("<路径>"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn expand_template_with_args() {
+        let dir = fixture("expand");
+        let out = expand(&dir, "review", "src/auth").unwrap();
+        assert!(out.contains("审查 src/auth"));
+        assert!(expand(&dir, "nonexistent", "").is_none());
         std::fs::remove_dir_all(&dir).ok();
     }
 }

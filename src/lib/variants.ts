@@ -47,6 +47,7 @@ export const badgeChip = cva("text-2xs px-1 rounded border border-[var(--border)
     tone: {
       faint: "text-[var(--text-faint)]",
       accent: "text-[var(--accent-hover)] border-[var(--accent)]",
+      warn: "text-[var(--warn)] border-[var(--warn)]/40",
     },
   },
   defaultVariants: { tone: "faint" },

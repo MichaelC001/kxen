@@ -124,6 +124,14 @@ pub fn list(dir: &Path) -> Vec<Session> {
     out
 }
 
+/// 删除会话：移入系统废纸篓（Finder 可恢复）。测试走硬删，避免 cargo test 污染用户废纸篓。
+#[cfg(not(test))]
+pub fn remove(dir: &Path, id: &str) {
+    let _ = trash::delete(meta_path(dir, id));
+    let _ = trash::delete(messages_path(dir, id));
+}
+
+#[cfg(test)]
 pub fn remove(dir: &Path, id: &str) {
     let _ = std::fs::remove_file(meta_path(dir, id));
     let _ = std::fs::remove_file(messages_path(dir, id));

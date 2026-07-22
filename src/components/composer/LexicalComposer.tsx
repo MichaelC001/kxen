@@ -1,6 +1,6 @@
 // LexicalComposer：Lexical 内核整卡输入（inline token chips + 弹窗锚定 caret + 语音 PTT + 图片粘贴）。
 import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
-import { Image as ImageIcon, Mic, MicOff, Plus, Send, Square, X } from "lucide-solid";
+import { Image as ImageIcon, Mic, Plus, Send, Square, X } from "lucide-solid";
 import { commandList, type CommandInfo, type ContextItem } from "../../lib/chat";
 import { activeSessionId } from "../../lib/state";
 import { COMPOSER_INSERT_EVENT } from "../../lib/composer-bus";
@@ -33,7 +33,7 @@ export default function LexicalComposer(props: {
   focusTick: () => number;
 }) {
   const [popup, setPopup] = createSignal<(PopupState & Trigger) | null>(null);
-  const [popupPos, setPopupPos] = createSignal<{ left: number; top: number } | null>(null);
+  const [popupPos, setPopupPos] = createSignal<{ left: number; bottom: number } | null>(null);
   const [commands, setCommands] = createSignal<CommandInfo[]>([]);
   const [rowChips, setRowChips] = createSignal<RowChip[]>([]);
   const [recording, setRecording] = createSignal(false);
@@ -137,7 +137,12 @@ export default function LexicalComposer(props: {
         },
       });
       const rect = core?.caretRect();
-      setPopupPos(rect ? { left: rect.left, top: rect.bottom + 4 } : null);
+      // composer 贴窗口底部，弹窗必须向上展开（bottom 锚定），否则下穿出窗被状态栏裁掉
+      const pos = rect && {
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - 264)),
+        bottom: window.innerHeight - rect.top + 4,
+      };
+      setPopupPos(pos || null);
       setPopup({ ...trigger, items, selected: 0 });
     }, 200);
   }
@@ -229,10 +234,11 @@ export default function LexicalComposer(props: {
       .map((c) => `（请把本次相关经验用 knowledge 工具沉淀到 ${c.ref}，写前给我确认）`)
       .join("\n");
     if (!value && inlineChips.length === 0 && rowChips().length === 0) return;
-    const context: ContextItem[] = inlineChips.map((c) => {
-      if (c.kind === "web" || c.kind === "docs") return { type: c.kind, url: c.ref };
-      return { type: "file", path: c.ref };
-    });
+    const context: ContextItem[] = inlineChips.map((c) =>
+      c.kind === "web" || c.kind === "docs"
+        ? { type: c.kind, url: c.ref }
+        : { type: "file", path: c.ref },
+    );
     const imageParts = rowChips()
       .filter((c) => c.kind === "image")
       .map((c) => images.get(c.ref))
@@ -253,7 +259,7 @@ export default function LexicalComposer(props: {
             class="composer-popup fixed w-64 max-h-72 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] shadow-xl shadow-black/30 z-30"
             style={
               popupPos()
-                ? `left:${popupPos()!.left}px;top:${popupPos()!.top}px`
+                ? `left:${popupPos()!.left}px;bottom:${popupPos()!.bottom}px`
                 : "left:16px;bottom:120px"
             }
           >
@@ -324,7 +330,8 @@ export default function LexicalComposer(props: {
               title={recording() ? "停止语音输入" : "语音输入（长按空格或点击）"}
               onClick={() => voiceCtl.toggle()}
             >
-              {recording() ? <MicOff size={15} /> : <Mic size={15} />}
+              <Mic size={15} />
+              {/* 录音=live 非禁用：红 Mic+脉冲环；勿用 MicOff（斜杠=禁用语义） */}
             </button>
             <MicMenu onEngine={setVoiceEngine} />
           </div>

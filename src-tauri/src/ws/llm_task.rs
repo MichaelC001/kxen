@@ -19,6 +19,16 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         .unwrap_or_else(|_| state.active_workspace.read().expect("workspace").to_string_lossy().into_owned());
     let session_path = std::path::PathBuf::from(&session_dir);
 
+    // 自定义 / 命令展开：kind=Command 条目 $ARGUMENTS 模板 + needs 依赖懒加载（builtin 由模型 playbook 处理）
+    let text = if let Some(rest) = text.strip_prefix('/') {
+        let mut parts = rest.splitn(2, char::is_whitespace);
+        let name = parts.next().unwrap_or("");
+        let args = parts.next().unwrap_or("").trim();
+        kxen_app::agent::commands::expand(&session_path, name, args).unwrap_or(text)
+    } else {
+        text
+    };
+
     // @ 引用注入：chip -> 上下文块（文件/目录/Web/Docs），追加在用户消息尾部
     let context_block = if context.is_empty() {
         String::new()

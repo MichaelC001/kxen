@@ -50,9 +50,8 @@ const KNOWLEDGE_GUIDE: &str = "\
 
 Persist durable learnings with the knowledge tool - do not rely on session memory:
 - WHEN: the user corrects you, states a durable convention, or you hit a non-obvious pitfall.
-- scope project: project-specific conventions (sparingly; committed at .agents/rules).
-- scope global: cross-project conventions (~/.agents/rules).
-- scope memory: local pitfalls and preferences (.kxen/memory).
+- scope project: true only about this codebase (sparingly; committed at .agents/notes).
+- scope personal: useful across projects (~/.agents/notes) - the default.
 One topic per note; re-adding the same slug updates it. Skip one-off task details.";
 
 const ULTRA_PLAYBOOK: &str = "\
@@ -96,14 +95,8 @@ pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf])
     out.push_str(ULTRA_PLAYBOOK);
     out.push_str("\n\n");
     out.push_str(KNOWLEDGE_GUIDE);
-    if let Some(block) = crate::agent::okf::render_context(workdir, involved) {
+    if let Some(block) = crate::knowledge::render(workdir, involved) {
         out.push_str(&block);
-    }
-    if let Some(block) = crate::knowledge::render_extra(workdir) {
-        out.push_str(&block);
-    }
-    if let Some(listing) = crate::agent::skills::render_listing(workdir) {
-        out.push_str(&listing);
     }
     if let Some(block) = goal_block() {
         out.push_str("\n\n");

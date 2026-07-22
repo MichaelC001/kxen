@@ -85,20 +85,20 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
         "knowledge" => {
             match args.get("action").and_then(Value::as_str).ok_or("missing action")? {
                 "add" => {
-                    let scope = args.get("scope").and_then(Value::as_str).unwrap_or("memory");
+                    let scope = crate::knowledge::Scope::parse(args.get("scope").and_then(Value::as_str).unwrap_or("personal"))?;
                     let slug = args.get("slug").and_then(Value::as_str);
                     let kind = args.get("type").and_then(Value::as_str).unwrap_or("note");
                     let description = args.get("description").and_then(Value::as_str).ok_or("missing description")?;
                     let content = args.get("content").and_then(Value::as_str).ok_or("missing content")?;
                     let path = crate::knowledge::add(scope, &ctx.workdir, slug, kind, description, content)?;
-                    Ok(format!("knowledge saved ({scope}): {path}"))
+                    Ok(format!("knowledge saved ({}): {path}", scope.as_str()))
                 }
                 "list" => Ok(serde_json::to_string_pretty(&crate::knowledge::list(&ctx.workdir)).unwrap_or_default()),
                 "remove" => {
-                    let scope = args.get("scope").and_then(Value::as_str).ok_or("missing scope")?;
+                    let scope = crate::knowledge::Scope::parse(args.get("scope").and_then(Value::as_str).ok_or("missing scope")?)?;
                     let slug = args.get("slug").and_then(Value::as_str).ok_or("missing slug")?;
                     crate::knowledge::remove(scope, &ctx.workdir, slug)?;
-                    Ok(format!("knowledge removed ({scope}/{slug})"))
+                    Ok(format!("knowledge removed ({}/{slug})", scope.as_str()))
                 }
                 other => Err(format!("unknown knowledge action: {other}")),
             }
@@ -229,7 +229,8 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
                 if !crate::core::shared::lock(&extras.loaded_skills).insert(key) {
                     return Err(format!("skill {name} already loaded with identical args - reuse the block in this session"));
                 }
-                Ok(crate::agent::skills::render_loaded(&skill, skill_args, "model"))
+                let deps = crate::knowledge::resolve_needs(&ctx.workdir, &skill.needs);
+                Ok(crate::agent::skills::render_loaded(&skill, skill_args, "model", &deps))
             })();
             extras.skill_depth.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
             result

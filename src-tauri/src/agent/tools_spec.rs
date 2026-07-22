@@ -241,12 +241,12 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "knowledge",
-            "Persist durable learnings. add (scope: project|global|memory, type: correction|convention|pitfall|preference, description, content, slug?) writes one atomic note - same slug replaces, never duplicates. project = committed .agents/rules (use sparingly); global = cross-project (~/.agents/rules); memory = local pitfalls/preferences (.kxen/memory). list shows all scopes; remove (scope, slug).",
+            "Persist durable learnings. add (scope: project|personal, type: correction|convention|pitfall|preference, description, content, slug?) writes one atomic note - same slug replaces, never duplicates. project = true only about this codebase (use sparingly; committed at .agents/notes); personal = cross-project (~/.agents/notes, the default). list shows both scopes; remove (scope, slug).",
             json!({
                 "type": "object",
                 "properties": {
                     "action": { "type": "string", "enum": ["add", "list", "remove"] },
-                    "scope": { "type": "string", "enum": ["project", "global", "memory"] },
+                    "scope": { "type": "string", "enum": ["project", "personal"] },
                     "slug": { "type": "string" },
                     "type": { "type": "string", "enum": ["correction", "convention", "pitfall", "preference", "note"] },
                     "description": { "type": "string" },

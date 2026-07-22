@@ -25,7 +25,7 @@ export default function StatusBar() {
     const w = report()?.workdir ?? "";
     const home = "/Users/";
     const idx = w.indexOf(home);
-    return idx === 0 ? `~${w.slice(home.length).split("/").slice(1).join("/")}` : w;
+    return idx === 0 ? `~/${w.slice(home.length).split("/").slice(1).join("/")}` : w;
   };
 
   return (

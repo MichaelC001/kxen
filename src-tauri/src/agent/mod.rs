@@ -6,7 +6,6 @@ pub mod cancel;
 pub mod commands;
 pub mod context;
 pub mod loop_detect;
-pub mod okf;
 pub mod prompt;
 pub mod skills;
 pub mod subagent;

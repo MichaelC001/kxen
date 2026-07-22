@@ -1,1 +1,9 @@
-{"default":{"identifier":"default","description":"main window default capability","local":true,"windows":["main"],"permissions":["core:default","websocket:default","core:window:allow-start-dragging"]}}
+{
+  "default": {
+    "identifier": "default",
+    "description": "main window default capability",
+    "local": true,
+    "windows": ["main"],
+    "permissions": ["core:default", "websocket:default", "core:window:allow-start-dragging"]
+  }
+}

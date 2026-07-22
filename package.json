@@ -6,7 +6,10 @@
     "dev": "vp dev",
     "build": "vp build",
     "check": "vp check",
-    "test": "vp test"
+    "test": "vp test",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@kobalte/core": "^0.13.12",
@@ -24,6 +27,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",
+    "@tauri-apps/cli": "^2.9.0",
     "@vitest/browser": "^4.1.10",
     "@vitest/browser-playwright": "^4.1.10",
     "playwright": "^1.57.0",

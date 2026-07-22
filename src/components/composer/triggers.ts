@@ -49,9 +49,8 @@ export function detectTrigger(value: string, cursor: number): Trigger | null {
 }
 
 const KNOWLEDGE_TARGETS = [
-  { ref: ".agents/rules/", label: "写入项目规范", detail: ".agents/rules/（入 git 共享）" },
-  { ref: "~/.agents/rules/", label: "写入全局规范", detail: "~/.agents/rules/（个人全部项目）" },
-  { ref: ".kxen/memory/", label: "写入本地 memory", detail: ".kxen/memory/（本机，gitignored）" },
+  { ref: ".agents/notes/", label: "写入项目笔记", detail: ".agents/notes/（入 git 共享，克制）" },
+  { ref: "~/.agents/notes/", label: "写入个人笔记", detail: "~/.agents/notes/（跨项目，默认）" },
 ];
 
 export interface PopupActions {

@@ -6,15 +6,22 @@ body {
   overscroll-behavior: none;
 }
 
-/* 桌面应用选择规则：内容全可选，交互元素一律禁选（webkit 需 -webkit- 前缀） */
-button,
-a,
-select,
+/* 桌面应用选择规则：全局禁选，仅内容区（.selectable）与输入控件显式可选（webkit 需 -webkit- 前缀） */
+* {
+  -webkit-user-select: none;
+  user-select: none;
+}
 input,
 textarea,
-[role="button"],
-.interactive,
-.interactive * {
+[contenteditable="true"],
+[contenteditable="true"] *,
+.selectable,
+.selectable * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* 内容区内的控件（代码块复制按钮等）仍禁选 */
+.selectable button {
   -webkit-user-select: none;
   user-select: none;
 }

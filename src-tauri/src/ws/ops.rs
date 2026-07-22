@@ -57,7 +57,7 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             serde_json::to_value(kxen_app::knowledge::list(&dir)).map_err(|e| e.to_string())
         }
         "knowledge.add" => {
-            let scope = params.get("scope").and_then(Value::as_str).unwrap_or("memory");
+            let scope = kxen_app::knowledge::Scope::parse(params.get("scope").and_then(Value::as_str).unwrap_or("personal"))?;
             let slug = params.get("slug").and_then(Value::as_str);
             let kind = params.get("type").and_then(Value::as_str).unwrap_or("note");
             let description = params.get("description").and_then(Value::as_str).ok_or("missing description")?;
@@ -68,7 +68,7 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             Ok(json!({ "path": path }))
         }
         "knowledge.remove" => {
-            let scope = params.get("scope").and_then(Value::as_str).ok_or("missing scope")?;
+            let scope = kxen_app::knowledge::Scope::parse(params.get("scope").and_then(Value::as_str).ok_or("missing scope")?)?;
             let slug = params.get("slug").and_then(Value::as_str).ok_or("missing slug")?;
             let state = app.state::<Arc<AppState>>();
             let dir = state.active_workspace.read().expect("workspace").clone();
@@ -76,18 +76,18 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             Ok(json!({ "removed": true }))
         }
         "knowledge.set_enabled" => {
-            let scope = params.get("scope").and_then(Value::as_str).ok_or("missing scope")?;
+            let scope = kxen_app::knowledge::Scope::parse(params.get("scope").and_then(Value::as_str).ok_or("missing scope")?)?;
             let slug = params.get("slug").and_then(Value::as_str).ok_or("missing slug")?;
             let enabled = params.get("enabled").and_then(Value::as_bool).ok_or("missing enabled")?;
             let state = app.state::<Arc<AppState>>();
             let dir = state.active_workspace.read().expect("workspace").clone();
             kxen_app::knowledge::set_enabled(scope, &dir, slug, enabled)?;
-            Ok(json!({ "scope": scope, "slug": slug, "enabled": enabled }))
+            Ok(json!({ "scope": scope.as_str(), "slug": slug, "enabled": enabled }))
         }
         "knowledge.move" => {
-            let scope = params.get("scope").and_then(Value::as_str).ok_or("missing scope")?;
+            let scope = kxen_app::knowledge::Scope::parse(params.get("scope").and_then(Value::as_str).ok_or("missing scope")?)?;
             let slug = params.get("slug").and_then(Value::as_str).ok_or("missing slug")?;
-            let to = params.get("to").and_then(Value::as_str).ok_or("missing to")?;
+            let to = kxen_app::knowledge::Scope::parse(params.get("to").and_then(Value::as_str).ok_or("missing to")?)?;
             let state = app.state::<Arc<AppState>>();
             let dir = state.active_workspace.read().expect("workspace").clone();
             let path = kxen_app::knowledge::move_entry(scope, &dir, slug, to)?;
@@ -96,9 +96,8 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
         "knowledge.injection_preview" => {
             let state = app.state::<Arc<AppState>>();
             let dir = state.active_workspace.read().expect("workspace").clone();
-            let project = kxen_app::agent::okf::render_context(&dir, &[]);
-            let extra = kxen_app::knowledge::render_extra(&dir);
-            Ok(json!({ "project": project, "extra": extra }))
+            let block = kxen_app::knowledge::render(&dir, &[]);
+            Ok(json!({ "block": block }))
         }
         "schedule.list" => Ok(serde_json::to_value(kxen_app::core::schedule::list()).map_err(|e| e.to_string())?),
         "schedule.add" => {
