@@ -11,6 +11,8 @@ import {
 } from "../lib/chat";
 import { activeSessionId, ensureActiveSession, sessions, setHasConversation } from "../lib/state";
 import Markdown from "../components/Markdown";
+import ThinkingOrb from "../components/ThinkingOrb";
+import type { OrbState } from "../lib/orb";
 import ToolCard from "../components/ToolCard";
 import Composer from "../components/composer/LexicalComposer";
 import { FolderOpen, Target, Users, Workflow, Wrench } from "lucide-solid";
@@ -69,6 +71,7 @@ function toItems(messages: StoredMessage[]): Item[] {
 export default function Session() {
   const [items, setItems] = createSignal<Item[]>([]);
   const [streamingSid, setStreamingSid] = createSignal("");
+  const [orbPhase, setOrbPhase] = createSignal<OrbState>("thinking");
   const [focusTick, setFocusTick] = createSignal(0);
   const [workdir, setWorkdir] = createSignal("");
   let unlisten: (() => void) | undefined;
@@ -101,6 +104,7 @@ export default function Session() {
   });
 
   const appendAssistant = (field: "content" | "reasoning", text: string) => {
+    setOrbPhase("composing");
     setItems((prev) => {
       const last = prev.at(-1);
       if (last?.kind === "msg" && last.role === "assistant") {
@@ -127,6 +131,7 @@ export default function Session() {
       (text) => appendAssistant("content", text),
       (reasoning) => appendAssistant("reasoning", reasoning),
       (stats, error) => {
+        setOrbPhase(error ? "error" : "thinking");
         setItems((prev) => {
           const last = prev.at(-1);
           if (last?.kind === "msg" && last.role === "assistant") {
@@ -139,6 +144,7 @@ export default function Session() {
       },
       (event) => {
         if (event.kind === "tool_call") {
+          setOrbPhase("searching");
           setItems((prev) => [
             ...prev,
             { kind: "tool", name: event.name, call: event.summary ?? "" },
@@ -175,6 +181,7 @@ export default function Session() {
     // 草稿态首条消息：此时才落库成会话
     const sid = await ensureActiveSession();
     setStreamingSid(sid);
+    setOrbPhase("thinking");
     setItems((prev) => [...prev, { kind: "msg", role: "user", content: text }]);
     scroll();
     await sendMessage(sid, text, context, images);
@@ -201,8 +208,11 @@ export default function Session() {
         </span>
         <Show when={streaming()}>
           <span class="inline-flex items-center gap-1.5 text-[var(--accent-hover)]">
-            <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-hover)] animate-pulse" />
-            进行中
+            <ThinkingOrb state={orbPhase} size={20} />
+            {orbPhase() === "thinking" && "思考中"}
+            {orbPhase() === "searching" && "检索中"}
+            {orbPhase() === "composing" && "生成中"}
+            {orbPhase() === "error" && "出错"}
           </span>
         </Show>
       </div>
