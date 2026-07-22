@@ -93,10 +93,13 @@ pub fn role_agent(role: &str) -> RoleAgent {
 /// kind 区分来源（agent 工具 / workflow 的 agent()），统一进活动注册表供 UI 多窗格展示。
 pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: crate::agent::activity::AgentKind) -> Result<String, String> {
     let agent = role_agent(role);
-    let resolved = deps.mrm.resolve(role).await.ok_or_else(|| format!("no available model for role {role}"))?;
-    let slot = deps.mrm.acquire(&resolved.provider).await;
+    let resolved = deps.mrm.resolve(role, &deps.store).await.ok_or_else(|| format!("no available model for role {role}"))?;
+    let slot = deps.mrm.acquire(&resolved.slot_key()).await;
 
-    let model = crate::llm::ModelRef::new(resolved.provider, resolved.model);
+    let model = match resolved.account {
+        Some(acc) => crate::llm::ModelRef::with_account(resolved.provider, resolved.model, acc),
+        None => crate::llm::ModelRef::new(resolved.provider, resolved.model),
+    };
     let allowed = agent.permission.allowed_tools();
     let session_id = deps.session_id.clone().unwrap_or_else(|| "default".into());
     let name = deps.agents.unique_name(&session_id, role);

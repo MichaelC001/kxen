@@ -9,6 +9,9 @@ use crate::AppState;
 const METHODS: &[&str] = &[
     "provider.verify",
     "provider.reprobe",
+    "provider.import_account",
+    "provider.remove_account",
+    "provider.accounts",
     "mrm.stats",
     "agent.test_dispatch",
     "knowledge.list",
@@ -37,10 +40,63 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
     match method {
         "provider.verify" => {
             let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
+            let account = params.get("account").and_then(Value::as_str);
             let model = params.get("model").and_then(Value::as_str);
             let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
-            serde_json::to_value(kxen_app::llm::verify::verify_provider(&store, provider, model).await).map_err(|e| e.to_string())
+            serde_json::to_value(kxen_app::llm::verify::verify_provider(&store, provider, account, model).await).map_err(|e| e.to_string())
+        }
+        "provider.accounts" => {
+            let state = app.state::<Arc<AppState>>();
+            let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
+            let out: Vec<Value> = ["anthropic", "openai", "xai", "kimi-for-coding"]
+                .iter()
+                .flat_map(|p| {
+                    kxen_app::auth::credential::accounts_of(&store, p).into_iter().map(|key| {
+                        let expired = store.get(&key).is_some_and(|c| c.is_expired());
+                        json!({ "provider": p, "account": key.strip_prefix(&format!("{p}:")).map(String::from).unwrap_or_else(|| "default".to_string()), "id": key, "expired": expired })
+                    }).collect::<Vec<_>>()
+                })
+                .collect();
+            Ok(json!(out))
+        }
+        "provider.import_account" => {
+            let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
+            let account = params.get("account").and_then(Value::as_str).ok_or("missing account")?;
+            let access = params.get("access").and_then(Value::as_str).ok_or("missing access token")?;
+            let refresh = params.get("refresh").and_then(Value::as_str).unwrap_or("");
+            let expires = params.get("expires").and_then(Value::as_u64).unwrap_or(0);
+            let key = kxen_app::auth::credential::account_id(provider, account);
+            let state = app.state::<Arc<AppState>>();
+            let mut store = state.auth_store.lock().map_err(|e| e.to_string())?;
+            store.insert(
+                key.clone(),
+                kxen_app::auth::credential::CredentialKind::Oauth {
+                    access: access.to_string(),
+                    refresh: refresh.to_string(),
+                    expires,
+                    account_id: params.get("account_id").and_then(Value::as_str).map(String::from),
+                },
+            );
+            let path = kxen_app::core::paths::auth_file();
+            kxen_app::auth::credential::write_auth_file(&path, &store).map_err(|e| e.to_string())?;
+            Ok(json!({ "id": key }))
+        }
+        "provider.remove_account" => {
+            let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
+            let account = params.get("account").and_then(Value::as_str).ok_or("missing account")?;
+            if account == "default" {
+                return Err("默认账号由官方 CLI 导入管理，不可在此删除".into());
+            }
+            let key = kxen_app::auth::credential::account_id(provider, account);
+            let state = app.state::<Arc<AppState>>();
+            let mut store = state.auth_store.lock().map_err(|e| e.to_string())?;
+            if store.remove(&key).is_none() {
+                return Err(format!("账号不存在: {key}"));
+            }
+            let path = kxen_app::core::paths::auth_file();
+            kxen_app::auth::credential::write_auth_file(&path, &store).map_err(|e| e.to_string())?;
+            Ok(json!({ "removed": key }))
         }
         "provider.reprobe" => reprobe(app).await,
         "mrm.stats" => {
@@ -186,7 +242,7 @@ async fn reprobe(app: &AppHandle) -> Result<Value, String> {
     let probed = tokio::task::spawn_blocking(|| {
         let path = kxen_app::core::paths::auth_file();
         let mut store = kxen_app::auth::credential::read_auth_file(&path);
-        let outcomes = kxen_app::auth::probe_all(&mut store);
+        let outcomes = kxen_app::auth::probe_all(&mut store, true);
         let _ = kxen_app::auth::credential::write_auth_file(&path, &store);
         (store, outcomes)
     })
@@ -203,7 +259,7 @@ async fn test_dispatch(app: &AppHandle, params: &Value) -> Result<Value, String>
     let state = app.state::<Arc<AppState>>();
     let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
     let mrm = state.mrm.read().expect("mrm").clone();
-    let resolved = mrm.resolve(role).await.ok_or_else(|| format!("no available model for role {role}"))?;
+    let resolved = mrm.resolve(role, &store).await.ok_or_else(|| format!("no available model for role {role}"))?;
     let degraded = resolved.degraded_from.clone();
     let deps = kxen_app::agent::subagent::SubagentDeps {
         registry: state.registry.clone(),
@@ -221,6 +277,7 @@ async fn test_dispatch(app: &AppHandle, params: &Value) -> Result<Value, String>
         "role": role,
         "provider": resolved.provider,
         "model": resolved.model,
+        "account": resolved.account,
         "degraded_from": degraded,
         "answer": answer.chars().take(200).collect::<String>(),
     }))

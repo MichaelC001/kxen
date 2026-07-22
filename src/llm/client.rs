@@ -24,19 +24,23 @@ impl LlmClient {
     ) -> Pin<Box<dyn Stream<Item = Delta> + Send>> {
         match model.provider.as_str() {
             "anthropic" => {
-                let Some(crate::auth::credential::CredentialKind::Oauth { access, .. }) = store.get("anthropic") else {
+                let Some(crate::auth::credential::CredentialKind::Oauth { access, .. }) =
+                    crate::auth::credential::credential_for(&store, "anthropic", model.account.as_deref())
+                else {
                     return Box::pin(futures::stream::once(async { Delta::Error("anthropic credential missing (run doctor)".into()) }));
                 };
                 crate::llm::anthropic::AnthropicProvider::new(access.clone()).stream_chat(&model.model, messages, tools)
             }
             "openai" => {
-                let Some(crate::auth::credential::CredentialKind::Oauth { access, account_id, .. }) = store.get("openai") else {
+                let Some(crate::auth::credential::CredentialKind::Oauth { access, account_id, .. }) =
+                    crate::auth::credential::credential_for(&store, "openai", model.account.as_deref())
+                else {
                     return Box::pin(futures::stream::once(async { Delta::Error("openai credential missing (run doctor)".into()) }));
                 };
                 crate::llm::openai::OpenAiProvider::new(access.clone(), account_id.clone(), true).stream_chat(&model.model, messages, tools)
             }
             "kimi-for-coding" => {
-                let key = match store.get("kimi-for-coding") {
+                let key = match crate::auth::credential::credential_for(&store, "kimi-for-coding", model.account.as_deref()) {
                     Some(crate::auth::credential::CredentialKind::Api { key }) => key.clone(),
                     Some(crate::auth::credential::CredentialKind::Oauth { access, .. }) => access.clone(),
                     _ => {
@@ -46,10 +50,9 @@ impl LlmClient {
                 crate::llm::xai::XaiProvider::kimi(key).stream_chat_with_tools(&model.model, messages, tools)
             }
             "xai" => {
-                let Some(cred) = store.get("xai") else {
-                    return Box::pin(futures::stream::once(async { Delta::Error("xai credential missing (run doctor)".into()) }));
-                };
-                let crate::auth::credential::CredentialKind::Oauth { access, .. } = cred else {
+                let Some(crate::auth::credential::CredentialKind::Oauth { access, .. }) =
+                    crate::auth::credential::credential_for(&store, "xai", model.account.as_deref())
+                else {
                     return Box::pin(futures::stream::once(async { Delta::Error("xai credential is not oauth".into()) }));
                 };
                 crate::llm::xai::XaiProvider::new(access.clone()).stream_chat_with_tools(&model.model, messages, tools)

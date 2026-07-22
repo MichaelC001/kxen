@@ -53,6 +53,8 @@ pub struct RoleBinding {
     pub model: String,
     /// 降级目标角色（None = mrm 静态兜底链）。
     pub fallback: Option<String>,
+    /// 账号钉选（None = 默认账号链轮转；多账号 quota 池化）
+    pub account: Option<String>,
 }
 
 /// 状态栏显隐（固定段 + 开关，对齐 Zed 白名单模式）。

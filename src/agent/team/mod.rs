@@ -141,5 +141,5 @@ fn _assert_futures_send(mgr: &Arc<TeamManager>, args: &serde_json::Value) {
 #[allow(dead_code)]
 fn _assert_resolve_send(mrm: &crate::llm::mrm::ModelResourceManager) {
     fn assert_send<T: Send>(_: T) {}
-    assert_send(mrm.resolve("thinking"));
+    assert_send(mrm.resolve("thinking", &crate::auth::credential::AuthStore::new()));
 }

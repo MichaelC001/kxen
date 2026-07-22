@@ -46,7 +46,7 @@ pub(super) fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Valu
 }
 
 /// 非破坏写回：toml::Value 上改 roles[role]，保留文件其余内容；随后重建 MRM 热换 Arc。
-pub(super) fn set_role(role: &str, provider: &str, model: &str, fallback: Option<&str>, state: &Arc<AppState>) -> Result<Value, String> {
+pub(super) fn set_role(role: &str, provider: &str, model: &str, fallback: Option<&str>, account: Option<&str>, state: &Arc<AppState>) -> Result<Value, String> {
     let path = kxen_app::core::paths::config_dir().join("config.toml");
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     // toml 1.x：Value::from_str 解析的是「值」不是文档，文档必须按 Table 解析
@@ -62,6 +62,9 @@ pub(super) fn set_role(role: &str, provider: &str, model: &str, fallback: Option
     binding.insert("model".into(), toml::Value::String(model.into()));
     if let Some(f) = fallback {
         binding.insert("fallback".into(), toml::Value::String(f.into()));
+    }
+    if let Some(a) = account {
+        binding.insert("account".into(), toml::Value::String(a.into()));
     }
     roles_table.insert(role.into(), toml::Value::Table(binding));
 

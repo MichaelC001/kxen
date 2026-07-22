@@ -3,6 +3,7 @@ import { onMount } from "solid-js";
 import { Moon, Plus, Settings as SettingsIcon, Sun } from "lucide-solid";
 import SessionTree from "./SessionTree";
 import { initSessions, newSession } from "../lib/state";
+import { onDragStart } from "../lib/drag";
 import { theme, toggleTheme } from "../lib/theme";
 
 /** 左栏：品牌 + 新会话 + 项目-会话树（Codex 式分组）+ 底部应用级入口。 */
@@ -13,7 +14,7 @@ export default function Sidebar() {
 
   return (
     <nav class="w-52 shrink-0 flex flex-col border-r border-[var(--border)] bg-[var(--bg-raised)]">
-      <div class="traffic-pad" data-tauri-drag-region />
+      <div class="traffic-pad" data-tauri-drag-region onMouseDown={onDragStart} />
       <div class="px-4 pb-2 text-lg font-semibold tracking-tight text-[var(--accent-hover)]">
         kxen
       </div>
@@ -27,8 +28,8 @@ export default function Sidebar() {
         </button>
       </div>
       <SessionTree />
-      <div class="px-3 py-2 border-t border-[var(--border)] space-y-2">
-        <div class="flex items-center justify-between">
+      <div class="h-7 px-3 border-t border-[var(--border)] flex items-center">
+        <div class="flex-1 flex items-center justify-between">
           <A
             href="/settings"
             class="px-1 text-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"

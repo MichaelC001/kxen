@@ -160,8 +160,9 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
             let model = params.get("model").and_then(Value::as_str).ok_or("missing model")?;
             let fallback = params.get("fallback").and_then(Value::as_str);
+            let account = params.get("account").and_then(Value::as_str);
             let state = app.state::<Arc<AppState>>();
-            set_role(role, provider, model, fallback, &state)
+            set_role(role, provider, model, fallback, account, &state)
         }
         "fs.complete" => {
             let query = params.get("query").and_then(Value::as_str).unwrap_or("");

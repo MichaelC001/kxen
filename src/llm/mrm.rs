@@ -19,6 +19,7 @@ pub struct DispatchRecord {
     pub role: String,
     pub provider: String,
     pub model: String,
+    pub account: Option<String>,
     pub degraded_from: Option<String>,
     pub at: u64,
 }
@@ -32,7 +33,16 @@ pub struct Slot {
 pub struct Resolved {
     pub provider: String,
     pub model: String,
+    /// 命中的账号（None = 默认账号；多账号轮转的证据）
+    pub account: Option<String>,
     pub degraded_from: Option<String>,
+}
+
+impl Resolved {
+    /// 限流键（account_id 体系：默认账号 = 裸 provider）。
+    pub fn slot_key(&self) -> String {
+        crate::auth::credential::account_id(&self.provider, self.account.as_deref().unwrap_or("default"))
+    }
 }
 
 impl ModelResourceManager {
@@ -44,35 +54,60 @@ impl ModelResourceManager {
         self.config.roles.get(role)
     }
 
-    /// 角色 -> 可执行 provider/model（按降级链找第一个有空槽的）。
-    pub async fn resolve(&self, role: &str) -> Option<Resolved> {
+    /// 角色 -> 可执行 provider/model/account（钉账号优先；否则账号链轮转找第一个有槽的）。
+    pub async fn resolve(&self, role: &str, store: &crate::auth::credential::AuthStore) -> Option<Resolved> {
         let chain = self.role_chain(role);
         let mut first = true;
         for r in chain {
             let binding = self.config.roles.get(&r)?;
-            if self.available(&binding.provider).await {
-                let resolved = Resolved {
-                    provider: binding.provider.clone(),
-                    model: binding.model.clone(),
-                    degraded_from: if first { None } else { Some(role.to_string()) },
-                };
-                // 派发实况：设置页调度台数据源（50 条环形）
-                let mut history = self.history.lock().await;
-                history.push_back(DispatchRecord {
-                    role: role.to_string(),
-                    provider: resolved.provider.clone(),
-                    model: resolved.model.clone(),
-                    degraded_from: resolved.degraded_from.clone(),
-                    at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
-                });
-                if history.len() > 50 {
-                    history.pop_front();
+            let degraded_from = if first { None } else { Some(role.to_string()) };
+            // 钉账号：只看该账号（不可用则走链下一环）
+            if let Some(acc) = &binding.account {
+                let key = crate::auth::credential::account_id(&binding.provider, acc);
+                if store.contains_key(&key) && self.available(&key).await {
+                    let resolved = Resolved { provider: binding.provider.clone(), model: binding.model.clone(), account: Some(acc.clone()), degraded_from };
+                    self.record(role, &resolved).await;
+                    return Some(resolved);
                 }
+                first = false;
+                continue;
+            }
+            // 账号链轮转：默认 -> 命名字典序，首个有凭证且有槽
+            let mut hit: Option<(String, Option<String>)> = None;
+            for key in crate::auth::credential::accounts_of(store, &binding.provider) {
+                if self.available(&key).await {
+                    let account = key.strip_prefix(&format!("{}:", binding.provider)).map(String::from);
+                    hit = Some((key, account));
+                    break;
+                }
+            }
+            // 无账号线索时退回默认键（保留原始行为：限流不看凭证在否）
+            if hit.is_none() && self.available(&binding.provider).await {
+                hit = Some((binding.provider.clone(), None));
+            }
+            if let Some((_key, account)) = hit {
+                let resolved = Resolved { provider: binding.provider.clone(), model: binding.model.clone(), account, degraded_from };
+                self.record(role, &resolved).await;
                 return Some(resolved);
             }
             first = false;
         }
         None
+    }
+
+    async fn record(&self, role: &str, resolved: &Resolved) {
+        let mut history = self.history.lock().await;
+        history.push_back(DispatchRecord {
+            role: role.to_string(),
+            provider: resolved.provider.clone(),
+            model: resolved.model.clone(),
+            account: resolved.account.clone(),
+            degraded_from: resolved.degraded_from.clone(),
+            at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
+        });
+        if history.len() > 50 {
+            history.pop_front();
+        }
     }
 
     /// 派发历史（新->旧）。
@@ -122,7 +157,9 @@ impl ModelResourceManager {
         map.entry(provider.to_string()).or_insert_with(|| Arc::new(Semaphore::new(limit.max(1)))).clone()
     }
 
-    fn limit_of(&self, provider: &str) -> u32 {
+    fn limit_of(&self, key: &str) -> u32 {
+        // key 可为账号槽位键（provider:account）：取 provider 段的限额配置
+        let provider = key.split(':').next().unwrap_or(key);
         self.config
             .limits
             .providers
@@ -150,7 +187,8 @@ impl ModelResourceManager {
         Slot { _permit_global: permit_global, _permit_provider: permit_provider }
     }
 
-    async fn wait_rpm(&self, provider: &str) {
+    async fn wait_rpm(&self, key: &str) {
+        let provider = key.split(':').next().unwrap_or(key);
         let rpm = match self.config.limits.providers.get(provider).and_then(|l| l.rpm) {
             Some(r) if r > 0 => r,
             _ => return,
@@ -158,7 +196,7 @@ impl ModelResourceManager {
         loop {
             let wait_ms = {
                 let mut windows = self.rpm_windows.lock().await;
-                let window = windows.entry(provider.to_string()).or_default();
+                let window = windows.entry(key.to_string()).or_default();
                 let cutoff = Instant::now() - Duration::from_secs(60);
                 window.retain(|t| *t > cutoff);
                 if (window.len() as u32) < rpm {
@@ -194,9 +232,9 @@ mod tests {
 
     fn config() -> Config {
         let mut roles = HashMap::new();
-        roles.insert("thinking".into(), RoleBinding { provider: "anthropic".into(), model: "claude".into(), fallback: None });
-        roles.insert("execution".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None });
-        roles.insert("planning".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None });
+        roles.insert("thinking".into(), RoleBinding { provider: "anthropic".into(), model: "claude".into(), fallback: None, account: None });
+        roles.insert("execution".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None, account: None });
+        roles.insert("planning".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None, account: None });
         Config {
             roles,
             limits: Limits {
@@ -209,15 +247,19 @@ mod tests {
         }
     }
 
+    fn store() -> crate::auth::credential::AuthStore {
+        crate::auth::credential::AuthStore::new()
+    }
+
     #[tokio::test]
     async fn resolve_and_degrade() {
         let mrm = ModelResourceManager::new(config());
-        let r = mrm.resolve("thinking").await.unwrap();
+        let r = mrm.resolve("thinking", &store()).await.unwrap();
         assert_eq!(r.provider, "anthropic");
         assert!(r.degraded_from.is_none());
 
         let slot = mrm.acquire("anthropic").await;
-        let r2 = mrm.resolve("thinking").await.unwrap();
+        let r2 = mrm.resolve("thinking", &store()).await.unwrap();
         assert_eq!(r2.provider, "xai");
         assert_eq!(r2.degraded_from.as_deref(), Some("thinking"));
         drop(slot);
@@ -226,8 +268,41 @@ mod tests {
     #[tokio::test]
     async fn unbound_role_falls_back_to_execution() {
         let mrm = ModelResourceManager::new(config());
-        let r = mrm.resolve("observer").await.expect("observer 应回落 execution");
+        let r = mrm.resolve("observer", &store()).await.expect("observer 应回落 execution");
         assert_eq!(r.provider, "xai");
+    }
+
+    #[tokio::test]
+    async fn multi_account_rotation_and_pin() {
+        use crate::auth::credential::CredentialKind;
+        let mut roles = HashMap::new();
+        roles.insert("execution".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None, account: None });
+        roles.insert("pinned".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None, account: Some("b".into()) });
+        let config = Config {
+            roles,
+            limits: Limits { global_concurrent: 8, providers: [("xai".into(), ProviderLimit { concurrent: Some(1), rpm: None })].into_iter().collect() },
+            hooks: HashMap::new(),
+            statusline: Default::default(),
+            voice: Default::default(),
+        };
+        let mrm = ModelResourceManager::new(config);
+        let mut store = store();
+        store.insert("xai".into(), CredentialKind::Api { key: "k0".into() });
+        store.insert("xai:b".into(), CredentialKind::Api { key: "k1".into() });
+
+        // 轮转：默认账号占满后命中 xai:b
+        let slot = mrm.acquire("xai").await;
+        let r = mrm.resolve("execution", &store).await.unwrap();
+        assert_eq!(r.account.as_deref(), Some("b"));
+        assert_eq!(r.slot_key(), "xai:b");
+        drop(slot);
+
+        // 钉账号：始终 xai:b
+        let r2 = mrm.resolve("pinned", &store).await.unwrap();
+        assert_eq!(r2.account.as_deref(), Some("b"));
+        // 钉的账号缺凭证：不落它，走 fallback（这里无 fallback -> None）
+        store.remove("xai:b");
+        assert!(mrm.resolve("pinned", &store).await.is_none());
     }
 
     #[tokio::test]

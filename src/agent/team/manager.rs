@@ -70,8 +70,11 @@ impl TeamManager {
                     None => {
                         // 共享句柄读当前 MRM：set_role 热换后 teammate 派发也走新路由
                         let mrm = state.deps.mrm.read().expect("mrm").clone();
-                        let resolved = mrm.resolve(&role).await.ok_or_else(|| format!("no available model for role {role}"))?;
-                        ModelRef::new(resolved.provider, resolved.model)
+                        let resolved = mrm.resolve(&role, &state.deps.store).await.ok_or_else(|| format!("no available model for role {role}"))?;
+                        match resolved.account {
+                            Some(acc) => ModelRef::with_account(resolved.provider, resolved.model, acc),
+                            None => ModelRef::new(resolved.provider, resolved.model),
+                        }
                     }
                 };
                 self.spawn(&state, name, role, prompt, model_ref, plan_approval)

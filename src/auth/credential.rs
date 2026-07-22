@@ -48,6 +48,39 @@ pub struct Credential {
 
 pub type AuthStore = HashMap<String, CredentialKind>;
 
+/// 账号键：默认账号 = 裸 provider（零迁移）；命名账号 = "provider:名字"。
+pub fn account_id(provider: &str, account: &str) -> String {
+    if account.is_empty() || account == "default" {
+        provider.to_string()
+    } else {
+        format!("{provider}:{account}")
+    }
+}
+
+/// provider 的全部账号键（默认账号在前，命名账号字典序）。
+pub fn accounts_of(store: &AuthStore, provider: &str) -> Vec<String> {
+    let prefix = format!("{provider}:");
+    let mut named: Vec<String> = store.keys().filter(|k| k.starts_with(&prefix)).cloned().collect();
+    named.sort();
+    let mut out = Vec::new();
+    if store.contains_key(provider) {
+        out.push(provider.to_string());
+    }
+    out.extend(named);
+    out
+}
+
+/// 按账号取凭证：显式 account -> 钉死；否则默认账号优先 -> 命名账号字典序首个。
+pub fn credential_for<'a>(store: &'a AuthStore, provider: &str, account: Option<&str>) -> Option<&'a CredentialKind> {
+    if let Some(acc) = account {
+        return store.get(&account_id(provider, acc));
+    }
+    if let Some(c) = store.get(provider) {
+        return Some(c);
+    }
+    accounts_of(store, provider).first().and_then(|k| store.get(k))
+}
+
 pub fn read_auth_file(path: &Path) -> AuthStore {
     std::fs::read_to_string(path)
         .ok()

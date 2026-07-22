@@ -6,8 +6,33 @@ export interface VerifyOutcome {
   detail: string;
 }
 
-export function providerVerify(provider: string): Promise<VerifyOutcome> {
-  return client.rpc("provider.verify", { provider });
+export function providerVerify(provider: string, account?: string): Promise<VerifyOutcome> {
+  return client.rpc("provider.verify", account ? { provider, account } : { provider });
+}
+
+export interface AccountInfo {
+  provider: string;
+  account: string;
+  id: string;
+  expired: boolean;
+}
+
+export function providerAccounts(): Promise<AccountInfo[]> {
+  return client.rpc("provider.accounts");
+}
+
+export function importAccount(
+  provider: string,
+  account: string,
+  access: string,
+  refresh = "",
+  expires = 0,
+): Promise<void> {
+  return client.rpc("provider.import_account", { provider, account, access, refresh, expires });
+}
+
+export function removeAccount(provider: string, account: string): Promise<void> {
+  return client.rpc("provider.remove_account", { provider, account });
 }
 
 export interface ReprobeResult {
@@ -44,6 +69,7 @@ export interface TestDispatchResult {
   role: string;
   provider: string;
   model: string;
+  account?: string | null;
   degraded_from?: string | null;
   answer: string;
 }

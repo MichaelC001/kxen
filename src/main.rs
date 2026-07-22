@@ -123,7 +123,7 @@ pub fn run() {
                     let probed = tokio::task::spawn_blocking(|| {
                         let path = kxen_app::core::paths::auth_file();
                         let mut store = kxen_app::auth::credential::read_auth_file(&path);
-                        let outcomes = kxen_app::auth::probe_all(&mut store);
+                        let outcomes = kxen_app::auth::probe_all(&mut store, false);
                         let _ = kxen_app::auth::credential::write_auth_file(&path, &store);
                         (store, outcomes)
                     })

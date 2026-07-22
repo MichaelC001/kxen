@@ -84,11 +84,18 @@ impl Message {
 pub struct ModelRef {
     pub provider: String,
     pub model: String,
+    /// 账号钉选（None = 默认账号链轮转）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 impl ModelRef {
     pub fn new(provider: impl Into<String>, model: impl Into<String>) -> Self {
-        Self { provider: provider.into(), model: model.into() }
+        Self { provider: provider.into(), model: model.into(), account: None }
+    }
+
+    pub fn with_account(provider: impl Into<String>, model: impl Into<String>, account: impl Into<String>) -> Self {
+        Self { provider: provider.into(), model: model.into(), account: Some(account.into()) }
     }
 }
 

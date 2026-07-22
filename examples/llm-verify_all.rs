@@ -7,7 +7,7 @@ use kxen_app::llm::{Delta, LlmClient, Message, ModelRef};
 async fn main() {
     let auth_path = kxen_app::core::paths::auth_file();
     let mut store = kxen_app::auth::credential::read_auth_file(&auth_path);
-    kxen_app::auth::probe_all(&mut store);
+    kxen_app::auth::probe_all(&mut store, true);
 
     let cases = [
         ("anthropic", "claude-sonnet-4-5-20250929"),

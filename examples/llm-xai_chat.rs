@@ -7,7 +7,7 @@ use kxen_app::llm::{Delta, LlmClient, Message, ModelRef};
 async fn main() {
     let auth_path = kxen_app::core::paths::auth_file();
     let mut store = kxen_app::auth::credential::read_auth_file(&auth_path);
-    let outcomes = kxen_app::auth::probe_all(&mut store);
+    let outcomes = kxen_app::auth::probe_all(&mut store, true);
     for (p, o, _) in &outcomes {
         eprintln!("probe {p}: {o:?}");
     }

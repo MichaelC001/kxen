@@ -61,7 +61,9 @@ fn poisoned(c: &CredentialKind) -> bool {
 }
 
 /// 全源探测：返回 (provider, outcome, display)。store 就地更新。
-pub fn probe_all(store: &mut AuthStore) -> Vec<(&'static str, ProbeOutcome, &'static str)> {
+/// allow_keychain=false（启动路径）时 Claude 只走文件，不触发 keychain ACL 弹窗；
+/// 用户显式「重新导入」时才放行 keychain（弹窗一次，用户在场）。
+pub fn probe_all(store: &mut AuthStore, allow_keychain: bool) -> Vec<(&'static str, ProbeOutcome, &'static str)> {
     RULES
         .iter()
         .map(|rule| {
@@ -74,7 +76,13 @@ pub fn probe_all(store: &mut AuthStore) -> Vec<(&'static str, ProbeOutcome, &'st
                 return (rule.provider, ProbeOutcome::Fresh, rule.display);
             }
             // env override（开发期暂存，最高优先）
-            let imported = rule.env_override.and_then(|var| read_env_override(var)).or_else(|| probe_with_timeout(rule));
+            let imported = rule.env_override.and_then(|var| read_env_override(var)).or_else(|| {
+                if rule.provider == "anthropic" && !allow_keychain {
+                    probe_with_timeout(&ProbeRule { provider: rule.provider, display: rule.display, probe: probe_claude_file_only, env_override: None })
+                } else {
+                    probe_with_timeout(rule)
+                }
+            });
             let outcome = match imported {
                 None => {
                     if store.contains_key(rule.provider) { ProbeOutcome::Fresh } else { ProbeOutcome::Missing }
@@ -121,6 +129,13 @@ struct ClaudeOauth {
     expires_at: u64,
 }
 
+/// 仅文件路径（启动探测用）：未签名二进制碰 keychain 每次都弹 ACL 窗，绝不能自动触发。
+fn probe_claude_file_only() -> Option<CredentialKind> {
+    let file = home()?.join(".claude/.credentials.json");
+    let raw = std::fs::read_to_string(file).ok()?;
+    parse_claude(&raw)
+}
+
 fn probe_claude() -> Option<CredentialKind> {
     // macOS：官方 CLI 默认写 Keychain（service: Claude Code-credentials，account: 本机用户名）
     let account = std::env::var("USER").unwrap_or_default();
@@ -137,9 +152,7 @@ fn probe_claude() -> Option<CredentialKind> {
         }
     }
     // 兜底：凭证 JSON 文件（Linux/Windows 形态，或手动放置）
-    let file = home()?.join(".claude/.credentials.json");
-    let raw = std::fs::read_to_string(file).ok()?;
-    parse_claude(&raw)
+    probe_claude_file_only()
 }
 
 fn parse_claude(raw: &str) -> Option<CredentialKind> {
@@ -267,6 +280,25 @@ fn base64_url_decode(input: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn account_resolution() {
+        use crate::auth::credential::{account_id, accounts_of, credential_for};
+        let mut store = AuthStore::new();
+        store.insert("xai".into(), CredentialKind::Api { key: "default".into() });
+        store.insert("xai:b".into(), CredentialKind::Api { key: "b".into() });
+        store.insert("xai:a".into(), CredentialKind::Api { key: "a".into() });
+        // 默认账号键体系
+        assert_eq!(account_id("xai", "work"), "xai:work");
+        assert_eq!(account_id("xai", "default"), "xai");
+        assert_eq!(accounts_of(&store, "xai"), vec!["xai", "xai:a", "xai:b"]);
+        // 显式钉账号
+        assert!(matches!(credential_for(&store, "xai", Some("b")), Some(CredentialKind::Api { key }) if key == "b"));
+        // 未指定：默认账号优先；无默认则字典序首个
+        assert!(matches!(credential_for(&store, "xai", None), Some(CredentialKind::Api { key }) if key == "default"));
+        store.remove("xai");
+        assert!(matches!(credential_for(&store, "xai", None), Some(CredentialKind::Api { key }) if key == "a"));
+    }
 
     #[test]
     fn fresher_wins() {

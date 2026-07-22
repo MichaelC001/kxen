@@ -6,7 +6,7 @@ use kxen_app::core::paths;
 fn main() {
     let path = paths::auth_file();
     let mut store = read_auth_file(&path);
-    let outcomes = probe_all(&mut store);
+    let outcomes = probe_all(&mut store, true);
     if let Err(e) = write_auth_file(&path, &store) {
         eprintln!("write auth.json failed: {e}");
     }

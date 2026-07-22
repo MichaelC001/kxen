@@ -4,7 +4,9 @@ import { Play } from "lucide-solid";
 import { configGet, configSetRole, type RoleBindingView } from "../../lib/chat";
 import {
   mrmStats,
+  providerAccounts,
   testDispatch,
+  type AccountInfo,
   type DispatchRecord,
   type TestDispatchResult,
 } from "../../lib/provider";
@@ -44,20 +46,23 @@ export default function RoutingSection() {
   const [roles, setRoles] = createSignal<Record<string, RoleBindingView>>({});
   const [slots, setSlots] = createSignal<Slot[]>([]);
   const [history, setHistory] = createSignal<DispatchRecord[]>([]);
+  const [accounts, setAccounts] = createSignal<AccountInfo[]>([]);
   const [testing, setTesting] = createSignal("");
   const [testResult, setTestResult] = createSignal<Record<string, TestDispatchResult>>({});
   const [saved, setSaved] = createSignal("");
 
   const reload = async () => {
-    const [cfg, stats] = await Promise.all([
+    const [cfg, stats, accs] = await Promise.all([
       configGet().catch(() => null),
       mrmStats().catch(() => null),
+      providerAccounts().catch(() => []),
     ]);
     if (cfg?.roles) setRoles(cfg.roles);
     if (stats) {
       setSlots(parseSlots(stats.describe));
       setHistory(stats.history.slice(0, 10));
     }
+    setAccounts(accs);
   };
   onMount(() => void reload());
 
@@ -66,9 +71,11 @@ export default function RoutingSection() {
     setTimeout(() => setSaved(""), 2000);
   };
 
-  const update = async (role: string, provider: string, model: string) => {
-    await configSetRole(role, provider, model);
-    setRoles((prev) => ({ ...prev, [role]: { provider, model } }));
+  const accountOptions = (provider: string) => accounts().filter((a) => a.provider === provider);
+
+  const update = async (role: string, provider: string, model: string, account?: string) => {
+    await configSetRole(role, provider, model, undefined, account || undefined);
+    setRoles((prev) => ({ ...prev, [role]: { provider, model, account: account || null } }));
     flash(`${ROLE_LABELS[role] ?? role} 已保存并热生效`);
   };
 
@@ -149,6 +156,19 @@ export default function RoutingSection() {
                       <option value={p.id}>{p.label}</option>
                     ))}
                   </select>
+                  <select
+                    class="bg-transparent border border-[var(--border)] rounded px-1.5 py-1 text-xs text-[var(--text-dim)]"
+                    title="账号：轮转 = 槽满自动换下一个账号"
+                    value={binding().account ?? ""}
+                    onChange={(e) =>
+                      void update(role, binding().provider, binding().model, e.currentTarget.value)
+                    }
+                  >
+                    <option value="">账号轮转</option>
+                    <For each={accountOptions(binding().provider)}>
+                      {(a) => <option value={a.account}>{a.account}</option>}
+                    </For>
+                  </select>
                   <input
                     class="flex-1 bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs font-mono"
                     value={binding().model}
@@ -174,6 +194,7 @@ export default function RoutingSection() {
                   {(r) => (
                     <div class="mt-1.5 text-2xs text-[var(--text-faint)]">
                       实测路由：{r().provider}/{r().model}
+                      <Show when={r().account}>（账号 {r().account}）</Show>
                       <Show when={r().degraded_from}>（降级自 {r().degraded_from}）</Show> · 应答：
                       {r().answer}
                     </div>

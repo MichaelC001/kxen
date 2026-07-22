@@ -15,7 +15,7 @@ async fn main() {
 
     let auth_path = kxen_app::core::paths::auth_file();
     let mut store = kxen_app::auth::credential::read_auth_file(&auth_path);
-    kxen_app::auth::probe_all(&mut store);
+    kxen_app::auth::probe_all(&mut store, true);
 
     let config = kxen_app::core::config::Config::load(&kxen_app::core::paths::config_dir().join("config.toml"), None).unwrap();
     let mrm = Arc::new(ModelResourceManager::new(config));

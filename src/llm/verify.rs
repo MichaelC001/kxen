@@ -20,7 +20,7 @@ const DEFAULT_MODELS: &[(&str, &str)] = &[
 ];
 
 /// 发一条真实 ping：首个有效 delta 即判活；Error/超时即判死（带原始错误文案）。
-pub async fn verify_provider(store: &crate::auth::credential::AuthStore, provider: &str, model: Option<&str>) -> VerifyOutcome {
+pub async fn verify_provider(store: &crate::auth::credential::AuthStore, provider: &str, account: Option<&str>, model: Option<&str>) -> VerifyOutcome {
     let model_id = model
         .map(String::from)
         .or_else(|| DEFAULT_MODELS.iter().find(|(p, _)| *p == provider).map(|(_, m)| m.to_string()));
@@ -28,7 +28,10 @@ pub async fn verify_provider(store: &crate::auth::credential::AuthStore, provide
         return VerifyOutcome { ok: false, latency_ms: 0, detail: format!("unknown provider: {provider}") };
     };
     let started = std::time::Instant::now();
-    let model = ModelRef::new(provider, model_id);
+    let model = match account {
+        Some(acc) => ModelRef::with_account(provider, model_id, acc),
+        None => ModelRef::new(provider, model_id),
+    };
     let messages = vec![Message::user("ping, reply with one word")];
     let mut stream = LlmClient::stream(&model, &messages, store);
     let result = tokio::time::timeout(std::time::Duration::from_secs(20), async {

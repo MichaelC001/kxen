@@ -10,6 +10,7 @@ import {
   type StoredMessage,
 } from "../lib/chat";
 import { activeSessionId, ensureActiveSession, sessions, setHasConversation } from "../lib/state";
+import { onDragStart } from "../lib/drag";
 import Markdown from "../components/Markdown";
 import ThinkingOrb from "../components/ThinkingOrb";
 import type { OrbState } from "../lib/orb";
@@ -197,6 +198,7 @@ export default function Session() {
       <div
         class="material px-4 py-2.5 border-b border-[var(--border)] text-xs flex items-center gap-3"
         data-tauri-drag-region
+        onMouseDown={onDragStart}
       >
         <span class="font-medium text-[var(--text)] truncate">{title()}</span>
         <span

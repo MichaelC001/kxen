@@ -91,6 +91,7 @@ export interface RoleBindingView {
   provider: string;
   model: string;
   fallback?: string | null;
+  account?: string | null;
 }
 
 export async function configGet(): Promise<{ roles: Record<string, RoleBindingView> }> {
@@ -102,8 +103,9 @@ export async function configSetRole(
   provider: string,
   model: string,
   fallback?: string,
+  account?: string,
 ): Promise<void> {
-  return client.rpc("config.set_role", { role, provider, model, fallback });
+  return client.rpc("config.set_role", { role, provider, model, fallback, account });
 }
 
 // ---------------- 会话 ----------------
