@@ -4,6 +4,7 @@
 pub mod agent;
 pub mod auth;
 pub mod core;
+pub mod knowledge;
 pub mod llm;
 pub mod tools;
 pub mod voice;

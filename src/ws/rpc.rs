@@ -159,6 +159,30 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let state = app.state::<Arc<AppState>>();
             set_role(role, provider, model, fallback, &state)
         }
+        "knowledge.list" => {
+            let state = app.state::<Arc<AppState>>();
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            Ok(serde_json::to_value(kxen_app::knowledge::list(&dir)).map_err(|e| e.to_string())?)
+        }
+        "knowledge.add" => {
+            let scope = params.get("scope").and_then(Value::as_str).unwrap_or("memory");
+            let slug = params.get("slug").and_then(Value::as_str);
+            let kind = params.get("type").and_then(Value::as_str).unwrap_or("note");
+            let description = params.get("description").and_then(Value::as_str).ok_or("missing description")?;
+            let content = params.get("content").and_then(Value::as_str).ok_or("missing content")?;
+            let state = app.state::<Arc<AppState>>();
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            let path = kxen_app::knowledge::add(scope, &dir, slug, kind, description, content)?;
+            Ok(json!({ "path": path }))
+        }
+        "knowledge.remove" => {
+            let scope = params.get("scope").and_then(Value::as_str).ok_or("missing scope")?;
+            let slug = params.get("slug").and_then(Value::as_str).ok_or("missing slug")?;
+            let state = app.state::<Arc<AppState>>();
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            kxen_app::knowledge::remove(scope, &dir, slug)?;
+            Ok(json!({ "removed": true }))
+        }
         "voice.engines" => {
             let config = kxen_app::core::config::Config::load(
                 &kxen_app::core::paths::config_dir().join("config.toml"),

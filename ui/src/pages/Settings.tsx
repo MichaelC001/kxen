@@ -8,12 +8,8 @@ import {
   type DoctorReport,
   type RoleBindingView,
 } from "../lib/chat";
-import {
-  setVoiceEngine,
-  setVoiceProviderKey,
-  voiceEngines,
-  type VoiceOverview,
-} from "../lib/voice";
+import KnowledgeSection from "../components/settings/KnowledgeSection";
+import VoiceSection from "../components/settings/VoiceSection";
 import { theme, toggleTheme } from "../lib/theme";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -59,10 +55,6 @@ export default function Settings() {
   const [report, setReport] = createSignal<DoctorReport | null>(null);
   const [doctorLoading, setDoctorLoading] = createSignal(false);
   const [saved, setSaved] = createSignal("");
-  const [voiceOv, setVoiceOv] = createSignal<VoiceOverview | null>(null);
-  const [voiceKeys, setVoiceKeys] = createSignal<Record<string, string>>({});
-
-  const reloadVoice = async () => setVoiceOv(await voiceEngines().catch(() => null));
 
   const runDoctor = async () => {
     setDoctorLoading(true);
@@ -77,25 +69,7 @@ export default function Settings() {
     const config = await configGet().catch(() => null);
     if (config?.roles) setRoles(config.roles);
     void runDoctor();
-    void reloadVoice();
   });
-
-  const saveVoiceKey = async (provider: string) => {
-    const key = (voiceKeys()[provider] ?? "").trim();
-    if (!key) return;
-    await setVoiceProviderKey(provider, key);
-    setVoiceKeys((prev) => ({ ...prev, [provider]: "" }));
-    await reloadVoice();
-    setSaved(`${provider} 转写 key 已保存`);
-    setTimeout(() => setSaved(""), 2000);
-  };
-
-  const switchVoiceEngine = async (engine: string) => {
-    await setVoiceEngine(engine, voiceOv()?.fallback ?? []);
-    await reloadVoice();
-    setSaved("语音引擎已切换并热生效");
-    setTimeout(() => setSaved(""), 2000);
-  };
 
   const update = async (role: string, provider: string, model: string) => {
     await configSetRole(role, provider, model);
@@ -246,62 +220,7 @@ export default function Settings() {
           </Show>
 
           <Show when={section() === "语音"}>
-            <div class="text-xs text-[var(--text-faint)]">
-              主引擎 Apple 本地识别（离线零成本）；provider 转写为可切换引擎与降级链
-            </div>
-            <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] divide-y divide-[var(--border)]">
-              <For each={voiceOv()?.engines ?? []}>
-                {(e) => {
-                  const badge = () => STATUS_STYLE[e.status] ?? { text: e.status, cls: "" };
-                  return (
-                    <div class="flex items-center justify-between px-4 py-3">
-                      <div>
-                        <div class="text-sm font-medium">{e.label}</div>
-                        <div class="text-xs text-[var(--text-faint)]">{e.id}</div>
-                      </div>
-                      <div class="flex items-center gap-3">
-                        <div class="text-right">
-                          <div class={`text-sm font-medium ${badge().cls}`}>{badge().text}</div>
-                          <div class="text-xs text-[var(--text-faint)]">{e.detail}</div>
-                        </div>
-                        <button
-                          class="pressable px-2.5 py-1 rounded text-xs border border-[var(--border)]"
-                          classList={{ "opacity-40": e.status === "unavailable" }}
-                          disabled={voiceOv()?.engine === e.id || e.status === "unavailable"}
-                          onClick={() => void switchVoiceEngine(e.id)}
-                        >
-                          {voiceOv()?.engine === e.id ? "当前引擎" : "设为主引擎"}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                }}
-              </For>
-            </div>
-            <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] divide-y divide-[var(--border)]">
-              <For each={["openai", "xai"]}>
-                {(p) => (
-                  <div class="flex items-center gap-3 px-4 py-3">
-                    <div class="w-24 shrink-0 text-sm">{p} 转写 key</div>
-                    <input
-                      type="password"
-                      class="flex-1 bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs font-mono"
-                      placeholder="sk-...（仅存本机 auth.json，0600）"
-                      value={voiceKeys()[p] ?? ""}
-                      onInput={(e) =>
-                        setVoiceKeys((prev) => ({ ...prev, [p]: e.currentTarget.value }))
-                      }
-                    />
-                    <button
-                      class="pressable px-2.5 py-1 rounded text-xs border border-[var(--border)]"
-                      onClick={() => void saveVoiceKey(p)}
-                    >
-                      保存
-                    </button>
-                  </div>
-                )}
-              </For>
-            </div>
+            <VoiceSection />
           </Show>
 
           <Show when={section() === "用量与统计"}>
@@ -311,12 +230,7 @@ export default function Settings() {
           </Show>
 
           <Show when={section() === "知识库 OKF"}>
-            <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-4 space-y-2 text-sm text-[var(--text-dim)]">
-              <div>知识库目录：`.agents/`（项目，入 git）+ `.kxen/memory/`（本机）</div>
-              <div class="text-xs text-[var(--text-faint)]">
-                rules 全文注入；references 索引渐进披露；# 前缀快捷沉淀；/done 复盘沉淀（P1）。
-              </div>
-            </div>
+            <KnowledgeSection />
           </Show>
 
           <Show when={section() === "高级"}>

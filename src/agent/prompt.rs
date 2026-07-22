@@ -45,6 +45,16 @@ While a goal is active: work one bounded slice per turn, verify against the comp
 claiming done, and call goal(complete, evidence) only with concrete evidence you actually observed. \
 If you cannot make progress, say why and stop - do not force a pass.";
 
+const KNOWLEDGE_GUIDE: &str = "\
+## Knowledge capture
+
+Persist durable learnings with the knowledge tool - do not rely on session memory:
+- WHEN: the user corrects you, states a durable convention, or you hit a non-obvious pitfall.
+- scope project: project-specific conventions (sparingly; committed at .agents/rules).
+- scope global: cross-project conventions (~/.agents/rules).
+- scope memory: local pitfalls and preferences (.kxen/memory).
+One topic per note; re-adding the same slug updates it. Skip one-off task details.";
+
 /// Full system prompt for a turn. `workdir` is rendered into the environment line.
 /// `involved` = 本会话涉及文件（OKF globs 动态激活与多层就近的输入）。
 pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf]) -> String {
@@ -56,7 +66,12 @@ pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf])
     out.push_str(TOOL_POLICY);
     out.push_str("\n\n");
     out.push_str(WRITE_GOAL_PLAYBOOK);
+    out.push_str("\n\n");
+    out.push_str(KNOWLEDGE_GUIDE);
     if let Some(block) = crate::agent::okf::render_context(workdir, involved) {
+        out.push_str(&block);
+    }
+    if let Some(block) = crate::knowledge::render_extra(workdir) {
         out.push_str(&block);
     }
     if let Some(listing) = crate::agent::skills::render_listing(workdir) {

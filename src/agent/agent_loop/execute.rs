@@ -82,6 +82,27 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
             let path = resolve_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, &ctx.workdir);
             delete(&path, &cwd).map(|_| "moved to Trash".to_string()).map_err(|e| e.to_string())
         }
+        "knowledge" => {
+            match args.get("action").and_then(Value::as_str).ok_or("missing action")? {
+                "add" => {
+                    let scope = args.get("scope").and_then(Value::as_str).unwrap_or("memory");
+                    let slug = args.get("slug").and_then(Value::as_str);
+                    let kind = args.get("type").and_then(Value::as_str).unwrap_or("note");
+                    let description = args.get("description").and_then(Value::as_str).ok_or("missing description")?;
+                    let content = args.get("content").and_then(Value::as_str).ok_or("missing content")?;
+                    let path = crate::knowledge::add(scope, &ctx.workdir, slug, kind, description, content)?;
+                    Ok(format!("knowledge saved ({scope}): {path}"))
+                }
+                "list" => Ok(serde_json::to_string_pretty(&crate::knowledge::list(&ctx.workdir)).unwrap_or_default()),
+                "remove" => {
+                    let scope = args.get("scope").and_then(Value::as_str).ok_or("missing scope")?;
+                    let slug = args.get("slug").and_then(Value::as_str).ok_or("missing slug")?;
+                    crate::knowledge::remove(scope, &ctx.workdir, slug)?;
+                    Ok(format!("knowledge removed ({scope}/{slug})"))
+                }
+                other => Err(format!("unknown knowledge action: {other}")),
+            }
+        }
         "task" => execute_task_tool(&args, ctx).await,
         "goal" => execute_goal_tool(&args).await,
         "glob" => {
