@@ -55,6 +55,32 @@ Persist durable learnings with the knowledge tool - do not rely on session memor
 - scope memory: local pitfalls and preferences (.kxen/memory).
 One topic per note; re-adding the same slug updates it. Skip one-off task details.";
 
+const ULTRA_PLAYBOOK: &str = "\
+## ultra modes (/ultracode /ultraplan /ultrareview)
+
+These are built-in orchestration flows. Run them through the workflow tool (QuickJS: `await agent(role, prompt)`, \
+Promise.all fan-out, `phase(name)` progress markers, `CONSTRAINTS` for role bindings). Prefer workflow over \
+manual one-by-one dispatch; use teammates (team tool) only when the work needs persistent members.
+
+/ultracode <task> - large implementation:
+1. Decompose into <=6 INDEPENDENT slices (each: goal, exact files, expected output).
+2. phase('decompose'), then Promise.all agent(execution) per slice - self-contained briefs with absolute paths.
+3. phase('integrate'): merge results, then run the project's real checks (cargo test / tsc / vp check).
+4. Report per-slice outcome and the check results. If a slice fails, fix it yourself before reporting.
+
+/ultraplan <question> - multi-angle planning:
+1. Promise.all three perspectives: agent(planning) for architecture and dependency order, agent(research) \
+for grounding in the actual codebase (it must read the real files), agent(thinking) for risks and trade-offs.
+2. Synthesize ONE plan: phases with concrete steps, verification command per phase, explicit non-goals.
+3. Present the plan and stop - do not start implementing until the user says go.
+
+/ultrareview <path|scope> - adversarial multi-lens review:
+1. Promise.all four lenses over the same target: correctness (bugs, logic errors), security (secrets, \
+injection, unsafe file/process handling), performance (complexity, allocation hot spots, blocking calls), \
+convention (matches this repo's own patterns - check against real files, not taste).
+2. Each finding: severity P0/P1/P2, file:line, one-line fix. Dedupe across lenses.
+3. Report findings only - no style nits, no praise, no fixes applied.";
+
 /// Full system prompt for a turn. `workdir` is rendered into the environment line.
 /// `involved` = 本会话涉及文件（OKF globs 动态激活与多层就近的输入）。
 pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf]) -> String {
@@ -66,6 +92,8 @@ pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf])
     out.push_str(TOOL_POLICY);
     out.push_str("\n\n");
     out.push_str(WRITE_GOAL_PLAYBOOK);
+    out.push_str("\n\n");
+    out.push_str(ULTRA_PLAYBOOK);
     out.push_str("\n\n");
     out.push_str(KNOWLEDGE_GUIDE);
     if let Some(block) = crate::agent::okf::render_context(workdir, involved) {

@@ -14,6 +14,9 @@ pub struct CommandInfo {
 
 const BUILTIN: &[(&str, &str, Option<&str>)] = &[
     ("write-goal", "交互式定义一个带完成判据的 goal", Some("<目标描述>")),
+    ("ultracode", "大任务模式：分解 -> workflow 并行实现 -> 集成验证", Some("<实现任务>")),
+    ("ultraplan", "多角度规划模式：架构/调研/风险并行 -> 综合成稿", Some("<规划问题>")),
+    ("ultrareview", "对抗性多镜审查：正确性/安全/性能/约定", Some("<路径或范围>")),
     ("doctor", "环境自检（订阅凭证/目录/配置）", None),
     ("clear", "清空当前会话（开启草稿态）", None),
     ("model", "切换当前模型", Some("<provider/model>")),

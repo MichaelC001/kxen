@@ -72,7 +72,8 @@ export default function StatusBar() {
             </span>
             <span
               classList={{
-                "text-[var(--warn)]": (report()?.ctx_pct ?? 0) > 70 && (report()?.ctx_pct ?? 0) <= 90,
+                "text-[var(--warn)]":
+                  (report()?.ctx_pct ?? 0) > 70 && (report()?.ctx_pct ?? 0) <= 90,
                 "text-[var(--err)]": (report()?.ctx_pct ?? 0) > 90,
               }}
             >
