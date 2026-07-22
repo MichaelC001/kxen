@@ -46,8 +46,16 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
         m if m.starts_with("goal.") => crate::goal_rpc::call(m, params),
         "workspace.list" => Ok(json!(kxen_app::core::workspace::list(&kxen_app::core::paths::data_dir()))),
         "session.list" => {
-            // 全量返回（侧栏树按 workspace 分组，过滤在前端）
-            Ok(json!(kxen_app::core::session::list(&kxen_app::core::paths::sessions_dir())))
+            // 全量返回（侧栏树按 workspace 分组，过滤在前端）；附运行中标记
+            let state = app.state::<Arc<AppState>>();
+            let running: std::collections::HashSet<String> = kxen_app::core::shared::lock(&state.active_runs).keys().cloned().collect();
+            let sessions = kxen_app::core::session::list(&kxen_app::core::paths::sessions_dir());
+            Ok(json!(sessions.into_iter().map(|s| {
+                let running_flag = running.contains(&s.id);
+                let mut v = serde_json::to_value(&s).unwrap_or_default();
+                v.as_object_mut().map(|o| o.insert("running".into(), json!(running_flag)));
+                v
+            }).collect::<Vec<_>>()))
         }
         "workspace.current" => {
             let state = app.state::<Arc<AppState>>();
@@ -92,6 +100,14 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
             kxen_app::core::session::remove(&kxen_app::core::paths::sessions_dir(), id);
             Ok(Value::Null)
+        }
+        "session.update_meta" => {
+            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
+            let title = params.get("title").and_then(Value::as_str);
+            let pinned = params.get("pinned").and_then(Value::as_bool);
+            let sort_order = params.get("sort_order").map(|v| v.as_u64());
+            let session = kxen_app::core::session::update_meta(&kxen_app::core::paths::sessions_dir(), id, title, pinned, sort_order).map_err(|e| e.to_string())?;
+            Ok(json!(session))
         }
         "session.fork" => {
             let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;

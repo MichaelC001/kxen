@@ -12,6 +12,12 @@ pub struct Session {
     pub parent_id: Option<String>,
     pub created_at: u64,
     pub updated_at: u64,
+    /// 置顶（排在该目录组最前）
+    #[serde(default)]
+    pub pinned: bool,
+    /// 手动排序序号（同组内升序；None = 按 updated_at 倒序）
+    #[serde(default)]
+    pub sort_order: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,7 +76,26 @@ pub fn create(dir: &Path, directory: &str) -> std::io::Result<Session> {
         parent_id: None,
         created_at: now,
         updated_at: now,
+        pinned: false,
+        sort_order: None,
     };
+    save_meta(dir, &session)?;
+    Ok(session)
+}
+
+/// 就地更新元信息（重命名 / 置顶 / 手动排序）。
+pub fn update_meta(dir: &Path, id: &str, title: Option<&str>, pinned: Option<bool>, sort_order: Option<Option<u64>>) -> std::io::Result<Session> {
+    let mut session = load_meta(dir, id)?;
+    if let Some(t) = title {
+        session.title = t.to_string();
+    }
+    if let Some(p) = pinned {
+        session.pinned = p;
+    }
+    if let Some(so) = sort_order {
+        session.sort_order = so;
+    }
+    session.updated_at = now_ms();
     save_meta(dir, &session)?;
     Ok(session)
 }
@@ -242,6 +267,12 @@ mod tests {
         let forked_msgs = load_messages(&dir, &forked.id);
         assert_eq!(forked_msgs.len(), 1);
         assert_eq!(forked_msgs[0].role, Role::User);
+
+        // 元信息更新：重命名/置顶/排序
+        let s2 = update_meta(&dir, &s.id, Some("改名后"), Some(true), Some(Some(7))).unwrap();
+        assert_eq!(s2.title, "改名后");
+        assert!(s2.pinned);
+        assert_eq!(s2.sort_order, Some(7));
 
         // 导出 markdown：标题 + user 正文 + tool 摘要
         let md = export_markdown(&dir, &s.id).unwrap();

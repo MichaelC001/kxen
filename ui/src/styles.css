@@ -6,11 +6,17 @@ body {
   overscroll-behavior: none;
 }
 
-/* 桌面应用惯例：按钮/链接内文本同样可选中复制（webkit 默认按钮不可选） */
+/* 桌面应用选择规则：内容全可选，交互元素一律禁选（webkit 需 -webkit- 前缀） */
 button,
 a,
-[role="button"] {
-  user-select: text;
+select,
+input,
+textarea,
+[role="button"],
+.interactive,
+.interactive * {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* ============ 主题 tokens：暗色为默认，[data-theme="light"] 覆盖 ============ */

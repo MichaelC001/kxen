@@ -116,6 +116,16 @@ export interface SessionMeta {
   directory: string;
   created_at: number;
   updated_at: number;
+  pinned?: boolean;
+  sort_order?: number | null;
+  running?: boolean;
+}
+
+export async function sessionUpdateMeta(
+  id: string,
+  patch: { title?: string; pinned?: boolean; sort_order?: number | null },
+): Promise<void> {
+  return client.rpc("session.update_meta", { id, ...patch });
 }
 
 export interface StoredPart {

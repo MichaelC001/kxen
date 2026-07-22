@@ -1,21 +1,18 @@
-// SessionTree：Codex 式项目-会话树（每组 ≤5 条，组可折叠，底部内嵌添加目录）。
+// SessionTree：Codex 式项目-会话树（每组 ≤5 条，组可折叠，行内置顶/重命名/删除确认/拖拽排序）。
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { ChevronDown, ChevronRight, FolderOpen, FolderPlus, Plus, X } from "lucide-solid";
+import { ChevronDown, ChevronRight, FolderOpen, FolderPlus, Plus } from "lucide-solid";
 import {
   sessionDelete,
+  sessionUpdateMeta,
   workspaceAdd,
   workspaceList,
   workspaceSwitch,
   type SessionMeta,
   type Workspace,
 } from "../lib/chat";
-import {
-  activeSessionId,
-  newSession,
-  refreshSessions,
-  sessions,
-  switchSession,
-} from "../lib/state";
+import { newSession, refreshSessions, sessions, switchSession } from "../lib/state";
+import { sortGroup } from "../lib/order";
+import SessionRow from "./SessionRow";
 
 const MAX_PER_GROUP = 5;
 
@@ -30,6 +27,7 @@ export default function SessionTree() {
   const [collapsed, setCollapsed] = createSignal<Set<string>>(new Set());
   const [adding, setAdding] = createSignal(false);
   const [newPath, setNewPath] = createSignal("");
+  let dragId = "";
 
   const reloadRecents = async () => setRecents(await workspaceList().catch(() => []));
 
@@ -55,7 +53,7 @@ export default function SessionTree() {
     const out: Group[] = dirs.map((d) => ({
       path: d,
       name: d.split("/").filter(Boolean).pop() ?? d,
-      sessions: byDir.get(d)!,
+      sessions: sortGroup(byDir.get(d)!),
     }));
     for (const w of recents()) {
       if (!byDir.has(w.path)) {
@@ -83,7 +81,6 @@ export default function SessionTree() {
     switchSession(id);
   };
 
-  /** 项目行快捷新会话：切到该项目目录并开草稿。 */
   const quickNew = async (path: string) => {
     await workspaceSwitch(path).catch(() => {});
     await newSession();
@@ -103,6 +100,22 @@ export default function SessionTree() {
     await reloadRecents();
     setAdding(false);
     setNewPath("");
+  };
+
+  /** 拖拽排序：落点行的位置即为新序号，整组重写 sort_order 持久化。 */
+  const dropOn = async (group: Group, targetId: string) => {
+    if (!dragId || dragId === targetId) return;
+    const list = group.sessions.filter((s) => !s.pinned);
+    const from = list.findIndex((s) => s.id === dragId);
+    const to = list.findIndex((s) => s.id === targetId);
+    if (from < 0 || to < 0) return;
+    const moved = list.splice(from, 1)[0]!;
+    list.splice(to, 0, moved);
+    for (let i = 0; i < list.length; i++) {
+      await sessionUpdateMeta(list[i]!.id, { sort_order: i + 1 }).catch(() => {});
+    }
+    dragId = "";
+    await refreshSessions();
   };
 
   return (
@@ -144,29 +157,16 @@ export default function SessionTree() {
                 <div class="ml-4 space-y-0.5">
                   <For each={visible()}>
                     {(s) => (
-                      <div
-                        class="group flex items-center rounded-md text-sm cursor-pointer"
-                        classList={{
-                          "bg-[var(--bg-overlay)] text-[var(--text)]": s.id === activeSessionId(),
-                          "text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60":
-                            s.id !== activeSessionId(),
-                        }}
-                        onClick={() => void open(group.path, s.id)}
-                      >
-                        <span class="flex-1 px-2 py-1 truncate" title={s.title}>
-                          {s.title}
-                        </span>
-                        <button
-                          class="px-1.5 text-[var(--text-faint)] opacity-0 group-hover:opacity-100 hover:text-[var(--err)]"
-                          title="删除会话"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void remove(s.id);
-                          }}
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
+                      <SessionRow
+                        session={s}
+                        onOpen={() => void open(group.path, s.id)}
+                        onDelete={() => void remove(s.id)}
+                        onChanged={() => void refreshSessions()}
+                        draggable
+                        onDragStart={() => (dragId = s.id)}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={() => void dropOn(group, s.id)}
+                      />
                     )}
                   </For>
                   <Show when={group.sessions.length > MAX_PER_GROUP}>
