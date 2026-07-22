@@ -1,23 +1,50 @@
-// 主题管理：light/dark，localStorage 持久化，默认跟随系统，View Transition 圆形展开。
+// 主题管理：auto（跟随系统）/dark/light 三态，matchMedia 实时跟随，View Transition 圆形展开。
 import { createSignal } from "solid-js";
 
 export type Theme = "dark" | "light";
+export type ThemeMode = "auto" | "dark" | "light";
 
-const KEY = "kxen-theme";
+const MODE_KEY = "kxen-theme-mode";
 const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+const media = window.matchMedia("(prefers-color-scheme: light)");
 
-function initial(): Theme {
-  const stored = localStorage.getItem(KEY);
-  if (stored === "dark" || stored === "light") return stored;
-  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+function systemTheme(): Theme {
+  return media.matches ? "light" : "dark";
 }
 
-export const [theme, setThemeSignal] = createSignal<Theme>(initial());
+function initialMode(): ThemeMode {
+  const m = localStorage.getItem(MODE_KEY);
+  return m === "dark" || m === "light" ? m : "auto";
+}
 
+export const [mode, setModeSignal] = createSignal<ThemeMode>(initialMode());
+export const [theme, setThemeSignal] = createSignal<Theme>(current());
+
+function current(): Theme {
+  const m = mode();
+  return m === "auto" ? systemTheme() : m;
+}
+
+function applyCurrent(): void {
+  document.documentElement.dataset.theme = current();
+  setThemeSignal(current());
+}
+
+/** 三态设置（auto/dark/light）。 */
+export function setMode(m: ThemeMode): void {
+  localStorage.setItem(MODE_KEY, m);
+  setModeSignal(m);
+  applyCurrent();
+}
+
+// 系统主题变化时 auto 模式实时跟随
+media.addEventListener("change", () => {
+  if (mode() === "auto") applyCurrent();
+});
+
+/** 手动指定明暗（脱离 auto）。 */
 export function applyTheme(t: Theme): void {
-  document.documentElement.dataset.theme = t;
-  localStorage.setItem(KEY, t);
-  setThemeSignal(t);
+  setMode(t);
 }
 
 interface ViewTransition {
@@ -32,10 +59,10 @@ export function toggleTheme(x?: number, y?: number): void {
   ).startViewTransition;
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (typeof start !== "function" || reduced) {
-    applyTheme(next);
+    setMode(next);
     return;
   }
-  const transition = start.call(document, () => applyTheme(next));
+  const transition = start.call(document, () => setMode(next));
   transition.ready
     .then(() => {
       const cx = x ?? window.innerWidth / 2;
@@ -58,5 +85,5 @@ export function toggleTheme(x?: number, y?: number): void {
 
 /** 首帧前调用，避免暗->明闪屏。 */
 export function initTheme(): void {
-  document.documentElement.dataset.theme = theme();
+  document.documentElement.dataset.theme = current();
 }

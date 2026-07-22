@@ -1,4 +1,4 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { ArrowLeft } from "lucide-solid";
 import KnowledgeSection from "../components/settings/KnowledgeSection";
@@ -6,7 +6,7 @@ import ProvidersSection from "../components/settings/ProvidersSection";
 import RoutingSection from "../components/settings/RoutingSection";
 import VoiceSection from "../components/settings/VoiceSection";
 import { onDragStart } from "../lib/drag";
-import { theme, toggleTheme } from "../lib/theme";
+import { mode, setMode } from "../lib/theme";
 
 const SECTIONS = [
   "通用",
@@ -58,14 +58,26 @@ export default function Settings() {
               <div class="flex items-center justify-between px-4 py-3">
                 <div>
                   <div class="text-sm">主题</div>
-                  <div class="text-xs text-[var(--text-faint)]">明暗切换，跟随系统默认</div>
+                  <div class="text-xs text-[var(--text-faint)]">
+                    跟随系统或手动固定，系统切换实时生效
+                  </div>
                 </div>
-                <button
-                  class="pressable px-3 py-1 rounded-md text-xs border border-[var(--border)]"
-                  onClick={(e) => toggleTheme(e.clientX, e.clientY)}
-                >
-                  {theme() === "dark" ? "暗色" : "亮色"}
-                </button>
+                <div class="flex gap-1">
+                  <For each={["auto", "dark", "light"] as const}>
+                    {(m) => (
+                      <button
+                        class="pressable px-2.5 py-1 rounded-md text-xs border"
+                        classList={{
+                          "border-[var(--accent)] text-[var(--accent-hover)]": mode() === m,
+                          "border-[var(--border)] text-[var(--text-dim)]": mode() !== m,
+                        }}
+                        onClick={() => setMode(m)}
+                      >
+                        {m === "auto" ? "跟随系统" : m === "dark" ? "暗色" : "亮色"}
+                      </button>
+                    )}
+                  </For>
+                </div>
               </div>
             </div>
           </Show>

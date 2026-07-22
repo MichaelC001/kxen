@@ -33,6 +33,9 @@ const TASK_STATUS: Record<string, string> = {
   failed: "text-[var(--err)]",
 };
 
+/** 展开日志 tail 的任务 id（dock 单例，模块级信号即可）。 */
+const [openTask, setOpenTask] = createSignal("");
+
 function Section(props: {
   title: string;
   icon: (p: { size: number; class?: string }) => import("solid-js").JSX.Element;
@@ -200,9 +203,18 @@ function DockSections(props: {
                       </button>
                     </Show>
                   </div>
-                  <div class="font-mono text-2xs text-[var(--text-dim)] truncate" title={t.command}>
+                  <div
+                    class="font-mono text-2xs text-[var(--text-dim)] truncate cursor-pointer hover:text-[var(--text)]"
+                    title={t.command}
+                    onClick={() => setOpenTask(openTask() === t.id ? "" : t.id)}
+                  >
                     {t.command}
                   </div>
+                  <Show when={openTask() === t.id && t.tail}>
+                    <pre class="max-h-32 overflow-auto rounded border border-[var(--border)] bg-[var(--bg)] p-1.5 text-2xs font-mono text-[var(--text-dim)] whitespace-pre-wrap">
+                      {t.tail}
+                    </pre>
+                  </Show>
                 </div>
               )}
             </For>
