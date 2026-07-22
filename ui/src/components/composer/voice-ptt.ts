@@ -1,5 +1,5 @@
-// 语音 PTT 状态机：长按空格 >=400ms 进语音（撤销误输入空格），松开提交；service-not-allowed 本会话禁用。
-import { speechSupported, startVoice, type VoiceSession } from "../../lib/voice";
+// 语音 PTT 状态机：长按空格 >=400ms 进语音（撤销误输入空格），松开提交；引擎由 MicMenu/设置页选择。
+import { startVoiceSession, type VoiceSession } from "../../lib/voice";
 
 export interface VoiceController {
   toggle: () => void;
@@ -14,67 +14,68 @@ export function createVoicePtt(opts: {
   afterChange: () => void;
   setRecording: (v: boolean) => void;
   setError: (v: string) => void;
-  setDead: (v: boolean) => void;
+  engine: () => string;
 }): VoiceController {
   let session: VoiceSession | null = null;
+  let starting = false;
+  let cancelled = false;
   let base = "";
-  let finals = "";
   let pttTimer: ReturnType<typeof setTimeout> | undefined;
   let pttActive = false;
   let spaceCountAtDown = 0;
 
-  function start() {
+  async function start() {
+    if (session || starting) return;
+    starting = true;
+    cancelled = false;
     opts.setError("");
     base = opts.getText();
-    finals = "";
-    const s = startVoice(
-      (interim) => {
-        opts.setText(base + finals + interim);
-        opts.afterChange();
-      },
-      (final) => {
-        finals += `${final} `;
-      },
-      (error) => {
-        if (error === "service-not-allowed") {
-          // webview 语音服务不可用：本会话内禁用，不再反复报错
-          opts.setDead(true);
-        } else {
-          opts.setError(
-            error === "not-allowed"
-              ? "麦克风权限被拒（系统设置 > 隐私 > 麦克风 中允许 kxen）"
-              : `语音识别错误: ${error}`,
-          );
-        }
-        stop();
-      },
-    );
-    if (!s) {
-      opts.setDead(true);
-      return;
+    try {
+      const s = await startVoiceSession(
+        opts.engine(),
+        (partial) => {
+          opts.setText(base + partial);
+          opts.afterChange();
+        },
+        (msg) => {
+          opts.setError(msg);
+          void stop();
+        },
+      );
+      if (cancelled) {
+        void s.stop();
+        return;
+      }
+      session = s;
+      opts.setRecording(true);
+    } catch (e) {
+      opts.setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      starting = false;
     }
-    session = s;
-    opts.setRecording(true);
   }
 
-  function stop() {
-    session?.stop();
+  async function stop() {
+    const s = session;
     session = null;
+    cancelled = true;
     opts.setRecording(false);
+    if (!s) return;
+    const finalText = await s.stop().catch(() => null);
+    if (finalText) {
+      opts.setText(base + finalText);
+      opts.afterChange();
+    }
   }
 
   return {
     toggle: () => {
-      if (!speechSupported()) {
-        opts.setDead(true);
-        return;
-      }
-      if (session) stop();
-      else start();
+      if (session) void stop();
+      else void start();
     },
-    stop,
+    stop: () => void stop(),
     onSpaceDown: (e) => {
-      if (e.key !== " " || e.repeat || pttActive || session) return;
+      if (e.key !== " " || e.repeat || pttActive || session || starting) return;
       spaceCountAtDown = opts.getText().length;
       pttTimer = setTimeout(() => {
         pttActive = true;
@@ -82,7 +83,7 @@ export function createVoicePtt(opts: {
         if (opts.getText().length > spaceCountAtDown) {
           opts.setText(opts.getText().slice(0, spaceCountAtDown));
         }
-        start();
+        void start();
       }, 400);
     },
     onSpaceUp: (e) => {
@@ -93,7 +94,7 @@ export function createVoicePtt(opts: {
       }
       if (pttActive) {
         pttActive = false;
-        stop();
+        void stop();
       }
     },
   };

@@ -6,3 +6,4 @@ pub mod auth;
 pub mod core;
 pub mod llm;
 pub mod tools;
+pub mod voice;

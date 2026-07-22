@@ -22,7 +22,7 @@ thiserror = "2"
 regex = "1.13"
 ignore = "0.4"
 globset = "0.4"
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "rustls-native-certs", "json", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "rustls-native-certs", "json", "stream", "multipart"] }
 futures = "0.3"
 tokio-tungstenite = "0.26"
 keyring = "4"
@@ -30,6 +30,9 @@ dirs = "6"
 base64 = "0.22"
 time = { version = "0.3", features = ["parsing", "formatting"] }
 rquickjs = { version = "0.12", features = ["futures"] }
+objc2 = "0.6"
+objc2-foundation = "0.3"
+block2 = "0.6"
 
 [profile.release]
 opt-level = 3

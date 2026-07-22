@@ -16,6 +16,7 @@ import { commandList, type CommandInfo, type ContextItem } from "../../lib/chat"
 import { buildItems, detectTrigger, type PopupState, type Trigger } from "./triggers";
 import { createVoicePtt } from "./voice-ptt";
 import AttachMenu from "./AttachMenu";
+import MicMenu from "./MicMenu";
 import ModelPicker from "./ModelPicker";
 import { sendBtn } from "../../lib/variants";
 
@@ -45,7 +46,7 @@ export default function TextComposer(props: {
   const [commands, setCommands] = createSignal<CommandInfo[]>([]);
   const [recording, setRecording] = createSignal(false);
   const [voiceError, setVoiceError] = createSignal("");
-  const [voiceDead, setVoiceDead] = createSignal(false);
+  const [voiceEngine, setVoiceEngine] = createSignal("apple");
   let textareaRef: HTMLTextAreaElement | undefined;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -113,7 +114,7 @@ export default function TextComposer(props: {
     afterChange: autoGrow,
     setRecording,
     setError: setVoiceError,
-    setDead: setVoiceDead,
+    engine: voiceEngine,
   });
 
   function openPopup(trigger: Trigger) {
@@ -180,9 +181,7 @@ export default function TextComposer(props: {
       removeChip(chips().at(-1)!.id);
       return;
     }
-    if (!voiceDead()) {
-      voiceCtl.onSpaceDown(e);
-    }
+    voiceCtl.onSpaceDown(e);
   }
 
   function onKeyUp(e: KeyboardEvent) {
@@ -313,7 +312,7 @@ export default function TextComposer(props: {
 
         <div class="composer-actionbar">
           <AttachMenu onFiles={attachFiles} />
-          <Show when={!voiceDead()}>
+          <div class="relative flex items-center">
             <button
               class="pressable action-icon mic-btn"
               classList={{ "mic-recording": recording() }}
@@ -322,7 +321,8 @@ export default function TextComposer(props: {
             >
               {recording() ? <MicOff size={15} /> : <Mic size={15} />}
             </button>
-          </Show>
+            <MicMenu onEngine={setVoiceEngine} />
+          </div>
           <Show when={voiceError()}>
             <span class="text-2xs text-[var(--err)]">{voiceError()}</span>
           </Show>

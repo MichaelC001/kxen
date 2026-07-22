@@ -8,6 +8,12 @@ import {
   type DoctorReport,
   type RoleBindingView,
 } from "../lib/chat";
+import {
+  setVoiceEngine,
+  setVoiceProviderKey,
+  voiceEngines,
+  type VoiceOverview,
+} from "../lib/voice";
 import { theme, toggleTheme } from "../lib/theme";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -26,13 +32,25 @@ const PROVIDERS = [
   { id: "kimi-for-coding", label: "Kimi Code" },
 ];
 
-const SECTIONS = ["通用", "提供商", "模型路由", "用量与统计", "知识库 OKF", "高级"] as const;
+const SECTIONS = [
+  "通用",
+  "提供商",
+  "语音",
+  "模型路由",
+  "用量与统计",
+  "知识库 OKF",
+  "高级",
+] as const;
 
 const STATUS_STYLE: Record<string, { text: string; cls: string }> = {
   imported: { text: "已导入", cls: "text-[var(--ok)]" },
   ok: { text: "正常", cls: "text-[var(--ok)]" },
   missing: { text: "缺失", cls: "text-[var(--warn)]" },
   expired: { text: "过期", cls: "text-[var(--err)]" },
+  ready: { text: "就绪", cls: "text-[var(--ok)]" },
+  needs_auth: { text: "待授权", cls: "text-[var(--warn)]" },
+  unconfigured: { text: "未配置", cls: "text-[var(--warn)]" },
+  unavailable: { text: "不可用", cls: "text-[var(--err)]" },
 };
 
 export default function Settings() {
@@ -41,6 +59,10 @@ export default function Settings() {
   const [report, setReport] = createSignal<DoctorReport | null>(null);
   const [doctorLoading, setDoctorLoading] = createSignal(false);
   const [saved, setSaved] = createSignal("");
+  const [voiceOv, setVoiceOv] = createSignal<VoiceOverview | null>(null);
+  const [voiceKeys, setVoiceKeys] = createSignal<Record<string, string>>({});
+
+  const reloadVoice = async () => setVoiceOv(await voiceEngines().catch(() => null));
 
   const runDoctor = async () => {
     setDoctorLoading(true);
@@ -55,7 +77,25 @@ export default function Settings() {
     const config = await configGet().catch(() => null);
     if (config?.roles) setRoles(config.roles);
     void runDoctor();
+    void reloadVoice();
   });
+
+  const saveVoiceKey = async (provider: string) => {
+    const key = (voiceKeys()[provider] ?? "").trim();
+    if (!key) return;
+    await setVoiceProviderKey(provider, key);
+    setVoiceKeys((prev) => ({ ...prev, [provider]: "" }));
+    await reloadVoice();
+    setSaved(`${provider} 转写 key 已保存`);
+    setTimeout(() => setSaved(""), 2000);
+  };
+
+  const switchVoiceEngine = async (engine: string) => {
+    await setVoiceEngine(engine, voiceOv()?.fallback ?? []);
+    await reloadVoice();
+    setSaved("语音引擎已切换并热生效");
+    setTimeout(() => setSaved(""), 2000);
+  };
 
   const update = async (role: string, provider: string, model: string) => {
     await configSetRole(role, provider, model);
@@ -201,6 +241,65 @@ export default function Settings() {
                     </div>
                   );
                 }}
+              </For>
+            </div>
+          </Show>
+
+          <Show when={section() === "语音"}>
+            <div class="text-xs text-[var(--text-faint)]">
+              主引擎 Apple 本地识别（离线零成本）；provider 转写为可切换引擎与降级链
+            </div>
+            <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] divide-y divide-[var(--border)]">
+              <For each={voiceOv()?.engines ?? []}>
+                {(e) => {
+                  const badge = () => STATUS_STYLE[e.status] ?? { text: e.status, cls: "" };
+                  return (
+                    <div class="flex items-center justify-between px-4 py-3">
+                      <div>
+                        <div class="text-sm font-medium">{e.label}</div>
+                        <div class="text-xs text-[var(--text-faint)]">{e.id}</div>
+                      </div>
+                      <div class="flex items-center gap-3">
+                        <div class="text-right">
+                          <div class={`text-sm font-medium ${badge().cls}`}>{badge().text}</div>
+                          <div class="text-xs text-[var(--text-faint)]">{e.detail}</div>
+                        </div>
+                        <button
+                          class="pressable px-2.5 py-1 rounded text-xs border border-[var(--border)]"
+                          classList={{ "opacity-40": e.status === "unavailable" }}
+                          disabled={voiceOv()?.engine === e.id || e.status === "unavailable"}
+                          onClick={() => void switchVoiceEngine(e.id)}
+                        >
+                          {voiceOv()?.engine === e.id ? "当前引擎" : "设为主引擎"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }}
+              </For>
+            </div>
+            <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] divide-y divide-[var(--border)]">
+              <For each={["openai", "xai"]}>
+                {(p) => (
+                  <div class="flex items-center gap-3 px-4 py-3">
+                    <div class="w-24 shrink-0 text-sm">{p} 转写 key</div>
+                    <input
+                      type="password"
+                      class="flex-1 bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs font-mono"
+                      placeholder="sk-...（仅存本机 auth.json，0600）"
+                      value={voiceKeys()[p] ?? ""}
+                      onInput={(e) =>
+                        setVoiceKeys((prev) => ({ ...prev, [p]: e.currentTarget.value }))
+                      }
+                    />
+                    <button
+                      class="pressable px-2.5 py-1 rounded text-xs border border-[var(--border)]"
+                      onClick={() => void saveVoiceKey(p)}
+                    >
+                      保存
+                    </button>
+                  </div>
+                )}
               </For>
             </div>
           </Show>

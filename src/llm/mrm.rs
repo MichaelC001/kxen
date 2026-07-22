@@ -177,6 +177,7 @@ mod tests {
             },
             hooks: HashMap::new(),
             statusline: Default::default(),
+            voice: Default::default(),
         }
     }
 

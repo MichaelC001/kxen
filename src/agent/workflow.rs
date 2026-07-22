@@ -184,6 +184,7 @@ mod tests {
             limits: Limits { global_concurrent: 4, providers: HashMap::<String, ProviderLimit>::new() },
             hooks: HashMap::new(),
             statusline: Default::default(),
+            voice: Default::default(),
         };
         SubagentDeps {
             registry: Arc::new(crate::tools::task::TaskRegistry::new()),

@@ -11,6 +11,32 @@ pub struct Config {
     pub limits: Limits,
     pub hooks: HashMap<String, Vec<HookDef>>,
     pub statusline: StatuslineConfig,
+    pub voice: VoiceConfig,
+}
+
+/// 语音输入：引擎选择 + 降级链 + locale（API key 不落 config，走 auth.json）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VoiceConfig {
+    /// 主引擎 id：apple | openai | xai
+    pub engine: String,
+    /// 失败时依序降级的引擎 id
+    pub fallback: Vec<String>,
+    /// 识别语言（BCP-47，如 zh-CN / en-US）
+    pub locale: String,
+    /// provider 引擎的转写模型名（如 whisper-1）
+    pub transcribe_model: String,
+}
+
+impl Default for VoiceConfig {
+    fn default() -> Self {
+        Self {
+            engine: "apple".into(),
+            fallback: vec![],
+            locale: "zh-CN".into(),
+            transcribe_model: "whisper-1".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -92,6 +118,9 @@ impl Config {
         }
         if !other.statusline.items.is_empty() {
             self.statusline = other.statusline;
+        }
+        if other.voice != VoiceConfig::default() {
+            self.voice = other.voice;
         }
     }
 }

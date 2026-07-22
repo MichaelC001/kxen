@@ -4,5 +4,7 @@
 <dict>
     <key>NSMicrophoneUsageDescription</key>
     <string>kxen 需要麦克风用于语音输入（Apple 本地语音识别，音频不上传）</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>kxen 需要语音识别权限用于语音输入（Apple 本地识别，支持中文/英文）</string>
 </dict>
 </plist>

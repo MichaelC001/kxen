@@ -1,104 +1,67 @@
-// 语音输入：优先 Web Speech API（WKWebView 调 Apple 本地识别，零成本离线可用）。
-// 不支持时按钮禁用（提示降级方案），不静默失败。
+// 语音输入多引擎：apple（Rust 侧 Speech.framework 本地识别）+ provider（OpenAI 兼容转写）。
+// 全部经 WS RPC 驱动；partial 事件走 llm.delta 通道（kind=voice.*）。
 
-interface SpeechRecognitionResultItem {
-  transcript: string;
-  confidence: number;
-}
-interface SpeechRecognitionResultList {
-  [index: number]: SpeechRecognitionResultItem[];
-  length: number;
-}
-interface SpeechRecognitionEventLike {
-  resultIndex: number;
-  results: SpeechRecognitionResultList & {
-    [index: number]: { isFinal: boolean } & SpeechRecognitionResultList[number][];
-  };
-}
-interface SpeechRecognitionLike {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: ((e: SpeechRecognitionEventLike) => void) | null;
-  onerror: ((e: { error: string }) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
+import { client } from "./client";
+
+export interface VoiceEngineInfo {
+  id: string;
+  label: string;
+  status: string;
+  detail: string;
 }
 
-type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
-
-function ctor(): SpeechRecognitionCtor | null {
-  const w = window as unknown as {
-    SpeechRecognition?: SpeechRecognitionCtor;
-    webkitSpeechRecognition?: SpeechRecognitionCtor;
-  };
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+export interface VoiceOverview {
+  engine: string;
+  fallback: string[];
+  locale: string;
+  engines: VoiceEngineInfo[];
 }
 
-export function speechSupported(): boolean {
-  return ctor() !== null;
+export function voiceEngines(): Promise<VoiceOverview> {
+  return client.rpc("voice.engines");
 }
 
-export interface MicPermission {
-  ok: boolean;
-  error?: string;
+export function setVoiceEngine(engine: string, fallback: string[] = []): Promise<void> {
+  return client.rpc("voice.set_engine", { engine, fallback });
 }
 
-/** 显式申请麦克风权限（首次触发 macOS 系统授权弹窗；通过后立即释放流）。
- *  被永久拒绝时给设置页引导文案。 */
-export async function ensureMicPermission(): Promise<MicPermission> {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    return { ok: false, error: "当前环境不支持麦克风采集" };
-  }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach((t) => t.stop());
-    return { ok: true };
-  } catch {
-    return {
-      ok: false,
-      error: "麦克风权限被拒。请在 系统设置 > 隐私与安全性 > 麦克风 中允许 kxen，然后重试",
-    };
-  }
+export function setVoiceProviderKey(provider: string, key: string): Promise<void> {
+  return client.rpc("voice.set_provider_key", { provider, key });
 }
 
 export interface VoiceSession {
-  stop: () => void;
+  /** 松开 PTT：停止并返回最终文本（apple 等 final；provider 上传转写）。 */
+  stop: () => Promise<string | null>;
 }
 
-/** 开始识别：interim 结果实时回调，final 结果标记。返回停止句柄。 */
-export function startVoice(
-  onInterim: (text: string) => void,
-  onFinal: (text: string) => void,
-  onError: (error: string) => void,
-): VoiceSession | null {
-  const Ctor = ctor();
-  if (!Ctor) return null;
-  const recognition = new Ctor();
-  recognition.lang = "zh-CN";
-  recognition.continuous = true;
-  recognition.interimResults = true;
+interface VoiceEventPayload {
+  kind?: string;
+  text?: string;
+  message?: string;
+}
 
-  recognition.onresult = (e) => {
-    let interim = "";
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const result = e.results[i] ?? [];
-      const transcript = result[0]?.transcript ?? "";
-      if ((result as unknown as { isFinal?: boolean }).isFinal) {
-        onFinal(transcript);
-      } else {
-        interim += transcript;
-      }
-    }
-    if (interim) onInterim(interim);
-  };
-  recognition.onerror = (e) => onError(e.error);
-  recognition.onend = null;
-
-  recognition.start();
+/** 开始语音会话：partial 实时回调（当前完整假设，非增量）；错误回调。 */
+export async function startVoiceSession(
+  engine: string | undefined,
+  onPartial: (text: string) => void,
+  onError: (msg: string) => void,
+): Promise<VoiceSession> {
+  const off = client.stream("llm.delta").on((payload) => {
+    const p = payload as VoiceEventPayload;
+    if (p.kind === "voice.partial" && p.text) onPartial(p.text);
+    if (p.kind === "voice.error") onError(p.message ?? "语音引擎错误");
+  });
+  try {
+    await client.rpc("voice.start", engine ? { engine } : {});
+  } catch (e) {
+    off();
+    throw e;
+  }
   return {
-    stop: () => recognition.stop(),
+    stop: async () => {
+      off();
+      const r = await client.rpc<{ text: string | null }>("voice.stop");
+      return r.text ?? null;
+    },
   };
 }
