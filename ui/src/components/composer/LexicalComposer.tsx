@@ -2,6 +2,7 @@
 import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import { Image as ImageIcon, Mic, MicOff, Plus, Send, Square, X } from "lucide-solid";
 import { commandList, type CommandInfo, type ContextItem } from "../../lib/chat";
+import { activeSessionId } from "../../lib/state";
 import { COMPOSER_INSERT_EVENT } from "../../lib/composer-bus";
 import { buildItems, detectTrigger, type PopupState, type Trigger } from "./triggers";
 import { mountComposer, type ChipData, type ComposerCore } from "./lexical-core";
@@ -43,6 +44,7 @@ export default function LexicalComposer(props: {
   let core: ComposerCore | undefined;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   const images = new Map<string, { media_type: string; data: string }>();
+  const draftMap = new Map<string, string>(); // 每会话草稿（进程内）
 
   const estimate = () => {
     void tick(); // 依赖文本变化信号
@@ -59,17 +61,21 @@ export default function LexicalComposer(props: {
     return (core?.getText() ?? "") === "" && rowChips().length === 0;
   };
 
-  onMount(async () => {
-    setCommands(await commandList().catch(() => []));
+  onMount(() => {
     if (rootEl) {
       core = mountComposer(rootEl);
       core.setText(""); // WebKit 初始渲染（空 contenteditable 无 caret）
       core.onTextChange(() => {
         setTick((t) => t + 1);
+        draftMap.set(activeSessionId(), core?.getText() ?? "");
         checkTrigger();
       });
       core.focus();
     }
+    // 命令清单后台取（编辑器不等 RPC，立即可用）
+    void commandList()
+      .then(setCommands)
+      .catch(() => setCommands([]));
     const onInsert = (e: Event) => {
       core?.insertPlain((e as CustomEvent<string>).detail);
       core?.focus();
@@ -81,9 +87,13 @@ export default function LexicalComposer(props: {
 
   createEffect(() => {
     props.focusTick();
+    // 先取草稿再清：clear() 触发 onTextChange 会把草稿覆写为空（顺序错误实测）
+    const d = draftMap.get(activeSessionId()) ?? "";
     core?.clear();
     setRowChips([]);
     setPopup(null);
+    // 每会话草稿：切回时恢复（切走前已由 onTextChange 持续落盘）
+    if (d) core?.setText(d);
     core?.focus();
   });
 
@@ -235,6 +245,7 @@ export default function LexicalComposer(props: {
       .filter((i): i is { media_type: string; data: string } => !!i);
     if (recording()) voiceCtl.stop();
     props.onSend(knowledgeNote ? `${value}\n${knowledgeNote}` : value, context, imageParts);
+    draftMap.delete(activeSessionId());
     core.clear();
     setRowChips([]);
     setTick((t) => t + 1);

@@ -1,5 +1,6 @@
 import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import {
+  currentModel,
   onLlmDelta,
   sendMessage,
   sessionAbort,
@@ -9,9 +10,11 @@ import {
   statusline,
   type ContextItem,
 } from "../lib/chat";
+import MessageActions from "../components/MessageActions";
 import {
   activeSessionId,
   ensureActiveSession,
+  newSession,
   refreshSessions,
   sessions,
   setHasConversation,
@@ -24,7 +27,7 @@ import type { OrbState } from "../lib/orb";
 import EmptyHero from "../components/EmptyHero";
 import ToolCard from "../components/ToolCard";
 import Composer from "../components/composer/LexicalComposer";
-import { Download, FolderOpen, GitFork } from "lucide-solid";
+import { Download, FolderOpen } from "lucide-solid";
 import { toItems, type Item } from "../lib/items";
 
 export default function Session() {
@@ -85,6 +88,8 @@ export default function Session() {
   onMount(async () => {
     const sl = await statusline("").catch(() => null);
     if (sl) setWorkdir(sl.workdir);
+    const m = await currentModel().catch(() => null);
+    if (m) setModelLabel(`${m.provider}/${m.model}`);
     unlisten = await onLlmDelta(
       activeSessionId,
       (text) => appendAssistant("content", text),
@@ -161,10 +166,43 @@ export default function Session() {
   };
 
   const [exportNote, setExportNote] = createSignal("");
+  const [modelLabel, setModelLabel] = createSignal("");
   const doExport = async () => {
     const r = await sessionExport(activeSessionId()).catch(() => null);
     setExportNote(r ? `已导出 ${r.path}` : "导出失败");
     setTimeout(() => setExportNote(""), 3000);
+  };
+
+  /** 重新生成：把该 assistant 之前最近一条 user 消息重发一次。 */
+  const rerun = async (idx: number) => {
+    const list = items();
+    for (let j = idx - 1; j >= 0; j--) {
+      const m = list[j];
+      if (m?.kind === "msg" && m.role === "user") {
+        await send(m.content, [], []);
+        return;
+      }
+    }
+  };
+
+  /** 编辑重发：fork 到该消息前一条（排除本消息），再发编辑后的文本。 */
+  const editResend = async (idx: number, text: string) => {
+    const list = items();
+    for (let j = idx - 1; j >= 0; j--) {
+      const m = list[j];
+      if (m?.kind === "msg" && m.messageId) {
+        const forked = await sessionFork(activeSessionId(), m.messageId).catch(() => null);
+        if (forked) {
+          await refreshSessions();
+          switchSession(forked.id);
+          await send(text, [], []);
+          return;
+        }
+      }
+    }
+    // 没有更早消息（首条）：直接新会话发送
+    await newSession();
+    await send(text, [], []);
   };
 
   return (
@@ -208,7 +246,7 @@ export default function Session() {
       <div ref={(el) => (listRef = el)} class="flex-1 overflow-auto px-4 py-5">
         <div class="w-full space-y-4">
           <For each={items()}>
-            {(item) => {
+            {(item, i) => {
               if (item.kind === "tool") {
                 return <ToolCard name={item.name} call={item.call} result={item.result} />;
               }
@@ -222,19 +260,20 @@ export default function Session() {
               }
               if (item.role === "user") {
                 return (
-                  <div class="group relative flex justify-end items-start gap-1.5">
-                    <Show when={item.messageId}>
-                      <button
-                        class="opacity-0 group-hover:opacity-100 pressable mt-1 px-1 rounded text-[var(--text-faint)] hover:text-[var(--text)]"
-                        title="从此消息分叉"
-                        onClick={() => void forkAt(item.messageId!)}
-                      >
-                        <GitFork size={12} />
-                      </button>
-                    </Show>
+                  <div class="group relative flex flex-col items-end gap-1">
                     <div class="max-w-[80%] rounded-2xl rounded-br-md px-3.5 py-2 text-sm bg-[var(--accent)] text-[var(--accent-contrast)] whitespace-pre-wrap">
                       {item.content}
                     </div>
+                    <Show when={item.messageId}>
+                      <div class="self-end">
+                        <MessageActions
+                          role="user"
+                          content={item.content}
+                          onFork={() => void forkAt(item.messageId!)}
+                          onEditResend={(text) => void editResend(i(), text)}
+                        />
+                      </div>
+                    </Show>
                   </div>
                 );
               }
@@ -242,13 +281,14 @@ export default function Session() {
               return (
                 <div class="group relative text-sm">
                   <Show when={item.messageId}>
-                    <button
-                      class="absolute -left-6 top-0.5 opacity-0 group-hover:opacity-100 pressable px-1 rounded text-[var(--text-faint)] hover:text-[var(--text)]"
-                      title="从此消息分叉"
-                      onClick={() => void forkAt(item.messageId!)}
-                    >
-                      <GitFork size={12} />
-                    </button>
+                    <div class="absolute right-0 top-0 z-10">
+                      <MessageActions
+                        role="assistant"
+                        content={item.content}
+                        onFork={() => void forkAt(item.messageId!)}
+                        onRerun={() => void rerun(i())}
+                      />
+                    </div>
                   </Show>
                   <Show when={item.reasoning}>
                     <div class="text-xs text-[var(--text-faint)] border-l-2 border-[var(--border)] pl-2.5 mb-2 whitespace-pre-wrap">
@@ -259,6 +299,9 @@ export default function Session() {
                   <Show when={item.stats}>
                     {(stats) => (
                       <div class="text-2xs text-[var(--text-faint)] mt-1.5 tabular-nums">
+                        <Show when={modelLabel()}>
+                          <span class="text-[var(--text-dim)]">{modelLabel()}</span> ·{" "}
+                        </Show>
                         in {stats().input_tokens} / out {stats().output_tokens} · TTFT{" "}
                         {(stats().ttft_ms / 1000).toFixed(1)}s ·{" "}
                         {(stats().duration_ms / 1000).toFixed(1)}s · {stats().tokens_per_sec} tok/s
