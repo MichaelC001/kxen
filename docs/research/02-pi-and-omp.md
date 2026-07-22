@@ -17,38 +17,38 @@
 
 ### monorepo 结构
 
-| 包 | 职责 |
-| --- | --- |
-| `@earendil-works/pi-ai` | 统一多 provider LLM API（Anthropic、OpenAI、Google、xAI、Groq、Cerebras、OpenRouter、任意 OpenAI 兼容端点），流式、工具调用（TypeBox schema）、thinking、跨 provider 上下文交接、token / cost 统计 |
-| `@earendil-works/pi-agent-core` | agent loop + `Agent` 类（状态管理、事件订阅、消息队列两种模式、附件、transport 抽象可直连或走代理） |
-| `@earendil-works/pi-tui` | 终端 UI 库，differential rendering |
-| `@earendil-works/pi-coding-agent` | CLI：session 管理（continue / resume / branching）、AGENTS.md 分层加载、slash command、自定义模型 / provider JSON、主题、headless JSON / RPC 模式 |
+| 包                                | 职责                                                                                                                                                                                               |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@earendil-works/pi-ai`           | 统一多 provider LLM API（Anthropic、OpenAI、Google、xAI、Groq、Cerebras、OpenRouter、任意 OpenAI 兼容端点），流式、工具调用（TypeBox schema）、thinking、跨 provider 上下文交接、token / cost 统计 |
+| `@earendil-works/pi-agent-core`   | agent loop + `Agent` 类（状态管理、事件订阅、消息队列两种模式、附件、transport 抽象可直连或走代理）                                                                                                |
+| `@earendil-works/pi-tui`          | 终端 UI 库，differential rendering                                                                                                                                                                 |
+| `@earendil-works/pi-coding-agent` | CLI：session 管理（continue / resume / branching）、AGENTS.md 分层加载、slash command、自定义模型 / provider JSON、主题、headless JSON / RPC 模式                                                  |
 
 ### 核心哲学（kxen 直接继承）
 
 - 极小核心：默认只有 `read` / `write` / `edit` / `bash` 四个工具，system prompt + 工具定义 < 1000 token
 - 不内置 sub-agents、plan mode、MCP：「Adapt Pi to your workflows, not the other way around」
 - 扩展全靠自己写或装 package：extensions（TS 模块，可注册 tools / commands / 快捷键 / events / TUI 组件）、skills（渐进披露）、prompt templates、themes
-- package 分发: `pi install npm:@foo/pi-tools` / `pi install git:github.com/user/repo@ref`，装到 `~/.pi/agent/npm|`git/` 或项目级 `.pi/`
+- package 分发: `pi install npm:@foo/pi-tools` / `pi install git:github.com/user/repo@ref`，装到 `~/.pi/agent/npm|`git/`或项目级`.pi/`
 - 内置 Claude Pro/Max 订阅 OAuth（作者博客功能列表确认）
 - SDK 可嵌入: `import { AuthStorage, createAgentSession, ModelRegistry, SessionManager } from "@mariozechner/pi-coding-agent"`
 
 ### 与 kxen 需求相关的已验证 package（npm registry 2026-07-20 直查）
 
-| 包 | 版本 | 说明 |
-| --- | --- | --- |
-| `pi-muselinn-harness` | 0.7.3 | Kimi Code 风格编排 harness：Swarm（并发 subagent + TUI）、Goal（生命周期）等；https://github.com/MuseLinn/pi-muselinn-harness |
-| `@tintinweb/pi-subagents` | 0.14.2 | Claude Code 风格自治 sub-agent |
-| `pi-subagents` | 0.35.1 | subagent 委派：链式、并行、TUI 澄清 |
-| `@quintinshaw/pi-dynamic-workflows` | 3.3.0 | Claude Code 风格 dynamic workflows：可 fan-out 到上百个 subagent |
-| `@gotgenes/pi-permission-system` | 20.9.0 | 权限强制执行 |
-| `pi-codex-goal` | 0.1.38 | Codex 风格 goal 跟踪与续跑；https://github.com/fitchmultz/pi-codex-goal |
-| `pi-agent-goal` | 2026.7.18 | 持久 `/goal` workflow：分支感知状态、进度工具；https://github.com/KristjanPikhof/Pi-Agent-Goal |
-| `@narumitw/pi-goal` | 0.20.0 | 自治 `/goal` 完成 + 可选有序队列 |
-| `pi-provider-kimi-code` | 0.6.7 | 在 Pi 里用 Kimi Code 且保留 Kimi 特性；https://github.com/Leechael/pi-provider-kimi-code |
-| `pi-crew` | 0.9.44 | 多 agent 团队、workflow、worktree、异步编排 |
-| `pi-lens` | 3.8.70 | LSP / linter / 格式化 / 类型检查反馈 |
-| `pi-mcp-adapter` | 2.11.0 | MCP 适配 |
+| 包                                  | 版本      | 说明                                                                                                                          |
+| ----------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `pi-muselinn-harness`               | 0.7.3     | Kimi Code 风格编排 harness：Swarm（并发 subagent + TUI）、Goal（生命周期）等；https://github.com/MuseLinn/pi-muselinn-harness |
+| `@tintinweb/pi-subagents`           | 0.14.2    | Claude Code 风格自治 sub-agent                                                                                                |
+| `pi-subagents`                      | 0.35.1    | subagent 委派：链式、并行、TUI 澄清                                                                                           |
+| `@quintinshaw/pi-dynamic-workflows` | 3.3.0     | Claude Code 风格 dynamic workflows：可 fan-out 到上百个 subagent                                                              |
+| `@gotgenes/pi-permission-system`    | 20.9.0    | 权限强制执行                                                                                                                  |
+| `pi-codex-goal`                     | 0.1.38    | Codex 风格 goal 跟踪与续跑；https://github.com/fitchmultz/pi-codex-goal                                                       |
+| `pi-agent-goal`                     | 2026.7.18 | 持久 `/goal` workflow：分支感知状态、进度工具；https://github.com/KristjanPikhof/Pi-Agent-Goal                                |
+| `@narumitw/pi-goal`                 | 0.20.0    | 自治 `/goal` 完成 + 可选有序队列                                                                                              |
+| `pi-provider-kimi-code`             | 0.6.7     | 在 Pi 里用 Kimi Code 且保留 Kimi 特性；https://github.com/Leechael/pi-provider-kimi-code                                      |
+| `pi-crew`                           | 0.9.44    | 多 agent 团队、workflow、worktree、异步编排                                                                                   |
+| `pi-lens`                           | 3.8.70    | LSP / linter / 格式化 / 类型检查反馈                                                                                          |
+| `pi-mcp-adapter`                    | 2.11.0    | MCP 适配                                                                                                                      |
 
 结论：kxen 要的每一块（Goal、Swarm、dynamic workflow、权限、Kimi provider）社区都已有可参考实现，但质量与整合度未知，定位是「参考 + 可借用」，不是「装上就用」。
 

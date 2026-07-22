@@ -14,7 +14,16 @@ tauri = { version = "2.11", features = [] }
 tauri-plugin-websocket = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "fs", "process", "io-util", "time", "sync", "net"] }
+tokio = { version = "1.53", features = [
+  "rt-multi-thread",
+  "macros",
+  "fs",
+  "process",
+  "io-util",
+  "time",
+  "sync",
+  "net",
+] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 toml = "1"
@@ -22,7 +31,13 @@ thiserror = "2"
 regex = "1.13"
 ignore = "0.4"
 globset = "0.4"
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "rustls-native-certs", "json", "stream", "multipart"] }
+reqwest = { version = "0.13", default-features = false, features = [
+  "rustls",
+  "rustls-native-certs",
+  "json",
+  "stream",
+  "multipart",
+] }
 futures = "0.3"
 tokio-tungstenite = "0.26"
 keyring = "4"

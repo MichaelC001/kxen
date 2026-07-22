@@ -6,14 +6,14 @@
 
 ## 1. 逆向资源清单（已核实）
 
-| 仓库 | 规模 | 价值 |
-| --- | --- | --- |
-| https://github.com/asgeirtj/system_prompts_leaks | 约 59k stars，日更 | 最新最全：Claude Code 按模型分档 prompt（Opus / Sonnet / Haiku 各版本）、injected reminders、MCP server prompts、deferred tools、bundled skills、Codex 按模型分档与 plan mode / personas |
-| https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools | 约 142k stars | 覆盖面最广（30+ 工具），偏 coding 工具 |
-| https://github.com/elder-plinius/CL4R1T4S | 约 45k stars | 多 vendor |
-| https://github.com/YeeKal/leaked-system-prompts | 有在线站 https://leaked-system-prompts.com/ | 可搜索、可对比 |
-| https://github.com/xai-org/grok-prompts | xAI 官方 | Grok 官方 prompt |
-| https://docs.anthropic.com/en/release-notes/system-prompts | Anthropic 官方 | Claude 官方发布版 |
+| 仓库                                                             | 规模                                        | 价值                                                                                                                                                                                     |
+| ---------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| https://github.com/asgeirtj/system_prompts_leaks                 | 约 59k stars，日更                          | 最新最全：Claude Code 按模型分档 prompt（Opus / Sonnet / Haiku 各版本）、injected reminders、MCP server prompts、deferred tools、bundled skills、Codex 按模型分档与 plan mode / personas |
+| https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools | 约 142k stars                               | 覆盖面最广（30+ 工具），偏 coding 工具                                                                                                                                                   |
+| https://github.com/elder-plinius/CL4R1T4S                        | 约 45k stars                                | 多 vendor                                                                                                                                                                                |
+| https://github.com/YeeKal/leaked-system-prompts                  | 有在线站 https://leaked-system-prompts.com/ | 可搜索、可对比                                                                                                                                                                           |
+| https://github.com/xai-org/grok-prompts                          | xAI 官方                                    | Grok 官方 prompt                                                                                                                                                                         |
+| https://docs.anthropic.com/en/release-notes/system-prompts       | Anthropic 官方                              | Claude 官方发布版                                                                                                                                                                        |
 
 结论: 以 asgeirtj 仓为主索引，grok-build 开源源码为权威（不用逆向）。
 
@@ -57,14 +57,14 @@ system prompt + 工具定义合计 < 1000 token，只注入 AGENTS.md 分层文�
 
 ## 3. 注入机制全景（kxen 可用的六个注入层）
 
-| 层 | 内容 | 缓存属性 | 来源实践 |
-| --- | --- | --- | --- |
-| 静态核 | 身份、任务原则、安全、风格 | 稳定，前缀缓存 | 各家共同 |
-| 工具使用政策 | 粒度、并行、纠偏规则 | 稳定 | Claude Code |
-| 会话上下文块 | env / cwd / git status / date | 每会话变，放静态核之后 | Claude Code `# Session context` |
-| 项目规则 | AGENTS.md 分层（全局 -> 项目 -> 子目录按需） | 项目级稳定 | Claude Code / Pi / grok-build |
-| 运行时提醒 | `<system-reminder>` 附加在工具输出后，事件驱动 | 不进前缀 | grok-build reminders / Claude injected reminders / OMP TTSR |
-| 迟绑定 | 请求末尾追加合成 user message（记忆、MRM 状态快照） | 不进前缀 | DCP late-binding |
+| 层           | 内容                                                | 缓存属性               | 来源实践                                                    |
+| ------------ | --------------------------------------------------- | ---------------------- | ----------------------------------------------------------- |
+| 静态核       | 身份、任务原则、安全、风格                          | 稳定，前缀缓存         | 各家共同                                                    |
+| 工具使用政策 | 粒度、并行、纠偏规则                                | 稳定                   | Claude Code                                                 |
+| 会话上下文块 | env / cwd / git status / date                       | 每会话变，放静态核之后 | Claude Code `# Session context`                             |
+| 项目规则     | AGENTS.md 分层（全局 -> 项目 -> 子目录按需）        | 项目级稳定             | Claude Code / Pi / grok-build                               |
+| 运行时提醒   | `<system-reminder>` 附加在工具输出后，事件驱动      | 不进前缀               | grok-build reminders / Claude injected reminders / OMP TTSR |
+| 迟绑定       | 请求末尾追加合成 user message（记忆、MRM 状态快照） | 不进前缀               | DCP late-binding                                            |
 
 缓存铁律: 任何跨轮稳定的内容必须形成字节级一致的前缀；动态内容只能追加不能插入（Anthropic tool search 的 append-not-swap 原则）。
 
@@ -80,19 +80,19 @@ system prompt + 工具定义合计 < 1000 token，只注入 AGENTS.md 分层文�
 
 ## 5. kxen prompt 组装设计（P1-P11）
 
-| # | 决策 | 依据 |
-| --- | --- | --- |
-| P1 | Section-based composer：段有优先级与条件，按「静态核 -> 工具政策 -> 会话块 -> 项目规则 -> 清单 -> 工具文档」排序，字节级稳定前缀 | OpenDev composer + 缓存铁律 |
-| P2 | 模板渲染：工具名 / 角色名 / 阈值全部模板变量插值，条件段隐藏缺席工具，禁止硬编码 | grok-build |
-| P3 | 三层变体：base + role overlay（thinking / execution 等）+ model-family overlay（Claude / GPT / Grok / Kimi 措辞差异） | Claude Code / Codex 按模型分档 |
-| P4 | subagent 独立短模板（explore / plan / execute / review），工具白名单 schema 级过滤 | grok-build + OpenDev |
-| P5 | 压缩后 system stub + 重注入项目规则文件 | grok-build + Claude Code |
-| P6 | 提醒框架内置两种：per-tool（空文件、截断告知）与 cross-cutting（goal 进度、budget 水位、todo 久未更新），全部走 `<system-reminder>` | grok-build reminders + analysis/01 C6 |
-| P7 | MRM 状态快照以迟绑定 user message 注入 planning / thinking 角色，不进静态前缀 | DCP late-binding + analysis/03 |
-| P8 | 不可信内容（网页、issue、外部文本）XML fencing，身份只进属性 | DCP |
-| P9 | 身份段显式限定 coding 场景；非 coding 请求的处理策略写入静态核 | 方向决策 |
-| P10 | prompt 文本全部文件化进仓库（模板 + 每角色 overlay），变更走 git 评审，运行期可从 `/tmp` dump 实际发出的完整 prompt 供调试 | Cahciua 请求 dump + 工程化原则 |
-| P11 | 静态核不内置内容类拒绝清单（逆向 / 破解 / 外挂等 dual-use 话题不做提示词风控）；prompt 只陈述能力事实与灾难操作的机制边界（规则集见 design/05，由执行层拦截），安全靠机制不靠说教 | prd 3.7 安全模型 |
+| #   | 决策                                                                                                                                                                              | 依据                                  |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| P1  | Section-based composer：段有优先级与条件，按「静态核 -> 工具政策 -> 会话块 -> 项目规则 -> 清单 -> 工具文档」排序，字节级稳定前缀                                                  | OpenDev composer + 缓存铁律           |
+| P2  | 模板渲染：工具名 / 角色名 / 阈值全部模板变量插值，条件段隐藏缺席工具，禁止硬编码                                                                                                  | grok-build                            |
+| P3  | 三层变体：base + role overlay（thinking / execution 等）+ model-family overlay（Claude / GPT / Grok / Kimi 措辞差异）                                                             | Claude Code / Codex 按模型分档        |
+| P4  | subagent 独立短模板（explore / plan / execute / review），工具白名单 schema 级过滤                                                                                                | grok-build + OpenDev                  |
+| P5  | 压缩后 system stub + 重注入项目规则文件                                                                                                                                           | grok-build + Claude Code              |
+| P6  | 提醒框架内置两种：per-tool（空文件、截断告知）与 cross-cutting（goal 进度、budget 水位、todo 久未更新），全部走 `<system-reminder>`                                               | grok-build reminders + analysis/01 C6 |
+| P7  | MRM 状态快照以迟绑定 user message 注入 planning / thinking 角色，不进静态前缀                                                                                                     | DCP late-binding + analysis/03        |
+| P8  | 不可信内容（网页、issue、外部文本）XML fencing，身份只进属性                                                                                                                      | DCP                                   |
+| P9  | 身份段显式限定 coding 场景；非 coding 请求的处理策略写入静态核                                                                                                                    | 方向决策                              |
+| P10 | prompt 文本全部文件化进仓库（模板 + 每角色 overlay），变更走 git 评审，运行期可从 `/tmp` dump 实际发出的完整 prompt 供调试                                                        | Cahciua 请求 dump + 工程化原则        |
+| P11 | 静态核不内置内容类拒绝清单（逆向 / 破解 / 外挂等 dual-use 话题不做提示词风控）；prompt 只陈述能力事实与灾难操作的机制边界（规则集见 design/05，由执行层拦截），安全靠机制不靠说教 | prd 3.7 安全模型                      |
 
 ## 6. 反模式
 

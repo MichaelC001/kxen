@@ -2,11 +2,11 @@
 # Rust
 target/
 
-# ui
-ui/node_modules/
-ui/dist/
+# frontend
+node_modules/
+dist/
 .kxen/
-ui/.vitest-attachments/
-ui/src/components/composer/__screenshots__/
+.vitest-attachments/
+src/components/composer/__screenshots__/
+src/components/__screenshots__/
 .DS_Store
-ui/src/components/__screenshots__/

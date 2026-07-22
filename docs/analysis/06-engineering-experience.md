@@ -8,35 +8,35 @@
 
 ### Claude Code 的内存事故群（GitHub issues，2026 年）
 
-| 根因 | 细节 | 来源 |
-| --- | --- | --- |
-| UI 消息数组无界 | `mutableMessages` 只增不减；autocompact 只裁发给 API 的消息，不裁 display/transcript/file-snapshot 状态 | issue #25926 |
-| 工具结果驻留阈值过高 | 仅 >400KB 才落盘，50 个 300KB 结果就是 15MB 常驻 | 同上 |
-| SDK 双数组 | `messages[]` + `receivedMessages[]` 并行保留 | 同上 |
-| 流未排空 | fetch `Response` body 未完全消费 / 未 cancel，ArrayBuffer 以约 205MB/h 累积（8 小时 27.6GB） | issue #33380 |
-| 无总预算 | 单项有 cap，进程无聚合上限；V8 与 JSC 构建同样泄漏 -> 应用层保留问题，与运行时无关 | issues #56693 / #56960 |
+| 根因                 | 细节                                                                                                    | 来源                   |
+| -------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------- |
+| UI 消息数组无界      | `mutableMessages` 只增不减；autocompact 只裁发给 API 的消息，不裁 display/transcript/file-snapshot 状态 | issue #25926           |
+| 工具结果驻留阈值过高 | 仅 >400KB 才落盘，50 个 300KB 结果就是 15MB 常驻                                                        | 同上                   |
+| SDK 双数组           | `messages[]` + `receivedMessages[]` 并行保留                                                            | 同上                   |
+| 流未排空             | fetch `Response` body 未完全消费 / 未 cancel，ArrayBuffer 以约 205MB/h 累积（8 小时 27.6GB）            | issue #33380           |
+| 无总预算             | 单项有 cap，进程无聚合上限；V8 与 JSC 构建同样泄漏 -> 应用层保留问题，与运行时无关                      | issues #56693 / #56960 |
 
 ### OpenCode 的内存事故群
 
-| 根因 | 细节 | 来源 |
-| --- | --- | --- |
+| 根因           | 细节                                                                                                 | 来源                  |
+| -------------- | ---------------------------------------------------------------------------------------------------- | --------------------- |
 | 事件队列无背压 | SSE `AsyncQueue` 无容量上限，慢客户端下 `session.diff`（含完整前后文件内容）无限堆积，实测 187GB RSS | issue #16697 调查报告 |
-| 订阅不失联 | 每实例 5 个全局 bus 订阅从不 unsubscribe；实例缓存无空闲回收 -> 5N 闭包常驻 | 同上 |
-| 存储膨胀 | SQLite 1.99GB 无清理策略 | issue #16729 |
-| 修复范式 | 队列加容量 + drop-oldest + 慢客户端断开；内存 telemetry 周期采样 + SIGUSR1 触发 heap dump | 对应修复 PR 分支 |
+| 订阅不失联     | 每实例 5 个全局 bus 订阅从不 unsubscribe；实例缓存无空闲回收 -> 5N 闭包常驻                          | 同上                  |
+| 存储膨胀       | SQLite 1.99GB 无清理策略                                                                             | issue #16729          |
+| 修复范式       | 队列加容量 + drop-oldest + 慢客户端断开；内存 telemetry 周期采样 + SIGUSR1 触发 heap dump            | 对应修复 PR 分支      |
 
 ### kxen 内存设计（E1-E8）
 
-| # | 决策 | 依据 |
-| --- | --- | --- |
-| E1 | 进程级内存预算：周期采样 `memoryUsage()`，超水位依次执行「display 层驱逐 -> 提前压缩 -> 拒绝新 subagent」，watchdog 写事件流 | CC 无总预算的教训 |
-| E2 | 三层分离：context（发给 API）/ display（TUI 状态，环形缓冲有界）/ storage（磁盘）；display 与 context 不共享大对象引用 | CC mutableMessages 教训 |
-| E3 | 工具结果落盘阈值低（>50KB 即 content-addressed 落盘，内存只留引用 + 摘要） | CC 400KB 阈值教训；与 T3 截断落盘一致 |
-| E4 | 所有流必须消费完或显式 cancel；封装 fetch 层在 release 时强制 drain | CC ArrayBuffer 泄漏教训 |
-| E5 | 事件队列有界 + 慢消费者断开 + drop-oldest 策略 | OpenCode 187GB 事故 |
-| E6 | 订阅生命周期绑定 owner（subagent / session / workflow run 销毁即强制 unsub），静态审计禁止游离 subscribe | OpenCode 闭包泄漏教训 |
-| E7 | subagent 内存随生命周期释放；swarm 场景进程级并发上限同时受内存水位约束（不止受 provider 并发约束） | CC 并发子代理放大泄漏的教训 |
-| E8 | telemetry 内置：周期采样 RSS / heap / 对象计数，SIGUSR1 触发 heap dump，事件流可回放事故现场 | OpenCode 修复范式 |
+| #   | 决策                                                                                                                         | 依据                                  |
+| --- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| E1  | 进程级内存预算：周期采样 `memoryUsage()`，超水位依次执行「display 层驱逐 -> 提前压缩 -> 拒绝新 subagent」，watchdog 写事件流 | CC 无总预算的教训                     |
+| E2  | 三层分离：context（发给 API）/ display（TUI 状态，环形缓冲有界）/ storage（磁盘）；display 与 context 不共享大对象引用       | CC mutableMessages 教训               |
+| E3  | 工具结果落盘阈值低（>50KB 即 content-addressed 落盘，内存只留引用 + 摘要）                                                   | CC 400KB 阈值教训；与 T3 截断落盘一致 |
+| E4  | 所有流必须消费完或显式 cancel；封装 fetch 层在 release 时强制 drain                                                          | CC ArrayBuffer 泄漏教训               |
+| E5  | 事件队列有界 + 慢消费者断开 + drop-oldest 策略                                                                               | OpenCode 187GB 事故                   |
+| E6  | 订阅生命周期绑定 owner（subagent / session / workflow run 销毁即强制 unsub），静态审计禁止游离 subscribe                     | OpenCode 闭包泄漏教训                 |
+| E7  | subagent 内存随生命周期释放；swarm 场景进程级并发上限同时受内存水位约束（不止受 provider 并发约束）                          | CC 并发子代理放大泄漏的教训           |
+| E8  | telemetry 内置：周期采样 RSS / heap / 对象计数，SIGUSR1 触发 heap dump，事件流可回放事故现场                                 | OpenCode 修复范式                     |
 
 ## 2. 性能：与已有决策的对齐与补充
 
@@ -51,11 +51,11 @@
 
 ### 各路径对比（已核实）
 
-| 路径 | 代表 | 评价 |
-| --- | --- | --- |
-| mermaid-cli (mmdc) 子进程 | mermaidcat、gemini-cli issue #20393 提案 | 依赖 puppeteer / chromium，重、慢、内存高，否决 |
-| mermaid.js + jsdom 进程内 | mermkit embedded | jsdom 重，启动慢，作备选 |
-| 纯 Rust 渲染 | grok-build vendored `dagre_rust` + `graphlib_rust` + `mermaid-to-svg`（third_party/）；subinium 用 `mermaid-rs-renderer` + `resvg` | 无浏览器依赖、快、可进 N-API，与 kxen 原生路线一致，选定 |
+| 路径                      | 代表                                                                                                                               | 评价                                                     |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| mermaid-cli (mmdc) 子进程 | mermaidcat、gemini-cli issue #20393 提案                                                                                           | 依赖 puppeteer / chromium，重、慢、内存高，否决          |
+| mermaid.js + jsdom 进程内 | mermkit embedded                                                                                                                   | jsdom 重，启动慢，作备选                                 |
+| 纯 Rust 渲染              | grok-build vendored `dagre_rust` + `graphlib_rust` + `mermaid-to-svg`（third_party/）；subinium 用 `mermaid-rs-renderer` + `resvg` | 无浏览器依赖、快、可进 N-API，与 kxen 原生路线一致，选定 |
 
 ### 终端显示协议（已核实）
 
@@ -66,12 +66,12 @@
 
 ### kxen mermaid 决策（M1-M4）
 
-| # | 决策 |
-| --- | --- |
-| M1 | 内置 `render_mermaid` 工具（setting-gated）：模型生成 mermaid -> N-API 纯 Rust 渲染 SVG -> resvg 栅格化 PNG |
-| M2 | 显示分档：kitty 协议（首选）-> iTerm2 OSC1337 -> ASCII 兜底；结果按源 hash 缓存 |
-| M3 | 给模型返回「已展示 + 尺寸 + 是否降级」摘要，不把 PNG 塞回上下文（除非模型主动 `read_image`） |
-| M4 | bash 工具支持 `AGENT_GRAPHICS` 拦截约定，子进程图像进上下文走统一附件管道 |
+| #   | 决策                                                                                                        |
+| --- | ----------------------------------------------------------------------------------------------------------- |
+| M1  | 内置 `render_mermaid` 工具（setting-gated）：模型生成 mermaid -> N-API 纯 Rust 渲染 SVG -> resvg 栅格化 PNG |
+| M2  | 显示分档：kitty 协议（首选）-> iTerm2 OSC1337 -> ASCII 兜底；结果按源 hash 缓存                             |
+| M3  | 给模型返回「已展示 + 尺寸 + 是否降级」摘要，不把 PNG 塞回上下文（除非模型主动 `read_image`）                |
+| M4  | bash 工具支持 `AGENT_GRAPHICS` 拦截约定，子进程图像进上下文走统一附件管道                                   |
 
 ## 4. 可观测性与调试体验（DX）
 

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "ai.kxen.app",
   "build": {
-    "frontendDist": "ui/dist",
+    "frontendDist": "../dist",
     "devUrl": "http://localhost:7823",
     "beforeDevCommand": "",
     "beforeBuildCommand": ""
@@ -30,9 +30,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "dmg"
-    ],
+    "targets": ["dmg"],
     "macOS": {
       "minimumSystemVersion": "14.0",
       "signingIdentity": null,

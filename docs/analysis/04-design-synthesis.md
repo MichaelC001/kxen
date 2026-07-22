@@ -13,33 +13,33 @@
 
 ## 2. 维度矩阵
 
-| 维度 | 最佳实践来源 | kxen 选择 | 备选（引入时机） |
-| --- | --- | --- | --- |
-| Context 回收 | Anthropic 三原语 + OpenCode 两级 | tool-result clearing 常开 -> 结构化摘要 -> 溢出恢复（每步一次） | snapcompact 等价物（M5，需 vision + 原生渲染） |
-| 压缩阈值 | OMP 公式 + OpenCode PR #10123 需求 | contextWindow - max(15%, reserve)，按模型分档可配 | - |
-| 防死循环 | Claude Code + OpenCode | 连续 N 次失败熔断 + 压缩后 min_messages 闸门 | - |
-| 摘要结构 | OpenCode SUMMARY_TEMPLATE | 六段式: objective / decisions / progress / blockers / next / files | - |
-| 摘要模型 | OpenCode / OMP | tiny 角色（tools off，上限 4096 output），记账 | - |
-| 记忆 | Claude Code + OMP Hindsight | 项目规则文件（压缩后重注入）+ agent 自维护索引记忆（200 行上限 + 主题文件） | 离线两阶段管线（M5，用 smol 角色） |
-| 事件提醒 | grok-build reminders + OpenDev 论文 | system-reminder 框架: per-tool + cross-cutting，附加于工具输出，可存活压缩 | TTSR 流中断规则（M5，OMP） |
-| Codebase 定向 | Aider + Claude Code | 双轨: repo map（tree-sitter + PageRank + token 二分，默认 1k token）做全局定向；grep / glob / read 做按需精查 | import 依赖估计增强（aider-ce 思路，M5） |
-| 命令粒度 | grok-build + Claude Code | 独立调用并行同轮、依赖 `&&` 串联、后台返回 task_id 通知 | - |
-| 误用纠偏 | grok-build | 尾部 `&` / 轮询后台 / `cat` 读文件 / `sed -i` 改文件 -> 拒绝 + 针对性纠正文案 | - |
-| 超时处理 | grok-build | 超时转后台（可配），强杀杀进程组 SIGTERM -> SIGKILL | - |
-| 输出减载 | grok-build + OpenCode + OMP | first/last 截断 + 全文落盘附路径；压缩保留区统一 2000 字符压限；工具结果可标 useless | - |
-| 专用工具不变量 | Claude Code + Piebald + OMP | edit 带 staleness 拒绝与唯一性校验；只读工具标 parallel-safe | hashline 等价物（M5） |
-| 渐进披露 | Anthropic tool search + grok-build + Pi | 非常驻工具（MCP / 低频）走 search -> append schema；skills 懒加载；能力优先做成带 README 的 CLI | - |
-| 权限规则 | Codex execpolicy | DSL 三档 allow / prompt / forbidden 取最严；match / not_match 自测；项目级规则文件进 git；批准后提议固化 | - |
-| 安全边界 | 用户决策（prd 3.7） | 灾难操作机器拒绝（毁系统 / 毁用户目录 / 删 git 仓库 / 毁数据与基础设施，完整规则集见 design/05），执行层三重拦截（命令解析 + 路径守卫 + 审计）；内容类话题（逆向 / 破解 / 外挂等）不做提示词级风控，prompt 不内置拒绝清单 | - |
-| 模式权限 | OpenCode + OpenDev | plan / build 双模式: plan 只读 + 研究 subagent，write 工具从 schema 移除而不只是 deny | - |
-| 检查点回滚 | Gemini CLI + Claude Code | 文件修改前 shadow git 快照 + `/rewind` 恢复（含会话状态） | - |
-| Subagent | OMP + kimi-code | typed 结构化结果 + worktree 隔离 + 前后台双模式 + swarm 批量派发 | CoW 隔离（APFS / overlayfs，M5） |
-| 子代理上下文 | DCP (Cahciua) | TR 以 provider 中立 IR 持久化 + composeContext 确定性规则集（见 analysis/05），多模型 fallback 不炸历史 | probe gate（M4，fan-out 前置裁判） |
-| 高层编排 | Claude Code + kimi-code | Dynamic Workflow（脚本化编排 + 缓存恢复）与 Goal（contract + 状态机 + 预算）打通，见 design/03 | - |
-| 模型调度 | 见 analysis/03 | MRM: bucket 预检 + AIMD + 优先级队列 + 熔断 + 角色 fallback | - |
-| 可观测 | Claude Code + OpenHands | `/context` 分类统计 + 全事件流（每次回收 / 降级 / 纠偏可见） | - |
-| 内存工程 | CC / OpenCode 事故教训 | 进程级内存预算 + 三层分离 + 低阈值落盘 + 有界队列 + 订阅生命周期绑定 + telemetry（analysis/06 E1-E8） | - |
-| 图表渲染 | grok-build | mermaid 纯 Rust 渲染（dagre / mermaid-to-svg + resvg，N-API），kitty -> OSC1337 -> ASCII 分档，源 hash 缓存 | `AGENT_GRAPHICS` 拦截约定（随 bash 工具一起） |
+| 维度           | 最佳实践来源                            | kxen 选择                                                                                                                                                                                                                 | 备选（引入时机）                               |
+| -------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Context 回收   | Anthropic 三原语 + OpenCode 两级        | tool-result clearing 常开 -> 结构化摘要 -> 溢出恢复（每步一次）                                                                                                                                                           | snapcompact 等价物（M5，需 vision + 原生渲染） |
+| 压缩阈值       | OMP 公式 + OpenCode PR #10123 需求      | contextWindow - max(15%, reserve)，按模型分档可配                                                                                                                                                                         | -                                              |
+| 防死循环       | Claude Code + OpenCode                  | 连续 N 次失败熔断 + 压缩后 min_messages 闸门                                                                                                                                                                              | -                                              |
+| 摘要结构       | OpenCode SUMMARY_TEMPLATE               | 六段式: objective / decisions / progress / blockers / next / files                                                                                                                                                        | -                                              |
+| 摘要模型       | OpenCode / OMP                          | tiny 角色（tools off，上限 4096 output），记账                                                                                                                                                                            | -                                              |
+| 记忆           | Claude Code + OMP Hindsight             | 项目规则文件（压缩后重注入）+ agent 自维护索引记忆（200 行上限 + 主题文件）                                                                                                                                               | 离线两阶段管线（M5，用 smol 角色）             |
+| 事件提醒       | grok-build reminders + OpenDev 论文     | system-reminder 框架: per-tool + cross-cutting，附加于工具输出，可存活压缩                                                                                                                                                | TTSR 流中断规则（M5，OMP）                     |
+| Codebase 定向  | Aider + Claude Code                     | 双轨: repo map（tree-sitter + PageRank + token 二分，默认 1k token）做全局定向；grep / glob / read 做按需精查                                                                                                             | import 依赖估计增强（aider-ce 思路，M5）       |
+| 命令粒度       | grok-build + Claude Code                | 独立调用并行同轮、依赖 `&&` 串联、后台返回 task_id 通知                                                                                                                                                                   | -                                              |
+| 误用纠偏       | grok-build                              | 尾部 `&` / 轮询后台 / `cat` 读文件 / `sed -i` 改文件 -> 拒绝 + 针对性纠正文案                                                                                                                                             | -                                              |
+| 超时处理       | grok-build                              | 超时转后台（可配），强杀杀进程组 SIGTERM -> SIGKILL                                                                                                                                                                       | -                                              |
+| 输出减载       | grok-build + OpenCode + OMP             | first/last 截断 + 全文落盘附路径；压缩保留区统一 2000 字符压限；工具结果可标 useless                                                                                                                                      | -                                              |
+| 专用工具不变量 | Claude Code + Piebald + OMP             | edit 带 staleness 拒绝与唯一性校验；只读工具标 parallel-safe                                                                                                                                                              | hashline 等价物（M5）                          |
+| 渐进披露       | Anthropic tool search + grok-build + Pi | 非常驻工具（MCP / 低频）走 search -> append schema；skills 懒加载；能力优先做成带 README 的 CLI                                                                                                                           | -                                              |
+| 权限规则       | Codex execpolicy                        | DSL 三档 allow / prompt / forbidden 取最严；match / not_match 自测；项目级规则文件进 git；批准后提议固化                                                                                                                  | -                                              |
+| 安全边界       | 用户决策（prd 3.7）                     | 灾难操作机器拒绝（毁系统 / 毁用户目录 / 删 git 仓库 / 毁数据与基础设施，完整规则集见 design/05），执行层三重拦截（命令解析 + 路径守卫 + 审计）；内容类话题（逆向 / 破解 / 外挂等）不做提示词级风控，prompt 不内置拒绝清单 | -                                              |
+| 模式权限       | OpenCode + OpenDev                      | plan / build 双模式: plan 只读 + 研究 subagent，write 工具从 schema 移除而不只是 deny                                                                                                                                     | -                                              |
+| 检查点回滚     | Gemini CLI + Claude Code                | 文件修改前 shadow git 快照 + `/rewind` 恢复（含会话状态）                                                                                                                                                                 | -                                              |
+| Subagent       | OMP + kimi-code                         | typed 结构化结果 + worktree 隔离 + 前后台双模式 + swarm 批量派发                                                                                                                                                          | CoW 隔离（APFS / overlayfs，M5）               |
+| 子代理上下文   | DCP (Cahciua)                           | TR 以 provider 中立 IR 持久化 + composeContext 确定性规则集（见 analysis/05），多模型 fallback 不炸历史                                                                                                                   | probe gate（M4，fan-out 前置裁判）             |
+| 高层编排       | Claude Code + kimi-code                 | Dynamic Workflow（脚本化编排 + 缓存恢复）与 Goal（contract + 状态机 + 预算）打通，见 design/03                                                                                                                            | -                                              |
+| 模型调度       | 见 analysis/03                          | MRM: bucket 预检 + AIMD + 优先级队列 + 熔断 + 角色 fallback                                                                                                                                                               | -                                              |
+| 可观测         | Claude Code + OpenHands                 | `/context` 分类统计 + 全事件流（每次回收 / 降级 / 纠偏可见）                                                                                                                                                              | -                                              |
+| 内存工程       | CC / OpenCode 事故教训                  | 进程级内存预算 + 三层分离 + 低阈值落盘 + 有界队列 + 订阅生命周期绑定 + telemetry（analysis/06 E1-E8）                                                                                                                     | -                                              |
+| 图表渲染       | grok-build                              | mermaid 纯 Rust 渲染（dagre / mermaid-to-svg + resvg，N-API），kitty -> OSC1337 -> ASCII 分档，源 hash 缓存                                                                                                               | `AGENT_GRAPHICS` 拦截约定（随 bash 工具一起）  |
 
 ## 3. 三条主线的映射
 

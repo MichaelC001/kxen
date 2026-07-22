@@ -8,12 +8,12 @@
 
 需求前提：跳过所有模型官方 CLI 作为「使用工具」的选项（它们不支持导入其他模型），但官方 CLI 的源码与机制是重要参考。
 
-| 工具 | 仓库 | 语言 | 许可证 | 备注 |
-| --- | --- | --- | --- | --- |
-| Claude Code | 闭源 | - | 专有 | workflow 机制参考，见 `research/04` |
-| Codex CLI | https://github.com/openai/codex | Rust | Apache 2.0 | ChatGPT 订阅 OAuth 机制参考 |
-| Grok Build | https://github.com/xai-org/grok-build | Rust（workspace 约 1M 行，explainx 报道） | Apache 2.0 | 2026-07-15/16 开源；不接受外部 PR、issues 关闭；从内部 monorepo 定期同步 |
-| Kimi Code CLI | https://github.com/MoonshotAI/kimi-code | TypeScript 为主 | MIT | 内置 coder / explore / plan subagent；支持 ACP；Node.js 版（旧 Python 版已停维护） |
+| 工具          | 仓库                                    | 语言                                      | 许可证     | 备注                                                                               |
+| ------------- | --------------------------------------- | ----------------------------------------- | ---------- | ---------------------------------------------------------------------------------- |
+| Claude Code   | 闭源                                    | -                                         | 专有       | workflow 机制参考，见 `research/04`                                                |
+| Codex CLI     | https://github.com/openai/codex         | Rust                                      | Apache 2.0 | ChatGPT 订阅 OAuth 机制参考                                                        |
+| Grok Build    | https://github.com/xai-org/grok-build   | Rust（workspace 约 1M 行，explainx 报道） | Apache 2.0 | 2026-07-15/16 开源；不接受外部 PR、issues 关闭；从内部 monorepo 定期同步           |
+| Kimi Code CLI | https://github.com/MoonshotAI/kimi-code | TypeScript 为主                           | MIT        | 内置 coder / explore / plan subagent；支持 ACP；Node.js 版（旧 Python 版已停维护） |
 
 Grok Build 开源补充（来源: https://x.ai/news/grok-build-open-source 与 https://github.com/xai-org/grok-build ）：
 
@@ -25,13 +25,13 @@ Grok Build 开源补充（来源: https://x.ai/news/grok-build-open-source 与 h
 
 ## 2. 第三方 Harness 候选（重点）
 
-| 工具 | 仓库 / 站点 | 语言 | 多 provider | Sub-agent | 订阅复用 | 适合作为 |
-| --- | --- | --- | --- | --- | --- | --- |
-| OpenCode | https://github.com/anomalyco/opencode 、 https://opencode.ai | TypeScript | 75+ | 原生 primary + subagent，per-agent 可配 model 与 permission | 四个订阅全部可登录（Claude 有 ToS 风险） | 机制参考 |
-| Pi | https://github.com/earendil-works/pi （原 badlogic/pi-mono）、 https://pi.dev | TypeScript (93%) | 强（pi-ai 统一 API） | 核心不内置，靠 package | 内置 Claude Pro/Max OAuth；其余走自定义 provider | 底座 / 哲学来源 |
-| OMP (oh-my-pi) | https://github.com/can1357/oh-my-pi 、 https://omp.sh | TypeScript (87.6%) + Rust 核心（约 55k 行） | 40+ | task 工具 + 隔离 worktree + typed 结果 | oauth / plan / local 三类 auth 标签 | 完整度标杆 |
-| Kilo Code | https://kilo.ai | TypeScript | 强 | 有 | 支持 SuperGrok OAuth 等 | 参考 |
-| Hermes Agent | https://hermes-agent.nousresearch.com | Python | 极强 | 有 | 支持 SuperGrok / X Premium+ OAuth | 参考 |
+| 工具           | 仓库 / 站点                                                                   | 语言                                        | 多 provider          | Sub-agent                                                   | 订阅复用                                         | 适合作为        |
+| -------------- | ----------------------------------------------------------------------------- | ------------------------------------------- | -------------------- | ----------------------------------------------------------- | ------------------------------------------------ | --------------- |
+| OpenCode       | https://github.com/anomalyco/opencode 、 https://opencode.ai                  | TypeScript                                  | 75+                  | 原生 primary + subagent，per-agent 可配 model 与 permission | 四个订阅全部可登录（Claude 有 ToS 风险）         | 机制参考        |
+| Pi             | https://github.com/earendil-works/pi （原 badlogic/pi-mono）、 https://pi.dev | TypeScript (93%)                            | 强（pi-ai 统一 API） | 核心不内置，靠 package                                      | 内置 Claude Pro/Max OAuth；其余走自定义 provider | 底座 / 哲学来源 |
+| OMP (oh-my-pi) | https://github.com/can1357/oh-my-pi 、 https://omp.sh                         | TypeScript (87.6%) + Rust 核心（约 55k 行） | 40+                  | task 工具 + 隔离 worktree + typed 结果                      | oauth / plan / local 三类 auth 标签              | 完整度标杆      |
+| Kilo Code      | https://kilo.ai                                                               | TypeScript                                  | 强                   | 有                                                          | 支持 SuperGrok OAuth 等                          | 参考            |
+| Hermes Agent   | https://hermes-agent.nousresearch.com                                         | Python                                      | 极强                 | 有                                                          | 支持 SuperGrok / X Premium+ OAuth                | 参考            |
 
 OpenCode 机制要点（来源: https://opencode.ai/docs/agents/ ）：
 
@@ -42,16 +42,16 @@ OpenCode 机制要点（来源: https://opencode.ai/docs/agents/ ）：
 
 ## 3. 语言与执行性能对比
 
-| 工具 | 语言 | 性能特征 |
-| --- | --- | --- |
-| Grok Build | Rust | 极高：启动快、内存低、并发强 |
-| Codex CLI | Rust | 极高 |
-| Goose | Rust | 极高，本地优先 |
-| OMP | TS (Bun) + Rust N-API 核心 | 高：热路径无 fork/exec（ripgrep / glob / find / shell 进程内化） |
-| Pi | TypeScript (Node/Bun) | 中：工具走外部进程；生态与热重载最好 |
-| OpenCode | TypeScript | 中 |
-| Kimi Code CLI | TypeScript (Node.js) | 中 |
-| Aider | Python | 较弱：启动慢、内存高、并发弱 |
+| 工具          | 语言                       | 性能特征                                                         |
+| ------------- | -------------------------- | ---------------------------------------------------------------- |
+| Grok Build    | Rust                       | 极高：启动快、内存低、并发强                                     |
+| Codex CLI     | Rust                       | 极高                                                             |
+| Goose         | Rust                       | 极高，本地优先                                                   |
+| OMP           | TS (Bun) + Rust N-API 核心 | 高：热路径无 fork/exec（ripgrep / glob / find / shell 进程内化） |
+| Pi            | TypeScript (Node/Bun)      | 中：工具走外部进程；生态与热重载最好                             |
+| OpenCode      | TypeScript                 | 中                                                               |
+| Kimi Code CLI | TypeScript (Node.js)       | 中                                                               |
+| Aider         | Python                     | 较弱：启动慢、内存高、并发弱                                     |
 
 结论：纯 TS 方案的短板在工具热路径（搜索 / AST / 隔离），不在编排逻辑。kxen 采用「TS 为主 + 热点按需 Rust N-API」的渐进策略，与 OMP 已验证的路径一致（详见 `design/04-tech-stack.md`）。
 

@@ -67,15 +67,15 @@ kxen 的子代理会在 fallback 链上换模型（Claude 限流 -> Grok）。Ca
 
 ## 5. 落地映射（kxen 模块 -> DCP 机制）
 
-| kxen 模块 | 引入 | 优先级 |
-| --- | --- | --- |
-| subagent 会话存储 | TR 以 provider 中立 IR 持久化，wire codec 边界清洗 | P0（多模型 fallback 的根基） |
-| subagent 上下文组装 | composeContext() 规则集（2.2 六条） | P0 |
-| workflow resume | epoch cursor 压缩 + 确定性重建，回放缓存结果 | P1（M4） |
-| 特定功能子代理（review / research / audit） | probe gate: tiny 模型强制 `decide` 工具，fail closed，probe 输出不进主上下文 | P1（M2/M4 降本） |
-| workflow runtime | 步骤持久化后才检查中断；forced choice 重试与 usage 累计 | P1 |
-| research 子代理 | XML fencing + 渲染时掩码 | P2 |
-| eval 管线（T12） | 利用确定性重建做数据集级 context 策略评测 | P2（M5） |
+| kxen 模块                                   | 引入                                                                         | 优先级                       |
+| ------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------------- |
+| subagent 会话存储                           | TR 以 provider 中立 IR 持久化，wire codec 边界清洗                           | P0（多模型 fallback 的根基） |
+| subagent 上下文组装                         | composeContext() 规则集（2.2 六条）                                          | P0                           |
+| workflow resume                             | epoch cursor 压缩 + 确定性重建，回放缓存结果                                 | P1（M4）                     |
+| 特定功能子代理（review / research / audit） | probe gate: tiny 模型强制 `decide` 工具，fail closed，probe 输出不进主上下文 | P1（M2/M4 降本）             |
+| workflow runtime                            | 步骤持久化后才检查中断；forced choice 重试与 usage 累计                      | P1                           |
+| research 子代理                             | XML fencing + 渲染时掩码                                                     | P2                           |
+| eval 管线（T12）                            | 利用确定性重建做数据集级 context 策略评测                                    | P2（M5）                     |
 
 ## 6. 源码级精确参数（2026-07-20 直读 src/driver/context.ts 等）
 

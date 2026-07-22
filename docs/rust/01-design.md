@@ -48,28 +48,28 @@ kxen 是 macOS Apple Silicon 专精的 Coding Agent Harness，综合当前所有
 
 ### 2.2 外部依赖（2026-07-21 crates.io 核实 + 对比分析；总量控制 30 内）
 
-| 用途 | 选型 | 核实数据 | 结论依据 |
-| --- | --- | --- | --- |
-| app 框架 | tauri 2.11.5 + tauri-plugin-updater 2.10.1 | 22.5M / 6.6M 下载，2026-07 活跃 | WKWebView macOS；updater 官方 |
-| HTTP | reqwest 0.13.4 | 590M 下载，2026-05 | rustls（零 OpenSSL） |
-| macOS Keychain | keyring 4.1.5 | 17.3M 下载，2026-07-14 | Security.framework 跨平台抽象（vs 直接用 security-framework crate：多一层但 API 更稳） |
-| PTY | portable-pty 0.9.0 | 9.1M 下载，2025-02（稳定低更新） | wezterm 生产实证 |
-| 脚本引擎 | rquickjs 0.12.1 | 2.8M 下载，2026-07-06 | 见下方对比分析 |
-| 异步 | tokio 1.53.1 | 814M 下载，2026-07-20 | rt-multi-thread |
-| 正则 | regex 1.13.1（内含 RegexSet，无独立 regex-set crate） | 987M 下载，2026-07-15 | OnceLock 预编译 |
-| 文件监听 | notify 8.2.0 | 128M 下载，2026-05 | .agents/ 变更（后期） |
-| 日志 | tracing 0.1.44 | 718M 下载 | |
-| 序列化 | serde / serde_json / toml | 事实标准 | |
-| SSE 解析 | 自写 ~150 行 | pi_agent_rust 模式 | 少一个依赖 |
-| 回收站 | trash 5.2.6（备选） | 2.3M 下载，2026-05 | /usr/bin/trash（macOS 14+ 自带）优先，crate 备选 |
+| 用途           | 选型                                                  | 核实数据                         | 结论依据                                                                               |
+| -------------- | ----------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------- |
+| app 框架       | tauri 2.11.5 + tauri-plugin-updater 2.10.1            | 22.5M / 6.6M 下载，2026-07 活跃  | WKWebView macOS；updater 官方                                                          |
+| HTTP           | reqwest 0.13.4                                        | 590M 下载，2026-05               | rustls（零 OpenSSL）                                                                   |
+| macOS Keychain | keyring 4.1.5                                         | 17.3M 下载，2026-07-14           | Security.framework 跨平台抽象（vs 直接用 security-framework crate：多一层但 API 更稳） |
+| PTY            | portable-pty 0.9.0                                    | 9.1M 下载，2025-02（稳定低更新） | wezterm 生产实证                                                                       |
+| 脚本引擎       | rquickjs 0.12.1                                       | 2.8M 下载，2026-07-06            | 见下方对比分析                                                                         |
+| 异步           | tokio 1.53.1                                          | 814M 下载，2026-07-20            | rt-multi-thread                                                                        |
+| 正则           | regex 1.13.1（内含 RegexSet，无独立 regex-set crate） | 987M 下载，2026-07-15            | OnceLock 预编译                                                                        |
+| 文件监听       | notify 8.2.0                                          | 128M 下载，2026-05               | .agents/ 变更（后期）                                                                  |
+| 日志           | tracing 0.1.44                                        | 718M 下载                        |                                                                                        |
+| 序列化         | serde / serde_json / toml                             | 事实标准                         |                                                                                        |
+| SSE 解析       | 自写 ~150 行                                          | pi_agent_rust 模式               | 少一个依赖                                                                             |
+| 回收站         | trash 5.2.6（备选）                                   | 2.3M 下载，2026-05               | /usr/bin/trash（macOS 14+ 自带）优先，crate 备选                                       |
 
 **脚本引擎对比定案（workflow 核心选型）**：
 
-| 引擎 | 启动 | 内存 | ES 支持 | macArm | 判定 |
-| --- | --- | --- | --- | --- | --- |
-| rquickjs 0.12.1 | 快 8-16x（vs deno_core，windmill 实证） | 1.4M（script-bench-rs，M5 Max） | ES2023 全（modules / async generators / proxies / BigInt） | ✅ | **选定** |
-| boa_engine 0.21.1 | 中 | 25.3M（18x） | 90%+ 不完整 | 不稳定 | 排除 |
-| deno_core 0.408.0 | 慢（V8） | 大 | 完整 | ✅ 但重 | 排除 |
+| 引擎              | 启动                                    | 内存                            | ES 支持                                                    | macArm  | 判定     |
+| ----------------- | --------------------------------------- | ------------------------------- | ---------------------------------------------------------- | ------- | -------- |
+| rquickjs 0.12.1   | 快 8-16x（vs deno_core，windmill 实证） | 1.4M（script-bench-rs，M5 Max） | ES2023 全（modules / async generators / proxies / BigInt） | ✅      | **选定** |
+| boa_engine 0.21.1 | 中                                      | 25.3M（18x）                    | 90%+ 不完整                                                | 不稳定  | 排除     |
+| deno_core 0.408.0 | 慢（V8）                                | 大                              | 完整                                                       | ✅ 但重 | 排除     |
 
 **rquickjs 的 tokio 桥接（开放问题 1 关闭）**：async-rt feature 原生集成——`AsyncRuntime` + `AsyncContext`，JS promise 可作 Rust future await（`promise.into_future()`），Rust async fn 直接注册为 JS 函数（`Func::from(Async(f))`），`ctx.spawn` + `rt.idle()` 驱动。workflow 的 agent()/pipeline() 原语直接成立，无需 spawn_blocking hack。
 
@@ -202,7 +202,7 @@ Claude OAuth contract（jcode OAUTH.md 实证，五要素缺一不可）：
 
 ### 6.5 safety（执行层硬拦截）
 
-- 规则族 F1-F5：毁系统（/ /System /usr 等）/ 毁用户目录（~、~/Documents、凭证目录）/ 删 .git / 数据与基础设施毁灭（dropdb、terraform destroy、kubectl delete ns）/ 批量失控（无目标递归删、未求值变量）
+- 规则族 F1-F5：毁系统（/ /System /usr 等）/ 毁用户目录（~~、~~/Documents、凭证目录）/ 删 .git / 数据与基础设施毁灭（dropdb、terraform destroy、kubectl delete ns）/ 批量失控（无目标递归删、未求值变量）
 - 实现：RegexSet（OnceLock 预编译）+ &str 切片扫描，热路径零分配；命中返回结构化错误（ruleId + reason + suggestion）
 - 三层拦截：exec 命令文本、write/edit 路径守卫（resolve 后比对）、防绕过（bash -c / eval 递归评估）
 - trash 降档：trash 的删除按「可恢复」记 approval 而非 forbidden；.git / 系统路径的 trash 仍 forbidden
@@ -245,14 +245,14 @@ Rust -> 前端 events：`llm://delta`、`tool://call`、`task://update`、`goal:
 
 ## 9. 里程碑（0 -> 1，每个可验证）
 
-| 里程碑 | 内容 | 验证 |
-| --- | --- | --- |
-| M0 | workspace + Tauri 空窗 + kxen-auth 四源读取 + doctor 状态页 | 状态页显示四家凭证状态 |
-| M1 | kxen-llm 单 provider（xai Bearer）+ 流式到 GUI | GUI 发消息收流式回复 |
-| M2 | agent loop + 命令调度（快照 shell + auto_bg + 任务三件套 + dev_server）+ exec/读写删 + safety | 改文件 + rm -rf / 被拦 + 长命令自动后台化 + dev server 起停/就绪/重启可演示 + rm 实际进回收站 |
-| M3 | 订阅全接入 + mrm 角色路由 + subagent | 四家各一次真实调用；角色 agent 派发 |
-| M4 [DONE] | goal 全生命周期 + write-goal + workflow（rquickjs）+ loop 检测 | 已实测：状态机流转 + 预算/阻塞升级；write-goal 全链路（kimi create->activate->验证->complete）；workflow 并行编排（phase 流式 + Promise.all 双子代理）；loop 检测真实环境两次触发（exact/stagnation） |
-| M5 | .agents/OKF + Tool Search + hooks + worktree + 签名 dmg | 已实测：OKF 注入 0 工具调用复述规则；tool_search 挂载 todo 调用成功；hooks 阻断 cowsay；worktree 隔离主树零接触；dmg 构建中 |
+| 里程碑    | 内容                                                                                          | 验证                                                                                                                                                                                                  |
+| --------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0        | workspace + Tauri 空窗 + kxen-auth 四源读取 + doctor 状态页                                   | 状态页显示四家凭证状态                                                                                                                                                                                |
+| M1        | kxen-llm 单 provider（xai Bearer）+ 流式到 GUI                                                | GUI 发消息收流式回复                                                                                                                                                                                  |
+| M2        | agent loop + 命令调度（快照 shell + auto_bg + 任务三件套 + dev_server）+ exec/读写删 + safety | 改文件 + rm -rf / 被拦 + 长命令自动后台化 + dev server 起停/就绪/重启可演示 + rm 实际进回收站                                                                                                         |
+| M3        | 订阅全接入 + mrm 角色路由 + subagent                                                          | 四家各一次真实调用；角色 agent 派发                                                                                                                                                                   |
+| M4 [DONE] | goal 全生命周期 + write-goal + workflow（rquickjs）+ loop 检测                                | 已实测：状态机流转 + 预算/阻塞升级；write-goal 全链路（kimi create->activate->验证->complete）；workflow 并行编排（phase 流式 + Promise.all 双子代理）；loop 检测真实环境两次触发（exact/stagnation） |
+| M5        | .agents/OKF + Tool Search + hooks + worktree + 签名 dmg                                       | 已实测：OKF 注入 0 工具调用复述规则；tool_search 挂载 todo 调用成功；hooks 阻断 cowsay；worktree 隔离主树零接触；dmg 构建中                                                                           |
 
 ## 10. 明确不做
 
@@ -269,42 +269,42 @@ Rust -> 前端 events：`llm://delta`、`tool://call`、`task://update`、`goal:
 
 ## 附录 A：优点收纳矩阵
 
-| 维度 | 最佳来源 | kxen 采纳 |
-| --- | --- | --- |
-| 形态 | Tauri（自定） | 纯 GUI app，仅 Apple Silicon |
-| 性能 | jcode | < 20MB / < 80MB / < 500ms 首绘 |
-| 命令调度 | grok-build（源码实证） | auto_bg / 完成通知 / 任务三件套 / 静态快照 shell / 命令遮蔽 |
-| dev server | grok-build + 自定 | 就绪等待 / restart / list / 健康检查 / GUI 任务页 |
-| 编排 | Claude Code | Dynamic Workflow（rquickjs 执行模型写的 JS） |
-| 目标管理 | Kimi Code | goal 生命周期 + write-goal 契约 + score 验证 + 注入 |
-| 子代理 | Claude Code + OpenCode | 角色化预设 + task 派发 |
-| 模型调度 | 自定（analysis/03） | mrm 并发 / RPM / 降级 / 状态注入 |
-| provider | OpenCode + jcode | 自研薄层（jcode 同款）+ openai-compatible 通用 + 订阅探测规则机制 |
-| context 工程 | OpenCode + peri + DCP | frozen/dynamic 分段 + boundary marker + mid-conversation 注入 |
-| 渐进披露 | peri | Tool Search（常驻 ~12，其余按需） |
-| 编辑工具 | grok-build hashline + pi_agent_rust | ChunkFingerprint 锚点 + 双模式 edit + 免强制先 Read + find_shifted 自愈 |
-| 删除语义 | grok-build + macOS | rm -> trash 遮蔽，删除可恢复 |
-| 命令策略 | Codex execpolicy + 自定 | safety F1-F5 硬拦截，无内容风控 |
-| loop 检测 | rust-code | 四层检测，命中中断 |
-| goal 验证 | uira | score-based 逐条 proof |
-| 会话 | pi_agent_rust + OpenCode | JSONL + branch/fork/resume + compaction |
-| hooks | Claude Code + OpenCode | 事件钩子，默认关闭可选开启 |
-| LSP/MCP | OpenCode + OMP | auto-detect + Tool Search 披露 |
-| worktree | OpenCode | git worktree 隔离并行安全 |
-| .agents/OKF | 自定（design/09） | rules 注入 + 索引渐进披露 + 多层就近 |
-| scheduler | grok-build | cron 式定时任务（M5 后增强） |
-| spec 驱动 | claurst | docs/ 调研即 spec（本方法论） |
+| 维度         | 最佳来源                            | kxen 采纳                                                               |
+| ------------ | ----------------------------------- | ----------------------------------------------------------------------- |
+| 形态         | Tauri（自定）                       | 纯 GUI app，仅 Apple Silicon                                            |
+| 性能         | jcode                               | < 20MB / < 80MB / < 500ms 首绘                                          |
+| 命令调度     | grok-build（源码实证）              | auto_bg / 完成通知 / 任务三件套 / 静态快照 shell / 命令遮蔽             |
+| dev server   | grok-build + 自定                   | 就绪等待 / restart / list / 健康检查 / GUI 任务页                       |
+| 编排         | Claude Code                         | Dynamic Workflow（rquickjs 执行模型写的 JS）                            |
+| 目标管理     | Kimi Code                           | goal 生命周期 + write-goal 契约 + score 验证 + 注入                     |
+| 子代理       | Claude Code + OpenCode              | 角色化预设 + task 派发                                                  |
+| 模型调度     | 自定（analysis/03）                 | mrm 并发 / RPM / 降级 / 状态注入                                        |
+| provider     | OpenCode + jcode                    | 自研薄层（jcode 同款）+ openai-compatible 通用 + 订阅探测规则机制       |
+| context 工程 | OpenCode + peri + DCP               | frozen/dynamic 分段 + boundary marker + mid-conversation 注入           |
+| 渐进披露     | peri                                | Tool Search（常驻 ~12，其余按需）                                       |
+| 编辑工具     | grok-build hashline + pi_agent_rust | ChunkFingerprint 锚点 + 双模式 edit + 免强制先 Read + find_shifted 自愈 |
+| 删除语义     | grok-build + macOS                  | rm -> trash 遮蔽，删除可恢复                                            |
+| 命令策略     | Codex execpolicy + 自定             | safety F1-F5 硬拦截，无内容风控                                         |
+| loop 检测    | rust-code                           | 四层检测，命中中断                                                      |
+| goal 验证    | uira                                | score-based 逐条 proof                                                  |
+| 会话         | pi_agent_rust + OpenCode            | JSONL + branch/fork/resume + compaction                                 |
+| hooks        | Claude Code + OpenCode              | 事件钩子，默认关闭可选开启                                              |
+| LSP/MCP      | OpenCode + OMP                      | auto-detect + Tool Search 披露                                          |
+| worktree     | OpenCode                            | git worktree 隔离并行安全                                               |
+| .agents/OKF  | 自定（design/09）                   | rules 注入 + 索引渐进披露 + 多层就近                                    |
+| scheduler    | grok-build                          | cron 式定时任务（M5 后增强）                                            |
+| spec 驱动    | claurst                             | docs/ 调研即 spec（本方法论）                                           |
 
 ## 附录 B：参考实现（源码对照阅读库，SelfCode 下）
 
-| 项目 | 借鉴点 |
-| --- | --- |
-| xai-org/grok-build（21k stars，Rust） | 命令调度五机制源码实证；工具描述工艺；xAI OAuth |
-| MoonshotAI/kimi-code | goalService / goalInjection / skillCatalog；write-goal skill 原文 |
-| 1jehuang/jcode（9.6k stars，Rust 93.5%） | 性能基准；OAUTH.md 与 auth 模块；轻结构 |
-| KonghaYao/peri（Apache 2.0） | Goal/Workflow 的 Rust 形态；cache 命中设计；Tool Search |
-| Kuberwastaken/claurst（GPL-3.0，仅方法） | spec 驱动开发 |
-| Dicklesworthstone/pi_agent_rust | 自写 SSE parser；零 unsafe；hashline 思路 |
-| openai/codex（codex-rs） | workspace 领域划分；execpolicy |
-| junhoyeo/uira | score-based goal 验证；macOS Seatbelt 备查 |
-| anomalyco/opencode（fork 留存） | provider 广度；system-context（Context Source/Epoch）；agent 配置化；worktree |
+| 项目                                     | 借鉴点                                                                        |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |
+| xai-org/grok-build（21k stars，Rust）    | 命令调度五机制源码实证；工具描述工艺；xAI OAuth                               |
+| MoonshotAI/kimi-code                     | goalService / goalInjection / skillCatalog；write-goal skill 原文             |
+| 1jehuang/jcode（9.6k stars，Rust 93.5%） | 性能基准；OAUTH.md 与 auth 模块；轻结构                                       |
+| KonghaYao/peri（Apache 2.0）             | Goal/Workflow 的 Rust 形态；cache 命中设计；Tool Search                       |
+| Kuberwastaken/claurst（GPL-3.0，仅方法） | spec 驱动开发                                                                 |
+| Dicklesworthstone/pi_agent_rust          | 自写 SSE parser；零 unsafe；hashline 思路                                     |
+| openai/codex（codex-rs）                 | workspace 领域划分；execpolicy                                                |
+| junhoyeo/uira                            | score-based goal 验证；macOS Seatbelt 备查                                    |
+| anomalyco/opencode（fork 留存）          | provider 广度；system-context（Context Source/Epoch）；agent 配置化；worktree |

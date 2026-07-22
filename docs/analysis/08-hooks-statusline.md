@@ -8,14 +8,14 @@
 
 事件集（30 个，按阶段分）：
 
-| 阶段 | 事件 |
-| --- | --- |
-| 会话 | SessionStart / Setup / SessionEnd / InstructionsLoaded / ConfigChange |
-| 提示 | UserPromptSubmit / UserPromptExpansion / MessageDisplay |
-| 工具 | PreToolUse / PostToolUse / PostToolUseFailure / PostToolBatch / PermissionRequest / PermissionDenied |
+| 阶段 | 事件                                                                                                        |
+| ---- | ----------------------------------------------------------------------------------------------------------- |
+| 会话 | SessionStart / Setup / SessionEnd / InstructionsLoaded / ConfigChange                                       |
+| 提示 | UserPromptSubmit / UserPromptExpansion / MessageDisplay                                                     |
+| 工具 | PreToolUse / PostToolUse / PostToolUseFailure / PostToolBatch / PermissionRequest / PermissionDenied        |
 | 编排 | SubagentStart / SubagentStop / TeammateIdle / TaskCreated / TaskCompleted / WorktreeCreate / WorktreeRemove |
-| 回合 | Stop / StopFailure（细分 rate_limit / overloaded / billing_error 等） |
-| 其他 | Notification / FileChanged / CwdChanged / PreCompact / PostCompact / Elicitation |
+| 回合 | Stop / StopFailure（细分 rate_limit / overloaded / billing_error 等）                                       |
+| 其他 | Notification / FileChanged / CwdChanged / PreCompact / PostCompact / Elicitation                            |
 
 通信协议（command hooks）：
 

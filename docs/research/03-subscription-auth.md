@@ -5,12 +5,12 @@
 
 ## 1. 总览
 
-| 订阅 | 可行路径 | 官方态度 | 风险等级 |
-| --- | --- | --- | --- |
-| Claude Pro / Max | OAuth PKCE 自发 flow，或复用 Claude Code 本地凭证 | Anthropic 明确禁止官方客户端外使用订阅 token | 高 |
-| Codex (ChatGPT Plus / Pro) | ChatGPT OAuth（OpenCode 官方零配置支持） | 默许（OpenAI 未禁止第三方 OAuth 接入） | 低 |
-| Grok (SuperGrok / X Premium+) | xAI 官方宣布支持 OpenCode 接入；复用 grok-cli 公开 OAuth client | 官方支持 | 低 |
-| Kimi (Kimi Code 会员) | 订阅后 Console 发放 API Key，走会员配额；OpenAI / Anthropic 双协议 | 官方支持 | 低 |
+| 订阅                          | 可行路径                                                           | 官方态度                                     | 风险等级 |
+| ----------------------------- | ------------------------------------------------------------------ | -------------------------------------------- | -------- |
+| Claude Pro / Max              | OAuth PKCE 自发 flow，或复用 Claude Code 本地凭证                  | Anthropic 明确禁止官方客户端外使用订阅 token | 高       |
+| Codex (ChatGPT Plus / Pro)    | ChatGPT OAuth（OpenCode 官方零配置支持）                           | 默许（OpenAI 未禁止第三方 OAuth 接入）       | 低       |
+| Grok (SuperGrok / X Premium+) | xAI 官方宣布支持 OpenCode 接入；复用 grok-cli 公开 OAuth client    | 官方支持                                     | 低       |
+| Kimi (Kimi Code 会员)         | 订阅后 Console 发放 API Key，走会员配额；OpenAI / Anthropic 双协议 | 官方支持                                     | 低       |
 
 ## 2. Claude (Anthropic Pro / Max)
 

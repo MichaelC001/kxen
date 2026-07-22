@@ -6,29 +6,29 @@
 
 ## 1. 各提供商的限流信号（已核实）
 
-| Provider | 维度 | 信号 | 来源 |
-| --- | --- | --- | --- |
-| OpenAI | RPM + TPM（项目级另算） | `x-ratelimit-limit/remaining/reset-requests|tokens`，429 带 `retry-after` | https://developers.openai.com/api/docs/guides/rate-limits |
-| Anthropic | RPM + TPM + 并发请求三维 | `anthropic-ratelimit-requests-*`、`anthropic-ratelimit-tokens-*`（每个响应都带）；`retry-after` 只在 429 出现 | sitepoint 生产指南 + Anthropic 文档 |
-| xAI (Grok) | 订阅 OAuth 有 allowlist 个案 | 403 需切 API key 或 fallback；其余按 OpenAI 兼容处理 | hermes 文档 issue #26847 |
-| Kimi | 会员配额（月度池）+ 速率 | `/usage` 可主动查余额；OpenAI / Anthropic 双协议 | https://www.kimi.com/code/docs/en/ |
+| Provider   | 维度                         | 信号                                                                                                          | 来源                                |
+| ---------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| OpenAI     | RPM + TPM（项目级另算）      | `x-ratelimit-limit/remaining/reset-requests                                                                   | tokens`，429 带 `retry-after`       | https://developers.openai.com/api/docs/guides/rate-limits |
+| Anthropic  | RPM + TPM + 并发请求三维     | `anthropic-ratelimit-requests-*`、`anthropic-ratelimit-tokens-*`（每个响应都带）；`retry-after` 只在 429 出现 | sitepoint 生产指南 + Anthropic 文档 |
+| xAI (Grok) | 订阅 OAuth 有 allowlist 个案 | 403 需切 API key 或 fallback；其余按 OpenAI 兼容处理                                                          | hermes 文档 issue #26847            |
+| Kimi       | 会员配额（月度池）+ 速率     | `/usage` 可主动查余额；OpenAI / Anthropic 双协议                                                              | https://www.kimi.com/code/docs/en/  |
 
 结论: 信号质量分两档。Kimi 可主动探测做预算预分配；Claude / Codex / Grok 只能靠响应头与 429 被动感知，调度器必须「信号驱动」而不是「配置驱动」。
 
 ## 2. 机制库（各实现中验证过的）
 
-| 机制 | 细节 | 来源 |
-| --- | --- | --- |
-| token bucket 预检 | 按账户真实 RPM / TPM 的 80-90% 设桶，调用前扣估算 token，桶空则本地等待；把硬 429 变成可控软延迟 | Boundev 429 生产指南 |
-| 三级等待 | `retry-after` 优先 -> reset 头换算 -> 全抖动指数退避（兜底），cap 重试次数 | sitepoint / KissAPI |
-| AIMD 自适应并发 | 429 -> 并发减半；持续成功 -> +1；remaining < 10% -> 主动降并发；每 provider 独立追踪 | Promptfoo 调度器 |
-| 三级状态机 | normal (16) / warning (remaining <20% -> 8) / critical (<10% -> 3 且只跑高优先级) | KissAPI |
-| 熔断器 | closed -> 连续失败 open -> 冷却后半开探针；防止持续无效重试耗尽线程与配额 | sitepoint |
-| 有界队列 + 优先级 | 并发上限使延迟有界；队列深度超阈值时对低优先级 fail fast；交互式请求插队 | Boundev |
-| 多凭证轮询 | 同 provider 多 key 轮换，session 亲和 + 按凭证退避 | OMP round-robin credentials |
-| fallback 链 | 按角色 / 精确模型 / `provider/*` 通配；429 或配额墙触发切换，`cooldown-expiry` 后回主模型 | OMP retry.fallbackChains |
-| context promotion | 上下文溢出先升档到大上下文兄弟模型再考虑压缩 | OMP |
-| 池化兜底 | 单账户到顶时跨 key / 跨 provider 池化 | Boundev（列为最后手段） |
+| 机制              | 细节                                                                                             | 来源                        |
+| ----------------- | ------------------------------------------------------------------------------------------------ | --------------------------- |
+| token bucket 预检 | 按账户真实 RPM / TPM 的 80-90% 设桶，调用前扣估算 token，桶空则本地等待；把硬 429 变成可控软延迟 | Boundev 429 生产指南        |
+| 三级等待          | `retry-after` 优先 -> reset 头换算 -> 全抖动指数退避（兜底），cap 重试次数                       | sitepoint / KissAPI         |
+| AIMD 自适应并发   | 429 -> 并发减半；持续成功 -> +1；remaining < 10% -> 主动降并发；每 provider 独立追踪             | Promptfoo 调度器            |
+| 三级状态机        | normal (16) / warning (remaining <20% -> 8) / critical (<10% -> 3 且只跑高优先级)                | KissAPI                     |
+| 熔断器            | closed -> 连续失败 open -> 冷却后半开探针；防止持续无效重试耗尽线程与配额                        | sitepoint                   |
+| 有界队列 + 优先级 | 并发上限使延迟有界；队列深度超阈值时对低优先级 fail fast；交互式请求插队                         | Boundev                     |
+| 多凭证轮询        | 同 provider 多 key 轮换，session 亲和 + 按凭证退避                                               | OMP round-robin credentials |
+| fallback 链       | 按角色 / 精确模型 / `provider/*` 通配；429 或配额墙触发切换，`cooldown-expiry` 后回主模型        | OMP retry.fallbackChains    |
+| context promotion | 上下文溢出先升档到大上下文兄弟模型再考虑压缩                                                     | OMP                         |
+| 池化兜底          | 单账户到顶时跨 key / 跨 provider 池化                                                            | Boundev（列为最后手段）     |
 
 ## 3. 订阅制下的特殊性
 

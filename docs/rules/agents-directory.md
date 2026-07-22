@@ -16,13 +16,13 @@ AGENTS.md 共识只解决「根文件里写什么」。剩下三个问题没有�
 
 OKF 是 vendor-neutral 的「markdown + YAML frontmatter 目录树」知识格式，kxen 采用其机制而不是其领域词汇：
 
-| OKF 机制 | kxen 用法 |
-| --- | --- |
-| frontmatter `type` 必填，其余字段自由扩展 | 文档路由的唯一依据；kxen 定义自己的 type 词汇表（见第 3 节） |
-| 每层 `index.md` 枚举目录内容（含 description） | 渐进披露入口：模型先读索引再按需读文档，不整树进 context |
-| 跨文档 markdown 链接（bundle 相对路径 `/...`） | 文档间引用成图（rule 引用 reference、workflow 引用 skill） |
-| 宽松消费（容忍未知 type / 未知字段 / 断链） | 生态兼容：std-agent 等 producer 的输出零转换可读 |
-| `log.md` 变更历史（可选） | `.agents/` 的变更可追溯 |
+| OKF 机制                                       | kxen 用法                                                    |
+| ---------------------------------------------- | ------------------------------------------------------------ |
+| frontmatter `type` 必填，其余字段自由扩展      | 文档路由的唯一依据；kxen 定义自己的 type 词汇表（见第 3 节） |
+| 每层 `index.md` 枚举目录内容（含 description） | 渐进披露入口：模型先读索引再按需读文档，不整树进 context     |
+| 跨文档 markdown 链接（bundle 相对路径 `/...`） | 文档间引用成图（rule 引用 reference、workflow 引用 skill）   |
+| 宽松消费（容忍未知 type / 未知字段 / 断链）    | 生态兼容：std-agent 等 producer 的输出零转换可读             |
+| `log.md` 变更历史（可选）                      | `.agents/` 的变更可追溯                                      |
 
 kxen 声明兼容：项目 `.agents/` 即一个 OKF bundle，根 `index.md` frontmatter 里标 `okf_version: "0.1"`。
 
@@ -52,13 +52,13 @@ AGENTS.md                  # 共识根文件：项目铁律 + 指向 .agents/ �
 
 ```yaml
 ---
-type: rule                  # 必填: rule | reference | skill | command | agent | workflow
+type: rule # 必填: rule | reference | skill | command | agent | workflow
 title: 构建与测试命令
 description: bun 工程的构建、测试、lint 命令与注意事项
-priority: high              # high | normal | low，预算裁剪与注入排序用
-applyTo: ["packages/**"]    # 路径 glob；命中才注入；缺省看 alwaysApply
-alwaysApply: false          # true = 每轮注入；false = 仅索引可见
-roles: [execution, review]  # 限定哪些角色注入；缺省全部
+priority: high # high | normal | low，预算裁剪与注入排序用
+applyTo: ["packages/**"] # 路径 glob；命中才注入；缺省看 alwaysApply
+alwaysApply: false # true = 每轮注入；false = 仅索引可见
+roles: [execution, review] # 限定哪些角色注入；缺省全部
 tags: [build, bun]
 timestamp: 2026-07-20T08:00:00Z
 ---
@@ -66,11 +66,11 @@ timestamp: 2026-07-20T08:00:00Z
 
 加载语义矩阵：
 
-| type | alwaysApply | applyTo 命中 | 都不满足 |
-| --- | --- | --- | --- |
-| rule | 每轮注入 | 工作在该路径时注入 | 只在 index.md 可见，模型按需 read |
-| reference | （无此字段） | （无此字段） | 永不自动注入，只能经 index.md / 链接按需读取 |
-| skill / command / agent / workflow | 按各自语义（懒加载 / 斜杠调用 / 子代理定义 / 编排脚本） | | |
+| type                               | alwaysApply                                             | applyTo 命中       | 都不满足                                     |
+| ---------------------------------- | ------------------------------------------------------- | ------------------ | -------------------------------------------- |
+| rule                               | 每轮注入                                                | 工作在该路径时注入 | 只在 index.md 可见，模型按需 read            |
+| reference                          | （无此字段）                                            | （无此字段）       | 永不自动注入，只能经 index.md / 链接按需读取 |
+| skill / command / agent / workflow | 按各自语义（懒加载 / 斜杠调用 / 子代理定义 / 编排脚本） |                    |                                              |
 
 ## 5. 多层目录解析
 

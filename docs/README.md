@@ -4,27 +4,27 @@ kxen 是 macOS Apple Silicon 专精的 Coding Agent Harness，综合所有开源
 
 ## 当前有效（Rust 时代）
 
-| 文件 | 内容 |
-| --- | --- |
-| `prd.md` | 产品需求文档 v2.0（定位、目标、需求、成功标准） |
-| `rust/01-design.md` | **设计唯一真相** v3.0：形态 / 架构 / 上下文工程 / 模型层 / 编排层 / 工具层 / 性能纪律 / 里程碑 / 优点收纳矩阵 |
-| `rules/safety-rules.md` | safety F1-F5 规则族与防绕过设计（执行层硬拦截） |
-| `rules/agents-directory.md` | .agents/ + AGENTS.md 规范（OKF：rules / references / 多层目录） |
+| 文件                        | 内容                                                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `prd.md`                    | 产品需求文档 v2.0（定位、目标、需求、成功标准）                                                               |
+| `rust/01-design.md`         | **设计唯一真相** v3.0：形态 / 架构 / 上下文工程 / 模型层 / 编排层 / 工具层 / 性能纪律 / 里程碑 / 优点收纳矩阵 |
+| `rules/safety-rules.md`     | safety F1-F5 规则族与防绕过设计（执行层硬拦截）                                                               |
+| `rules/agents-directory.md` | .agents/ + AGENTS.md 规范（OKF：rules / references / 多层目录）                                               |
 
 ## 调研基线（设计的需求来源，仍有效）
 
-| 目录 | 内容 |
-| --- | --- |
+| 目录        | 内容                                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------------- |
 | `research/` | 外部事实调研（2026-07-20 实搜核实，含来源）：agent 全景、pi/OMP、订阅接入、Claude Workflows、Kimi Goal、pi 能力清单 |
-| `analysis/` | 维度深度分析：context 工程、工具面、provider 调度、优点收纳矩阵、DCP、工程化、系统提示词、hooks、exec/LSP/MCP |
+| `analysis/` | 维度深度分析：context 工程、工具面、provider 调度、优点收纳矩阵、DCP、工程化、系统提示词、hooks、exec/LSP/MCP       |
 
 ## 历史归档（不再维护，仅供参考）
 
-| 目录 | 内容 |
-| --- | --- |
-| `archive/design/` | pi 时代与 OpenCode 时代的旧设计（架构 / 路由 / monorepo / 子代理 / 配置互通等） |
-| `archive/plan/` | OpenCode fork 迁移规划与测试基线（方案已放弃） |
-| `archive/upstream-sync.md` | OpenCode fork 上游同步流程（方案已放弃） |
+| 目录                       | 内容                                                                            |
+| -------------------------- | ------------------------------------------------------------------------------- |
+| `archive/design/`          | pi 时代与 OpenCode 时代的旧设计（架构 / 路由 / monorepo / 子代理 / 配置互通等） |
+| `archive/plan/`            | OpenCode fork 迁移规划与测试基线（方案已放弃）                                  |
+| `archive/upstream-sync.md` | OpenCode fork 上游同步流程（方案已放弃）                                        |
 
 ## 事实核实说明
 

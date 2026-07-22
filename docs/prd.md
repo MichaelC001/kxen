@@ -33,7 +33,7 @@ kxen 是 macOS Apple Silicon 专精的开源 Coding Agent Harness，**只做 cod
 
 - provider 全通用：自研薄层（endpoint + auth + SSE，jcode 同款）+ openai-compatible 通用实现，不特殊化任何一家
 - 订阅接入 = 通用「官方 CLI 凭证探测」机制：读官方 CLI 凭证存储、新鲜度优先、过期自动刷新；新增订阅 = 加一条探测规则
-- 当前四条规则：Claude（Keychain）、Codex（~/.codex）、Grok（~/.grok）、Kimi（~/.kimi-code）
+- 当前四条规则：Claude（Keychain）、Codex（~~/.codex）、Grok（~~/.grok）、Kimi（~/.kimi-code）
 - 角色化模型路由（thinking/planning/execution/review/research）+ mrm 全局调度（并发/RPM/降级链/状态注入）
 
 ### 3.3 编排
