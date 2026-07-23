@@ -2,6 +2,7 @@
 import { Show } from "solid-js";
 import Markdown from "./Markdown";
 import MessageActions from "./MessageActions";
+import { openMenu } from "../lib/context-menu";
 import type { MsgItem } from "../lib/items";
 import type { RunStats } from "../lib/chat";
 
@@ -20,7 +21,19 @@ export default function AssistantItem(props: {
   onContinue: () => void;
 }) {
   return (
-    <div class="group relative text-sm">
+    <div
+      class="group relative text-sm"
+      onContextMenu={(e) => {
+        openMenu(e, [
+          {
+            label: "复制内容",
+            action: () => void navigator.clipboard.writeText(props.item.content),
+          },
+          { label: "从此处分叉", action: props.onFork },
+          { label: "重新生成", action: props.onRerun },
+        ]);
+      }}
+    >
       <Show when={props.item.messageId}>
         <div class="absolute right-0 top-0 z-10">
           <MessageActions

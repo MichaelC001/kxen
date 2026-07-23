@@ -80,7 +80,7 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
         }
         "delete" => {
             let path = resolve_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, &ctx.workdir);
-            delete(&path, &cwd).map(|_| "moved to Trash".to_string()).map_err(|e| e.to_string())
+            delete(&path, &ctx.tracker, &cwd).map(|_| "moved to Trash".to_string()).map_err(|e| e.to_string())
         }
         "knowledge" => {
             match args.get("action").and_then(Value::as_str).ok_or("missing action")? {

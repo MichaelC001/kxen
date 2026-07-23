@@ -2,6 +2,7 @@
 import { createSignal, Show } from "solid-js";
 import { Check, Pin, PinOff, X } from "lucide-solid";
 import { sessionUpdateMeta, type SessionMeta } from "../lib/chat";
+import { openMenu } from "../lib/context-menu";
 import { relTime } from "../lib/time";
 import { activeSessionId } from "../lib/state";
 
@@ -46,6 +47,24 @@ export default function SessionRow(props: {
       }}
       draggable={props.draggable && !renaming()}
       onClick={props.onOpen}
+      onContextMenu={(e) => {
+        openMenu(e, [
+          {
+            label: "重命名",
+            action: () => {
+              setDraft(s().title);
+              setRenaming(true);
+              setTimeout(() => inputRef?.select(), 0);
+            },
+          },
+          {
+            label: s().pinned ? "取消置顶" : "置顶",
+            action: () =>
+              void sessionUpdateMeta(s().id, { pinned: !s().pinned }).then(props.onChanged),
+          },
+          { label: "删除会话", danger: true, action: props.onDelete },
+        ]);
+      }}
       onDblClick={() => {
         setDraft(s().title);
         setRenaming(true);

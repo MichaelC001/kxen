@@ -94,7 +94,11 @@ export default function Session() {
   });
 
   /** Done 对账（实现见 lib/converge.ts）：快照权威 + 队列真源。 */
-  const { converge, clearQueue } = createConverge({ setItems, setPendingQueue, scroll: () => scroll() });
+  const { converge, clearQueue } = createConverge({
+    setItems,
+    setPendingQueue,
+    scroll: () => scroll(),
+  });
 
   const appendAssistant = (field: "content" | "reasoning", text: string) => {
     setOrbPhase("composing");
@@ -321,14 +325,12 @@ export default function Session() {
         </div>
       </div>
 
-      {/* 上翻阅读时的回跳按钮（钉底跟随已停，新内容不打断阅读） */}
       <Show when={!pinned()}>
         <button
           class="pressable absolute left-1/2 -translate-x-1/2 bottom-24 z-20 px-2.5 py-1 rounded-full text-2xs border border-[var(--border)] bg-[var(--bg-raised)] text-[var(--text-dim)] composer-popup flex items-center gap-1"
           onClick={() => scroll(true)}
         >
-          <ArrowDown size={11} />
-          回到底部
+          <ArrowDown size={11} /> 回到底部
         </button>
       </Show>
 

@@ -1,16 +1,17 @@
 import { createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import {
-  diffFile,
-  diffStatus,
+  agentDiffFile,
+  agentDiffStatus,
   goalFocus,
   goalTransit,
   onTopic,
   taskKill,
   taskList,
-  type DiffStatusEntry,
+  type AgentDiffEntry,
   type GoalInfo,
   type TaskInfo,
 } from "../lib/chat";
+import { activeSessionId } from "../lib/state";
 import Markdown from "./Markdown";
 import DockWorktree from "./DockWorktree";
 import { FileDiff, SquareTerminal, Target } from "lucide-solid";
@@ -58,7 +59,7 @@ function DockSections(props: {
   goal: GoalInfo | null;
   badge: () => { text: string; cls: string };
   act: (action: "activate" | "pause" | "resume" | "cancel") => void;
-  changes: DiffStatusEntry[];
+  changes: AgentDiffEntry[];
   openDiff: { path: string; text: string } | null;
   toggleDiff: (path: string) => void;
   tasks: TaskInfo[];
@@ -137,7 +138,7 @@ function DockSections(props: {
       <Section title="改动" icon={FileDiff}>
         <Show
           when={changes().length > 0}
-          fallback={<div class="text-xs text-[var(--text-faint)]">workdir 无未提交改动</div>}
+          fallback={<div class="text-xs text-[var(--text-faint)]">本会话暂无 agent 改动</div>}
         >
           <div class="space-y-0.5">
             <For each={changes()}>
@@ -148,16 +149,20 @@ function DockSections(props: {
                     onClick={() => void toggleDiff(c.path)}
                   >
                     <span
-                      class="font-mono text-2xs w-6 shrink-0"
+                      class="font-mono text-2xs w-10 shrink-0"
                       classList={{
-                        "text-[var(--ok)]": c.status === "??" || c.status === "A",
-                        "text-[var(--warn)]": c.status === "M",
-                        "text-[var(--err)]": c.status === "D",
+                        "text-[var(--ok)]": c.status === "created",
+                        "text-[var(--warn)]": c.status === "modified",
+                        "text-[var(--err)]": c.status === "deleted",
                       }}
                     >
-                      {c.status}
+                      {c.status === "created" ? "新增" : c.status === "deleted" ? "删除" : "修改"}
                     </span>
-                    <span class="truncate font-mono text-[var(--text-dim)]">{c.path}</span>
+                    <span class="truncate font-mono text-[var(--text-dim)] flex-1">{c.path}</span>
+                    <span class="text-2xs tabular-nums shrink-0">
+                      <span class="text-[var(--ok)]">+{c.added}</span>{" "}
+                      <span class="text-[var(--err)]">-{c.deleted}</span>
+                    </span>
                   </button>
                   <Show when={openDiff()?.path === c.path}>
                     <div class="mt-1 mb-2 text-2xs max-h-72 overflow-auto rounded border border-[var(--border)]">
@@ -227,14 +232,17 @@ function DockSections(props: {
 
 export default function Dock() {
   const [goal, setGoal] = createSignal<GoalInfo | null>(null);
-  const [changes, setChanges] = createSignal<DiffStatusEntry[]>([]);
+  const [changes, setChanges] = createSignal<AgentDiffEntry[]>([]);
   const [tasks, setTasks] = createSignal<TaskInfo[]>([]);
   const [openDiff, setOpenDiff] = createSignal<{ path: string; text: string } | null>(null);
   let unlisten: (() => void) | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
 
   const reloadGoal = async () => setGoal(await goalFocus());
-  const reloadDiff = async () => setChanges(await diffStatus().catch(() => []));
+  const reloadDiff = async () => {
+    const sid = activeSessionId();
+    setChanges(sid ? await agentDiffStatus(sid) : []);
+  };
   const reloadTasks = async () => setTasks(await taskList());
 
   onMount(async () => {
@@ -265,7 +273,7 @@ export default function Dock() {
       setOpenDiff(null);
       return;
     }
-    const text = await diffFile(path).catch(() => "");
+    const text = await agentDiffFile(activeSessionId(), path);
     setOpenDiff({ path, text });
   };
 

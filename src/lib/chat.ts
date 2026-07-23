@@ -239,6 +239,28 @@ export async function diffFile(path: string): Promise<string> {
   return client.rpc<string>("diff.file", { path });
 }
 
+// ---------------- agent 改动快照（本会话口径，与 git status 无关） ----------------
+
+export interface AgentDiffEntry {
+  path: string;
+  added: number;
+  deleted: number;
+  status: "created" | "modified" | "deleted";
+}
+
+export async function agentDiffStatus(sessionId: string): Promise<AgentDiffEntry[]> {
+  return client
+    .rpc<AgentDiffEntry[]>("diff.agent_status", { session_id: sessionId })
+    .catch(() => []);
+}
+
+export async function agentDiffFile(sessionId: string, path: string): Promise<string> {
+  const r = await client
+    .rpc<{ text: string }>("diff.agent_file", { session_id: sessionId, path })
+    .catch(() => ({ text: "" }));
+  return r.text;
+}
+
 // ---------------- goal ----------------
 
 export interface GoalInfo {

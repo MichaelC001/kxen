@@ -41,6 +41,8 @@ pub struct AppState {
     pub workdir: std::sync::Arc<std::path::Path>,
     /// 当前活跃 workspace（多项目目录，可切换；初始 = workdir）
     pub active_workspace: std::sync::RwLock<std::path::PathBuf>,
+    /// session_id -> agent 改动快照（改动面板数据源；run 间共享，随 app 存活）
+    pub session_snapshots: std::sync::Mutex<std::collections::HashMap<String, kxen_app::tools::snapshot::SnapshotStore>>,
     /// 通知环形缓冲（teammate/cron/系统事件，顶栏通知中心数据源，50 条）
     pub notifications: std::sync::Mutex<std::collections::VecDeque<(u64, String)>>,
 }
@@ -98,6 +100,7 @@ impl AppState {
             statusline_items: std::sync::Mutex::new(statusline_items),
             git_cache: std::sync::Mutex::new((std::time::Instant::now() - std::time::Duration::from_secs(60), String::new())),
             active_workspace: std::sync::RwLock::new(workdir.to_path_buf()),
+            session_snapshots: std::sync::Mutex::new(std::collections::HashMap::new()),
             notifications: std::sync::Mutex::new(std::collections::VecDeque::new()),
             workdir,
         }

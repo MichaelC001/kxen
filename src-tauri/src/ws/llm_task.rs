@@ -114,7 +114,15 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
 
     let mut ctx = kxen_app::agent::agent_loop::AgentContext {
         registry,
-        tracker: kxen_app::tools::fs_tool::FileTracker::default(),
+        tracker: {
+            let mut t = kxen_app::tools::fs_tool::FileTracker::default();
+            // 会话级改动快照：改动面板「本会话 agent 改了什么」的数据源
+            t.snapshots = kxen_app::core::shared::lock(&state.session_snapshots)
+                .entry(session_id.clone())
+                .or_default()
+                .clone();
+            t
+        },
         workdir,
         model,
         store,

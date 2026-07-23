@@ -8,6 +8,7 @@ pub mod hooks;
 pub mod safety;
 pub mod search;
 pub mod shell;
+pub mod snapshot;
 pub mod task;
 pub mod todo;
 pub mod webfetch;

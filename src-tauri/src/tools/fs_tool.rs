@@ -29,6 +29,8 @@ pub enum FsToolError {
 #[derive(Default)]
 pub struct FileTracker {
     seen: Mutex<HashMap<PathBuf, (u64, u64)>>, // path -> (mtime_secs, size)
+    /// 改动快照（Codex turn-diff 口径）：首次写/改/删前留存原文，面板数据源。
+    pub snapshots: crate::tools::snapshot::SnapshotStore,
 }
 
 impl FileTracker {
@@ -133,6 +135,7 @@ pub fn edit(path: &Path, spec: &EditSpec, tracker: &FileTracker, cwd: &str) -> R
     if trailing {
         out.push('\n');
     }
+    tracker.snapshots.record_before(path);
     std::fs::write(path, &out)?;
     tracker.mark(path);
 
@@ -225,14 +228,16 @@ pub fn write(path: &Path, content: &str, tracker: &FileTracker, cwd: &str) -> Re
         let backup = path.with_extension("kxen-bak");
         std::fs::copy(path, &backup).ok();
     }
+    tracker.snapshots.record_before(path);
     std::fs::write(path, content)?;
     tracker.mark(path);
     Ok(())
 }
 
 /// 删除走回收站（macOS /usr/bin/trash）。
-pub fn delete(path: &Path, cwd: &str) -> Result<(), FsToolError> {
+pub fn delete(path: &Path, tracker: &FileTracker, cwd: &str) -> Result<(), FsToolError> {
     safety_check(path, cwd)?;
+    tracker.snapshots.record_before(path);
     let status = std::process::Command::new("/usr/bin/trash").arg(path).status()?;
     if !status.success() {
         return Err(FsToolError::Io(std::io::Error::other(format!("trash failed: {status}"))));

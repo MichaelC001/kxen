@@ -192,6 +192,25 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let dir = state.active_workspace.read().expect("workspace").clone();
             Ok(json!(kxen_app::tools::worktree::status(&dir).await?))
         }
+        "diff.agent_status" => {
+            // 本会话 agent 改动（快照口径），与 git status 无关
+            let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
+            let state = app.state::<Arc<AppState>>();
+            let entries = kxen_app::core::shared::lock(&state.session_snapshots)
+                .get(id)
+                .map(|s| s.status())
+                .unwrap_or_default();
+            Ok(serde_json::to_value(entries).map_err(|e| e.to_string())?)
+        }
+        "diff.agent_file" => {
+            let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
+            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
+            let state = app.state::<Arc<AppState>>();
+            let store = kxen_app::core::shared::lock(&state.session_snapshots).get(id).cloned();
+            let p = std::path::Path::new(path);
+            let text = store.and_then(|s| s.diff(p).or_else(|| s.diff_created(p)));
+            Ok(json!({ "text": text.unwrap_or_default() }))
+        }
         "diff.file" => {
             let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
             let state = app.state::<Arc<AppState>>();
