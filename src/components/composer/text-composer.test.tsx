@@ -58,7 +58,7 @@ describe("TextComposer (webkit)", () => {
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
     );
     expect(sent).toBe("");
-    el.remove;
+    el.remove();
     dispose();
   });
 

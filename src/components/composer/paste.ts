@@ -30,7 +30,8 @@ export function createPasteStore(): PasteStore {
       return token;
     },
     expand: (text) => {
-      for (const [token, full] of [...map]) {
+      // Map 迭代器是 live 的，删除当前项安全，无需先拷贝
+      for (const [token, full] of map) {
         if (!text.includes(token)) {
           map.delete(token); // 占位被用户删掉 = 放弃这段粘贴
           continue;

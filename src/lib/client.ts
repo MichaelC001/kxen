@@ -15,9 +15,11 @@ export class TopicStream<T = unknown> {
     const ready = this.source((payload) => {
       if (!cancelled) cb(payload as T);
     });
+    // source 拒绝（连接失败）就地吞掉：订阅失败由调用方重连逻辑兜底，不浮 unhandled rejection
+    const safe = ready.catch(() => () => {});
     return () => {
       cancelled = true;
-      void ready.then((unsub) => unsub());
+      void safe.then((unsub) => unsub());
     };
   }
 
@@ -69,7 +71,11 @@ const subscriptions = new Map<string, string[]>();
 const chunkHandlers = new Set<(chunk: StreamChunk) => void>();
 
 function getPort(): Promise<number> {
-  portPromise ??= invoke<number>("ws_port");
+  // 失败必须清空缓存：否则一次失败（如测试环境无 Tauri internals）永久毒化后续全部 RPC
+  portPromise ??= invoke<number>("ws_port").catch((e) => {
+    portPromise = null;
+    throw e;
+  });
   return portPromise;
 }
 
@@ -132,12 +138,14 @@ function drop() {
   pending.clear();
   // 1s 后重连并恢复全部订阅
   setTimeout(() => {
-    void ensureConn().then(async () => {
-      for (const [streamId, topics] of subscriptions) {
-        subscriptions.delete(streamId);
-        await openSubscription(topics).catch(() => {});
-      }
-    });
+    void ensureConn()
+      .then(async () => {
+        for (const [streamId, topics] of subscriptions) {
+          subscriptions.delete(streamId);
+          await openSubscription(topics).catch(() => {});
+        }
+      })
+      .catch(() => {}); // 重连失败由下一轮 heartbeat 兜底，不浮 unhandled rejection
   }, 1000);
 }
 
