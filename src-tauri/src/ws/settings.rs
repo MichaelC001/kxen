@@ -30,8 +30,9 @@ pub(super) fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Valu
     let tokens = kxen_app::core::shared::lock(&state.session_tokens).get(session_id).copied().unwrap_or((0, 0));
     let last_input = kxen_app::core::shared::lock(&state.session_last_input).get(session_id).copied().unwrap_or(0);
     let model = state.model.lock().map(|m| m.clone()).unwrap_or_default();
-    // ctx 占用近似：最近一次 run 的 input / 200k 窗（Claude Code 只按 input 算的惯例）
-    let ctx_pct = ((last_input as f64 / 200_000.0) * 100.0).min(100.0) as u32;
+    // ctx 占用近似：最近一次 run 的 input / 模型上下文窗（catalog 实测值，非 200k 硬编码）
+    let window = kxen_app::agent::compact::context_window(&model) as f64;
+    let ctx_pct = ((last_input as f64 / window) * 100.0).min(100.0) as u32;
 
     json!({
         "items": items,

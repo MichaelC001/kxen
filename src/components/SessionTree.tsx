@@ -26,6 +26,7 @@ interface Group {
 export default function SessionTree() {
   const [recents, setRecents] = createSignal<Workspace[]>([]);
   const [collapsed, setCollapsed] = createSignal<Set<string>>(new Set());
+  const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
   const [adding, setAdding] = createSignal(false);
   const [newPath, setNewPath] = createSignal("");
   let dragId = "";
@@ -70,6 +71,15 @@ export default function SessionTree() {
 
   const toggle = (path: string) => {
     setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
+  const toggleExpand = (path: string) => {
+    setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
       else next.add(path);
@@ -124,7 +134,8 @@ export default function SessionTree() {
       <For each={groups()}>
         {(group) => {
           const isCollapsed = () => collapsed().has(group.path);
-          const visible = () => group.sessions.slice(0, MAX_PER_GROUP);
+          const visible = () =>
+            expanded().has(group.path) ? group.sessions : group.sessions.slice(0, MAX_PER_GROUP);
           return (
             <div>
               <button
@@ -171,9 +182,14 @@ export default function SessionTree() {
                     )}
                   </For>
                   <Show when={group.sessions.length > MAX_PER_GROUP}>
-                    <div class="px-2 py-0.5 text-2xs text-[var(--text-faint)]">
-                      还有 {group.sessions.length - MAX_PER_GROUP} 个…
-                    </div>
+                    <button
+                      class="px-2 py-0.5 text-2xs text-[var(--text-faint)] hover:text-[var(--text-dim)]"
+                      onClick={() => toggleExpand(group.path)}
+                    >
+                      {expanded().has(group.path)
+                        ? "收起"
+                        : `展开全部 ${group.sessions.length} 个…`}
+                    </button>
                   </Show>
                   <Show when={group.sessions.length === 0}>
                     <EmptyLine text="无会话" />

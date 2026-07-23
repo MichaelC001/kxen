@@ -20,6 +20,7 @@ pub struct SubagentDeps {
     pub agents: Arc<crate::agent::activity::AgentRegistry>,
     pub session_id: Option<String>,
     pub bus: crate::core::event::EventBus,
+    pub approvals: Option<Arc<crate::agent::approval::ApprovalBroker>>,
 }
 
 impl SubagentDeps {
@@ -34,6 +35,7 @@ impl SubagentDeps {
             agents: ctx.agents.clone()?,
             session_id: ctx.session_id.clone(),
             bus: ctx.bus.clone()?,
+            approvals: ctx.approvals.clone(),
         })
     }
 }
@@ -73,26 +75,61 @@ pub struct RoleAgent {
     pub role: String,
     pub permission: PermissionProfile,
     pub prompt: String,
+    pub max_turns: u32,
 }
 
 const READONLY_NOTE: &str = "You have read-only tools; report conclusions with reasoning and never modify files.";
 
 pub fn role_agent(role: &str) -> RoleAgent {
-    let (permission, duty) = match role {
-        "thinking" => (PermissionProfile::Readonly, format!("Deep analysis and option evaluation. {READONLY_NOTE}")),
-        "planning" => (PermissionProfile::ReadonlyTodo, format!("Task decomposition and execution planning. {READONLY_NOTE} Output a numbered step plan.")),
-        "execution" => (PermissionProfile::Full, "Execute the given plan at high speed: edit files, run commands and verify results exactly as instructed. Make no extra design decisions; stop and report when reality diverges from the plan.".to_string()),
-        "review" => (PermissionProfile::Readonly, format!("Adversarial review: find bugs, regressions and omissions in the change. {READONLY_NOTE} Output findings ordered by severity.")),
-        "research" => (PermissionProfile::Readonly, format!("External research: search, read, cross-verify. {READONLY_NOTE} Output conclusions with sources.")),
-        _ => (PermissionProfile::Full, "Complete the subtask delegated by the parent agent, staying strictly within its stated boundaries.".to_string()),
+    let (permission, duty, max_turns) = match role {
+        "thinking" => (PermissionProfile::Readonly, format!("Deep analysis and option evaluation. {READONLY_NOTE}"), 6),
+        "planning" => (PermissionProfile::ReadonlyTodo, format!("Task decomposition and execution planning. {READONLY_NOTE} Output a numbered step plan."), 6),
+        "execution" => (PermissionProfile::Full, "Execute the given plan at high speed: edit files, run commands and verify results exactly as instructed. Make no extra design decisions; stop and report when reality diverges from the plan.".to_string(), 8),
+        "review" => (PermissionProfile::Readonly, format!("Adversarial review: find bugs, regressions and omissions in the change. {READONLY_NOTE} Output findings ordered by severity."), 6),
+        "research" => (PermissionProfile::Readonly, format!("External research: search, read, cross-verify. {READONLY_NOTE} Output conclusions with sources."), 6),
+        _ => (PermissionProfile::Full, "Complete the subtask delegated by the parent agent, staying strictly within its stated boundaries.".to_string(), 6),
     };
-    RoleAgent { name: format!("kxen-{role}"), role: role.to_string(), permission, prompt: duty }
+    RoleAgent { name: format!("kxen-{role}"), role: role.to_string(), permission, prompt: duty, max_turns }
+}
+
+/// 角色解析：项目 .agents/agents/<role>.md 优先（frontmatter permission/max_turns），缺省回落内建预设。
+pub fn role_agent_for(role: &str, workdir: &std::path::Path) -> RoleAgent {
+    let path = workdir.join(".agents/agents").join(format!("{role}.md"));
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return role_agent(role);
+    };
+    let (fm, body) = parse_frontmatter(&text);
+    let permission = match fm.get("permission").map(String::as_str) {
+        Some("full") => PermissionProfile::Full,
+        _ => PermissionProfile::Readonly,
+    };
+    let max_turns = fm.get("max_turns").and_then(|v| v.parse().ok()).unwrap_or(6);
+    RoleAgent {
+        name: format!("kxen-{role}"),
+        role: role.to_string(),
+        permission,
+        prompt: if body.is_empty() { fm.get("description").cloned().unwrap_or_default() } else { body },
+        max_turns,
+    }
+}
+
+/// 极简 frontmatter：`---` 包围的 key: value 头 + 剩余正文（与 knowledge 解析同规约，免跨模块）。
+fn parse_frontmatter(text: &str) -> (std::collections::HashMap<String, String>, String) {
+    let mut map = std::collections::HashMap::new();
+    let Some(rest) = text.strip_prefix("---") else { return (map, text.to_string()) };
+    let Some(end) = rest.find("\n---") else { return (map, text.to_string()) };
+    for line in rest[..end].lines() {
+        if let Some((k, v)) = line.split_once(':') {
+            map.insert(k.trim().to_string(), v.trim().to_string());
+        }
+    }
+    (map, rest[end + 4..].trim().to_string())
 }
 
 /// agent 派发：角色 -> mrm 路由 model -> 独立子 loop -> 结果回传。
 /// kind 区分来源（agent 工具 / workflow 的 agent()），统一进活动注册表供 UI 多窗格展示。
 pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: crate::agent::activity::AgentKind) -> Result<String, String> {
-    let agent = role_agent(role);
+    let agent = role_agent_for(role, &deps.workdir);
     let resolved = deps.mrm.resolve(role, &deps.store).await.ok_or_else(|| format!("no available model for role {role}"))?;
     let slot = deps.mrm.acquire(&resolved.slot_key()).await;
 
@@ -111,7 +148,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: cra
         workdir: deps.workdir.clone(),
         model: model.clone(),
         store: deps.store.clone(),
-        max_turns: 6,
+        max_turns: agent.max_turns,
         mrm: None,
         allowed_tools: if allowed.is_empty() { None } else { Some(allowed) },
         extras: None,
@@ -122,6 +159,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: cra
         session_id: Some(session_id.clone()),
         agents: Some(deps.agents.clone()),
         bus: Some(deps.bus.clone()),
+        approvals: deps.approvals.clone(),
         loop_detector: crate::agent::loop_detect::LoopDetector::new(),
         on_event: {
             let bus = deps.bus.clone();
@@ -181,5 +219,25 @@ mod tests {
                 assert!(!allowed.contains(&tool), "{role} must not have {tool}");
             }
         }
+    }
+
+    #[test]
+    fn custom_role_file_overrides_builtin() {
+        let dir = std::env::temp_dir().join(format!("kxen-role-{}", std::process::id()));
+        let agents = dir.join(".agents/agents");
+        std::fs::create_dir_all(&agents).unwrap();
+        std::fs::write(
+            agents.join("sentry.md"),
+            "---\npermission: readonly\nmax_turns: 3\n---\nWatch the perimeter and report anomalies.\n",
+        )
+        .unwrap();
+        let agent = role_agent_for("sentry", &dir);
+        assert_eq!(agent.permission, PermissionProfile::Readonly);
+        assert_eq!(agent.max_turns, 3);
+        assert!(agent.prompt.contains("perimeter"));
+        // 未覆盖的内建角色不受影响
+        let builtin = role_agent_for("review", &dir);
+        assert_eq!(builtin.permission, PermissionProfile::Readonly);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

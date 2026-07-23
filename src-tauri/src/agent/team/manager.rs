@@ -22,9 +22,53 @@ pub struct TeamManager {
 
 impl TeamManager {
     pub fn new(root: PathBuf, deps: SpawnDeps, bus: EventBus) -> Arc<Self> {
-        // config 是运行时状态：app 重启即清理（teams 不跨进程存活，对齐 Claude Code in-process 限制）
-        let _ = std::fs::remove_dir_all(&root);
-        Arc::new(Self { root, sessions: std::sync::Mutex::new(HashMap::new()), deps, bus })
+        let mgr = Arc::new(Self { root, sessions: std::sync::Mutex::new(HashMap::new()), deps, bus });
+        mgr.restore();
+        mgr
+    }
+
+    /// 重启恢复：扫描各 session 目录的 config/tasks，成员原活态一律降级 Shutdown（loop 不跨进程），任务按原状恢复。
+    fn restore(self: &Arc<Self>) {
+        let Ok(entries) = std::fs::read_dir(&self.root) else { return };
+        for entry in entries.flatten() {
+            let dir = entry.path();
+            if !dir.is_dir() {
+                continue;
+            }
+            let session_id = entry.file_name().to_string_lossy().into_owned();
+            let Ok(text) = std::fs::read_to_string(dir.join("config.json")) else { continue };
+            let Ok(config) = serde_json::from_str::<Value>(&text) else { continue };
+            let mut members: Vec<super::types::Member> = config
+                .get("members")
+                .and_then(|m| serde_json::from_value(m.clone()).ok())
+                .unwrap_or_default();
+            for m in &mut members {
+                if m.status != super::types::MemberStatus::Shutdown && m.status != super::types::MemberStatus::Failed {
+                    m.status = super::types::MemberStatus::Shutdown;
+                }
+            }
+            let tasks: Vec<super::types::TeamTask> = std::fs::read_to_string(dir.join("tasks.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or_default();
+            let next_id = tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1;
+            let _ = std::fs::create_dir_all(dir.join("inboxes"));
+            lock(&self.sessions).insert(
+                session_id.clone(),
+                Arc::new(TeamState {
+                    session_id,
+                    dir,
+                    manager: Arc::downgrade(self),
+                    members: std::sync::Mutex::new(members),
+                    cancels: std::sync::Mutex::new(HashMap::new()),
+                    notifies: std::sync::Mutex::new(HashMap::new()),
+                    tasks: std::sync::Mutex::new(tasks),
+                    next_task_id: std::sync::atomic::AtomicU64::new(next_id),
+                    deps: self.deps.clone(),
+                    bus: self.bus.clone(),
+                }),
+            );
+        }
     }
 
     pub(super) fn state_for(self: &Arc<Self>, session_id: &str) -> Arc<TeamState> {

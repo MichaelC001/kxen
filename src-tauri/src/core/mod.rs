@@ -9,6 +9,7 @@ pub mod paths;
 pub mod schedule;
 pub mod session;
 pub mod shared;
+pub mod trust;
 pub mod workspace;
 
 pub use error::{Error, Result};

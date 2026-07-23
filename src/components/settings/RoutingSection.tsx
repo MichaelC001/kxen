@@ -77,9 +77,18 @@ export default function RoutingSection() {
 
   const accountOptions = (provider: string) => accounts().filter((a) => a.provider === provider);
 
-  const update = async (role: string, provider: string, model: string, account?: string) => {
-    await configSetRole(role, provider, model, undefined, account || undefined);
-    setRoles((prev) => ({ ...prev, [role]: { provider, model, account: account || null } }));
+  const update = async (
+    role: string,
+    provider: string,
+    model: string,
+    account?: string,
+    fallback?: string,
+  ) => {
+    await configSetRole(role, provider, model, fallback || undefined, account || undefined);
+    setRoles((prev) => ({
+      ...prev,
+      [role]: { provider, model, account: account || null, fallback: fallback || null },
+    }));
     flash(`${ROLE_LABELS[role] ?? role} 已保存并热生效`);
   };
 
@@ -187,6 +196,25 @@ export default function RoutingSection() {
                       )}
                     </For>
                   </datalist>
+                  <select
+                    class="bg-transparent border border-[var(--border)] rounded px-1.5 py-1 text-xs text-[var(--text-dim)]"
+                    title="降级目标角色：本角色槽位满时降级到该角色"
+                    value={binding().fallback ?? ""}
+                    onChange={(e) =>
+                      void update(
+                        role,
+                        binding().provider,
+                        binding().model,
+                        binding().account ?? undefined,
+                        e.currentTarget.value || undefined,
+                      )
+                    }
+                  >
+                    <option value="">无降级</option>
+                    <For each={Object.keys(ROLE_LABELS).filter((r) => r !== role)}>
+                      {(r) => <option value={r}>{ROLE_LABELS[r]}</option>}
+                    </For>
+                  </select>
                   <Show when={binding().fallback}>
                     <span class="text-2xs text-[var(--text-faint)]" title="降级目标角色">
                       → {binding().fallback}

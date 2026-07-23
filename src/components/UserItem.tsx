@@ -8,6 +8,7 @@ export default function UserItem(props: {
   item: MsgItem;
   onFork: () => void;
   onEditResend: (text: string) => void;
+  onRewind: () => void;
 }) {
   return (
     <div
@@ -20,6 +21,7 @@ export default function UserItem(props: {
           },
           { label: "从此处分叉", action: props.onFork },
           { label: "编辑并重发", action: () => props.onEditResend(props.item.content) },
+          { label: "回退到此处", danger: true, action: props.onRewind },
         ]);
       }}
     >

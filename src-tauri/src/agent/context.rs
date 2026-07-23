@@ -111,6 +111,39 @@ async fn web_block(url: &str) -> (String, Option<String>) {
     }
 }
 
+/// 公网图片 URL -> ImagePart（content-type 判定，5MB cap）。非图片返回 None（走 web_block 文本通道）。
+pub async fn fetch_image_url(url: &str) -> Option<crate::llm::types::ImagePart> {
+    let looks_image = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].iter().any(|e| url.to_lowercase().split('?').next().unwrap_or("").ends_with(e));
+    if !looks_image {
+        return None;
+    }
+    let resp = crate::llm::client::shared_http()
+        .get(url)
+        .timeout(std::time::Duration::from_secs(20))
+        .send()
+        .await
+        .ok()?;
+    let mime = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()?
+        .to_string();
+    if !mime.starts_with("image/") {
+        return None;
+    }
+    let bytes = resp.bytes().await.ok()?;
+    if bytes.len() > 5 * 1024 * 1024 {
+        return None;
+    }
+    Some(crate::llm::types::ImagePart {
+        media_type: mime,
+        data: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

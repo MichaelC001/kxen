@@ -14,14 +14,16 @@ pub fn scan(workdir: &Path) -> Vec<Entry> {
 /// home 抽参：测试用假 home，避免扫真实 ~/.agents。
 pub(super) fn scan_with_home(workdir: &Path, home: &Path) -> Vec<Entry> {
     let mut out: Vec<Entry> = Vec::new();
-    // 根 AGENTS.md 永远注入（跨工具互操作约定，不属于任何 kind 子目录）
-    let root_agents = workdir.join("AGENTS.md");
-    if let Ok(text) = std::fs::read_to_string(&root_agents) {
-        let mut e = parse_entry(Scope::Project, Kind::Rule, &root_agents, &text);
-        e.always_apply = true;
-        e.is_agents_md = true;
-        e.description = "root AGENTS.md".into();
-        out.push(e);
+    // 根规则文件互操作：AGENTS.md 是主约定，CLAUDE.md/GEMINI.md/.cursorrules 同等注入
+    for name in ["AGENTS.md", "CLAUDE.md", "GEMINI.md", ".cursorrules"] {
+        let path = workdir.join(name);
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            let mut e = parse_entry(Scope::Project, Kind::Rule, &path, &text);
+            e.always_apply = true;
+            e.is_agents_md = true;
+            e.description = format!("root {name}");
+            out.push(e);
+        }
     }
     walk(&workdir.join(".agents"), Scope::Project, &mut out);
     walk(&home.join(".agents"), Scope::Personal, &mut out);
@@ -114,6 +116,19 @@ mod tests {
         assert!(entries.iter().any(|e| e.kind == Kind::Rule && e.slug == "style"));
         assert!(entries.iter().any(|e| e.kind == Kind::Skill && e.slug == "review"));
         assert!(!entries.iter().any(|e| e.slug == "checklist"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn interop_root_rule_files() {
+        let dir = std::env::temp_dir().join(format!("kxen-kn-interop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("CLAUDE.md"), "claude 专属规则").unwrap();
+        std::fs::write(dir.join(".cursorrules"), "cursor 专属规则").unwrap();
+        let home = dir.join("fake-home");
+        let entries = scan_with_home(&dir, &home);
+        assert!(entries.iter().any(|e| e.is_agents_md && e.description.contains("CLAUDE.md")));
+        assert!(entries.iter().any(|e| e.is_agents_md && e.description.contains(".cursorrules")));
         std::fs::remove_dir_all(&dir).ok();
     }
 

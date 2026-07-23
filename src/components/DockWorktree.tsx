@@ -1,15 +1,39 @@
-// worktree 区：隔离树列表 + 新建 + 清理（agent 派发可挂隔离）。
+// worktree 看板：隔离树 = 并行工作单元（分支 + 脏文件计数 + 切换工作区 + 清理）。
 import { createSignal, For, onMount, Show } from "solid-js";
-import { GitBranch, Plus, Trash2 } from "lucide-solid";
-import { worktreeCreate, worktreeList, worktreeRemove, type WorktreeInfo } from "../lib/chat";
+import { Check, GitBranch, Plus, Trash2 } from "lucide-solid";
+import {
+  workspaceSwitch,
+  worktreeCreate,
+  worktreeList,
+  worktreeRemove,
+  worktreeStatus,
+  type WorktreeInfo,
+} from "../lib/chat";
+import { statusline } from "../lib/chat";
 import EmptyLine from "./EmptyLine";
 
+interface Row extends WorktreeInfo {
+  dirty: number;
+}
+
 export default function DockWorktree() {
-  const [trees, setTrees] = createSignal<WorktreeInfo[]>([]);
+  const [trees, setTrees] = createSignal<Row[]>([]);
+  const [active, setActive] = createSignal("");
   const [name, setName] = createSignal("");
   const [note, setNote] = createSignal("");
 
-  const reload = async () => setTrees(await worktreeList().catch(() => []));
+  const reload = async () => {
+    const [list, sl] = await Promise.all([
+      worktreeList().catch(() => []),
+      statusline("").catch(() => null),
+    ]);
+    if (sl) setActive(sl.workdir);
+    setTrees(
+      await Promise.all(
+        list.map(async (t) => ({ ...t, dirty: (await worktreeStatus(t.path)).length })),
+      ),
+    );
+  };
   onMount(() => void reload());
 
   const flash = (msg: string) => {
@@ -30,17 +54,23 @@ export default function DockWorktree() {
     }
   };
 
-  const remove = async (t: WorktreeInfo, withBranch: boolean) => {
+  const remove = async (t: Row, withBranch: boolean) => {
     await worktreeRemove(t.name, withBranch).catch(() => {});
     await reload();
     flash(withBranch ? `已删除 ${t.branch}` : "已移除 worktree（分支保留）");
+  };
+
+  const switchTo = async (t: Row) => {
+    await workspaceSwitch(t.path).catch(() => {});
+    setActive(t.path);
+    flash(`已切换到 ${t.branch}`);
   };
 
   return (
     <div class="border-b border-[var(--border)] px-3 py-3">
       <div class="text-2xs uppercase tracking-wider text-[var(--text-faint)] mb-2 flex items-center gap-1.5">
         <GitBranch size={11} class="text-[var(--text-faint)]" />
-        worktree 隔离
+        worktree 并行看板
       </div>
       <Show when={note()}>
         <div class="text-2xs text-[var(--ok)] mb-1.5">{note()}</div>
@@ -49,9 +79,24 @@ export default function DockWorktree() {
         <For each={trees()} fallback={<EmptyLine text="无隔离树" />}>
           {(t) => (
             <div class="group flex items-center gap-1.5 text-xs">
+              <Show when={t.path === active()}>
+                <Check size={11} class="text-[var(--ok)] shrink-0" />
+              </Show>
               <span class="font-mono flex-1 truncate" title={t.path}>
                 {t.branch}
               </span>
+              <Show when={t.dirty > 0}>
+                <span class="text-2xs tabular-nums text-[var(--warn)]">{t.dirty} 改</span>
+              </Show>
+              <Show when={t.path !== active()}>
+                <button
+                  class="opacity-0 group-hover:opacity-100 pressable px-1 rounded text-2xs text-[var(--text-faint)] hover:text-[var(--text)]"
+                  title="切换工作区到此树（会话跑在该隔离目录）"
+                  onClick={() => void switchTo(t)}
+                >
+                  切换
+                </button>
+              </Show>
               <button
                 class="opacity-0 group-hover:opacity-100 pressable px-1 rounded text-[var(--text-faint)] hover:text-[var(--text)]"
                 title="移除 worktree（分支保留）"

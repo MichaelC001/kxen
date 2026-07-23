@@ -1,6 +1,7 @@
 //! kxen-tools：exec / 读写删 / safety / hooks / worktree。
 
 pub mod dev_server;
+pub mod checkpoint;
 pub mod exec;
 pub mod fs_tool;
 pub mod hashline;
@@ -12,6 +13,7 @@ pub mod snapshot;
 pub mod task;
 pub mod todo;
 pub mod webfetch;
+pub mod websearch;
 pub mod worktree;
 
 pub use safety::{evaluate_shell_command, guard_path, Verdict};

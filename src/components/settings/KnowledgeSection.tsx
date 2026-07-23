@@ -15,6 +15,7 @@ import {
   type KnowledgeScope,
 } from "../../lib/knowledge";
 import { badgeChip } from "../../lib/variants";
+import { activeSessionId } from "../../lib/state";
 
 const SCOPES: { id: KnowledgeScope; label: string; hint: string }[] = [
   { id: "project", label: "项目", hint: ".agents/ · 入 git 共享" },
@@ -53,7 +54,7 @@ export default function KnowledgeSection() {
   const reload = async () => {
     const [list, prev] = await Promise.all([
       knowledgeList().catch(() => []),
-      knowledgeInjectionPreview().catch(() => null),
+      knowledgeInjectionPreview(activeSessionId() || undefined).catch(() => null),
     ]);
     setEntries(list);
     setPreview(prev?.block ?? null);

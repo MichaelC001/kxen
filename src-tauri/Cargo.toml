@@ -12,6 +12,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2.11", features = [] }
 tauri-plugin-websocket = "2"
+tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 similar = "2"
 serde_json = "1"

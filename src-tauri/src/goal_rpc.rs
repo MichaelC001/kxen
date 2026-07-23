@@ -1,5 +1,7 @@
 //! goal RPC 方法（goal.{list,create,activate,pause,resume,complete,cancel,get}）。
+//! 状态迁移成功后 publish GoalUpdate（Dock goal 面板实时刷新，此前变体只有定义无发布点）。
 
+use kxen_app::core::event::Event;
 use kxen_app::core::goal::{Goal, GoalBudget, GoalContract};
 use kxen_app::core::paths;
 use serde_json::{json, Value};
@@ -24,7 +26,7 @@ fn to_json(goal: &Goal) -> Value {
     })
 }
 
-pub fn call(method: &str, params: Value) -> Result<Value, String> {
+pub fn call(method: &str, params: Value, bus: &kxen_app::core::event::EventBus) -> Result<Value, String> {
     match method {
         "goal.list" => {
             let goals = Goal::list(&dir());
@@ -45,27 +47,45 @@ pub fn call(method: &str, params: Value) -> Result<Value, String> {
             let id = format!("goal_{}_{:06x}", now_ms(), std::process::id());
             let goal = Goal::create(contract, id).map_err(|e| e.to_string())?;
             goal.save(&dir()).map_err(|e| e.to_string())?;
+            publish(bus, &goal);
             Ok(to_json(&goal))
         }
         "goal.get" => {
             let goal = load(params.get("id").and_then(Value::as_str).ok_or("missing id")?)?;
             Ok(to_json(&goal))
         }
-        "goal.activate" => transit(params, |g| g.activate()),
-        "goal.pause" => transit(params, |g| g.pause()),
-        "goal.resume" => transit(params, |g| g.resume()),
-        "goal.cancel" => transit(params, |g| g.cancel()),
+        "goal.activate" => transit(params, bus, |g| g.activate()),
+        "goal.pause" => transit(params, bus, |g| g.pause()),
+        "goal.resume" => transit(params, bus, |g| g.resume()),
+        "goal.cancel" => transit(params, bus, |g| g.cancel()),
         "goal.complete" => {
             let evidence = params.get("evidence").and_then(Value::as_str).ok_or("missing evidence")?.to_string();
-            transit(params, |g| g.complete(&evidence))
+            transit(params, bus, |g| g.complete(&evidence))
         }
         "goal.record_turn" => {
             let tokens = params.get("tokens").and_then(Value::as_u64).unwrap_or(0);
             let reason = params.get("blocked_reason").and_then(Value::as_str).map(String::from);
             let terminal = params.get("terminal").and_then(Value::as_bool).unwrap_or(false);
-            transit(params, |g| g.record_turn(tokens, reason.as_deref(), terminal))
+            transit(params, bus, |g| g.record_turn(tokens, reason.as_deref(), terminal))
         }
         other => Err(format!("unknown goal method: {other}")),
+    }
+}
+
+fn publish(bus: &kxen_app::core::event::EventBus, goal: &Goal) {
+    bus.publish(Event::GoalUpdate { id: goal.id.clone(), status: status_str(goal.status) });
+}
+
+fn status_str(status: kxen_app::core::goal::GoalStatus) -> &'static str {
+    match status {
+        kxen_app::core::goal::GoalStatus::Draft => "draft",
+        kxen_app::core::goal::GoalStatus::Queued => "queued",
+        kxen_app::core::goal::GoalStatus::Active => "active",
+        kxen_app::core::goal::GoalStatus::Paused => "paused",
+        kxen_app::core::goal::GoalStatus::Blocked => "blocked",
+        kxen_app::core::goal::GoalStatus::BudgetLimited => "budget_limited",
+        kxen_app::core::goal::GoalStatus::Complete => "complete",
+        kxen_app::core::goal::GoalStatus::Canceled => "canceled",
     }
 }
 
@@ -73,11 +93,16 @@ fn load(id: &str) -> Result<Goal, String> {
     Goal::load(&dir(), id).map_err(|e| e.to_string())
 }
 
-fn transit(params: Value, f: impl FnOnce(&mut Goal) -> Result<(), kxen_app::core::goal::GoalError>) -> Result<Value, String> {
+fn transit(
+    params: Value,
+    bus: &kxen_app::core::event::EventBus,
+    f: impl FnOnce(&mut Goal) -> Result<(), kxen_app::core::goal::GoalError>,
+) -> Result<Value, String> {
     let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
     let mut goal = load(id)?;
     f(&mut goal).map_err(|e| e.to_string())?;
     goal.save(&dir()).map_err(|e| e.to_string())?;
+    publish(bus, &goal);
     Ok(to_json(&goal))
 }
 

@@ -172,11 +172,12 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "workflow",
-            "Run a JavaScript orchestration script (QuickJS, sandboxed). Globals: `await agent(role, prompt)` -> string (subagent dispatch, MRM-routed); `CONSTRAINTS` (role bindings + provider availability); `phase(name)` (progress marker); `log(msg)`. Use plain JS for control flow: Promise.all for fan-out, for-loops for pipelines. The script return value is the workflow result. Cap: 32 agent dispatches, 10min wall clock.",
+            "Run a JavaScript orchestration script (QuickJS, sandboxed). Globals: `await agent(role, prompt)` -> string (subagent dispatch, MRM-routed); `CONSTRAINTS` (role bindings + provider availability); `phase(name)` (progress marker); `log(msg)`. Use plain JS for control flow: Promise.all for fan-out, for-loops for pipelines. The script return value is the workflow result. Cap: 32 agent dispatches, 10min wall clock. Optional run_id enables resume: re-run with the same run_id and completed agent dispatches return cached results instead of re-dispatching (crash/cancel recovery).",
             json!({
                 "type": "object",
                 "properties": {
-                    "script": { "type": "string", "description": "JavaScript body wrapped in an async function; use return for the result" }
+                    "script": { "type": "string", "description": "JavaScript body wrapped in an async function; use return for the result" },
+                    "run_id": { "type": "string", "description": "optional: stable id to enable journal/resume across runs" }
                 },
                 "required": ["script"]
             }),
@@ -298,6 +299,17 @@ pub fn deferred_tools() -> Vec<ToolDefinition> {
                     "url": { "type": "string", "description": "https:// or http:// URL" }
                 },
                 "required": ["url"]
+            }),
+        ),
+        ToolDefinition::function(
+            "websearch",
+            "Search the web (DuckDuckGo) and return top results with title, URL and snippet. Use for current events, docs, library facts.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "search query" }
+                },
+                "required": ["query"]
             }),
         ),
     ]

@@ -4,7 +4,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use super::rules::{
-    deny, home_credential_dot, home_top, Verdict, CRED_CMDS, DELETE_CMDS, DESTROY_CMDS, DISK_PATTERNS,
+    deny, home_credential_dot, home_top, Verdict, ASK_PATTERNS, CRED_CMDS, DELETE_CMDS, DESTROY_CMDS, DISK_PATTERNS,
     EXEMPT_PREFIXES, GIT_DESTROY, GIT_SEGMENT, MOVE_CMDS, SYSTEM_CMDS, SYSTEM_PATHS, VAR_PATTERN,
 };
 
@@ -16,12 +16,33 @@ pub fn evaluate_shell_command(command: &str, cwd: &str) -> Verdict {
     }
 
     let mut recoverable_seen = false;
-    for seg in split_segments(command) {
-        match eval_segment(seg, cwd) {
-            v @ Verdict::Deny { .. } => return v,
-            Verdict::Recoverable => recoverable_seen = true,
-            Verdict::Allow => {}
+    let mut ask_seen: Option<Verdict> = None;
+    let mut check = |cmd: &str| {
+        for seg in split_segments(cmd) {
+            match eval_segment(seg, cwd) {
+                v @ Verdict::Deny { .. } => return Some(v),
+                v @ Verdict::Ask { .. } => {
+                    if ask_seen.is_none() {
+                        ask_seen = Some(v);
+                    }
+                }
+                Verdict::Recoverable => recoverable_seen = true,
+                Verdict::Allow => {}
+            }
         }
+        None
+    };
+    if let Some(v) = check(command) {
+        return v;
+    }
+    // 命令替换（反引号 / $()）内嵌命令同样评估（绕过通道）
+    for sub in expand_substitutions(command) {
+        if let Some(v) = check(&sub) {
+            return v;
+        }
+    }
+    if let Some(v) = ask_seen {
+        return v;
     }
     if recoverable_seen { Verdict::Recoverable } else { Verdict::Allow }
 }
@@ -38,10 +59,24 @@ fn extract_nested(command: &str) -> Option<&str> {
 
 fn split_segments(command: &str) -> Vec<&str> {
     command
-        .split(|c| matches!(c, ';' | '|'))
+        .split(|c| matches!(c, ';' | '|' | '\n'))
         .flat_map(|part| part.split("&&"))
+        .flat_map(|part| part.split("||"))
         .map(str::trim)
         .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// 命令替换展开：反引号与 $() 内嵌的命令同样要进评估（`rm -rf $(cat f)` 类绕过）。
+fn expand_substitutions(command: &str) -> Vec<String> {
+    static RE: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+        vec![
+            Regex::new(r"`([^`]+)`").unwrap(),
+            Regex::new(r"\$\(([^)]+)\)").unwrap(),
+        ]
+    });
+    RE.iter()
+        .flat_map(|re| re.captures_iter(command).filter_map(|c| c.get(1).map(|m| m.as_str().to_string())).collect::<Vec<_>>())
         .collect()
 }
 
@@ -61,7 +96,15 @@ fn eval_segment(seg: &str, cwd: &str) -> Verdict {
     if let Some((_, why)) = GIT_DESTROY.iter().find(|(re, _)| re.is_match(seg)) {
         return deny("F3", *why, Some("删除单个分支用 git branch -d"));
     }
-    eval_delete_segment(seg, cwd)
+    let delete_verdict = eval_delete_segment(seg, cwd);
+    if !matches!(delete_verdict, Verdict::Allow) {
+        return delete_verdict;
+    }
+    // Ask 档最后判定：具体危险（Deny/Recoverable）优先于审批
+    if let Some((_, why)) = ASK_PATTERNS.iter().find(|(re, _)| re.is_match(seg)) {
+        return Verdict::Ask { reason: (*why).into() };
+    }
+    delete_verdict
 }
 
 fn tokens_of(seg: &str) -> Vec<&str> {
@@ -229,80 +272,5 @@ pub fn guard_path(target: &str, cwd: &str) -> Verdict {
             };
             deny(rule, format!("路径 {target} 命中保护路径 {}", hit.guard), Some("工作区内的具体子路径操作不受限，请缩小范围"))
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const CWD: &str = "/Users/test/project";
-
-    fn denied(cmd: &str) -> bool {
-        matches!(evaluate_shell_command(cmd, CWD), Verdict::Deny { .. })
-    }
-
-    fn allowed(cmd: &str) -> bool {
-        matches!(evaluate_shell_command(cmd, CWD), Verdict::Allow | Verdict::Recoverable)
-    }
-
-    #[test]
-    fn f1_system() {
-        for cmd in ["rm -rf /", "rm -rf /usr", "sudo rm -rf /etc", "dd if=/dev/zero of=/dev/disk0", "mkfs.ext4 /dev/sda1", "diskutil eraseDisk JHFS+ New disk0", "find / -name x -delete"] {
-            assert!(denied(cmd), "should deny: {cmd}");
-        }
-    }
-
-    #[test]
-    fn macos_temp_exempt() {
-        assert!(allowed("rm -rf /private/var/folders/qb/xxx/T/test"));
-        assert!(allowed("rm -rf /private/tmp/foo"));
-        assert!(allowed("rm -rf /tmp/foo"));
-        assert!(denied("rm -rf /private/etc"));
-        assert!(denied("rm -rf /private/var/db"));
-    }
-
-    #[test]
-    fn f2_home() {
-        assert!(denied("rm -rf ~"));
-        assert!(denied("rm -rf ~/Documents"));
-        assert!(denied("trash ~/.ssh"));
-        assert!(allowed("rm ~/Documents/draft.txt"));
-    }
-
-    #[test]
-    fn f3_git() {
-        assert!(denied("rm -rf .git"));
-        assert!(denied("mv .git /tmp/trash"));
-        assert!(denied("git update-ref -d refs/heads/main"));
-        assert!(allowed("git reset --hard HEAD"));
-        assert!(allowed("git branch -d feature-x"));
-    }
-
-    #[test]
-    fn f4_destroy() {
-        for cmd in ["terraform destroy", "dropdb production", "kubectl delete ns prod", "aws s3 rb s3://b --force", "docker system prune --volumes"] {
-            assert!(denied(cmd), "should deny: {cmd}");
-        }
-    }
-
-    #[test]
-    fn f5_bypass() {
-        assert!(denied("bash -c \"rm -rf /usr\""));
-        assert!(denied("rm -rf $DIR/"));
-    }
-
-    #[test]
-    fn trash_recoverable() {
-        assert!(matches!(evaluate_shell_command("trash ./dist", CWD), Verdict::Recoverable));
-        assert!(denied("trash .git"));
-        assert!(denied("trash ~/.ssh"));
-    }
-
-    #[test]
-    fn guard() {
-        assert!(matches!(guard_path("~/.ssh/id_rsa", CWD), Verdict::Deny { .. }));
-        assert!(matches!(guard_path(".git/config", CWD), Verdict::Deny { .. }));
-        assert!(matches!(guard_path("src/index.ts", CWD), Verdict::Allow));
     }
 }

@@ -23,7 +23,9 @@ const STACK_LIMIT: usize = 1024 * 1024;
 
 /// workflow 工具入口：QuickJS 在专属线程 + current_thread runtime 跑（rquickjs !Send 全隔离），
 /// 本任务侧只做 phase 转发 / 结果等待 / 超时取消（全部 Send）。
-pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &mut AgentContext) -> Result<String, String> {
+/// run_id 给了就开 journal resume：同 run_id 重跑时已完成 agent 派发直接回缓存（崩溃/取消可续）。
+pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &mut AgentContext, run_id: Option<&str>) -> Result<String, String> {
+    let journal = run_id.map(crate::agent::workflow_journal::Journal::open);
     let (phase_tx, mut phase_rx) = mpsc::unbounded_channel::<String>();
     let (result_tx, result_rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
     let cancel = Arc::new(AtomicBool::new(false));
@@ -40,7 +42,7 @@ pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &mut AgentContext) 
                     return;
                 }
             };
-            let result = rt.block_on(run_script(&script_owned, deps, phase_tx, cancel_thread));
+            let result = rt.block_on(run_script(&script_owned, deps, phase_tx, cancel_thread, journal));
             let _ = result_tx.send(result);
         })
         .map_err(|e| format!("workflow thread: {e}"))?;
@@ -84,6 +86,7 @@ async fn run_script(
     deps: SubagentDeps,
     phase_tx: mpsc::UnboundedSender<String>,
     cancel: Arc<AtomicBool>,
+    journal: Option<crate::agent::workflow_journal::Journal>,
 ) -> Result<String, String> {
     let constraints = build_constraints(&deps).await;
 
@@ -103,17 +106,26 @@ async fn run_script(
             ctx.eval::<Value, _>(inject).catch(&ctx).map_err(|e| e.to_string())?;
 
             // agent(role, prompt)：每次调用克隆一份 deps；计数器硬性封顶。
-            // 错误直接构造 Error::FromJs（不捕获 Ctx，避免生命周期问题），promise 照样 reject。
+            // run_id journal：已完成的 (role+prompt) 直接回缓存（resume 不重跑）。
             let counter = Arc::new(AtomicU32::new(0));
+            let journal = std::sync::Arc::new(std::sync::Mutex::new(journal));
             let agent_fn = Func::from(Async(move |role: String, prompt: String| {
                 let deps = deps.clone();
                 let counter = counter.clone();
+                let journal = journal.clone();
                 async move {
+                    if let Some(cached) = journal.lock().expect("journal").as_ref().and_then(|j| j.cached(&role, &prompt).cloned()) {
+                        return Ok(cached);
+                    }
                     let n = counter.fetch_add(1, Ordering::Relaxed);
                     if n >= MAX_AGENTS_PER_WORKFLOW {
                         return Err(workflow_err(format!("workflow agent budget exhausted ({MAX_AGENTS_PER_WORKFLOW})")));
                     }
-                    dispatch(&role, prompt, &deps, crate::agent::activity::AgentKind::Workflow).await.map_err(workflow_err)
+                    let result = dispatch(&role, prompt.clone(), &deps, crate::agent::activity::AgentKind::Workflow).await.map_err(workflow_err)?;
+                    if let Some(j) = journal.lock().expect("journal").as_mut() {
+                        j.record(&role, &prompt, &result);
+                    }
+                    Ok(result)
                 }
             }));
             globals.set("agent", agent_fn).catch(&ctx).map_err(|e| e.to_string())?;
@@ -198,12 +210,13 @@ mod tests {
             agents: Arc::new(crate::agent::activity::AgentRegistry::default()),
             session_id: None,
             bus: crate::core::event::EventBus::default(),
+            approvals: None,
         }
     }
 
     async fn run_ok(script: &str) -> String {
         let (tx, _rx) = mpsc::unbounded_channel();
-        run_script(script, test_deps(), tx, Arc::new(AtomicBool::new(false))).await.expect("script should succeed")
+        run_script(script, test_deps(), tx, Arc::new(AtomicBool::new(false)), None).await.expect("script should succeed")
     }
 
     #[tokio::test]
@@ -226,7 +239,7 @@ mod tests {
     #[tokio::test]
     async fn phases_are_streamed() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let fut = run_script("phase('scan'); phase('fix'); return 'done'", test_deps(), tx, Arc::new(AtomicBool::new(false)));
+        let fut = run_script("phase('scan'); phase('fix'); return 'done'", test_deps(), tx, Arc::new(AtomicBool::new(false)), None);
         tokio::pin!(fut);
         let mut phases = Vec::new();
         let result = loop {
@@ -246,7 +259,7 @@ mod tests {
     #[tokio::test]
     async fn js_exception_surfaces_message() {
         let (tx, _rx) = mpsc::unbounded_channel();
-        let err = run_script("throw new Error('boom')", test_deps(), tx, Arc::new(AtomicBool::new(false))).await.unwrap_err();
+        let err = run_script("throw new Error('boom')", test_deps(), tx, Arc::new(AtomicBool::new(false)), None).await.unwrap_err();
         assert!(err.contains("boom"), "unexpected: {err}");
     }
 

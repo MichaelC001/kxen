@@ -167,6 +167,18 @@ pub fn load_messages(dir: &Path, id: &str) -> Vec<Message> {
     text.lines().filter_map(|line| serde_json::from_str(line).ok()).collect()
 }
 
+/// 全量重写消息流（compaction 回写用）：原子替换 JSONL（tmp + rename）。
+pub fn rewrite_messages(dir: &Path, id: &str, messages: &[Message]) -> std::io::Result<()> {
+    use std::io::Write;
+    let target = messages_path(dir, id);
+    let tmp = target.with_extension("jsonl.tmp");
+    let mut file = std::fs::File::create(&tmp)?;
+    for m in messages {
+        writeln!(file, "{}", serde_json::to_string(m)?)?;
+    }
+    std::fs::rename(&tmp, target)
+}
+
 pub fn new_message(session_id: &str, role: Role, parts: Vec<Part>) -> Message {
     Message { id: new_id("msg"), session_id: session_id.into(), role, parts, created_at: now_ms() }
 }

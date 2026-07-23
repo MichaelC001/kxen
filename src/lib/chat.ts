@@ -76,6 +76,10 @@ export async function sessionAbort(sessionId: string): Promise<boolean> {
 export { onLlmDelta } from "./delta";
 export type { RunStats, ToolEvent } from "./delta";
 
+export async function approvalRespond(id: string, allow: boolean): Promise<void> {
+  return client.rpc("approval.respond", { id, allow });
+}
+
 export async function sessionPendingList(sessionId: string): Promise<string[]> {
   return client.rpc<string[]>("session.pending_list", { id: sessionId }).catch(() => []);
 }
@@ -179,6 +183,10 @@ export async function sessionFork(sessionId: string, messageId: string): Promise
   return client.rpc<SessionMeta>("session.fork", { session_id: sessionId, message_id: messageId });
 }
 
+export async function sessionRewind(sessionId: string, messageId: string): Promise<void> {
+  return client.rpc("session.rewind", { session_id: sessionId, message_id: messageId });
+}
+
 export async function sessionExport(sessionId: string): Promise<{ path: string }> {
   return client.rpc("session.export", { session_id: sessionId });
 }
@@ -199,6 +207,12 @@ export async function worktreeCreate(name: string): Promise<WorktreeInfo> {
 
 export async function worktreeRemove(name: string, deleteBranch = false): Promise<void> {
   return client.rpc("worktree.remove", { name, delete_branch: deleteBranch });
+}
+
+export async function worktreeStatus(path: string): Promise<{ path: string; status: string }[]> {
+  return client
+    .rpc<{ path: string; status: string }[]>("worktree.status", { path })
+    .catch(() => []);
 }
 
 // ---------------- workspace ----------------

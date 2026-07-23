@@ -1,5 +1,6 @@
 // 会话状态：活跃会话 id + 会话列表（Sidebar 与 Session 页共享）。
 import { createSignal } from "solid-js";
+import { client } from "./client";
 import { agentsList, type AgentActivity } from "./team";
 import { sessionCreate, sessionList, type SessionMeta } from "./chat";
 
@@ -54,12 +55,14 @@ export async function ensureActiveSession(): Promise<string> {
   const created = await sessionCreate();
   await refreshSessions();
   setActiveSessionId(created.id);
+  client.rpc("session.foreground", { id: created.id }).catch(() => {});
   return created.id;
 }
 
 export function switchSession(id: string): void {
   setActiveSessionId(id);
   setFocusAgent(null);
+  client.rpc("session.foreground", { id }).catch(() => {});
   navigate?.("/");
 }
 

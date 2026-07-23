@@ -40,7 +40,10 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
                 timeout_ms: args.get("timeout_ms").and_then(Value::as_u64),
                 background: args.get("background").and_then(Value::as_bool).unwrap_or(false),
             };
-            match exec(params, &ctx.registry, &cwd).await {
+            let approval = ctx.approvals.as_ref().zip(ctx.bus.as_ref()).map(|(broker, bus)| crate::tools::exec::ApprovalCtx {
+                broker, bus, cancel: ctx.cancel.as_ref(), session_id: ctx.session_id.as_deref().unwrap_or(""),
+            });
+            match exec(params, &ctx.registry, &cwd, approval.as_ref()).await {
                 Ok(ExecOutcome::Foreground { output, exit_code, truncated }) => {
                     Ok(format!("exit {exit_code}{}\n{output}", if truncated { " (truncated)" } else { "" }))
                 }
@@ -188,6 +191,10 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
             let url = args.get("url").and_then(Value::as_str).ok_or("missing url")?;
             crate::tools::webfetch::fetch_text(url).await
         }
+        "websearch" => {
+            let query = args.get("query").and_then(Value::as_str).ok_or("missing query")?;
+            Ok(crate::tools::websearch::format_hits(&crate::tools::websearch::search(query).await?))
+        }
         "team" => {
             let Some(team) = &ctx.team else {
                 return Err("team tool unavailable in this context".into());
@@ -286,7 +293,8 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
             let Some(deps) = crate::agent::subagent::SubagentDeps::from_context(ctx) else {
                 return Err("workflow unavailable: mrm not configured".into());
             };
-            Box::pin(crate::agent::workflow::run_tool(script, deps, ctx)).await
+            let run_id = args.get("run_id").and_then(Value::as_str);
+            Box::pin(crate::agent::workflow::run_tool(script, deps, ctx, run_id)).await
         }
         other => Err(format!("unknown tool: {other}")),
     }

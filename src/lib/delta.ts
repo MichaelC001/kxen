@@ -10,9 +10,12 @@ export interface RunStats {
 }
 
 export interface ToolEvent {
-  kind: "tool_call" | "tool_result" | "phase";
+  kind: "tool_call" | "tool_result" | "phase" | "approval";
   name: string;
   summary?: string | undefined;
+  approvalId?: string | undefined;
+  command?: string | undefined;
+  reason?: string | undefined;
 }
 
 export function onLlmDelta(
@@ -35,6 +38,8 @@ export function onLlmDelta(
     summary?: string;
     stats?: RunStats;
     agent?: string;
+    approval_id?: string;
+    command?: string;
   }
 
   function handle(event: DeltaPayload) {
@@ -60,6 +65,15 @@ export function onLlmDelta(
       case "tool_result":
       case "phase":
         if (event.name) onTool?.({ kind: event.kind, name: event.name, summary: event.summary });
+        break;
+      case "approval":
+        onTool?.({
+          kind: "approval",
+          name: "approval",
+          approvalId: event.approval_id,
+          command: event.command,
+          reason: event.message,
+        });
         break;
     }
   }

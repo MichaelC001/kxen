@@ -18,7 +18,8 @@ impl ShellKind {
         match self {
             ShellKind::Zsh => "/bin/zsh",
             ShellKind::Bash => "/bin/bash",
-            ShellKind::Fish => "/usr/local/bin/fish",
+            // Apple Silicon Homebrew 路径（/usr/local 是 Intel 残留）
+            ShellKind::Fish => "/opt/homebrew/bin/fish",
         }
     }
 
@@ -52,7 +53,8 @@ static SNAPSHOTS: OnceLock<std::collections::HashMap<ShellKind, ShellSnapshot>> 
 pub fn snapshots() -> &'static std::collections::HashMap<ShellKind, ShellSnapshot> {
     SNAPSHOTS.get_or_init(|| {
         let mut map = std::collections::HashMap::new();
-        for kind in [ShellKind::Zsh, ShellKind::Bash] {
+        for kind in [ShellKind::Zsh, ShellKind::Bash, ShellKind::Fish] {
+            // fish 未安装时 output() 直接 Err -> 空快照，不影响其它 shell
             let output = std::process::Command::new(kind.binary())
                 .args(["-lic", &kind.capture_script()])
                 .output();

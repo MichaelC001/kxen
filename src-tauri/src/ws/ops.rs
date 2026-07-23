@@ -16,6 +16,7 @@ const METHODS: &[&str] = &[
     "knowledge.move",
     "knowledge.injection_preview",
     "schedule.list",
+    "usage.overview",
     "schedule.add",
     "schedule.remove",
     "diagnostics.export",
@@ -97,10 +98,36 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
         "knowledge.injection_preview" => {
             let state = app.state::<Arc<AppState>>();
             let dir = state.active_workspace.read().expect("workspace").clone();
-            let block = kxen_app::knowledge::render(&dir, &[]);
+            // 真实 involved：最近一轮 run 的文件集（原来固定 [] = glob 动态命中永远看不到）
+            let session_id = params.get("session_id").and_then(Value::as_str);
+            let involved = session_id
+                .and_then(|sid| kxen_app::core::shared::lock(&state.session_involved).get(sid).cloned())
+                .unwrap_or_default();
+            let block = kxen_app::knowledge::render(&dir, &involved);
             Ok(json!({ "block": block }))
         }
         "schedule.list" => Ok(serde_json::to_value(kxen_app::core::schedule::list()).map_err(|e| e.to_string())?),
+        "usage.overview" => {
+            let state = app.state::<Arc<AppState>>();
+            let tokens = kxen_app::core::shared::lock(&state.session_tokens).clone();
+            let total_input: u64 = tokens.values().map(|t| t.0).sum();
+            let total_output: u64 = tokens.values().map(|t| t.1).sum();
+            let history = {
+                let mrm = state.mrm.read().expect("mrm").clone();
+                mrm.history().await
+            };
+            let mut by_model: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+            for h in &history {
+                *by_model.entry(format!("{}/{}", h.provider, h.model)).or_default() += 1;
+            }
+            Ok(json!({
+                "total_input": total_input,
+                "total_output": total_output,
+                "sessions": tokens.len(),
+                "dispatches": history.len(),
+                "by_model": by_model,
+            }))
+        }
         "schedule.add" => {
             let cron = params.get("cron").and_then(Value::as_str).ok_or("missing cron")?;
             let prompt = params.get("prompt").and_then(Value::as_str).ok_or("missing prompt")?;
@@ -264,6 +291,7 @@ async fn test_dispatch(app: &AppHandle, params: &Value) -> Result<Value, String>
         agents: state.agents.clone(),
         session_id: None,
         bus: state.bus.clone(),
+        approvals: Some(state.approvals.clone()),
     };
     let answer = kxen_app::agent::subagent::dispatch(role, "Reply with exactly: PONG".to_string(), &deps, kxen_app::agent::activity::AgentKind::Subagent).await?;
     Ok(json!({

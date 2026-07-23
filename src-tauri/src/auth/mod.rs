@@ -3,6 +3,7 @@
 
 pub mod credential;
 pub mod probe;
+pub mod refresh;
 
 pub use credential::{Credential, CredentialKind};
 pub use probe::{probe_all, ProbeOutcome, ProbeRule};

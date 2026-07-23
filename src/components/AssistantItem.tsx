@@ -19,6 +19,7 @@ export default function AssistantItem(props: {
   onFork: () => void;
   onRerun: () => void;
   onContinue: () => void;
+  onRewind: () => void;
 }) {
   return (
     <div
@@ -31,6 +32,7 @@ export default function AssistantItem(props: {
           },
           { label: "从此处分叉", action: props.onFork },
           { label: "重新生成", action: props.onRerun },
+          { label: "回退到此处", danger: true, action: props.onRewind },
         ]);
       }}
     >

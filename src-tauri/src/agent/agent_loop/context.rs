@@ -45,5 +45,7 @@ pub struct AgentContext {
     pub agents: Option<Arc<crate::agent::activity::AgentRegistry>>,
     /// 事件总线（子代理流式事件上 UI 用）。
     pub bus: Option<crate::core::event::EventBus>,
+    /// Ask 档审批 broker（exec 高危命令挂起等用户决定；None = 无审批通道按拒绝）。
+    pub approvals: Option<Arc<crate::agent::approval::ApprovalBroker>>,
     pub on_event: Arc<dyn Fn(AgentEvent) + Send + Sync>,
 }

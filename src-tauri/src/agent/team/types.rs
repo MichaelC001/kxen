@@ -61,6 +61,7 @@ pub struct SpawnDeps {
     pub hooks: Option<Arc<crate::tools::hooks::HookRunner>>,
     pub extras: Arc<crate::agent::agent_loop::SessionExtras>,
     pub agents: Arc<crate::agent::activity::AgentRegistry>,
+    pub approvals: Option<Arc<crate::agent::approval::ApprovalBroker>>,
 }
 
 pub(crate) struct TeamState {

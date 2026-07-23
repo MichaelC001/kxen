@@ -16,6 +16,8 @@ pub struct AppState {
     /// 角色路由可热更新（设置页改角色 -> 重建换 Arc）；与 SpawnDeps 共享同一 RwLock 句柄
     pub mrm: std::sync::Arc<std::sync::RwLock<std::sync::Arc<kxen_app::llm::mrm::ModelResourceManager>>>,
     pub extras: std::sync::Arc<kxen_app::agent::agent_loop::SessionExtras>,
+    /// Ask 档审批 broker（exec 高危命令的用户决定路由）
+    pub approvals: std::sync::Arc<kxen_app::agent::approval::ApprovalBroker>,
     pub hooks: std::sync::Arc<kxen_app::tools::hooks::HookRunner>,
     pub team: std::sync::Arc<kxen_app::agent::team::TeamManager>,
     pub agents: std::sync::Arc<kxen_app::agent::activity::AgentRegistry>,
@@ -43,8 +45,12 @@ pub struct AppState {
     pub active_workspace: std::sync::RwLock<std::path::PathBuf>,
     /// session_id -> agent 改动快照（改动面板数据源；run 间共享，随 app 存活）
     pub session_snapshots: std::sync::Mutex<std::collections::HashMap<String, kxen_app::tools::snapshot::SnapshotStore>>,
+    /// session_id -> 最近一轮 run 的 involved 文件（injection_preview 的真实 glob 命中数据源）
+    pub session_involved: std::sync::Mutex<std::collections::HashMap<String, Vec<std::path::PathBuf>>>,
     /// 通知环形缓冲（teammate/cron/系统事件，顶栏通知中心数据源，50 条）
     pub notifications: std::sync::Mutex<std::collections::VecDeque<(u64, String)>>,
+    /// 前台聚焦会话（OS 通知只发非前台会话的完成事件）
+    pub foreground_session: std::sync::RwLock<String>,
 }
 
 impl AppState {
@@ -68,6 +74,7 @@ impl AppState {
             std::sync::Arc::from(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
         let bus = kxen_app::core::event::EventBus::default();
         let agents = std::sync::Arc::new(kxen_app::agent::activity::AgentRegistry::default());
+        let approvals = std::sync::Arc::new(kxen_app::agent::approval::ApprovalBroker::new());
         let team = kxen_app::agent::team::TeamManager::new(
             kxen_app::core::paths::data_dir().join("teams"),
             kxen_app::agent::team::SpawnDeps {
@@ -78,6 +85,7 @@ impl AppState {
                 hooks: Some(hooks.clone()),
                 extras: extras.clone(),
                 agents: agents.clone(),
+                approvals: Some(approvals.clone()),
             },
             bus.clone(),
         );
@@ -88,6 +96,7 @@ impl AppState {
             bus,
             registry,
             extras,
+            approvals,
             hooks,
             team,
             agents,
@@ -101,7 +110,9 @@ impl AppState {
             git_cache: std::sync::Mutex::new((std::time::Instant::now() - std::time::Duration::from_secs(60), String::new())),
             active_workspace: std::sync::RwLock::new(workdir.to_path_buf()),
             session_snapshots: std::sync::Mutex::new(std::collections::HashMap::new()),
+            session_involved: std::sync::Mutex::new(std::collections::HashMap::new()),
             notifications: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            foreground_session: std::sync::RwLock::new(String::new()),
             workdir,
         }
     }
@@ -116,6 +127,7 @@ pub fn run() {
     tauri::async_runtime::block_on(async {
         let app = tauri::Builder::default()
             .plugin(tauri_plugin_websocket::init())
+            .plugin(tauri_plugin_notification::init())
             .invoke_handler(tauri::generate_handler![ws_port])
             .manage(Arc::new(AppState::new()))
             .setup(|app| {
@@ -153,7 +165,31 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     let mut rx = handle.state::<Arc<AppState>>().bus.subscribe();
                     while let Ok(event) = rx.recv().await {
+                        // 非前台会话的 run 完成：OS 桌面通知（前台会话用户在看，不打扰）
+                        if let kxen_app::core::event::Event::LlmDelta(payload) = &event {
+                            if payload.get("kind").and_then(|k| k.as_str()) == Some("done") {
+                                let sid = payload.get("session_id").and_then(|s| s.as_str()).unwrap_or("");
+                                let state = handle.state::<Arc<AppState>>();
+                                let fg = state.foreground_session.read().expect("foreground").clone();
+                                if !sid.is_empty() && sid != fg {
+                                    use tauri_plugin_notification::NotificationExt;
+                                    let title = kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), sid)
+                                        .map(|m| m.title)
+                                        .unwrap_or_else(|_| sid.to_string());
+                                    let _ = handle.notification().builder().title("kxen 会话完成").body(&title).show();
+                                }
+                            }
+                        }
                         if let kxen_app::core::event::Event::Notification(text) = event {
+                            // notification hook（全部 Notification 事件的单一收口点）
+                            let state = handle.state::<Arc<AppState>>();
+                            let hooks = state.hooks.clone();
+                            let text2 = text.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) = hooks.run_named("notification", &text2, &serde_json::json!({ "text": text2 })).await {
+                                    tracing::warn!(error = %e, "notification hook failed");
+                                }
+                            });
                             let now = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .map(|d| d.as_millis() as u64)

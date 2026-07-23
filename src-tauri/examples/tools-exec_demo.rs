@@ -17,6 +17,7 @@ async fn main() {
         ExecParams { shell_type: ShellKind::Zsh, path: cwd.display().to_string(), command: "echo hello-kxen && pwd".into(), timeout_ms: None, background: false },
         &registry,
         &cwd.display().to_string(),
+        None,
     )
     .await
     .unwrap();
@@ -27,6 +28,7 @@ async fn main() {
         ExecParams { shell_type: ShellKind::Zsh, path: "/".into(), command: "rm -rf /".into(), timeout_ms: None, background: false },
         &registry,
         &cwd.display().to_string(),
+        None,
     )
     .await;
     println!("[blocked] {blocked:?}");
@@ -44,6 +46,7 @@ async fn main() {
         },
         &registry,
         &cwd.display().to_string(),
+        None,
     )
     .await
     .unwrap();
@@ -54,6 +57,7 @@ async fn main() {
         ExecParams { shell_type: ShellKind::Zsh, path: cwd.display().to_string(), command: "sleep 30 && echo late".into(), timeout_ms: None, background: false },
         &registry,
         &cwd.display().to_string(),
+        None,
     )
     .await
     .unwrap();

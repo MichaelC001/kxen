@@ -3,5 +3,10 @@
   "identifier": "default",
   "description": "main window default capability",
   "windows": ["main"],
-  "permissions": ["core:default", "websocket:default", "core:window:allow-start-dragging"]
+  "permissions": [
+    "core:default",
+    "websocket:default",
+    "core:window:allow-start-dragging",
+    "notification:default"
+  ]
 }

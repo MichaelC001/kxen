@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::AppState;
 
-pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String, context: Vec<kxen_app::agent::context::ContextItem>, images: Vec<kxen_app::llm::types::ImagePart>, app: AppHandle) {
+pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String, context: Vec<kxen_app::agent::context::ContextItem>, mut images: Vec<kxen_app::llm::types::ImagePart>, app: AppHandle) {
     use kxen_app::core::session as ses;
 
     let state = app.state::<Arc<AppState>>();
@@ -18,6 +18,61 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         .map(|m| m.directory)
         .unwrap_or_else(|_| state.active_workspace.read().expect("workspace").to_string_lossy().into_owned());
     let session_path = std::path::PathBuf::from(&session_dir);
+
+    // /compact 手动压缩：重写会话历史（蒸馏旧段 + 保留最近），不走正常 run
+    if text.trim() == "/compact" {
+        let state = app.state::<Arc<AppState>>();
+        let model = state.model.lock().map(|m| m.clone()).unwrap_or_default();
+        let store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
+        let stored = ses::load_messages(&sessions_dir, &session_id);
+        let llm_msgs: Vec<kxen_app::llm::Message> = stored
+            .iter()
+            .filter_map(|m| {
+                let text: String = m
+                    .parts
+                    .iter()
+                    .filter_map(|p| match p {
+                        ses::Part::Text { text } | ses::Part::Context { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if text.is_empty() {
+                    return None;
+                }
+                Some(match m.role {
+                    ses::Role::User => kxen_app::llm::Message::user(text),
+                    ses::Role::Assistant => kxen_app::llm::Message::assistant(text),
+                    ses::Role::System => kxen_app::llm::Message::system(text),
+                })
+            })
+            .collect();
+        let before = kxen_app::agent::compact::estimate_tokens(&llm_msgs);
+        let compacted = kxen_app::agent::compact::compact_messages(&model, &store, &llm_msgs, 4).await;
+        let after = kxen_app::agent::compact::estimate_tokens(&compacted);
+        // 回写：每条压缩后消息转 stored（text part），图片不保留（压缩的既定代价）
+        let stored_msgs: Vec<ses::Message> = compacted
+            .iter()
+            .map(|m| {
+                let role = match m.role {
+                    kxen_app::llm::types::Role::User => ses::Role::User,
+                    _ => ses::Role::Assistant,
+                };
+                ses::new_message(&session_id, role, vec![ses::Part::Text { text: m.content.clone() }])
+            })
+            .collect();
+        if let Err(e) = ses::rewrite_messages(&sessions_dir, &session_id, &stored_msgs) {
+            tracing::error!(error = %e, "compact rewrite failed");
+        }
+        let notice = format!("上下文已压缩：约 {before} -> {after} tokens");
+        let msg = ses::new_message(&session_id, ses::Role::Assistant, vec![ses::Part::Text { text: notice }]);
+        let _ = ses::append_message(&sessions_dir, &msg);
+        // done 事件让前端收敛（不发 run，前端在等终态）
+        state.bus.publish(kxen_app::core::event::Event::LlmDelta(serde_json::json!({
+            "kind": "done", "session_id": session_id, "stream_id": stream_id,
+        })));
+        return;
+    }
 
     // 自定义 / 命令展开：kind=Command 条目 $ARGUMENTS 模板 + needs 依赖懒加载（builtin 由模型 playbook 处理）
     let text = if let Some(rest) = text.strip_prefix('/') {
@@ -30,11 +85,31 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
     };
 
     // @ 引用注入：chip -> 上下文块（文件/目录/Web/Docs），追加在用户消息尾部。
-    // 读取失败必须用户可见（通知中心），不再静默降级只告诉模型。
-    let (context_block, context_failures) = if context.is_empty() {
-        (String::new(), Vec::new())
-    } else {
-        kxen_app::agent::context::build_context(&context, &session_path).await
+    // 图片 URL 分流：content-type 判定为图片的直挂 images 通道（公网图片输入），其余走文本注入。
+    let (context_block, context_failures) = {
+        let mut text_items = Vec::new();
+        for item in context {
+            let is_image = match &item {
+                kxen_app::agent::context::ContextItem::Web { url }
+                | kxen_app::agent::context::ContextItem::Docs { url } => {
+                    if let Some(img) = kxen_app::agent::context::fetch_image_url(url).await {
+                        images.push(img);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            };
+            if !is_image {
+                text_items.push(item);
+            }
+        }
+        if text_items.is_empty() {
+            (String::new(), Vec::new())
+        } else {
+            kxen_app::agent::context::build_context(&text_items, &session_path).await
+        }
     };
     for f in &context_failures {
         state.bus.publish(kxen_app::core::event::Event::Notification(format!("引用读取失败：{f}")));
@@ -51,10 +126,32 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         tracing::error!(error = %e, "session append failed");
         return;
     }
+    // checkpoint：turn 前状态打 shadow git 检查点（后台异步，不阻塞 run 启动）
+    {
+        let dir = session_path.clone();
+        let label = user_msg.id.clone();
+        tokio::spawn(async move {
+            match tokio::task::spawn_blocking(move || kxen_app::tools::checkpoint::commit(&dir, &label)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!(error = %e, "checkpoint commit failed"),
+                Err(e) => tracing::warn!(error = %e, "checkpoint commit join failed"),
+            }
+        });
+    }
     let text = if context_block.is_empty() { text } else { format!("{text}\n{context_block}") };
 
     let (model, store, registry, workdir, bus) = {
-        let store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
+        // 主会话模型快过期先刷新（克隆出来刷避免持锁跨 await；成功则回写共享 store）
+        let provider = state.model.lock().map(|m| m.provider.clone()).unwrap_or_default();
+        let account = state.model.lock().ok().and_then(|m| m.account.clone());
+        let mut store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
+        let refreshed = kxen_app::auth::refresh::ensure_fresh(&mut store, &provider, account.as_deref()).await;
+        if refreshed {
+            let key = account.as_deref().map(|a| kxen_app::auth::credential::account_id(&provider, a)).unwrap_or(provider.clone());
+            if let Some(cred) = store.get(&key).cloned() {
+                state.auth_store.lock().expect("auth_store").insert(key, cred);
+            }
+        }
         (
             state.model.lock().map(|m| m.clone()).unwrap_or_default(),
             store,
@@ -138,6 +235,7 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         session_id: Some(session_id.clone()),
         agents: Some(state.agents.clone()),
         bus: Some(bus.clone()),
+        approvals: Some(state.approvals.clone()),
         on_event: Arc::new(move |event| {
             use kxen_app::agent::agent_loop::AgentEvent as AE;
             match &event {
@@ -169,7 +267,16 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         }),
     };
     let outcome = kxen_app::agent::agent_loop::run_turn(&mut ctx, messages).await;
+    kxen_app::core::shared::lock(&state.session_involved).insert(session_id.clone(), ctx.tracker.files());
     kxen_app::core::shared::lock(&state.active_runs).remove(&session_id);
+    // stop hook（run 结束挂点，fire-and-log）
+    if let Err(e) = state
+        .hooks
+        .run_named("stop", &session_id, &serde_json::json!({ "session_id": session_id, "aborted": outcome.aborted }))
+        .await
+    {
+        tracing::warn!(error = %e, "stop hook failed");
+    }
     kxen_app::core::shared::lock(&state.run_streams).remove(&stream_id);
     // 用量累计（状态栏 tokens 段）
     if let Some(stats) = outcome.stats {

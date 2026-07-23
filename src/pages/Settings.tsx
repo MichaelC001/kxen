@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-solid";
 import KnowledgeSection from "../components/settings/KnowledgeSection";
 import ProvidersSection from "../components/settings/ProvidersSection";
 import RoutingSection from "../components/settings/RoutingSection";
+import UsageSection from "../components/settings/UsageSection";
 import VoiceSection from "../components/settings/VoiceSection";
 import { client } from "../lib/client";
 import { configGet } from "../lib/chat";
@@ -139,9 +140,7 @@ export default function Settings() {
           </Show>
 
           <Show when={section() === "用量与统计"}>
-            <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-4 text-sm text-[var(--text-dim)]">
-              会话 tokens 与状态栏用量段同步；每条 assistant 消息尾部有 TTFT / 耗时 / tok/s。
-            </div>
+            <UsageSection />
           </Show>
 
           <Show when={section() === "知识库 OKF"}>

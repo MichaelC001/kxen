@@ -57,7 +57,15 @@ pub fn validate_dialect(kind: ShellKind, command: &str) -> Result<(), ExecError>
     }
 }
 
-pub async fn exec(params: ExecParams, registry: &Arc<TaskRegistry>, cwd: &str) -> Result<ExecOutcome, ExecError> {
+/// 审批上下文（Ask 档挂起等待用户决定所需的全部句柄）。
+pub struct ApprovalCtx<'a> {
+    pub broker: &'a crate::agent::approval::ApprovalBroker,
+    pub bus: &'a crate::core::event::EventBus,
+    pub cancel: Option<&'a crate::agent::cancel::CancelToken>,
+    pub session_id: &'a str,
+}
+
+pub async fn exec(params: ExecParams, registry: &Arc<TaskRegistry>, cwd: &str, approval: Option<&ApprovalCtx<'_>>) -> Result<ExecOutcome, ExecError> {
     validate_dialect(params.shell_type, &params.command)?;
 
     match evaluate_shell_command(&params.command, cwd) {
@@ -67,6 +75,30 @@ pub async fn exec(params: ExecParams, registry: &Arc<TaskRegistry>, cwd: &str) -
                 reason: reason.into_owned(),
                 suggestion: suggestion.map(|s| format!(" Suggestion: {s}")).unwrap_or_default(),
             });
+        }
+        Verdict::Ask { reason } => {
+            let Some(appr) = approval else {
+                return Err(ExecError::Safety {
+                    rule: "approval".into(),
+                    reason: format!("{reason}（当前上下文无审批通道，按拒绝处理）"),
+                    suggestion: String::new(),
+                });
+            };
+            let (id, rx) = appr.broker.register();
+            appr.bus.publish(crate::core::event::Event::LlmDelta(serde_json::json!({
+                "kind": "approval",
+                "approval_id": id,
+                "command": params.command,
+                "reason": reason,
+                "session_id": appr.session_id,
+            })));
+            if !appr.broker.wait(rx, appr.cancel).await {
+                return Err(ExecError::Safety {
+                    rule: "approval".into(),
+                    reason: format!("{reason}（用户拒绝或已中断）"),
+                    suggestion: String::new(),
+                });
+            }
         }
         _ => {}
     }
@@ -139,6 +171,8 @@ pub async fn spawn_task(
         .current_dir(workdir)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
+        // 独立进程组组长：kill 走 killpg 才能覆盖 shell 的孙进程（dev server 子进程不泄漏）
+        .process_group(0)
         .spawn()
         .map_err(|e| ExecError::Spawn(format!("{bin}: {e}")))?;
 

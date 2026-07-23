@@ -64,6 +64,6 @@ export interface InjectionPreview {
   block: string | null;
 }
 
-export function knowledgeInjectionPreview(): Promise<InjectionPreview> {
-  return client.rpc("knowledge.injection_preview");
+export function knowledgeInjectionPreview(sessionId?: string): Promise<InjectionPreview> {
+  return client.rpc("knowledge.injection_preview", sessionId ? { session_id: sessionId } : {});
 }

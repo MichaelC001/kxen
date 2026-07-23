@@ -20,7 +20,14 @@ export interface PhaseItem {
   kind: "phase";
   name: string;
 }
-export type Item = MsgItem | ToolItem | PhaseItem;
+export interface ApprovalItem {
+  kind: "approval";
+  approvalId: string;
+  command: string;
+  reason: string;
+  resolved?: "allowed" | "denied";
+}
+export type Item = MsgItem | ToolItem | PhaseItem | ApprovalItem;
 
 export function toItems(messages: StoredMessage[]): Item[] {
   const items: Item[] = [];

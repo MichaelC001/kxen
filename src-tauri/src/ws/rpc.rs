@@ -1,6 +1,5 @@
 //! RPC 通道：请求-响应（id 关联，支持并发调用）。
 
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
@@ -43,7 +42,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             *state.model.lock().map_err(|e| e.to_string())? = kxen_app::llm::ModelRef::new(provider, model);
             Ok(json!({ "provider": provider, "model": model }))
         }
-        m if m.starts_with("goal.") => crate::goal_rpc::call(m, params),
+        m if m.starts_with("goal.") => crate::goal_rpc::call(m, params, &app.state::<Arc<AppState>>().bus),
         "workspace.list" => Ok(json!(kxen_app::core::workspace::list(&kxen_app::core::paths::data_dir()))),
         "session.list" => {
             // 全量返回（侧栏树按 workspace 分组，过滤在前端）；附运行中标记
@@ -78,18 +77,19 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
                 return Err(format!("directory not found: {path}"));
             }
             let state = app.state::<Arc<AppState>>();
-            *state.active_workspace.write().expect("workspace") = dir;
+            *state.active_workspace.write().expect("workspace") = dir.clone();
             kxen_app::core::workspace::touch(&kxen_app::core::paths::data_dir(), path).map_err(|e| e.to_string())?;
+            // 信任门：未信任且含知识/项目配置 -> 后台审批（实现见 core/trust.rs）
+            kxen_app::core::trust::gate_async(&dir, &state.approvals, &state.bus);
             Ok(json!(path))
         }
         "session.create" => {
             let state = app.state::<Arc<AppState>>();
-            let directory = params
-                .get("directory")
-                .and_then(Value::as_str)
-                .map(String::from)
+            let directory = params.get("directory").and_then(Value::as_str).map(String::from)
                 .unwrap_or_else(|| state.active_workspace.read().expect("workspace").to_string_lossy().into_owned());
             let session = kxen_app::core::session::create(&kxen_app::core::paths::sessions_dir(), &directory).map_err(|e| e.to_string())?;
+            // session_start hook（fire-and-log）
+            let _ = state.hooks.run_named("session_start", &session.id, &json!({ "id": session.id, "directory": directory })).await.inspect_err(|e| tracing::warn!(error = %e, "session_start hook failed"));
             Ok(json!(session))
         }
         "session.messages" => {
@@ -136,12 +136,18 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let session = kxen_app::core::session::update_meta(&kxen_app::core::paths::sessions_dir(), id, title, pinned, sort_order).map_err(|e| e.to_string())?;
             Ok(json!(session))
         }
+        "session.foreground" => {
+            let id = params.get("id").and_then(Value::as_str).unwrap_or("");
+            *app.state::<Arc<AppState>>().foreground_session.write().expect("foreground") = id.to_string();
+            Ok(Value::Null)
+        }
         "session.fork" => {
             let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let message_id = params.get("message_id").and_then(Value::as_str).ok_or("missing message_id")?;
             let session = kxen_app::core::session::fork(&kxen_app::core::paths::sessions_dir(), session_id, message_id).map_err(|e| e.to_string())?;
             Ok(json!(session))
         }
+        "session.rewind" => super::session_ops::session_rewind(&params),
         "session.pending_list" => {
             let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
             let state = app.state::<Arc<AppState>>();
@@ -187,6 +193,12 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             kxen_app::tools::worktree::remove(&dir, name, delete_branch).await?;
             Ok(json!(true))
         }
+        "worktree.status" => {
+            // 单棵 worktree 的脏文件清单（看板行内计数数据源）
+            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
+            let entries = kxen_app::tools::worktree::status(std::path::Path::new(path)).await?;
+            Ok(json!(entries))
+        }
         "diff.status" => {
             let state = app.state::<Arc<AppState>>();
             let dir = state.active_workspace.read().expect("workspace").clone();
@@ -219,7 +231,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             Ok(json!(text))
         }
         "send_message" => {
-            let p: SendMessageParams = serde_json::from_value(params).map_err(|e| e.to_string())?;
+            let p: super::session_ops::SendMessageParams = serde_json::from_value(params).map_err(|e| e.to_string())?;
             let state = app.state::<Arc<AppState>>();
             // run 进行中：默认入队（queue）；config.send_when_running=interrupt 时打断当前立即发送
             if kxen_app::core::shared::lock(&state.active_runs).contains_key(&p.session_id) {
@@ -255,6 +267,11 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             kxen_app::core::shared::lock(&state.pending_messages).remove(id);
             let token = kxen_app::core::shared::lock(&state.active_runs).get(id).cloned();
             Ok(json!(token.map(|t| t.cancel()).is_some()))
+        }
+        "approval.respond" => {
+            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
+            let allow = params.get("allow").and_then(Value::as_bool).ok_or("missing allow")?;
+            Ok(json!({ "resolved": app.state::<Arc<AppState>>().approvals.respond(id, allow) }))
         }
         "team.list" => {
             let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
@@ -327,12 +344,3 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct SendMessageParams {
-    session_id: String,
-    text: String,
-    #[serde(default)]
-    context: Vec<kxen_app::agent::context::ContextItem>,
-    #[serde(default)]
-    images: Vec<kxen_app::llm::types::ImagePart>,
-}

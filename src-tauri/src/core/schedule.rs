@@ -1,4 +1,4 @@
-//! cron 定时任务存储（进程内，随 app 存活；一次性/周期）。tick 由宿主循环驱动。
+//! cron 定时任务存储（data_dir/schedule.json 持久化，重启恢复；一次性/周期）。tick 由宿主循环驱动。
 
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,26 @@ pub struct CronJob {
 }
 
 static JOBS: std::sync::Mutex<Vec<CronJob>> = std::sync::Mutex::new(Vec::new());
+static LOADED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+fn store_file() -> std::path::PathBuf {
+    crate::core::paths::data_dir().join("schedule.json")
+}
+
+fn ensure_loaded() {
+    LOADED.get_or_init(|| {
+        if let Ok(text) = std::fs::read_to_string(store_file()) {
+            if let Ok(jobs) = serde_json::from_str::<Vec<CronJob>>(&text) {
+                *crate::core::shared::lock(&JOBS) = jobs;
+            }
+        }
+    });
+}
+
+fn persist() {
+    let jobs = crate::core::shared::lock(&JOBS).clone();
+    let _ = std::fs::write(store_file(), serde_json::to_string_pretty(&jobs).unwrap_or_default());
+}
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -46,6 +66,7 @@ fn chrono_from_ms(ms: u64) -> chrono::DateTime<chrono::Local> {
 }
 
 pub fn add(cron: &str, prompt: &str, session_id: &str, once: bool) -> Result<CronJob, String> {
+    ensure_loaded(); // 先加载存量再 push+persist，否则重启后首次 add 覆盖全部历史
     let next_fire = next_fire_of(cron, now_ms())?;
     let job = CronJob {
         id: format!("cron-{}-{:04x}", now_ms(), std::process::id() & 0xffff),
@@ -56,18 +77,26 @@ pub fn add(cron: &str, prompt: &str, session_id: &str, once: bool) -> Result<Cro
         next_fire,
     };
     crate::core::shared::lock(&JOBS).push(job.clone());
+    persist();
     Ok(job)
 }
 
 pub fn list() -> Vec<CronJob> {
+    ensure_loaded();
     crate::core::shared::lock(&JOBS).clone()
 }
 
 pub fn remove(id: &str) -> bool {
+    ensure_loaded();
     let mut jobs = crate::core::shared::lock(&JOBS);
     let before = jobs.len();
     jobs.retain(|j| j.id != id);
-    jobs.len() != before
+    let removed = jobs.len() != before;
+    drop(jobs);
+    if removed {
+        persist();
+    }
+    removed
 }
 
 #[cfg(test)]
@@ -77,6 +106,7 @@ pub fn clear() {
 
 /// 到期任务出列（once 删除；周期任务就地重算下次）。
 pub fn drain_due(now: u64) -> Vec<CronJob> {
+    ensure_loaded();
     let mut jobs = crate::core::shared::lock(&JOBS);
     let mut due = Vec::new();
     let mut i = 0;
@@ -97,6 +127,10 @@ pub fn drain_due(now: u64) -> Vec<CronJob> {
             }
         }
         i += 1;
+    }
+    drop(jobs);
+    if !due.is_empty() {
+        persist();
     }
     due
 }

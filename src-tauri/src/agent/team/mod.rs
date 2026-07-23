@@ -38,6 +38,7 @@ mod tests {
             hooks: None,
             extras: Arc::new(crate::agent::agent_loop::SessionExtras::default()),
             agents: Arc::new(crate::agent::activity::AgentRegistry::default()),
+            approvals: None,
         }
     }
 

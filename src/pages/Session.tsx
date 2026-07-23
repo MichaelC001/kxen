@@ -5,25 +5,26 @@ import {
   sendMessage,
   sessionAbort,
   sessionExport,
-  sessionFork,
   sessionMessages,
   sessionPendingList,
+  sessionRewind,
   statusline,
   type ContextItem,
 } from "../lib/chat";
 import { createConverge } from "../lib/converge";
+import { applyApprovalEvent, respondApproval as respondApprovalImpl } from "../lib/approvals";
+import { editResend as editResendImpl, forkAt, rerun as rerunImpl } from "../lib/session-actions";
 import { displayName, modelsCatalog } from "../lib/models";
 import AssistantItem from "../components/AssistantItem";
+import ApprovalCard from "../components/ApprovalCard";
 import PendingQueue from "../components/PendingQueue";
 import UserItem from "../components/UserItem";
 import {
   activeSessionId,
   ensureActiveSession,
   newSession,
-  refreshSessions,
   sessions,
   setHasConversation,
-  switchSession,
 } from "../lib/state";
 import { onDragStart } from "../lib/drag";
 import ThinkingOrb from "../components/ThinkingOrb";
@@ -155,6 +156,9 @@ export default function Session() {
             }
             return prev;
           });
+        } else if (event.kind === "approval") {
+          setOrbPhase("thinking");
+          applyApprovalEvent(setItems, event);
         } else {
           setItems((prev) => [...prev, { kind: "phase", name: event.name }]);
         }
@@ -190,14 +194,7 @@ export default function Session() {
     }
   };
 
-  /** 从指定消息分叉：新会话带前缀历史并切入。 */
-  const forkAt = async (messageId: string) => {
-    const forked = await sessionFork(activeSessionId(), messageId).catch(() => null);
-    if (forked) {
-      await refreshSessions();
-      switchSession(forked.id);
-    }
-  };
+  const respondApproval = (id: string, allow: boolean) => respondApprovalImpl(setItems, id, allow);
 
   const [exportNote, setExportNote] = createSignal("");
   const [modelLabel, setModelLabel] = createSignal("");
@@ -207,36 +204,21 @@ export default function Session() {
     setTimeout(() => setExportNote(""), 3000);
   };
 
-  /** 重新生成：把该 assistant 之前最近一条 user 消息重发一次。 */
-  const rerun = async (idx: number) => {
-    const list = items();
-    for (let j = idx - 1; j >= 0; j--) {
-      const m = list[j];
-      if (m?.kind === "msg" && m.role === "user") {
-        await send(m.content, [], []);
-        return;
-      }
-    }
-  };
+  const rerun = (idx: number) => rerunImpl(send, items(), idx);
 
-  /** 编辑重发：fork 到该消息前一条（排除本消息），再发编辑后的文本。 */
+  /** 回退到指定消息：shadow git 代码回滚 + 会话截断，随后真源重载。 */
+  const rewindAt = async (messageId: string) => {
+    const sid = activeSessionId();
+    if (!sid) return;
+    await sessionRewind(sid, messageId).catch(() => {});
+    converge(sid);
+  };
   const editResend = async (idx: number, text: string) => {
-    const list = items();
-    for (let j = idx - 1; j >= 0; j--) {
-      const m = list[j];
-      if (m?.kind === "msg" && m.messageId) {
-        const forked = await sessionFork(activeSessionId(), m.messageId).catch(() => null);
-        if (forked) {
-          await refreshSessions();
-          switchSession(forked.id);
-          await send(text, [], []);
-          return;
-        }
-      }
+    const done = await editResendImpl(send, items(), idx, text);
+    if (!done) {
+      await newSession();
+      await send(text, [], []);
     }
-    // 没有更早消息（首条）：直接新会话发送
-    await newSession();
-    await send(text, [], []);
   };
 
   return (
@@ -288,6 +270,14 @@ export default function Session() {
               if (item.kind === "tool") {
                 return <ToolCard name={item.name} call={item.call} result={item.result} />;
               }
+              if (item.kind === "approval") {
+                return (
+                  <ApprovalCard
+                    item={item}
+                    onRespond={(id, allow) => void respondApproval(id, allow)}
+                  />
+                );
+              }
               if (item.kind === "phase") {
                 return (
                   <div class="text-xs text-[var(--text-faint)] flex items-center gap-2">
@@ -302,6 +292,7 @@ export default function Session() {
                     item={item}
                     onFork={() => void forkAt(item.messageId!)}
                     onEditResend={(text) => void editResend(i(), text)}
+                    onRewind={() => void rewindAt(item.messageId!)}
                   />
                 );
               }
@@ -314,6 +305,7 @@ export default function Session() {
                   onFork={() => void forkAt(item.messageId!)}
                   onRerun={() => void rerun(i())}
                   onContinue={() => void send("继续", [], [])}
+                  onRewind={() => void rewindAt(item.messageId!)}
                 />
               );
             }}

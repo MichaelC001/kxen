@@ -89,9 +89,24 @@ impl TaskRegistry {
         Some((output, truncated, task.status()))
     }
 
+    /// 进程组终止：SIGTERM -> 800ms 宽限 -> SIGKILL 升级（spawn 时 process_group(0) 组长，组覆盖孙进程）。
     pub async fn kill(&self, id: &str) -> bool {
         let Some(task) = self.get(id) else { return false };
+        if let Some(pid) = task.pid {
+            let _ = std::process::Command::new("kill").args(["-TERM", &format!("-{pid}")]).status();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
+            loop {
+                let alive = std::process::Command::new("kill").args(["-0", &pid.to_string()]).status().map(|s| s.success()).unwrap_or(false);
+                if !alive || std::time::Instant::now() >= deadline {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+            }
+        }
         let taken = lock(&task.child).take();
+        if let Some(pid) = task.pid {
+            let _ = std::process::Command::new("kill").args(["-KILL", &format!("-{pid}")]).status();
+        }
         if let Some(mut child) = taken {
             let _ = child.kill().await;
         }

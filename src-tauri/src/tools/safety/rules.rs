@@ -12,9 +12,21 @@ pub enum Verdict {
         reason: Cow<'static, str>,
         suggestion: Option<&'static str>,
     },
+    /// 需用户审批后放行（push --force / reset --hard / sudo 等高危但合法操作）
+    Ask { reason: Cow<'static, str> },
     /// trash 的可恢复删除（approval 档，safety 不硬拦但记录）
     Recoverable,
 }
+
+// 高危但合法：走 ask-user 审批档（原来按 Allow 静默放行）
+pub(super) static ASK_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
+    vec![
+        (Regex::new(r"\bgit\s+push\b[^|;]*\s(-f\b|--force\b)").unwrap(), "git push --force 覆盖远端历史"),
+        // 只拦裸 reset --hard（丢弃全部未提交改动）；带 ref 的是常用安全操作（既有测试约定）
+        (Regex::new(r"^\s*git\s+reset\s+--hard\s*$").unwrap(), "git reset --hard 丢弃未提交改动"),
+        (Regex::new(r"^\s*sudo\b").unwrap(), "sudo 提权执行"),
+    ]
+});
 
 // F1 系统路径（macOS 细化：/private/var/folders 与 /private/tmp 是临时区，豁免）
 pub(super) const SYSTEM_PATHS: &[&str] = &[
