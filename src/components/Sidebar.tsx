@@ -1,6 +1,6 @@
 import { A } from "@solidjs/router";
 import { onMount } from "solid-js";
-import { Moon, Plus, Settings as SettingsIcon, Sun } from "lucide-solid";
+import { Folders, Moon, Plus, Settings as SettingsIcon, Sun } from "lucide-solid";
 import SessionTree from "./SessionTree";
 import { initSessions, newSession } from "../lib/state";
 import { onDragStart } from "../lib/drag";
@@ -30,6 +30,13 @@ export default function Sidebar() {
       <SessionTree />
       <div class="h-7 px-3 border-t border-[var(--border)] flex items-center">
         <div class="flex-1 flex items-center justify-between">
+          <A
+            href="/workspaces"
+            class="px-1 text-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
+          >
+            <Folders size={13} />
+            工作区
+          </A>
           <A
             href="/settings"
             class="px-1 text-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"

@@ -53,14 +53,9 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
         }
         "read" => {
             let path = resolve_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, &ctx.workdir);
-            read(&path, &ctx.tracker, &cwd).map(|r| {
-                let mut out = r.content;
-                if r.truncated {
-                    out.push_str(&format!("\n... ({} total lines, truncated)", r.total_lines));
-                }
-                out
-            })
-            .map_err(|e| e.to_string())
+            read(&path, &ctx.tracker, &cwd)
+                .map(|r| if r.truncated { format!("{}\n... ({} total lines, truncated)", r.content, r.total_lines) } else { r.content })
+                .map_err(|e| e.to_string())
         }
         "edit" => {
             let path = resolve_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, &ctx.workdir);
@@ -74,17 +69,18 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
                     expected_replacements: args.get("expected_replacements").and_then(Value::as_u64).map(|n| n as usize),
                 },
             };
-            edit(&path, &spec, &ctx.tracker, &cwd).map(|r| format!("{}\n{}", r.diff_summary, r.diff)).map_err(|e| e.to_string())
+            edit(&path, &spec, &ctx.tracker, &cwd).map(|r| format!("{}\n{}", r.diff_summary, r.diff)).map_err(|e| e.to_string()).inspect(|_| crate::lsp::notify_change(ctx.lsp.as_ref(), &path))
         }
         "write" => {
             let path = resolve_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, &ctx.workdir);
             let content = args.get("content").and_then(Value::as_str).unwrap_or("");
-            write(&path, content, &ctx.tracker, &cwd).map(|_| format!("wrote {} bytes", content.len())).map_err(|e| e.to_string())
+            write(&path, content, &ctx.tracker, &cwd).map(|_| format!("wrote {} bytes", content.len())).map_err(|e| e.to_string()).inspect(|_| crate::lsp::notify_change(ctx.lsp.as_ref(), &path))
         }
         "delete" => {
             let path = resolve_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, &ctx.workdir);
             delete(&path, &ctx.tracker, &cwd).map(|_| "moved to Trash".to_string()).map_err(|e| e.to_string())
         }
+        "diagnostics" => crate::lsp::diagnostics_tool(ctx.lsp.as_ref(), args.get("path").and_then(Value::as_str), &ctx.workdir, ctx.tracker.files()).await,
         "knowledge" => {
             match args.get("action").and_then(Value::as_str).ok_or("missing action")? {
                 "add" => {
@@ -125,7 +121,7 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
             }
         }
         "task" => execute_task_tool(&args, ctx).await,
-        "goal" => execute_goal_tool(&args).await,
+        "goal" => execute_goal_tool(&args, ctx.session_id.as_deref()).await,
         "glob" => {
             let base = resolve_path(args.get("path").and_then(Value::as_str).unwrap_or(&cwd), &ctx.workdir);
             let pattern = args.get("pattern").and_then(Value::as_str).ok_or("missing pattern")?;
@@ -295,6 +291,10 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
             };
             let run_id = args.get("run_id").and_then(Value::as_str);
             Box::pin(crate::agent::workflow::run_tool(script, deps, ctx, run_id)).await
+        }
+        other if other.starts_with("mcp__") => {
+            let (server, tool) = crate::mcp::tools::split_prefixed(other).ok_or(format!("invalid mcp tool name: {other}"))?;
+            ctx.mcp.as_ref().ok_or("mcp not configured")?.call(server, tool, &args).await
         }
         other => Err(format!("unknown tool: {other}")),
     }

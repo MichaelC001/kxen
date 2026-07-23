@@ -211,6 +211,8 @@ mod tests {
             session_id: None,
             bus: crate::core::event::EventBus::default(),
             approvals: None,
+            mcp: None,
+            lsp: None,
         }
     }
 

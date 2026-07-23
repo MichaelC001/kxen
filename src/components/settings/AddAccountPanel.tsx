@@ -14,7 +14,7 @@ const KINDS: { id: Kind; label: string; detail: string }[] = [
   { id: "custom", label: "自定义提供商", detail: "OpenAI / Anthropic 兼容端点（中转、自部署）" },
 ];
 
-const OAUTH_PROVIDERS = ["anthropic", "openai", "xai", "kimi-for-coding"];
+const OAUTH_PROVIDERS = ["anthropic", "openai", "xai", "kimi-for-coding", "openrouter"];
 const CAPS = ["text", "vision", "audio"];
 
 export default function AddAccountPanel(props: { onDone: (msg: string) => void }) {

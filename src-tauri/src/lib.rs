@@ -6,5 +6,7 @@ pub mod auth;
 pub mod core;
 pub mod knowledge;
 pub mod llm;
+pub mod lsp;
+pub mod mcp;
 pub mod tools;
 pub mod voice;

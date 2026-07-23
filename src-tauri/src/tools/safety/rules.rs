@@ -25,6 +25,11 @@ pub(super) static ASK_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock:
         // 只拦裸 reset --hard（丢弃全部未提交改动）；带 ref 的是常用安全操作（既有测试约定）
         (Regex::new(r"^\s*git\s+reset\s+--hard\s*$").unwrap(), "git reset --hard 丢弃未提交改动"),
         (Regex::new(r"^\s*sudo\b").unwrap(), "sudo 提权执行"),
+        (Regex::new(r"\bgit\s+clean\s+-[a-z]*f").unwrap(), "git clean 删除未跟踪文件（不可恢复）"),
+        (Regex::new(r"\bkill\s+-9\b|\bkill\s+-KILL\b").unwrap(), "kill -9 强制终止进程（不可捕获）"),
+        (Regex::new(r"\bbrew\s+uninstall\b").unwrap(), "brew uninstall 卸载软件包"),
+        (Regex::new(r"\bnpm\s+(uninstall|publish)\b").unwrap(), "npm uninstall/publish 变更包状态"),
+        (Regex::new(r"\bchmod\s+-R\b").unwrap(), "chmod -R 递归改权限"),
     ]
 });
 

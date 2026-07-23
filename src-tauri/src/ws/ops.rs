@@ -17,6 +17,8 @@ const METHODS: &[&str] = &[
     "knowledge.injection_preview",
     "schedule.list",
     "usage.overview",
+    "mcp.status",
+    "mcp.restart",
     "schedule.add",
     "schedule.remove",
     "diagnostics.export",
@@ -35,6 +37,9 @@ const METHODS: &[&str] = &[
 pub(super) async fn try_handle(method: &str, params: &Value, app: &AppHandle) -> Option<Result<Value, String>> {
     if super::ops_provider::METHODS.contains(&method) {
         return Some(super::ops_provider::handle(method, params, app).await);
+    }
+    if super::ops_workspace::METHODS.contains(&method) {
+        return Some(super::ops_workspace::handle(method, params, app).await);
     }
     if !METHODS.contains(&method) {
         return None;
@@ -127,6 +132,16 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
                 "dispatches": history.len(),
                 "by_model": by_model,
             }))
+        }
+        "mcp.status" => {
+            let state = app.state::<Arc<AppState>>();
+            Ok(serde_json::to_value(state.mcp.status()).map_err(|e| e.to_string())?)
+        }
+        "mcp.restart" => {
+            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
+            let state = app.state::<Arc<AppState>>();
+            state.mcp.restart(name).await?;
+            Ok(json!({ "restarted": true }))
         }
         "schedule.add" => {
             let cron = params.get("cron").and_then(Value::as_str).ok_or("missing cron")?;
@@ -292,6 +307,8 @@ async fn test_dispatch(app: &AppHandle, params: &Value) -> Result<Value, String>
         session_id: None,
         bus: state.bus.clone(),
         approvals: Some(state.approvals.clone()),
+        mcp: Some(state.mcp.clone()),
+        lsp: Some(state.lsp.read().expect("lsp").clone()),
     };
     let answer = kxen_app::agent::subagent::dispatch(role, "Reply with exactly: PONG".to_string(), &deps, kxen_app::agent::activity::AgentKind::Subagent).await?;
     Ok(json!({

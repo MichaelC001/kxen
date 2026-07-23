@@ -15,6 +15,7 @@ export function isTerminal(item: { content: string; error?: string | undefined }
 export default function AssistantItem(props: {
   item: MsgItem;
   streaming: () => boolean;
+  live: () => boolean;
   modelLabel: () => string;
   onFork: () => void;
   onRerun: () => void;
@@ -57,7 +58,13 @@ export default function AssistantItem(props: {
           </div>
         </details>
       </Show>
-      <Markdown text={props.item.content} />
+      {/* 流式活跃消息渲染纯文本（稳定高度）；Done 后一次性 Markdown（同行通用做法，消抖核心） */}
+      <Show
+        when={!props.live()}
+        fallback={<div class="whitespace-pre-wrap selectable">{props.item.content}</div>}
+      >
+        <Markdown text={props.item.content} />
+      </Show>
       <Show when={props.item.stats}>
         {(stats: () => RunStats) => (
           <div class="text-2xs text-[var(--text-faint)] mt-1.5 tabular-nums">

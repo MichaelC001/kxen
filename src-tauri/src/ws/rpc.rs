@@ -79,8 +79,12 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let state = app.state::<Arc<AppState>>();
             *state.active_workspace.write().expect("workspace") = dir.clone();
             kxen_app::core::workspace::touch(&kxen_app::core::paths::data_dir(), path).map_err(|e| e.to_string())?;
-            // 信任门：未信任且含知识/项目配置 -> 后台审批（实现见 core/trust.rs）
+            // 信任门：未信任且含知识/项目配置 -> 后台审批；hooks 按信任重载（实现见 core/trust.rs）
             kxen_app::core::trust::gate_async(&dir, &state.approvals, &state.bus);
+            kxen_app::core::trust::reload_hooks_for_workspace(&dir, &state.hooks);
+            // LSP per-workspace 重建：杀旧 server，新根首个 diagnostics 请求再懒启动
+            let old_lsp = std::mem::replace(&mut *state.lsp.write().expect("lsp"), kxen_app::lsp::LspManager::new(dir.clone()));
+            old_lsp.shutdown().await;
             Ok(json!(path))
         }
         "session.create" => {

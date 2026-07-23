@@ -6,6 +6,7 @@ mod parse;
 mod scan;
 mod render;
 mod store;
+pub mod consolidate;
 pub mod distill;
 
 pub use render::render;

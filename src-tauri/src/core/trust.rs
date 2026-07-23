@@ -52,6 +52,21 @@ pub fn needs_gate(workdir: &Path) -> bool {
     workdir.join(".agents").is_dir() || workdir.join(".kxen/config.toml").is_file()
 }
 
+/// 项目 hooks 死代码接线：已信任合并项目 .kxen/config.toml 重载，未信任回用户级。
+pub fn reload_hooks_for_workspace(workdir: &Path, hooks: &crate::tools::hooks::HookRunner) {
+    let project_cfg = if is_trusted(workdir) {
+        Some(workdir.join(".kxen/config.toml"))
+    } else {
+        None
+    };
+    let merged = crate::core::config::Config::load(
+        &crate::core::paths::config_dir().join("config.toml"),
+        project_cfg.as_deref(),
+    )
+    .unwrap_or_default();
+    hooks.reload(&merged);
+}
+
 /// workspace 切换后的信任门：未信任且含知识/项目配置 -> 后台审批（不阻塞切换）。
 pub fn gate_async(workdir: &Path, broker: &std::sync::Arc<crate::agent::approval::ApprovalBroker>, bus: &crate::core::event::EventBus) {
     if !needs_gate(workdir) || is_trusted(workdir) {

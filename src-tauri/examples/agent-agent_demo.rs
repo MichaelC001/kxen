@@ -34,6 +34,8 @@ async fn main() {
         agents: None,
         bus: None,
         approvals: None,
+        mcp: None,
+        lsp: None,
         loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
         on_event: Arc::new(|event| match event {
             AgentEvent::Text { text } => print!("{text}"),

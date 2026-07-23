@@ -63,6 +63,16 @@ impl LlmClient {
                     _ => Box::pin(futures::stream::once(async { Delta::Error("xai credential is not oauth".into()) })),
                 }
             }
+            "openrouter" => {
+                let Some(crate::auth::credential::CredentialKind::Api { key }) = crate::auth::credential::credential_for(&store, "openrouter", model.account.as_deref()) else {
+                    return Box::pin(futures::stream::once(async { Delta::Error("openrouter credential missing (import API key in settings)".into()) }));
+                };
+                crate::llm::xai::XaiProvider::custom("https://openrouter.ai/api/v1/chat/completions".into(), key.clone()).stream_chat_with_tools(&model.model, messages, tools)
+            }
+            "ollama" => {
+                // 本地 Ollama 无鉴权，OpenAI 兼容端点的 bearer 仅为占位
+                crate::llm::xai::XaiProvider::custom("http://localhost:11434/v1/chat/completions".to_string(), "ollama".to_string()).stream_chat_with_tools(&model.model, messages, tools)
+            }
             other if other.starts_with("custom:") => {
                 // 自定义类型提供商：config.toml 给端点+协议，auth.json 给 key（custom:<name>）
                 let name = other[7..].to_string();

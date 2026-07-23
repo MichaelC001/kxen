@@ -12,6 +12,7 @@ import {
   type ContextItem,
 } from "../lib/chat";
 import { createConverge } from "../lib/converge";
+import { createDeltaBatcher } from "../lib/delta-batch";
 import { applyApprovalEvent, respondApproval as respondApprovalImpl } from "../lib/approvals";
 import { editResend as editResendImpl, forkAt, rerun as rerunImpl } from "../lib/session-actions";
 import { displayName, modelsCatalog } from "../lib/models";
@@ -57,7 +58,8 @@ export default function Session() {
     listRef && setPinned(listRef.scrollHeight - listRef.scrollTop - listRef.clientHeight < 48);
   const scroll = (force = false) => {
     if (force || pinned()) {
-      queueMicrotask(() => {
+      // rAF 等布局完成再钉底（queueMicrotask 抢在 layout 前，位置算错再纠偏 = 闪）
+      requestAnimationFrame(() => {
         if (listRef) listRef.scrollTop = listRef.scrollHeight;
         setPinned(true);
       });
@@ -101,24 +103,28 @@ export default function Session() {
     scroll: () => scroll(),
   });
 
-  const appendAssistant = (field: "content" | "reasoning", text: string) => {
-    setOrbPhase("composing");
+  const appendRaw = (field: "content" | "reasoning", text: string) => {
     setItems((prev) => {
       const last = prev.at(-1);
       if (last?.kind === "msg" && last.role === "assistant") {
         return [...prev.slice(0, -1), { ...last, [field]: (last[field] ?? "") + text }];
       }
-      return [
-        ...prev,
-        {
-          kind: "msg",
-          role: "assistant",
-          content: field === "content" ? text : "",
-          reasoning: field === "reasoning" ? text : undefined,
-        },
-      ];
+      const msg = {
+        kind: "msg" as const,
+        role: "assistant" as const,
+        content: field === "content" ? text : "",
+        reasoning: field === "reasoning" ? text : undefined,
+      };
+      return [...prev, msg];
     });
     scroll();
+  };
+
+  // delta 批量上屏：50ms 合并（实现见 lib/delta-batch.ts）
+  const batcher = createDeltaBatcher(appendRaw);
+  const appendAssistant = (field: "content" | "reasoning", text: string) => {
+    setOrbPhase("composing");
+    batcher.push(field, text);
   };
 
   onMount(async () => {
@@ -133,6 +139,7 @@ export default function Session() {
       (stats, error) => {
         setOrbPhase(error ? "error" : "thinking");
         setStreamingSid("");
+        batcher.flushNow(); // 残余 delta 先上屏再对账 // 残余 delta 先上屏再对账
         // Done 对账：存储快照为最终权威（含终态文本），stats/error 尾注重挂
         converge(activeSessionId(), { stats, error });
       },
@@ -301,6 +308,7 @@ export default function Session() {
                 <AssistantItem
                   item={item}
                   streaming={streaming}
+                  live={() => streaming() && i() === items().length - 1}
                   modelLabel={modelLabel}
                   onFork={() => void forkAt(item.messageId!)}
                   onRerun={() => void rerun(i())}

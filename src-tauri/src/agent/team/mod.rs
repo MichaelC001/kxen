@@ -39,6 +39,8 @@ mod tests {
             extras: Arc::new(crate::agent::agent_loop::SessionExtras::default()),
             agents: Arc::new(crate::agent::activity::AgentRegistry::default()),
             approvals: None,
+            mcp: None,
+            lsp: None,
         }
     }
 

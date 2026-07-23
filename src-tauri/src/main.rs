@@ -18,6 +18,10 @@ pub struct AppState {
     pub extras: std::sync::Arc<kxen_app::agent::agent_loop::SessionExtras>,
     /// Ask 档审批 broker（exec 高危命令的用户决定路由）
     pub approvals: std::sync::Arc<kxen_app::agent::approval::ApprovalBroker>,
+    /// MCP server 管理器（mcp__server__tool 工具桥）
+    pub mcp: std::sync::Arc<kxen_app::mcp::McpManager>,
+    /// LSP 诊断（per-workspace 懒启动 rust-analyzer；切换工作区时重建）
+    pub lsp: std::sync::RwLock<std::sync::Arc<kxen_app::lsp::LspManager>>,
     pub hooks: std::sync::Arc<kxen_app::tools::hooks::HookRunner>,
     pub team: std::sync::Arc<kxen_app::agent::team::TeamManager>,
     pub agents: std::sync::Arc<kxen_app::agent::activity::AgentRegistry>,
@@ -75,6 +79,8 @@ impl AppState {
         let bus = kxen_app::core::event::EventBus::default();
         let agents = std::sync::Arc::new(kxen_app::agent::activity::AgentRegistry::default());
         let approvals = std::sync::Arc::new(kxen_app::agent::approval::ApprovalBroker::new());
+        let mcp = kxen_app::mcp::McpManager::new();
+        let lsp = std::sync::RwLock::new(kxen_app::lsp::LspManager::new(workdir.to_path_buf()));
         let team = kxen_app::agent::team::TeamManager::new(
             kxen_app::core::paths::data_dir().join("teams"),
             kxen_app::agent::team::SpawnDeps {
@@ -86,6 +92,8 @@ impl AppState {
                 extras: extras.clone(),
                 agents: agents.clone(),
                 approvals: Some(approvals.clone()),
+                mcp: Some(mcp.clone()),
+                lsp: Some(lsp.read().expect("lsp").clone()),
             },
             bus.clone(),
         );
@@ -97,6 +105,8 @@ impl AppState {
             registry,
             extras,
             approvals,
+            mcp,
+            lsp,
             hooks,
             team,
             agents,
@@ -204,8 +214,20 @@ pub fn run() {
                 // cron tick：15s 一轮，到期任务注入会话起 run（进程内调度，随 app 存活）
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
+                    let mut ticks = 0u32;
                     loop {
                         tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                        ticks += 1;
+                        // 后台记忆 consolidation：120 tick（30min）一轮，best-effort
+                        if ticks % 120 == 0 {
+                            let state = handle.state::<Arc<AppState>>();
+                            let model = state.model.lock().map(|m| m.clone()).unwrap_or_default();
+                            let store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
+                            let written = kxen_app::knowledge::consolidate::run_once(&model, &store).await;
+                            if written > 0 {
+                                tracing::info!(written, "memory consolidation distilled");
+                            }
+                        }
                         let now = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.as_millis() as u64)
@@ -219,6 +241,17 @@ pub fn run() {
                         }
                     }
                 });
+                // MCP servers：按信任门加载配置后台启动（失败记 down 不阻塞启动路径）
+                {
+                    let handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        let state = handle.state::<Arc<AppState>>();
+                        let workdir = state.active_workspace.read().expect("workspace").clone();
+                        let trusted = kxen_app::core::trust::is_trusted(&workdir);
+                        let configs = kxen_app::mcp::config::load(&workdir, trusted);
+                        state.mcp.start(configs).await;
+                    });
+                }
                 // 凭证探测走后台：keychain 读取可被 ACL 弹窗无限阻塞，绝不能卡启动路径
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {

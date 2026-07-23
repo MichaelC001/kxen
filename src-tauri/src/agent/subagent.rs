@@ -21,6 +21,8 @@ pub struct SubagentDeps {
     pub session_id: Option<String>,
     pub bus: crate::core::event::EventBus,
     pub approvals: Option<Arc<crate::agent::approval::ApprovalBroker>>,
+    pub mcp: Option<Arc<crate::mcp::McpManager>>,
+    pub lsp: Option<Arc<crate::lsp::LspManager>>,
 }
 
 impl SubagentDeps {
@@ -36,6 +38,8 @@ impl SubagentDeps {
             session_id: ctx.session_id.clone(),
             bus: ctx.bus.clone()?,
             approvals: ctx.approvals.clone(),
+            mcp: ctx.mcp.clone(),
+            lsp: ctx.lsp.clone(),
         })
     }
 }
@@ -160,6 +164,8 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: cra
         agents: Some(deps.agents.clone()),
         bus: Some(deps.bus.clone()),
         approvals: deps.approvals.clone(),
+        mcp: deps.mcp.clone(),
+        lsp: deps.lsp.clone(),
         loop_detector: crate::agent::loop_detect::LoopDetector::new(),
         on_event: {
             let bus = deps.bus.clone();

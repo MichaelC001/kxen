@@ -110,6 +110,19 @@ impl ModelResourceManager {
         }
     }
 
+    /// 同 provider 换账号（带槽位判断，与 resolve 同一调度面；run.rs 重试换账号专用）。
+    /// 与 resolve 不同：不记录派发历史、不走角色链，只在同 provider 账号池内找下一个可用的。
+    pub async fn rotate_account(&self, provider: &str, store: &crate::auth::credential::AuthStore, current: Option<&str>) -> Option<String> {
+        let effective = current.unwrap_or("default");
+        for key in crate::auth::credential::accounts_of(store, provider) {
+            let name = key.strip_prefix(&format!("{provider}:")).map(String::from).unwrap_or_else(|| "default".into());
+            if name != effective && self.available(&key).await {
+                return Some(name);
+            }
+        }
+        None
+    }
+
     /// 派发历史（新->旧）。
     pub async fn history(&self) -> Vec<DispatchRecord> {
         self.history.lock().await.iter().rev().cloned().collect()

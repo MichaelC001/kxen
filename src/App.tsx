@@ -6,6 +6,7 @@ import CommandPalette from "./components/CommandPalette";
 import ContextMenu from "./components/ContextMenu";
 import Session from "./pages/Session";
 import Settings from "./pages/Settings";
+import Workspaces from "./pages/Workspaces";
 import { hasConversation, setNavigator } from "./lib/state";
 import { mountShortcuts } from "./lib/shortcuts";
 import { openMenu } from "./lib/context-menu";
@@ -81,6 +82,7 @@ export default function App() {
     <Router root={Layout}>
       <Route path="/" component={Home} />
       <Route path="/settings" component={Settings} />
+      <Route path="/workspaces" component={Workspaces} />
     </Router>
   );
 }

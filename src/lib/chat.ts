@@ -238,6 +238,18 @@ export async function workspaceSwitch(path: string): Promise<void> {
   return client.rpc("workspace.switch", { path });
 }
 
+export interface WorkspaceOverview {
+  path: string;
+  sessions: number;
+  running: number;
+  last_activity: number;
+  dirty: number | null;
+}
+
+export async function workspacesOverview(): Promise<WorkspaceOverview[]> {
+  return client.rpc<WorkspaceOverview[]>("workspaces.overview");
+}
+
 // ---------------- diff（workdir 改动） ----------------
 
 export interface DiffStatusEntry {

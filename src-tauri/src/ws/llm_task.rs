@@ -236,6 +236,8 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         agents: Some(state.agents.clone()),
         bus: Some(bus.clone()),
         approvals: Some(state.approvals.clone()),
+        mcp: Some(state.mcp.clone()),
+        lsp: Some(state.lsp.read().expect("lsp").clone()),
         on_event: Arc::new(move |event| {
             use kxen_app::agent::agent_loop::AgentEvent as AE;
             match &event {

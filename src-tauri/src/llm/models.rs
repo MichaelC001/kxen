@@ -35,18 +35,26 @@ pub async fn fetch_models(store: &AuthStore, provider: &str, account: Option<&st
             "openai" => ("https://api.openai.com/v1/models".to_string(), false),
             "xai" => ("https://api.x.ai/v1/models".to_string(), false),
             "anthropic" => ("https://api.anthropic.com/v1/models".to_string(), true),
+            "openrouter" => ("https://openrouter.ai/api/v1/models".to_string(), false),
+            "ollama" => ("http://localhost:11434/v1/models".to_string(), false),
             other => {
                 return ModelsOutcome { models: vec![], source: "unsupported".into(), detail: format!("{other} 订阅端点不支持 /models") };
             }
         }
     };
-    let Some(bearer) = bearer_of(store, provider, account) else {
+    // ollama 本地端点无鉴权，其余必须有凭证
+    let bearer = bearer_of(store, provider, account);
+    if provider != "ollama" && bearer.is_none() {
         return ModelsOutcome { models: vec![], source: "error".into(), detail: "无凭证".into() };
-    };
+    }
     let mut req = crate::llm::client::shared_http()
         .get(&url)
         .timeout(std::time::Duration::from_secs(timeout_s));
-    req = if api_key_header { req.header("x-api-key", &bearer).header("anthropic-version", "2023-06-01") } else { req.bearer_auth(&bearer) };
+    req = match (api_key_header, &bearer) {
+        (true, Some(b)) => req.header("x-api-key", b).header("anthropic-version", "2023-06-01"),
+        (false, Some(b)) => req.bearer_auth(b),
+        _ => req,
+    };
     match req.send().await {
         Ok(resp) if resp.status().is_success() => {
             let body: serde_json::Value = match resp.json().await {

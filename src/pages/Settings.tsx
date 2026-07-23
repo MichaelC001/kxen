@@ -8,6 +8,7 @@ import UsageSection from "../components/settings/UsageSection";
 import VoiceSection from "../components/settings/VoiceSection";
 import { client } from "../lib/client";
 import { configGet } from "../lib/chat";
+import { mcpRestart, mcpStatus, type McpServerStatus } from "../lib/mcp";
 import { onDragStart } from "../lib/drag";
 import { mode, setMode } from "../lib/theme";
 
@@ -26,10 +27,17 @@ export default function Settings() {
   const [saved] = createSignal("");
   const [diagNote, setDiagNote] = createSignal("");
   const [sendPolicy, setSendPolicy] = createSignal("queue");
+  const [mcpServers, setMcpServers] = createSignal<McpServerStatus[]>([]);
+
+  const refreshMcp = async () => {
+    const list = await mcpStatus().catch(() => null);
+    if (list) setMcpServers(list);
+  };
 
   onMount(async () => {
     const cfg = await configGet().catch(() => null);
     if (cfg?.send_when_running) setSendPolicy(cfg.send_when_running);
+    void refreshMcp();
   });
 
   const setPolicy = async (p: string) => {
@@ -153,6 +161,37 @@ export default function Settings() {
                 hooks：`~/.config/kxen/config.toml` 的 [hooks]（默认全关，pre_tool_use 可阻断）
               </div>
               <div>statusline：同文件 [statusline] items 白名单控制显隐</div>
+              <div class="pt-2 border-t border-[var(--border)]">
+                <div class="mb-1.5 text-xs text-[var(--text)]">
+                  MCP servers（.mcp.json / ~/.config/kxen/mcp.json）
+                </div>
+                <Show
+                  when={mcpServers().length > 0}
+                  fallback={<div class="text-xs">未配置 MCP server</div>}
+                >
+                  <For each={mcpServers()}>
+                    {(s) => (
+                      <div class="flex items-center gap-2 py-1 text-xs">
+                        <span
+                          class="inline-block w-2 h-2 rounded-full"
+                          style={{
+                            "background-color":
+                              s.status === "running" ? "var(--ok)" : "var(--err, #e5534b)",
+                          }}
+                        />
+                        <span class="text-[var(--text)]">{s.name}</span>
+                        <span class="text-[var(--text-dim)]">{s.tools} tools</span>
+                        <button
+                          class="pressable ml-auto px-2 py-0.5 rounded border border-[var(--border)] text-[var(--text)]"
+                          onClick={() => void mcpRestart(s.name).then(refreshMcp)}
+                        >
+                          重启
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </div>
               <div class="pt-1 border-t border-[var(--border)] flex items-center gap-3">
                 <button
                   class="pressable px-3 py-1.5 rounded-md text-xs border border-[var(--border)] text-[var(--text)]"

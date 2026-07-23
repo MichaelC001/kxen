@@ -7,12 +7,14 @@ use std::sync::{Mutex, OnceLock};
 
 const MODELS_DEV_URL: &str = "https://models.dev/api.json";
 const TTL_MS: u64 = 24 * 3600 * 1000;
-/// 只收这四家（订阅制提供商）；自定义端点模型走 provider.models live 通道，不进快照。
+/// 白名单：四家订阅制 + openrouter/ollama（G7 扩展）；自定义端点模型走 provider.models live 通道，不进快照。
 const TRACKED: &[(&str, &str)] = &[
     ("anthropic", "Anthropic"),
     ("openai", "OpenAI"),
     ("xai", "xAI"),
     ("kimi-for-coding", "Kimi For Coding"),
+    ("openrouter", "OpenRouter"),
+    ("ollama", "Ollama"),
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +192,16 @@ fn static_catalog() -> Vec<ProviderCatalog> {
                     m("k3", "Kimi K3", 1_048_576, true, false),
                     m("kimi-for-coding", "Kimi K2.7 Code", 262_144, true, true),
                 ],
+                "openrouter" => vec![
+                    m("anthropic/claude-opus-4.8", "Claude Opus 4.8 (OpenRouter)", 1_000_000, true, true),
+                    m("openai/gpt-5.4", "GPT-5.4 (OpenRouter)", 1_050_000, true, true),
+                    m("x-ai/grok-4.5", "Grok 4.5 (OpenRouter)", 500_000, true, true),
+                ],
+                "ollama" => vec![
+                    m("llama3.3", "Llama 3.3 70B", 131_072, false, false),
+                    m("qwen3", "Qwen3 32B", 131_072, true, false),
+                    m("deepseek-r1", "DeepSeek R1", 131_072, true, false),
+                ],
                 _ => vec![],
             };
             ProviderCatalog { provider: id.to_string(), provider_name: display.to_string(), models, fetched_at: ts, source: "static".into() }
@@ -205,7 +217,7 @@ mod tests {
     fn parse_extracts_tracked_providers() {
         let text = r#"{
           "anthropic": {"name": "Anthropic", "models": {"claude-x": {"name": "Claude X", "reasoning": true, "tool_call": true, "attachment": true, "modalities": {"input": ["text", "image"]}, "limit": {"context": 200000, "output": 64000}}}},
-          "openrouter": {"name": "OpenRouter", "models": {"foo": {}}},
+          "groq": {"name": "Groq", "models": {"foo": {}}},
           "xai": {"name": "xAI", "models": {"grok-y": {"name": "Grok Y", "limit": {"context": 100000}}}}
         }"#;
         let c = parse_models_dev(text).unwrap();
@@ -216,7 +228,7 @@ mod tests {
         assert!(ant.models[0].reasoning);
         assert_eq!(ant.models[0].context, 200000);
         assert_eq!(ant.models[0].modalities_in, vec!["text", "image"]);
-        assert!(!c.iter().any(|p| p.provider == "openrouter"), "白名单外不收");
+        assert!(!c.iter().any(|p| p.provider == "groq"), "白名单外不收");
     }
 
     #[test]
@@ -227,5 +239,14 @@ mod tests {
             assert!(!p.models.is_empty(), "{} 静态兜底为空", p.provider);
             assert!(p.models.iter().all(|m| !m.name.is_empty() && m.context > 0));
         }
+    }
+
+    #[test]
+    fn static_catalog_has_openrouter_and_ollama() {
+        let c = static_catalog();
+        let or = c.iter().find(|p| p.provider == "openrouter").expect("openrouter 入表");
+        assert!(or.models.iter().any(|m| m.id.contains('/')), "openrouter 模型 id 带 provider 前缀");
+        let ol = c.iter().find(|p| p.provider == "ollama").expect("ollama 入表");
+        assert!(ol.models.iter().any(|m| m.id == "llama3.3"));
     }
 }

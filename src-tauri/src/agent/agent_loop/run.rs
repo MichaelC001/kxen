@@ -44,7 +44,7 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
     if system_owned {
         let involved = ctx.tracker.files();
         last_involved = involved.clone();
-        messages.insert(0, Message::system(crate::agent::prompt::system_prompt(&ctx.workdir, &involved)));
+        messages.insert(0, Message::system(crate::agent::prompt::system_prompt(&ctx.workdir, &involved, ctx.session_id.as_deref())));
     }
 
     'outer: loop {
@@ -71,12 +71,16 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
             let enabled = crate::core::shared::lock(&extras.extra_tools);
             tools.extend(crate::agent::tools_spec::deferred_tools().into_iter().filter(|t| enabled.contains(&t.function.name)));
         }
+        // MCP 工具桥：mcp__server__tool 前缀挂出（未配置为空集）
+        if let Some(mcp) = &ctx.mcp {
+            tools.extend(crate::mcp::tools::tool_defs(&mcp.all_tools()));
+        }
 
         // mid-turn 刷新：涉及文件变化时重建系统提示（OKF globs 激活 / goal 状态 / 多层就近）
         if system_owned {
             let involved = ctx.tracker.files();
             if involved != last_involved {
-                messages[0] = Message::system(crate::agent::prompt::system_prompt(&ctx.workdir, &involved));
+                messages[0] = Message::system(crate::agent::prompt::system_prompt(&ctx.workdir, &involved, ctx.session_id.as_deref()));
                 last_involved = involved;
             }
         }
@@ -146,7 +150,11 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
             let Some(err) = failed else { break 'attempt };
             attempt += 1;
             let wait = crate::llm::retry::backoff_ms(attempt - 1);
-            let rotated = crate::llm::retry::next_account(&ctx.store, &ctx.model.provider, ctx.model.account.as_deref());
+            // 换账号走 mrm 账号池（带槽位，与 Slot 并发同一调度面）；无 mrm 时回落盲轮换
+            let rotated = match &ctx.mrm {
+                Some(mrm) => mrm.rotate_account(&ctx.model.provider, &ctx.store, ctx.model.account.as_deref()).await,
+                None => crate::llm::retry::next_account(&ctx.store, &ctx.model.provider, ctx.model.account.as_deref()),
+            };
             if let Some(acc_name) = &rotated {
                 ctx.model.account = Some(acc_name.clone());
             }
@@ -214,8 +222,8 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
         if aborted {
             break 'outer;
         }
-        // goal 自治接线：每轮记录预算与阻塞（原 record_turn 仅 RPC 手动可达 = 防失控未落地）
-        if let Some(mut goal) = crate::core::goal::Goal::focus(&crate::core::paths::goals_dir()) {
+        // goal 自治接线：每轮记录预算与阻塞（session 粒度：只推进本会话 goal，多会话并发不误伤）
+        if let Some(mut goal) = crate::core::goal::Goal::focus_for(&crate::core::paths::goals_dir(), ctx.session_id.as_deref()) {
             let tokens = usage.map(|(i, o)| i + o).unwrap_or(0);
             let blocked_reason = loop_stop.as_ref().map(|s| s.to_string());
             if goal.record_turn(tokens, blocked_reason.as_deref(), false).is_ok() {

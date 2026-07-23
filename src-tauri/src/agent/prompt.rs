@@ -63,34 +63,42 @@ Persist durable learnings with the knowledge tool - do not rely on session memor
 One topic per note; re-adding the same slug updates it. Skip one-off task details.";
 
 const ULTRA_PLAYBOOK: &str = "\
-## ultra modes (/ultracode /ultraplan /ultrareview)
+## ultra modes (/ultracode /ultraplan /ultrareview) - MANDATORY workflow usage
 
-These are built-in orchestration flows. Run them through the workflow tool (QuickJS: `await agent(role, prompt)`, \
-Promise.all fan-out, `phase(name)` progress markers, `CONSTRAINTS` for role bindings). Prefer workflow over \
-manual one-by-one dispatch; use teammates (team tool) only when the work needs persistent members.
+When the user message starts with /ultracode, /ultraplan or /ultrareview, or explicitly asks to use \
+workflow: you MUST call the workflow tool. Do NOT explore the repository yourself with one-by-one \
+exec/read/glob calls - that is the single most common failure mode. The workflow script fans the \
+work out to subagents in parallel; you only synthesize what comes back.
 
-/ultracode <task> - large implementation:
-1. Decompose into <=6 INDEPENDENT slices (each: goal, exact files, expected output).
-2. phase('decompose'), then Promise.all agent(execution) per slice - self-contained briefs with absolute paths.
-3. phase('integrate'): merge results, then run the project's real checks (cargo test / tsc / vp check).
-4. Report per-slice outcome and the check results. If a slice fails, fix it yourself before reporting.
+Script shape (adapt phases to the mode):
 
-/ultraplan <question> - multi-angle planning:
-1. Promise.all three perspectives: agent(planning) for architecture and dependency order, agent(research) \
-for grounding in the actual codebase (it must read the real files), agent(thinking) for risks and trade-offs.
-2. Synthesize ONE plan: phases with concrete steps, verification command per phase, explicit non-goals.
-3. Present the plan and stop - do not start implementing until the user says go.
+    phase('decompose');
+    const question = '<user request>';
+    const [a, b, c] = await Promise.all([
+      agent('execution', 'Self-contained brief with absolute paths, part 1 of ' + question),
+      agent('execution', 'Self-contained brief with absolute paths, part 2 of ' + question),
+      agent('review', 'Verify the combined findings for ' + question),
+    ]);
+    phase('integrate');
+    return a + '\n\n' + b + '\n\n' + c;
 
-/ultrareview <path|scope> - adversarial multi-lens review:
-1. Promise.all four lenses over the same target: correctness (bugs, logic errors), security (secrets, \
-injection, unsafe file/process handling), performance (complexity, allocation hot spots, blocking calls), \
-convention (matches this repo's own patterns - check against real files, not taste).
-2. Each finding: severity P0/P1/P2, file:line, one-line fix. Dedupe across lenses.
-3. Report findings only - no style nits, no praise, no fixes applied.";
+/ultracode <task> - large implementation: <=6 INDEPENDENT slices of agent(execution), then \
+phase('integrate'): merge and run the project's real checks (cargo test / tsc / vp check), \
+fix failures before reporting.
+
+/ultraplan <question> - planning: Promise.all agent(planning) for architecture, agent(research) \
+for codebase grounding (it must read real files), agent(thinking) for risks. Synthesize ONE plan \
+with verification command per phase and explicit non-goals. Present and stop - no implementation \
+until the user says go.
+
+/ultrareview <path|scope> - review: Promise.all four agent(review) lenses over the same target: \
+correctness, security, performance, convention (check against real files, not taste). Findings \
+only: severity P0/P1/P2, file:line, one-line fix, deduped. No style nits, no praise, no fixes.";
 
 /// Full system prompt for a turn. `workdir` is rendered into the environment line.
 /// `involved` = 本会话涉及文件（OKF globs 动态激活与多层就近的输入）。
-pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf]) -> String {
+/// `session_id` = goal 按 session 粒度注入（多会话并发各见各的 goal）。
+pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf], session_id: Option<&str>) -> String {
     let mut out = String::with_capacity(2048);
     out.push_str(IDENTITY);
     out.push_str("\n\n## Environment\n\n- OS: macOS (Apple Silicon)\n- Working directory: ");
@@ -108,7 +116,7 @@ pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf])
     if let Some(block) = crate::knowledge::render(workdir, involved) {
         out.push_str(&block);
     }
-    if let Some(block) = goal_block() {
+    if let Some(block) = goal_block(session_id) {
         out.push_str("\n\n");
         out.push_str(&block);
     }
@@ -121,8 +129,8 @@ pub fn subagent_prompt(role: &str, role_brief: &str) -> String {
 }
 
 /// Active goal injection: renders the focus goal so the model always sees the contract it is driving.
-fn goal_block() -> Option<String> {
-    let goal = Goal::focus(&crate::core::paths::goals_dir())?;
+fn goal_block(session_id: Option<&str>) -> Option<String> {
+    let goal = Goal::focus_for(&crate::core::paths::goals_dir(), session_id)?;
     let mut out = String::with_capacity(512);
     let _ = write!(
         out,
@@ -162,7 +170,7 @@ mod tests {
 
     #[test]
     fn prompt_contains_core_sections() {
-        let p = system_prompt(std::path::Path::new("/tmp/x"), &[]);
+        let p = system_prompt(std::path::Path::new("/tmp/x"), &[], None);
         assert!(p.contains("You are kxen"));
         assert!(p.contains("write-goal playbook"));
         assert!(p.contains("Working directory: /tmp/x"));

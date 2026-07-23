@@ -44,6 +44,9 @@ fn ask_verdict() {
     assert!(matches!(evaluate_shell_command("git push -f origin main", CWD), Verdict::Ask { .. }));
     assert!(matches!(evaluate_shell_command("git reset --hard", CWD), Verdict::Ask { .. }));
     assert!(matches!(evaluate_shell_command("sudo apt install jq", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("git clean -fd", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("kill -9 1234", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("brew uninstall node", CWD), Verdict::Ask { .. }));
     // 带 ref 的 reset --hard 是常用安全操作，不进审批
     assert!(allowed("git reset --hard HEAD"));
     // 具体危险优先于审批：sudo rm -rf /etc 仍是 Deny 不是 Ask

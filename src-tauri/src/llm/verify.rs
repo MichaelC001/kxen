@@ -17,6 +17,8 @@ const DEFAULT_MODELS: &[(&str, &str)] = &[
     ("openai", "gpt-5.4"),
     ("xai", "grok-build-0.1"),
     ("kimi-for-coding", "kimi-for-coding"),
+    ("openrouter", "openai/gpt-5.4"),
+    ("ollama", "llama3.3"),
 ];
 
 /// 发一条真实 ping：首个有效 delta 即判活；Error/超时即判死（带原始错误文案）。

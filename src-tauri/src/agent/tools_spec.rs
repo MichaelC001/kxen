@@ -134,6 +134,16 @@ pub fn core_tools() -> Vec<ToolDefinition> {
             }),
         ),
         ToolDefinition::function(
+            "diagnostics",
+            "Get compiler-level diagnostics (errors/warnings with line:col) from rust-analyzer for Rust files. Pass `path` for one file, omit for all session-touched .rs files. Starts the language server lazily on first call; returns a friendly fallback message if rust-analyzer is not installed.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Optional file path (relative to working directory)" }
+                }
+            }),
+        ),
+        ToolDefinition::function(
             "tool_search",
             "Discover additional tools that are not loaded by default (progressive disclosure). Returns matching tool cards; matched tools become callable for the rest of this session.",
             json!({
@@ -172,7 +182,7 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "workflow",
-            "Run a JavaScript orchestration script (QuickJS, sandboxed). Globals: `await agent(role, prompt)` -> string (subagent dispatch, MRM-routed); `CONSTRAINTS` (role bindings + provider availability); `phase(name)` (progress marker); `log(msg)`. Use plain JS for control flow: Promise.all for fan-out, for-loops for pipelines. The script return value is the workflow result. Cap: 32 agent dispatches, 10min wall clock. Optional run_id enables resume: re-run with the same run_id and completed agent dispatches return cached results instead of re-dispatching (crash/cancel recovery).",
+            "Run a JavaScript orchestration script (QuickJS, sandboxed) that fans work out to subagents in parallel. MANDATORY for /ultracode, /ultraplan, /ultrareview and any task needing 2+ subagents or named phases - never explore repos one-by-one when a workflow applies. Globals: `await agent(role, prompt)` -> string (subagent dispatch, MRM-routed); `CONSTRAINTS` (role bindings + provider availability); `phase(name)` (progress marker); `log(msg)`. Use plain JS for control flow: Promise.all for fan-out, for-loops for pipelines. The script return value is the workflow result. Cap: 32 agent dispatches, 10min wall clock. Optional run_id enables resume: re-run with the same run_id and completed agent dispatches return cached results instead of re-dispatching (crash/cancel recovery).",
             json!({
                 "type": "object",
                 "properties": {

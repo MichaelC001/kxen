@@ -130,6 +130,8 @@ fn build_ctx(state: &Arc<TeamState>, name: &str, _role: &str, model: &ModelRef, 
         agents: Some(state.deps.agents.clone()),
         bus: Some(state.bus.clone()),
         approvals: state.deps.approvals.clone(),
+        mcp: state.deps.mcp.clone(),
+        lsp: state.deps.lsp.clone(),
         on_event: Arc::new(move |event| {
             let mut payload = match serde_json::to_value(&event) {
                 Ok(v) => v,

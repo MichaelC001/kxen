@@ -47,5 +47,9 @@ pub struct AgentContext {
     pub bus: Option<crate::core::event::EventBus>,
     /// Ask 档审批 broker（exec 高危命令挂起等用户决定；None = 无审批通道按拒绝）。
     pub approvals: Option<Arc<crate::agent::approval::ApprovalBroker>>,
+    /// MCP 工具桥（mcp__server__tool 前缀调用；None = 未配置 MCP server）。
+    pub mcp: Option<Arc<crate::mcp::McpManager>>,
+    /// LSP 诊断（rust-analyzer 懒启动；None = 未接线）。
+    pub lsp: Option<Arc<crate::lsp::LspManager>>,
     pub on_event: Arc<dyn Fn(AgentEvent) + Send + Sync>,
 }

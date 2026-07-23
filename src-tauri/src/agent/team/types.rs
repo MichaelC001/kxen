@@ -62,6 +62,8 @@ pub struct SpawnDeps {
     pub extras: Arc<crate::agent::agent_loop::SessionExtras>,
     pub agents: Arc<crate::agent::activity::AgentRegistry>,
     pub approvals: Option<Arc<crate::agent::approval::ApprovalBroker>>,
+    pub mcp: Option<Arc<crate::mcp::McpManager>>,
+    pub lsp: Option<Arc<crate::lsp::LspManager>>,
 }
 
 pub(crate) struct TeamState {

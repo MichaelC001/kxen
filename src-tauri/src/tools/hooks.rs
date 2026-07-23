@@ -11,9 +11,10 @@ use std::time::Duration;
 const HOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct HookRunner {
-    hooks: HashMap<String, Vec<CompiledHook>>,
+    hooks: std::sync::RwLock<HashMap<String, Vec<CompiledHook>>>,
 }
 
+#[derive(Clone)]
 struct CompiledHook {
     matcher: Option<regex::Regex>,
     command: String,
@@ -21,30 +22,22 @@ struct CompiledHook {
 
 impl HookRunner {
     pub fn from_config(config: &Config) -> Self {
-        let mut hooks = HashMap::new();
-        for (event, defs) in &config.hooks {
-            let compiled: Vec<CompiledHook> = defs
-                .iter()
-                .map(|d: &HookDef| CompiledHook {
-                    matcher: d.matcher.as_deref().and_then(|m| regex::Regex::new(m).ok()),
-                    command: d.command.clone(),
-                })
-                .collect();
-            if !compiled.is_empty() {
-                hooks.insert(event.clone(), compiled);
-            }
-        }
-        Self { hooks }
+        Self { hooks: std::sync::RwLock::new(compile_hooks(config)) }
+    }
+
+    /// 热重载（workspace 切换时按信任门换入/换出项目 hooks，无需重建 AppState）。
+    pub fn reload(&self, config: &Config) {
+        *self.hooks.write().expect("hooks") = compile_hooks(config);
     }
 
     pub fn is_empty(&self) -> bool {
-        self.hooks.values().all(|v| v.is_empty())
+        self.hooks.read().expect("hooks").values().all(|v| v.is_empty())
     }
 
     /// pre_tool_use：任一匹配 hook 失败（非零退出 / 被 safety 拦 / 超时）即阻断。
     pub async fn run_pre(&self, tool: &str, payload: &Value) -> Result<(), String> {
         for hook in self.matching("pre_tool_use", tool) {
-            self.execute(hook, "pre_tool_use", tool, payload).await?;
+            self.execute(&hook, "pre_tool_use", tool, payload).await?;
         }
         Ok(())
     }
@@ -52,7 +45,7 @@ impl HookRunner {
     /// post_tool_use：失败只记日志，不影响工具结果。
     pub async fn run_post(&self, tool: &str, payload: &Value) {
         for hook in self.matching("post_tool_use", tool) {
-            if let Err(reason) = self.execute(hook, "post_tool_use", tool, payload).await {
+            if let Err(reason) = self.execute(&hook, "post_tool_use", tool, payload).await {
                 tracing::warn!(tool, reason, "post_tool_use hook failed");
             }
         }
@@ -62,15 +55,17 @@ impl HookRunner {
     /// matcher 正则匹配 subject（agent 名 / task 标题），非零退出即打回。
     pub async fn run_named(&self, event: &str, subject: &str, payload: &Value) -> Result<(), String> {
         for hook in self.matching(event, subject) {
-            self.execute(hook, event, subject, payload).await?;
+            self.execute(&hook, event, subject, payload).await?;
         }
         Ok(())
     }
 
-    fn matching(&self, event: &str, tool: &str) -> Vec<&CompiledHook> {
+    fn matching(&self, event: &str, tool: &str) -> Vec<CompiledHook> {
         self.hooks
+            .read()
+            .expect("hooks")
             .get(event)
-            .map(|defs| defs.iter().filter(|h| h.matcher.as_ref().is_none_or(|m| m.is_match(tool))).collect())
+            .map(|defs| defs.iter().filter(|h| h.matcher.as_ref().is_none_or(|m| m.is_match(tool))).cloned().collect())
             .unwrap_or_default()
     }
 
@@ -102,6 +97,23 @@ impl HookRunner {
             }
         }
     }
+}
+
+fn compile_hooks(config: &Config) -> HashMap<String, Vec<CompiledHook>> {
+    let mut hooks = HashMap::new();
+    for (event, defs) in &config.hooks {
+        let compiled: Vec<CompiledHook> = defs
+            .iter()
+            .map(|d: &HookDef| CompiledHook {
+                matcher: d.matcher.as_deref().and_then(|m| regex::Regex::new(m).ok()),
+                command: d.command.clone(),
+            })
+            .collect();
+        if !compiled.is_empty() {
+            hooks.insert(event.clone(), compiled);
+        }
+    }
+    hooks
 }
 
 #[cfg(test)]

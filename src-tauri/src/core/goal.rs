@@ -54,6 +54,9 @@ pub struct Goal {
     pub block_reason: Option<String>,
     #[serde(default)]
     pub verification_evidence: Option<String>,
+    /// 归属会话（None = 全局 goal，多会话并发的误伤修复：record_turn 只推进同 session 的 goal）
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -101,6 +104,7 @@ impl Goal {
             consecutive_blocks: 0,
             block_reason: None,
             verification_evidence: None,
+            session_id: None,
         })
     }
 
@@ -203,9 +207,18 @@ impl Goal {
     }
     /// 当前焦点 goal（active/paused/blocked/budget_limited 中最近更新的一个），用于状态注入与 GUI 焦点显示。
     pub fn focus(dir: &std::path::Path) -> Option<Self> {
-        Self::list(dir)
-            .into_iter()
-            .find(|g| matches!(g.status, GoalStatus::Active | GoalStatus::Paused | GoalStatus::Blocked | GoalStatus::BudgetLimited))
+        Self::focus_for(dir, None)
+    }
+
+    /// session 粒度焦点：同 session 的活态 goal 优先，其次无归属的全局 goal。
+    /// 修复全局单例误伤：多会话并发时各推各的计数器（goal.rs:205 旧实现全局唯一）。
+    pub fn focus_for(dir: &std::path::Path, session_id: Option<&str>) -> Option<Self> {
+        let live = |g: &Self| matches!(g.status, GoalStatus::Active | GoalStatus::Paused | GoalStatus::Blocked | GoalStatus::BudgetLimited);
+        let goals = Self::list(dir);
+        session_id
+            .and_then(|sid| goals.iter().find(|g| live(g) && g.session_id.as_deref() == Some(sid)))
+            .or_else(|| goals.iter().find(|g| live(g) && g.session_id.is_none()))
+            .cloned()
     }
 }
 
@@ -272,6 +285,26 @@ mod tests {
         let loaded = Goal::load(&dir, "gx").unwrap();
         assert_eq!(loaded.status, GoalStatus::Active);
         assert!(Goal::list(&dir).iter().any(|x| x.id == "gx"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn focus_prefers_session_goal_over_global() {
+        let dir = std::env::temp_dir().join(format!("kxen-goal-sess-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut g1 = Goal::create(contract(), "g_global".into()).unwrap();
+        g1.status = GoalStatus::Active;
+        g1.updated_at = 200;
+        g1.save(&dir).unwrap();
+        let mut g2 = Goal::create(contract(), "g_s1".into()).unwrap();
+        g2.status = GoalStatus::Active;
+        g2.session_id = Some("s1".into());
+        g2.updated_at = 100;
+        g2.save(&dir).unwrap();
+        // session 视角：拿到自己的 goal 而不是全局的（多会话并发误伤修复）
+        assert_eq!(Goal::focus_for(&dir, Some("s1")).unwrap().id, "g_s1");
+        // 无归属/其它 session：回落全局
+        assert_eq!(Goal::focus_for(&dir, Some("s2")).unwrap().id, "g_global");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

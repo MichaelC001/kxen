@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-pub async fn execute_goal_tool(args: &Value) -> Result<String, String> {
+pub async fn execute_goal_tool(args: &Value, session_id: Option<&str>) -> Result<String, String> {
     let action = args.get("action").and_then(Value::as_str).ok_or("missing action")?;
     let dir = crate::core::paths::goals_dir();
     let show = |g: &crate::core::goal::Goal| {
@@ -35,7 +35,8 @@ pub async fn execute_goal_tool(args: &Value) -> Result<String, String> {
                 },
             };
             let id = format!("goal_{}_{:06x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0), std::process::id());
-            let goal = crate::core::goal::Goal::create(contract, id).map_err(|e| e.to_string())?;
+            let mut goal = crate::core::goal::Goal::create(contract, id).map_err(|e| e.to_string())?;
+            goal.session_id = session_id.map(String::from);
             goal.save(&dir).map_err(|e| e.to_string())?;
             Ok(show(&goal))
         }

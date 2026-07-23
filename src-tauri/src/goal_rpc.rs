@@ -32,7 +32,7 @@ pub fn call(method: &str, params: Value, bus: &kxen_app::core::event::EventBus) 
             let goals = Goal::list(&dir());
             Ok(json!(goals.iter().map(to_json).collect::<Vec<_>>()))
         }
-        "goal.focus" => Ok(Goal::focus(&dir()).map(|g| to_json(&g)).unwrap_or(Value::Null)),
+        "goal.focus" => Ok(Goal::focus_for(&dir(), params.get("session_id").and_then(Value::as_str)).map(|g| to_json(&g)).unwrap_or(Value::Null)),
         "goal.create" => {
             let contract = GoalContract {
                 objective: params.get("objective").and_then(Value::as_str).ok_or("missing objective")?.to_string(),
@@ -45,7 +45,8 @@ pub fn call(method: &str, params: Value, bus: &kxen_app::core::event::EventBus) 
                 },
             };
             let id = format!("goal_{}_{:06x}", now_ms(), std::process::id());
-            let goal = Goal::create(contract, id).map_err(|e| e.to_string())?;
+            let mut goal = Goal::create(contract, id).map_err(|e| e.to_string())?;
+            goal.session_id = params.get("session_id").and_then(Value::as_str).map(String::from);
             goal.save(&dir()).map_err(|e| e.to_string())?;
             publish(bus, &goal);
             Ok(to_json(&goal))

@@ -25,6 +25,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai: "ChatGPT Plus/Pro",
   xai: "SuperGrok",
   "kimi-for-coding": "Kimi Code",
+  openrouter: "OpenRouter",
+  ollama: "Ollama (本地)",
 };
 
 const GUIDES: Record<string, string[]> = {
@@ -36,6 +38,15 @@ const GUIDES: Record<string, string[]> = {
   openai: ["1. 终端运行 `codex login` 重新登录", "2. 点「重新导入」"],
   xai: ["1. 终端运行 `grok` 触发登录刷新", "2. 点「重新导入」"],
   "kimi-for-coding": ["1. 终端运行 `kimi` 触发凭证刷新", "2. 点「重新导入」"],
+  openrouter: [
+    "1. 到 openrouter.ai/keys 创建 API Key",
+    "2. 点「添加账号」选 openrouter 粘贴（kind 选 apikey）",
+  ],
+  ollama: [
+    "1. 安装并运行 `ollama serve`",
+    "2. `ollama pull llama3.3` 拉模型",
+    "3. 无需凭证，直接选模型用",
+  ],
 };
 
 export default function ProvidersSection() {
