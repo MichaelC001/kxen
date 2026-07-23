@@ -10,6 +10,7 @@ import {
   type DispatchRecord,
   type TestDispatchResult,
 } from "../../lib/provider";
+import { fmtCtx, modelsCatalog, type ProviderCatalog } from "../../lib/models";
 
 const ROLE_LABELS: Record<string, string> = {
   chat: "主会话",
@@ -47,15 +48,17 @@ export default function RoutingSection() {
   const [slots, setSlots] = createSignal<Slot[]>([]);
   const [history, setHistory] = createSignal<DispatchRecord[]>([]);
   const [accounts, setAccounts] = createSignal<AccountInfo[]>([]);
+  const [cat, setCat] = createSignal<ProviderCatalog[]>([]);
   const [testing, setTesting] = createSignal("");
   const [testResult, setTestResult] = createSignal<Record<string, TestDispatchResult>>({});
   const [saved, setSaved] = createSignal("");
 
   const reload = async () => {
-    const [cfg, stats, accs] = await Promise.all([
+    const [cfg, stats, accs, catalog] = await Promise.all([
       configGet().catch(() => null),
       mrmStats().catch(() => null),
       providerAccounts().catch(() => []),
+      modelsCatalog().catch(() => []),
     ]);
     if (cfg?.roles) setRoles(cfg.roles);
     if (stats) {
@@ -63,6 +66,7 @@ export default function RoutingSection() {
       setHistory(stats.history.slice(0, 10));
     }
     setAccounts(accs);
+    setCat(catalog);
   };
   onMount(() => void reload());
 
@@ -170,11 +174,19 @@ export default function RoutingSection() {
                     </For>
                   </select>
                   <input
+                    list={`models-${role}`}
                     class="flex-1 bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs font-mono"
                     value={binding().model}
-                    placeholder="model id"
+                    placeholder="model id（可下拉搜索）"
                     onChange={(e) => void update(role, binding().provider, e.currentTarget.value)}
                   />
+                  <datalist id={`models-${role}`}>
+                    <For each={cat().find((p) => p.provider === binding().provider)?.models ?? []}>
+                      {(m) => (
+                        <option value={m.id}>{`${m.name} · ctx ${fmtCtx(m.context)}`}</option>
+                      )}
+                    </For>
+                  </datalist>
                   <Show when={binding().fallback}>
                     <span class="text-2xs text-[var(--text-faint)]" title="降级目标角色">
                       → {binding().fallback}

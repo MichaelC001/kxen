@@ -1,0 +1,72 @@
+// assistant 时间线条目：全宽排版（无气泡）+ 思考折叠 + Markdown + stats 尾注 + 终态继续。
+import { Show } from "solid-js";
+import Markdown from "./Markdown";
+import MessageActions from "./MessageActions";
+import type { MsgItem } from "../lib/items";
+import type { RunStats } from "../lib/chat";
+
+const TERMINAL_RE = /^\((已达最大轮次|错误|run 异常|已中断)/;
+
+export function isTerminal(item: { content: string; error?: string | undefined }): boolean {
+  return item.error !== undefined || TERMINAL_RE.test(item.content.trimStart());
+}
+
+export default function AssistantItem(props: {
+  item: MsgItem;
+  streaming: () => boolean;
+  modelLabel: () => string;
+  onFork: () => void;
+  onRerun: () => void;
+  onContinue: () => void;
+}) {
+  return (
+    <div class="group relative text-sm">
+      <Show when={props.item.messageId}>
+        <div class="absolute right-0 top-0 z-10">
+          <MessageActions
+            role="assistant"
+            content={props.item.content}
+            onFork={props.onFork}
+            onRerun={props.onRerun}
+          />
+        </div>
+      </Show>
+      <Show when={props.item.reasoning}>
+        {/* 思考过程默认折叠（Codex/ChatGPT 形态：答案流出后 thinking 收拢） */}
+        <details class="mb-2" open={props.streaming()}>
+          <summary class="text-2xs text-[var(--text-faint)] cursor-pointer select-none">
+            思考过程
+          </summary>
+          <div class="selectable text-xs text-[var(--text-faint)] border-l-2 border-[var(--border)] pl-2.5 mt-1 whitespace-pre-wrap">
+            {props.item.reasoning}
+          </div>
+        </details>
+      </Show>
+      <Markdown text={props.item.content} />
+      <Show when={props.item.stats}>
+        {(stats: () => RunStats) => (
+          <div class="text-2xs text-[var(--text-faint)] mt-1.5 tabular-nums">
+            <Show when={props.modelLabel()}>
+              <span class="text-[var(--text-dim)]">{props.modelLabel()}</span> ·{" "}
+            </Show>
+            in {stats().input_tokens} / out {stats().output_tokens} · TTFT{" "}
+            {(stats().ttft_ms / 1000).toFixed(1)}s · {(stats().duration_ms / 1000).toFixed(1)}s ·{" "}
+            {stats().tokens_per_sec} tok/s
+          </div>
+        )}
+      </Show>
+      <Show when={props.item.error}>
+        <div class="text-xs text-[var(--err)] mt-1.5">{props.item.error}</div>
+      </Show>
+      {/* 终态（中断/最大轮次/流错误/异常）都给「继续」——run 结束不许是死路 */}
+      <Show when={isTerminal(props.item) && !props.streaming()}>
+        <button
+          class="pressable mt-1.5 px-2 py-0.5 rounded text-2xs border border-[var(--border)] text-[var(--text-dim)]"
+          onClick={props.onContinue}
+        >
+          继续
+        </button>
+      </Show>
+    </div>
+  );
+}

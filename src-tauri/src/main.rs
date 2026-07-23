@@ -21,6 +21,13 @@ pub struct AppState {
     pub agents: std::sync::Arc<kxen_app::agent::activity::AgentRegistry>,
     /// session_id -> 进行中 run 的取消令牌（session.abort 用；run 结束自行移除）
     pub active_runs: std::sync::Mutex<std::collections::HashMap<String, kxen_app::agent::cancel::CancelToken>>,
+    /// session_id -> 排队消息（run 进行中收到的发送；run 结束按序接续，防并发 run 交叉写历史）
+    pub pending_messages: std::sync::Mutex<
+        std::collections::HashMap<
+            String,
+            std::collections::VecDeque<(String, Vec<kxen_app::agent::context::ContextItem>, Vec<kxen_app::llm::types::ImagePart>)>,
+        >,
+    >,
     /// stream_id -> session_id（rpc.cancelStream 路由用）
     pub run_streams: std::sync::Mutex<std::collections::HashMap<String, String>>,
     /// session_id -> (input, output) tokens 累计（状态栏用量段）
@@ -83,6 +90,7 @@ impl AppState {
             team,
             agents,
             active_runs: std::sync::Mutex::new(std::collections::HashMap::new()),
+            pending_messages: std::sync::Mutex::new(std::collections::HashMap::new()),
             run_streams: std::sync::Mutex::new(std::collections::HashMap::new()),
             mrm,
             session_tokens: std::sync::Mutex::new(std::collections::HashMap::new()),
@@ -108,6 +116,23 @@ pub fn run() {
             .invoke_handler(tauri::generate_handler![ws_port])
             .manage(Arc::new(AppState::new()))
             .setup(|app| {
+                // macOS 原生编辑菜单：WKWebView 的 Cmd+C/V/X/A/Z 由菜单栏分发，无菜单则编辑快捷键全灭
+                use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
+                let edit = Submenu::with_items(app, "编辑", true, &[
+                    &PredefinedMenuItem::undo(app, None)?,
+                    &PredefinedMenuItem::redo(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::cut(app, None)?,
+                    &PredefinedMenuItem::copy(app, None)?,
+                    &PredefinedMenuItem::paste(app, None)?,
+                    &PredefinedMenuItem::select_all(app, None)?,
+                ])?;
+                let app_menu = Submenu::with_items(app, "kxen", true, &[
+                    &PredefinedMenuItem::hide(app, None)?,
+                    &PredefinedMenuItem::hide_others(app, None)?,
+                    &PredefinedMenuItem::quit(app, None)?,
+                ])?;
+                app.set_menu(Menu::with_items(app, &[&app_menu, &edit])?)?;
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     match ws::serve(handle.clone()).await {

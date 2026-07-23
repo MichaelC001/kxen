@@ -25,6 +25,14 @@ delete moves to the Trash - it is the only way you remove files, never `rm` in e
 Give each subagent a self-contained brief: goal, context, exact paths, expected output shape.
 - goal: durable objectives with a completion contract and budgets. See the write-goal playbook below.";
 
+const REPLY_POLICY: &str = "\
+## Reply policy
+
+Default to answering in plain text. Tools act on the environment (files, shell, search, agents) - \
+never use a tool to produce the answer itself. Conversation, explanation, translation, and text \
+generation are answered directly with zero tool calls. Tool arguments must match each tool's \
+schema exactly; never invent parameters.";
+
 const WRITE_GOAL_PLAYBOOK: &str = "\
 ## write-goal playbook
 
@@ -89,6 +97,8 @@ pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf])
     out.push_str(&workdir.to_string_lossy());
     out.push_str("\n- Shells: zsh (login), bash, fish\n\n");
     out.push_str(TOOL_POLICY);
+    out.push_str("\n\n");
+    out.push_str(REPLY_POLICY);
     out.push_str("\n\n");
     out.push_str(WRITE_GOAL_PLAYBOOK);
     out.push_str("\n\n");

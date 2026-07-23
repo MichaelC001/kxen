@@ -2,7 +2,7 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Search } from "lucide-solid";
 import { commandList, setModel, type CommandInfo } from "../lib/chat";
-import { PRESETS } from "../lib/models";
+import { fmtCtx, modelsCatalog, type ProviderCatalog } from "../lib/models";
 import { sessions, switchSession } from "../lib/state";
 import { insertComposerText } from "../lib/composer-bus";
 
@@ -18,6 +18,7 @@ export default function CommandPalette() {
   const [query, setQuery] = createSignal("");
   const [selected, setSelected] = createSignal(0);
   const [commands, setCommands] = createSignal<CommandInfo[]>([]);
+  const [cat, setCat] = createSignal<ProviderCatalog[]>([]);
   let inputRef: HTMLInputElement | undefined;
 
   const onKey = (e: KeyboardEvent) => {
@@ -28,6 +29,7 @@ export default function CommandPalette() {
         setQuery("");
         setSelected(0);
         void commandList().then(setCommands);
+        void modelsCatalog().then(setCat);
         setTimeout(() => inputRef?.focus(), 0);
       }
     }
@@ -59,15 +61,17 @@ export default function CommandPalette() {
         });
       }
     }
-    for (const m of PRESETS) {
-      const text = `${m.brand} ${m.label} ${m.model}`;
-      if (!q || text.toLowerCase().includes(q)) {
-        out.push({
-          kind: "model",
-          label: m.label,
-          detail: `${m.provider}/${m.model}`,
-          apply: () => void setModel(m.provider, m.model),
-        });
+    for (const p of cat()) {
+      for (const m of p.models) {
+        const text = `${p.provider_name} ${m.name} ${m.id}`;
+        if (!q || text.toLowerCase().includes(q)) {
+          out.push({
+            kind: "model",
+            label: m.name,
+            detail: `${p.provider}/${m.id} · ctx ${fmtCtx(m.context)}`,
+            apply: () => void setModel(p.provider, m.id),
+          });
+        }
       }
     }
     return out.slice(0, 20);

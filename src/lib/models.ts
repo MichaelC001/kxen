@@ -1,52 +1,58 @@
-// 内置模型清单（ModelPicker 与 Cmd-K 面板共享）。
-export interface ModelPreset {
-  provider: string;
-  brand: string;
-  model: string;
-  label: string;
-  context: string;
-  note: string;
+// 模型目录前端快照：models.catalog RPC + 显示助手（picker/路由/状态栏共用一份缓存）。
+import { client } from "./client";
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  family: string;
+  reasoning: boolean;
+  tool_call: boolean;
+  attachment: boolean;
+  modalities_in: string[];
+  context: number;
+  output: number;
 }
 
-export const PRESETS: ModelPreset[] = [
-  {
-    provider: "anthropic",
-    brand: "Claude",
-    model: "claude-sonnet-4-5-20250929",
-    label: "Sonnet 4.5",
-    context: "200k",
-    note: "订阅 · 均衡主力",
-  },
-  {
-    provider: "anthropic",
-    brand: "Claude",
-    model: "claude-opus-4-5-20251101",
-    label: "Opus 4.5",
-    context: "200k",
-    note: "订阅 · 深度思考",
-  },
-  {
-    provider: "openai",
-    brand: "GPT",
-    model: "gpt-5.4",
-    label: "GPT-5.4",
-    context: "400k",
-    note: "Codex 订阅",
-  },
-  {
-    provider: "xai",
-    brand: "Grok",
-    model: "grok-build-0.1",
-    label: "Grok Build",
-    context: "—",
-    note: "订阅 · 高速执行",
-  },
-  {
-    provider: "kimi-for-coding",
-    brand: "Kimi",
-    model: "kimi-for-coding",
-    label: "Kimi Code",
-    context: "256k",
-    note: "订阅 · 工具调用强",
-  },
-];
+export interface ProviderCatalog {
+  provider: string;
+  provider_name: string;
+  models: ModelInfo[];
+  fetched_at: number;
+  source: string;
+}
+
+let cache: ProviderCatalog[] | null = null;
+
+export async function modelsCatalog(force = false): Promise<ProviderCatalog[]> {
+  if (cache && !force) return cache;
+  cache = await client.rpc<ProviderCatalog[]>("models.catalog").catch(() => []);
+  return cache;
+}
+
+export async function refreshCatalog(): Promise<ProviderCatalog[]> {
+  await client.rpc("models.refresh").catch(() => {});
+  cache = null;
+  return modelsCatalog(true);
+}
+
+export function modelOf(
+  cat: ProviderCatalog[],
+  provider: string,
+  id: string,
+): ModelInfo | undefined {
+  return cat.find((p) => p.provider === provider)?.models.find((m) => m.id === id);
+}
+
+export function displayName(cat: ProviderCatalog[], provider: string, id: string): string {
+  return modelOf(cat, provider, id)?.name ?? id;
+}
+
+/** ctx 窗格式化：1000000 -> 1M，262144 -> 256k。 */
+export function fmtCtx(n: number): string {
+  if (!n) return "";
+  if (n >= 1_000_000) {
+    const v = n / 1_000_000;
+    return `${Number.isInteger(v) ? v : v.toFixed(1)}M`;
+  }
+  return `${Math.round(n / 1024)}k`;
+}

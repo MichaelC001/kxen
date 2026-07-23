@@ -1,9 +1,15 @@
-// ModelPicker：富模型选择器——[Provider][名称][信息] + 搜索 + 右键分配角色 + 端点懒拉取。
+// ModelPicker：catalog 驱动（models.dev 快照）——显示名 + id + ctx + 能力徽章 + 搜索 + 角色分配。
 import { createSignal, For, onMount, Show } from "solid-js";
 import { Check, ChevronDown, Search } from "lucide-solid";
 import { configSetRole, currentModel, setModel } from "../../lib/chat";
-import { PRESETS, type ModelPreset } from "../../lib/models";
-import { providerAccounts, providerModels } from "../../lib/provider";
+import { onClickOutside } from "../../lib/dismiss";
+import {
+  fmtCtx,
+  modelOf,
+  modelsCatalog,
+  type ModelInfo,
+  type ProviderCatalog,
+} from "../../lib/models";
 
 const ROLE_ASSIGN: Array<{ role: string; label: string }> = [
   { role: "chat", label: "设为主会话模型" },
@@ -14,79 +20,68 @@ const ROLE_ASSIGN: Array<{ role: string; label: string }> = [
   { role: "research", label: "设为调研模型" },
 ];
 
+interface Row {
+  provider: string;
+  providerName: string;
+  model: ModelInfo;
+}
+
 export default function ModelPicker() {
-  const [label, setLabel] = createSignal("");
+  const [cur, setCur] = createSignal({ provider: "", model: "" });
+  const [cat, setCat] = createSignal<ProviderCatalog[]>([]);
   const [open, setOpen] = createSignal(false);
   const [query, setQuery] = createSignal("");
   const [roleMsg, setRoleMsg] = createSignal("");
-  const [fetched, setFetched] = createSignal<Record<string, string[]>>({});
-  let fetchStarted = false;
+  let root: HTMLDivElement | undefined;
+  onClickOutside(
+    () => root,
+    () => setOpen(false),
+  );
 
   onMount(async () => {
-    const m = await currentModel();
-    setLabel(`${m.provider}/${m.model}`);
+    const [m, c] = await Promise.all([currentModel(), modelsCatalog()]);
+    setCur({ provider: m.provider, model: m.model });
+    setCat(c);
   });
 
-  /** 打开时懒拉取：可拉型（xai/openai/自定义）各拉一次，失败静默回退 PRESETS。 */
-  const lazyFetch = async () => {
-    if (fetchStarted) return;
-    fetchStarted = true;
-    const accounts = await providerAccounts().catch(() => []);
-    const customs = [...new Set(accounts.filter((a) => a.custom).map((a) => a.provider))];
-    const targets = ["openai", "xai", ...customs];
-    for (const p of targets) {
-      const r = await providerModels(p).catch(() => null);
-      if (r && r.models.length > 0) {
-        setFetched((prev) => ({ ...prev, [p]: r.models }));
-      }
-    }
-  };
-
-  const current = () => PRESETS.find((p) => `${p.provider}/${p.model}` === label());
-  const allModels = (): ModelPreset[] => {
-    const seen = new Set(PRESETS.map((p) => `${p.provider}/${p.model}`));
-    const extra: ModelPreset[] = [];
-    for (const [provider, models] of Object.entries(fetched())) {
-      const brand = provider.startsWith("custom:") ? provider.slice(7) : provider;
-      for (const m of models) {
-        const key = `${provider}/${m}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        extra.push({ provider, brand, model: m, label: m, context: "—", note: "端点拉取" });
-      }
-    }
-    return [...PRESETS, ...extra];
-  };
+  const rows = (): Row[] =>
+    cat().flatMap((p) =>
+      p.models.map((model) => ({ provider: p.provider, providerName: p.provider_name, model })),
+    );
   const filtered = () => {
     const q = query().toLowerCase();
-    if (!q) return allModels();
-    return allModels().filter((p) => `${p.brand} ${p.label} ${p.model}`.toLowerCase().includes(q));
+    if (!q) return rows();
+    return rows().filter((r) =>
+      `${r.providerName} ${r.model.name} ${r.model.id}`.toLowerCase().includes(q),
+    );
   };
 
-  const pick = (p: ModelPreset) => {
-    void setModel(p.provider, p.model);
-    setLabel(`${p.provider}/${p.model}`);
+  const curInfo = () => modelOf(cat(), cur().provider, cur().model);
+  const curLabel = () =>
+    curInfo()?.name ?? (cur().model ? `${cur().provider}/${cur().model}` : "模型");
+
+  const pick = (r: Row) => {
+    void setModel(r.provider, r.model.id);
+    setCur({ provider: r.provider, model: r.model.id });
     setOpen(false);
   };
 
-  const assignRole = (p: ModelPreset, role: string, roleLabel: string) => {
-    void configSetRole(role, p.provider, p.model).then(() => {
-      setRoleMsg(`${p.label} → ${roleLabel.replace("设为", "")} ✓`);
+  const assignRole = (role: string, label: string) => {
+    if (!cur().model) return;
+    void configSetRole(role, cur().provider, cur().model).then(() => {
+      setRoleMsg(`${curLabel()} → ${label.replace("设为", "")} ✓`);
       setTimeout(() => setRoleMsg(""), 1800);
     });
   };
 
   return (
-    <div class="relative">
-      <button
-        class="pressable model-pill"
-        onClick={() => {
-          setOpen(!open());
-          if (!open()) void lazyFetch();
-        }}
-      >
-        <span class="text-2xs text-[var(--text-faint)]">{current()?.brand ?? "模型"}</span>
-        <span class="model-pill-name">{current()?.label ?? label()}</span>
+    <div class="relative" ref={(el) => (root = el)}>
+      <button class="pressable model-pill" onClick={() => setOpen(!open())}>
+        <span class="text-2xs text-[var(--text-faint)]">{curInfo()?.family ?? cur().provider}</span>
+        <span class="model-pill-name">{curLabel()}</span>
+        <Show when={curInfo()?.context}>
+          <span class="text-2xs text-[var(--text-faint)]">{fmtCtx(curInfo()!.context)}</span>
+        </Show>
         <ChevronDown size={12} />
       </button>
       <Show when={roleMsg()}>
@@ -94,35 +89,46 @@ export default function ModelPicker() {
       </Show>
 
       <Show when={open()}>
-        <div class="composer-popup absolute bottom-full right-0 mb-1.5 w-72 rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] shadow-xl shadow-black/30 overflow-hidden z-20">
+        <div class="composer-popup absolute bottom-full right-0 mb-1.5 w-80 rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] overflow-hidden z-20">
           <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-[var(--border)]">
             <Search size={12} class="text-[var(--text-faint)]" />
             <input
               class="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-[var(--text-faint)]"
-              placeholder="搜索模型…"
+              placeholder="搜索模型（名称 / id）…"
               value={query()}
               onInput={(e) => setQuery(e.currentTarget.value)}
             />
           </div>
           <div class="max-h-72 overflow-y-auto py-1">
             <For each={filtered()}>
-              {(p) => (
+              {(r) => (
                 <div
                   class="model-row"
-                  classList={{ "model-row-active": `${p.provider}/${p.model}` === label() }}
-                  onClick={() => pick(p)}
+                  classList={{
+                    "model-row-active": r.model.id === cur().model && r.provider === cur().provider,
+                  }}
+                  onClick={() => pick(r)}
                   onContextMenu={(e) => e.preventDefault()}
                 >
-                  <span class="model-brand">{p.brand}</span>
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5">
-                      <span class="text-xs font-medium truncate">{p.label}</span>
-                      <Show when={`${p.provider}/${p.model}` === label()}>
+                      <span class="text-xs font-medium truncate">{r.model.name}</span>
+                      <Show when={r.model.reasoning}>
+                        <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
+                          推理
+                        </span>
+                      </Show>
+                      <Show when={r.model.modalities_in.some((m) => m !== "text")}>
+                        <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
+                          {r.model.modalities_in.filter((m) => m !== "text").join("/")}
+                        </span>
+                      </Show>
+                      <Show when={r.model.id === cur().model && r.provider === cur().provider}>
                         <Check size={12} class="text-[var(--accent-hover)]" />
                       </Show>
                     </div>
                     <div class="text-2xs text-[var(--text-faint)] truncate">
-                      {p.model} · ctx {p.context} · {p.note}
+                      {r.providerName} · {r.model.id} · ctx {fmtCtx(r.model.context)}
                     </div>
                   </div>
                 </div>
@@ -136,18 +142,15 @@ export default function ModelPicker() {
             <div class="text-2xs text-[var(--text-faint)] mb-1">把当前模型分配为…</div>
             <div class="flex flex-wrap gap-1">
               <For each={ROLE_ASSIGN}>
-                {(r) => {
-                  const p = current();
-                  return (
-                    <button
-                      class="role-chip"
-                      disabled={!p}
-                      onClick={() => p && assignRole(p, r.role, r.label)}
-                    >
-                      {r.label.replace("设为", "")}
-                    </button>
-                  );
-                }}
+                {(r) => (
+                  <button
+                    class="role-chip"
+                    disabled={!cur().model}
+                    onClick={() => assignRole(r.role, r.label)}
+                  >
+                    {r.label.replace("设为", "")}
+                  </button>
+                )}
               </For>
             </div>
           </div>

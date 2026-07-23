@@ -16,6 +16,8 @@ pub(super) const METHODS: &[&str] = &[
     "provider.remove_custom",
     "provider.accounts",
     "provider.models",
+    "models.catalog",
+    "models.refresh",
 ];
 
 pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, String> {
@@ -35,6 +37,14 @@ pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Res
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
             let out = kxen_app::llm::models::fetch_models(&store, provider, account, 15).await;
             Ok(json!({ "models": out.models, "source": out.source, "detail": out.detail }))
+        }
+        "models.catalog" => {
+            let snapshot = kxen_app::llm::catalog::catalog();
+            Ok(serde_json::to_value(snapshot).map_err(|e| e.to_string())?)
+        }
+        "models.refresh" => {
+            kxen_app::llm::catalog::refresh_async();
+            Ok(json!({ "refreshing": true }))
         }
         "provider.accounts" => {
             let state = app.state::<Arc<AppState>>();

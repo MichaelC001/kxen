@@ -7,10 +7,15 @@ import {
   sessionExport,
   sessionFork,
   sessionMessages,
+  sessionPendingList,
   statusline,
   type ContextItem,
 } from "../lib/chat";
-import MessageActions from "../components/MessageActions";
+import { createConverge } from "../lib/converge";
+import { displayName, modelsCatalog } from "../lib/models";
+import AssistantItem from "../components/AssistantItem";
+import PendingQueue from "../components/PendingQueue";
+import UserItem from "../components/UserItem";
 import {
   activeSessionId,
   ensureActiveSession,
@@ -21,13 +26,12 @@ import {
   switchSession,
 } from "../lib/state";
 import { onDragStart } from "../lib/drag";
-import Markdown from "../components/Markdown";
 import ThinkingOrb from "../components/ThinkingOrb";
 import type { OrbState } from "../lib/orb";
 import EmptyHero from "../components/EmptyHero";
 import ToolCard from "../components/ToolCard";
-import Composer from "../components/composer/LexicalComposer";
-import { Download, FolderOpen } from "lucide-solid";
+import Composer from "../components/composer/TextComposer";
+import { ArrowDown, Download, FolderOpen } from "lucide-solid";
 import { toItems, type Item } from "../lib/items";
 
 export default function Session() {
@@ -38,25 +42,49 @@ export default function Session() {
   const [workdir, setWorkdir] = createSignal("");
   let unlisten: (() => void) | undefined;
   let listRef: HTMLDivElement | undefined;
+  let prevSid = "";
+  const [pendingQueue, setPendingQueue] = createSignal<string[]>([]);
 
   const streaming = () => streamingSid() === activeSessionId() && activeSessionId() !== "";
   const title = () =>
     activeSessionId() === ""
       ? "新会话"
       : (sessions().find((s) => s.id === activeSessionId())?.title ?? "会话");
-  const scroll = () => queueMicrotask(() => listRef && (listRef.scrollTop = listRef.scrollHeight));
+  // 钉底跟随：用户上翻即停跟（每 delta 硬拉到底 = 滚动闪烁的根因），底部给回跳按钮
+  const [pinned, setPinned] = createSignal(true);
+  const onListScroll = () =>
+    listRef && setPinned(listRef.scrollHeight - listRef.scrollTop - listRef.clientHeight < 48);
+  const scroll = (force = false) => {
+    if (force || pinned()) {
+      queueMicrotask(() => {
+        if (listRef) listRef.scrollTop = listRef.scrollHeight;
+        setPinned(true);
+      });
+    }
+  };
 
   // 有对话内容才驱动右 dock 滑入
   createEffect(() => setHasConversation(items().length > 0));
 
-  // 切换会话：加载存储的时间线；草稿态（""）清空
+  // 切换会话：加载存储的时间线；草稿态（""）清空。
+  // 草稿->激活（首发）跳过重载：此时本地上屏是唯一权威（空载会抹掉乐观消息 = 首行消失的根因）。
   createEffect(() => {
     const id = activeSessionId();
     setFocusTick((t) => t + 1);
     if (!id) {
       setItems([]);
+      setPendingQueue([]);
+      prevSid = id;
       return;
     }
+    if (prevSid !== id) {
+      void sessionPendingList(id).then((q) => {
+        if (activeSessionId() === id) setPendingQueue(q);
+      });
+    }
+    const fromDraft = prevSid === "";
+    prevSid = id;
+    if (fromDraft) return;
     void sessionMessages(id).then((messages) => {
       if (activeSessionId() === id) {
         setItems(toItems(messages));
@@ -64,6 +92,9 @@ export default function Session() {
       }
     });
   });
+
+  /** Done 对账（实现见 lib/converge.ts）：快照权威 + 队列真源。 */
+  const { converge, clearQueue } = createConverge({ setItems, setPendingQueue, scroll: () => scroll() });
 
   const appendAssistant = (field: "content" | "reasoning", text: string) => {
     setOrbPhase("composing");
@@ -89,22 +120,16 @@ export default function Session() {
     const sl = await statusline("").catch(() => null);
     if (sl) setWorkdir(sl.workdir);
     const m = await currentModel().catch(() => null);
-    if (m) setModelLabel(`${m.provider}/${m.model}`);
+    if (m) setModelLabel(displayName(await modelsCatalog().catch(() => []), m.provider, m.model));
     unlisten = await onLlmDelta(
       activeSessionId,
       (text) => appendAssistant("content", text),
       (reasoning) => appendAssistant("reasoning", reasoning),
       (stats, error) => {
         setOrbPhase(error ? "error" : "thinking");
-        setItems((prev) => {
-          const last = prev.at(-1);
-          if (last?.kind === "msg" && last.role === "assistant") {
-            return [...prev.slice(0, -1), { ...last, stats, error }];
-          }
-          return prev;
-        });
         setStreamingSid("");
-        scroll();
+        // Done 对账：存储快照为最终权威（含终态文本），stats/error 尾注重挂
+        converge(activeSessionId(), { stats, error });
       },
       (event) => {
         if (event.kind === "tool_call") {
@@ -141,19 +166,24 @@ export default function Session() {
     context: ContextItem[],
     images: Array<{ media_type: string; data: string }>,
   ) => {
-    if (streaming()) return;
-    // 草稿态首条消息：此时才落库成会话
+    // 不在前端拦截并发：后端按会话排队（此处静默 return 曾经直接吞掉用户消息）
     const sid = await ensureActiveSession();
-    setStreamingSid(sid);
-    setOrbPhase("thinking");
+    if (!streaming()) {
+      setStreamingSid(sid);
+      setOrbPhase("thinking");
+    }
     setItems((prev) => [...prev, { kind: "msg", role: "user", content: text }]);
-    scroll();
-    await sendMessage(sid, text, context, images);
+    scroll(true); // 自己发的消息强制到底
+    const r = await sendMessage(sid, text, context, images).catch(() => null);
+    if (r?.queued) setPendingQueue((prev) => [...prev, text]);
   };
 
   const stop = () => {
     const sid = activeSessionId();
-    if (sid) void sessionAbort(sid);
+    if (sid) {
+      setPendingQueue([]);
+      void sessionAbort(sid);
+    }
   };
 
   /** 从指定消息分叉：新会话带前缀历史并切入。 */
@@ -206,7 +236,7 @@ export default function Session() {
   };
 
   return (
-    <div class="h-full flex-1 min-w-0 flex flex-col">
+    <div class="h-full flex-1 min-w-0 flex flex-col relative">
       <div
         class="material px-4 py-2.5 border-b border-[var(--border)] text-xs flex items-center gap-3"
         data-tauri-drag-region
@@ -243,7 +273,11 @@ export default function Session() {
         </span>
       </div>
 
-      <div ref={(el) => (listRef = el)} class="flex-1 overflow-auto px-4 py-5">
+      <div
+        ref={(el) => (listRef = el)}
+        class="flex-1 overflow-auto px-4 py-5"
+        onScroll={onListScroll}
+      >
         <div class="w-full space-y-4">
           <For each={items()}>
             {(item, i) => {
@@ -260,68 +294,23 @@ export default function Session() {
               }
               if (item.role === "user") {
                 return (
-                  <div class="group relative flex flex-col items-end gap-1">
-                    <div class="selectable max-w-[80%] rounded-2xl rounded-br-md px-3.5 py-2 text-sm bg-[var(--accent)] text-[var(--accent-contrast)] whitespace-pre-wrap">
-                      {item.content}
-                    </div>
-                    <Show when={item.messageId}>
-                      <div class="self-end">
-                        <MessageActions
-                          role="user"
-                          content={item.content}
-                          onFork={() => void forkAt(item.messageId!)}
-                          onEditResend={(text) => void editResend(i(), text)}
-                        />
-                      </div>
-                    </Show>
-                  </div>
+                  <UserItem
+                    item={item}
+                    onFork={() => void forkAt(item.messageId!)}
+                    onEditResend={(text) => void editResend(i(), text)}
+                  />
                 );
               }
               // assistant：全宽排版，无气泡（现代 agent UI 形态）
               return (
-                <div class="group relative text-sm">
-                  <Show when={item.messageId}>
-                    <div class="absolute right-0 top-0 z-10">
-                      <MessageActions
-                        role="assistant"
-                        content={item.content}
-                        onFork={() => void forkAt(item.messageId!)}
-                        onRerun={() => void rerun(i())}
-                      />
-                    </div>
-                  </Show>
-                  <Show when={item.reasoning}>
-                    <div class="selectable text-xs text-[var(--text-faint)] border-l-2 border-[var(--border)] pl-2.5 mb-2 whitespace-pre-wrap">
-                      {item.reasoning}
-                    </div>
-                  </Show>
-                  <Markdown text={item.content} />
-                  <Show when={item.stats}>
-                    {(stats) => (
-                      <div class="text-2xs text-[var(--text-faint)] mt-1.5 tabular-nums">
-                        <Show when={modelLabel()}>
-                          <span class="text-[var(--text-dim)]">{modelLabel()}</span> ·{" "}
-                        </Show>
-                        in {stats().input_tokens} / out {stats().output_tokens} · TTFT{" "}
-                        {(stats().ttft_ms / 1000).toFixed(1)}s ·{" "}
-                        {(stats().duration_ms / 1000).toFixed(1)}s · {stats().tokens_per_sec} tok/s
-                      </div>
-                    )}
-                  </Show>
-                  <Show when={item.error}>
-                    <div class="text-xs text-[var(--err)] mt-1.5 flex items-center gap-2">
-                      {item.error}
-                      <Show when={item.error === "(已中断)" && !streaming()}>
-                        <button
-                          class="pressable px-2 py-0.5 rounded text-2xs border border-[var(--border)] text-[var(--text-dim)]"
-                          onClick={() => void send("继续", [], [])}
-                        >
-                          继续
-                        </button>
-                      </Show>
-                    </div>
-                  </Show>
-                </div>
+                <AssistantItem
+                  item={item}
+                  streaming={streaming}
+                  modelLabel={modelLabel}
+                  onFork={() => void forkAt(item.messageId!)}
+                  onRerun={() => void rerun(i())}
+                  onContinue={() => void send("继续", [], [])}
+                />
               );
             }}
           </For>
@@ -332,8 +321,20 @@ export default function Session() {
         </div>
       </div>
 
+      {/* 上翻阅读时的回跳按钮（钉底跟随已停，新内容不打断阅读） */}
+      <Show when={!pinned()}>
+        <button
+          class="pressable absolute left-1/2 -translate-x-1/2 bottom-24 z-20 px-2.5 py-1 rounded-full text-2xs border border-[var(--border)] bg-[var(--bg-raised)] text-[var(--text-dim)] composer-popup flex items-center gap-1"
+          onClick={() => scroll(true)}
+        >
+          <ArrowDown size={11} />
+          回到底部
+        </button>
+      </Show>
+
       <div class="px-3 pb-3 composer-fade">
         <div class="w-full">
+          <PendingQueue queue={pendingQueue} onClear={() => void clearQueue()} />
           <Composer
             streaming={streaming}
             onSend={(t, c, i) => void send(t, c, i)}

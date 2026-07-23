@@ -17,16 +17,21 @@ pub fn resolve_path(input: &str, workdir: &Path) -> PathBuf {
     if p.is_absolute() { p } else { workdir.join(p) }
 }
 
-pub fn summarize_args(arguments: &str) -> String {
-    let trimmed = arguments.trim();
-    if trimmed.len() <= 120 { trimmed.to_string() } else { format!("{}…", &trimmed[..trimmed.floor_char_boundary(120)]) }
-}
-
-pub fn result_summary(name: &str, result: &Result<String, String>) -> String {
-    match result {
-        Ok(text) => format!("{name}: {}", first_line(text, 100)),
-        Err(e) => format!("{name} error: {}", first_line(e, 100)),
-    }
+/// 工具调用一行摘要：按工具提取关键参数（exec=command、fs=path、glob/grep=pattern），
+/// 不落原始 JSON——UI 执行行只展示这一条（Claude Code `⏺ Bash(ls -la)` 同款形态）。
+pub fn summarize_args(name: &str, arguments: &str) -> String {
+    let parsed: serde_json::Value = serde_json::from_str(arguments).unwrap_or_default();
+    let get = |key: &str| parsed.get(key)?.as_str().map(String::from);
+    let salient = match name {
+        "exec" => get("command"),
+        "read" | "edit" | "write" | "delete" => get("path"),
+        "glob" | "grep" => get("pattern"),
+        "agent" => get("role"),
+        "skill" => get("name"),
+        "knowledge" => get("description").or_else(|| get("action")),
+        _ => None,
+    };
+    first_line(&salient.unwrap_or_else(|| arguments.trim().to_string()), 80)
 }
 
 pub fn result_text(result: &Result<String, String>) -> String {
@@ -36,7 +41,32 @@ pub fn result_text(result: &Result<String, String>) -> String {
     }
 }
 
+/// UI 展开体用的结果全文（截 2000 字符防爆）。
+/// 收起行只放参数摘要；输出本体进同一张卡的折叠区（Cursor/Cline 单卡形态）。
+pub fn result_display(result: &Result<String, String>) -> String {
+    let text = result_text(result);
+    if text.len() <= 2000 { text } else { format!("{}…", &text[..text.floor_char_boundary(2000)]) }
+}
+
 pub fn first_line(s: &str, max: usize) -> String {
     let line = s.lines().next().unwrap_or("");
     if line.len() <= max { line.to_string() } else { format!("{}…", &line[..line.floor_char_boundary(max)]) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summarize_extracts_salient_arg() {
+        assert_eq!(
+            summarize_args("exec", r#"{"command":"ls -la","path":"/x","type":"zsh"}"#),
+            "ls -la"
+        );
+        assert_eq!(summarize_args("read", r#"{"path":"/x/README.md"}"#), "/x/README.md");
+        assert_eq!(summarize_args("glob", r#"{"pattern":"**/*.rs"}"#), "**/*.rs");
+        assert_eq!(summarize_args("knowledge", r#"{"action":"add","description":"用 trash"}"#), "用 trash");
+        // 未知工具/坏 JSON 退化为原文截断
+        assert_eq!(summarize_args("mystery", "raw args"), "raw args");
+    }
 }

@@ -38,7 +38,7 @@ export async function sendMessage(
   text: string,
   context: ContextItem[] = [],
   images: Array<{ media_type: string; data: string }> = [],
-): Promise<void> {
+): Promise<{ queued?: boolean; stream_id?: string }> {
   return client.rpc("send_message", { session_id: sessionId, text, context, images });
 }
 
@@ -46,7 +46,8 @@ export type ContextItem =
   | { type: "file"; path: string }
   | { type: "dir"; path: string }
   | { type: "web"; url: string }
-  | { type: "docs"; url: string };
+  | { type: "docs"; url: string }
+  | { type: "note"; text: string };
 
 export interface CompleteEntry {
   path: string;
@@ -72,6 +73,17 @@ export async function sessionAbort(sessionId: string): Promise<boolean> {
   return client.rpc<boolean>("session.abort", { session_id: sessionId });
 }
 
+export { onLlmDelta } from "./delta";
+export type { RunStats, ToolEvent } from "./delta";
+
+export async function sessionPendingList(sessionId: string): Promise<string[]> {
+  return client.rpc<string[]>("session.pending_list", { id: sessionId }).catch(() => []);
+}
+
+export async function sessionPendingClear(sessionId: string): Promise<void> {
+  return client.rpc("session.pending_clear", { id: sessionId });
+}
+
 export interface StatuslineReport {
   items: string[];
   workdir: string;
@@ -94,7 +106,10 @@ export interface RoleBindingView {
   account?: string | null;
 }
 
-export async function configGet(): Promise<{ roles: Record<string, RoleBindingView> }> {
+export async function configGet(): Promise<{
+  roles: Record<string, RoleBindingView>;
+  send_when_running?: string;
+}> {
   return client.rpc("config.get");
 }
 
@@ -129,7 +144,7 @@ export async function sessionUpdateMeta(
 }
 
 export interface StoredPart {
-  type: "text" | "tool_call" | "reasoning";
+  type: "text" | "context" | "tool_call" | "reasoning";
   text?: string;
   name?: string;
   input?: unknown;
@@ -281,68 +296,4 @@ export function onTopic(
   handler: (topic: string, payload: unknown) => void,
 ): () => void {
   return client.stream(topics).on((payload) => handler("", payload));
-}
-
-export interface ToolEvent {
-  kind: "tool_call" | "tool_result" | "phase";
-  name: string;
-  summary?: string | undefined;
-}
-
-export interface RunStats {
-  ttft_ms: number;
-  duration_ms: number;
-  input_tokens: number;
-  output_tokens: number;
-  tokens_per_sec: number;
-}
-
-export function onLlmDelta(
-  activeSession: () => string,
-  onText: (text: string) => void,
-  onReasoning: (text: string) => void,
-  onDone: (stats?: RunStats, error?: string) => void,
-  onTool?: (event: ToolEvent) => void,
-): () => void {
-  return client.stream("llm.delta").on((payload) => {
-    handle(payload as DeltaPayload);
-  });
-
-  interface DeltaPayload {
-    kind?: string;
-    session_id?: string;
-    text?: string;
-    message?: string;
-    name?: string;
-    summary?: string;
-    stats?: RunStats;
-    agent?: string;
-  }
-
-  function handle(event: DeltaPayload) {
-    // 只渲染活跃会话的增量（后台运行的其他会话事件忽略）
-    if (event.session_id && event.session_id !== activeSession()) return;
-    switch (event.kind) {
-      case "text":
-        if (event.text) onText(event.text);
-        break;
-      case "reasoning":
-        if (event.text) onReasoning(event.text);
-        break;
-      case "done":
-        onDone(event.stats);
-        break;
-      case "aborted":
-        onDone(undefined, "(已中断)");
-        break;
-      case "error":
-        onDone(undefined, event.message ?? "unknown error");
-        break;
-      case "tool_call":
-      case "tool_result":
-      case "phase":
-        if (event.name) onTool?.({ kind: event.kind, name: event.name, summary: event.summary });
-        break;
-    }
-  }
 }

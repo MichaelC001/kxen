@@ -245,6 +245,7 @@ mod tests {
             statusline: Default::default(),
             voice: Default::default(),
             custom_providers: Default::default(),
+            send_when_running: String::new(),
         }
     }
 
@@ -286,6 +287,7 @@ mod tests {
             statusline: Default::default(),
             voice: Default::default(),
             custom_providers: Default::default(),
+            send_when_running: String::new(),
         };
         let mrm = ModelResourceManager::new(config);
         let mut store = store();

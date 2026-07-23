@@ -29,21 +29,29 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         text
     };
 
-    // @ 引用注入：chip -> 上下文块（文件/目录/Web/Docs），追加在用户消息尾部
-    let context_block = if context.is_empty() {
-        String::new()
+    // @ 引用注入：chip -> 上下文块（文件/目录/Web/Docs），追加在用户消息尾部。
+    // 读取失败必须用户可见（通知中心），不再静默降级只告诉模型。
+    let (context_block, context_failures) = if context.is_empty() {
+        (String::new(), Vec::new())
     } else {
         kxen_app::agent::context::build_context(&context, &session_path).await
     };
-    let text = if context_block.is_empty() { text } else { format!("{text}\n{context_block}") };
+    for f in &context_failures {
+        state.bus.publish(kxen_app::core::event::Event::Notification(format!("引用读取失败：{f}")));
+    }
 
-    // 用户消息落盘（LLM 历史以后端会话存储为准，前端不再传 history）
-    let user_msg = ses::new_message(&session_id, ses::Role::User, vec![ses::Part::Text { text: text.clone() }]);
+    // 用户消息落盘：展示文本与注入上下文分 part 存（UI 只显示 Text，模型历史两者皆见）
+    let mut parts = vec![ses::Part::Text { text: text.clone() }];
+    if !context_block.is_empty() {
+        parts.push(ses::Part::Context { text: context_block.clone() });
+    }
+    let user_msg = ses::new_message(&session_id, ses::Role::User, parts);
     let with_images = !images.is_empty();
     if let Err(e) = ses::append_message(&sessions_dir, &user_msg) {
         tracing::error!(error = %e, "session append failed");
         return;
     }
+    let text = if context_block.is_empty() { text } else { format!("{text}\n{context_block}") };
 
     let (model, store, registry, workdir, bus) = {
         let store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
@@ -56,7 +64,7 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         )
     };
 
-    // 历史：存储里的 user/assistant 文本
+    // 历史：存储里的 user/assistant 文本（Context part 同样喂给模型，UI 侧不显示）
     let mut messages: Vec<Message> = ses::load_messages(&sessions_dir, &session_id)
         .into_iter()
         .filter_map(|m| {
@@ -64,7 +72,7 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
                 .parts
                 .iter()
                 .filter_map(|p| match p {
-                    ses::Part::Text { text } => Some(text.as_str()),
+                    ses::Part::Text { text } | ses::Part::Context { text } => Some(text.as_str()),
                     _ => None,
                 })
                 .collect::<Vec<_>>()
@@ -172,10 +180,35 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
     if outcome.aborted {
         parts.push(ses::Part::Text { text: "(已中断)".into() });
     }
-    if !parts.is_empty() {
-        let assistant_msg = ses::new_message(&session_id, ses::Role::Assistant, parts);
-        if let Err(e) = ses::append_message(&sessions_dir, &assistant_msg) {
-            tracing::error!(error = %e, "session append failed");
-        }
+    // 兜底：任何路径都不许无声结束（会话只剩用户消息是 P0 事故）
+    if parts.is_empty() {
+        parts.push(ses::Part::Text { text: "(run 异常结束，无输出——请重试或发送「继续」)".into() });
     }
+    let assistant_msg = ses::new_message(&session_id, ses::Role::Assistant, parts);
+    if let Err(e) = ses::append_message(&sessions_dir, &assistant_msg) {
+        tracing::error!(error = %e, "session append failed");
+    }
+
+    // 队列下一条：run 进行中收到的消息按序接续（后端锁是唯一竞态防线，前端状态不可靠）
+    let next = kxen_app::core::shared::lock(&state.pending_messages)
+        .get_mut(&session_id)
+        .and_then(|q| q.pop_front());
+    if let Some((text, context, images)) = next {
+        let stream_id = super::protocol::stream_id("run");
+        kxen_app::core::shared::lock(&state.run_streams).insert(stream_id.clone(), session_id.clone());
+        spawn_run(stream_id, session_id, text, context, images, app.clone());
+    }
+}
+
+/// 队列续跑的 spawn 断路器：在 run_llm 体内直接 spawn 自身会让 future 类型递归自嵌套（E0283），
+/// 经普通 fn 间接一层后类型层面不再自引用。
+fn spawn_run(
+    stream_id: String,
+    session_id: String,
+    text: String,
+    context: Vec<kxen_app::agent::context::ContextItem>,
+    images: Vec<kxen_app::llm::types::ImagePart>,
+    app: AppHandle,
+) {
+    tokio::spawn(run_llm(stream_id, session_id, text, context, images, app));
 }

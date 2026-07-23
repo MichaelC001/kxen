@@ -25,6 +25,7 @@ const METHODS: &[&str] = &[
     "voice.transcribe_file",
     "voice.set_provider_key",
     "voice.set_engine",
+    "config.set_send_policy",
     "voice.start",
     "voice.stop",
 ];
@@ -190,6 +191,17 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             doc.insert("voice".into(), toml::Value::Table(voice));
             write_toml(&path, &doc)?;
             Ok(json!({ "engine": engine }))
+        }
+        "config.set_send_policy" => {
+            let policy = params.get("policy").and_then(Value::as_str).ok_or("missing policy")?;
+            if !matches!(policy, "queue" | "interrupt") {
+                return Err("policy 只支持 queue / interrupt".into());
+            }
+            let path = kxen_app::core::paths::config_dir().join("config.toml");
+            let mut doc = read_toml(&path)?;
+            doc.insert("send_when_running".into(), toml::Value::String(policy.into()));
+            write_toml(&path, &doc)?;
+            Ok(json!({ "send_when_running": policy }))
         }
         "voice.start" => {
             let config = load_config()?;

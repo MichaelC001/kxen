@@ -84,10 +84,8 @@ export default function ProvidersSection() {
 
   const verifyAll = () => rows().forEach((r) => void verifyOne(r));
 
-  onMount(async () => {
-    await load();
-    verifyAll();
-  });
+  // 打开页面零自动请求（同类型产品共识：探测只在首次导入 + 用户主动点）
+  onMount(() => void load());
 
   const reprobe = async () => {
     setReprobing(true);
@@ -95,7 +93,7 @@ export default function ProvidersSection() {
       const r = await providerReprobe();
       setNote(`已重新导入（${r.outcomes.join("，")}）`);
       await load();
-      verifyAll();
+      verifyAll(); // 重新导入 = 用户主动动作，导入后逐个验证一次
     } finally {
       setReprobing(false);
       setTimeout(() => setNote(""), 4000);

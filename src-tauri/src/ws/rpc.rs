@@ -106,7 +106,8 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
                     m.parts
                         .iter()
                         .filter_map(|p| match p {
-                            kxen_app::core::session::Part::Text { text } => Some(text.as_str()),
+                            kxen_app::core::session::Part::Text { text }
+                            | kxen_app::core::session::Part::Context { text } => Some(text.as_str()),
                             _ => None,
                         })
                         .collect::<Vec<_>>()
@@ -140,6 +141,24 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let message_id = params.get("message_id").and_then(Value::as_str).ok_or("missing message_id")?;
             let session = kxen_app::core::session::fork(&kxen_app::core::paths::sessions_dir(), session_id, message_id).map_err(|e| e.to_string())?;
             Ok(json!(session))
+        }
+        "session.pending_list" => {
+            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
+            let state = app.state::<Arc<AppState>>();
+            let texts: Vec<String> = kxen_app::core::shared::lock(&state.pending_messages)
+                .get(id)
+                .map(|q| q.iter().map(|(t, _, _)| t.clone()).collect())
+                .unwrap_or_default();
+            Ok(json!(texts))
+        }
+        "session.pending_clear" => {
+            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
+            let state = app.state::<Arc<AppState>>();
+            let n = kxen_app::core::shared::lock(&state.pending_messages)
+                .remove(id)
+                .map(|q| q.len())
+                .unwrap_or(0);
+            Ok(json!({ "cleared": n }))
         }
         "session.export" => {
             let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
@@ -182,15 +201,39 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
         }
         "send_message" => {
             let p: SendMessageParams = serde_json::from_value(params).map_err(|e| e.to_string())?;
+            let state = app.state::<Arc<AppState>>();
+            // run 进行中：默认入队（queue）；config.send_when_running=interrupt 时打断当前立即发送
+            if kxen_app::core::shared::lock(&state.active_runs).contains_key(&p.session_id) {
+                let cfg = kxen_app::core::config::Config::load(
+                    &kxen_app::core::paths::config_dir().join("config.toml"),
+                    None,
+                )
+                .unwrap_or_default();
+                let policy = if cfg.send_when_running.is_empty() { "queue" } else { cfg.send_when_running.as_str() };
+                if policy != "interrupt" {
+                    let mut map = kxen_app::core::shared::lock(&state.pending_messages);
+                    let q = map.entry(p.session_id.clone()).or_default();
+                    q.push_back((p.text, p.context, p.images));
+                    let n = q.len();
+                    drop(map);
+                    state.bus.publish(kxen_app::core::event::Event::Notification(format!("运行中，消息已排队（第 {n} 条）")));
+                    return Ok(json!({ "queued": true }));
+                }
+                if let Some(token) = kxen_app::core::shared::lock(&state.active_runs).get(&p.session_id).cloned() {
+                    token.cancel();
+                }
+            }
             // 分配 run 流 id（JSON-RPC 3.0：增量走 stream chunk 下发）
             let stream_id = super::protocol::stream_id("run");
-            kxen_app::core::shared::lock(&app.state::<Arc<AppState>>().run_streams).insert(stream_id.clone(), p.session_id.clone());
+            kxen_app::core::shared::lock(&state.run_streams).insert(stream_id.clone(), p.session_id.clone());
             tokio::spawn(run_llm(stream_id.clone(), p.session_id, p.text, p.context, p.images, app.clone()));
             Ok(json!({ "stream_id": stream_id }))
         }
         "session.abort" => {
             let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let state = app.state::<Arc<AppState>>();
+            // abort = 停当前 + 清队列（否则 abort 完队列立刻续跑，等于没停）
+            kxen_app::core::shared::lock(&state.pending_messages).remove(id);
             let token = kxen_app::core::shared::lock(&state.active_runs).get(id).cloned();
             Ok(json!(token.map(|t| t.cancel()).is_some()))
         }

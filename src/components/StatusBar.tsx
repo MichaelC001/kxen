@@ -2,11 +2,13 @@ import { createSignal, Show, onCleanup, onMount } from "solid-js";
 import { GitBranch, Target, ListTodo } from "lucide-solid";
 import NotificationCenter from "./NotificationCenter";
 import { statusline, type StatuslineReport } from "../lib/chat";
+import { displayName, modelsCatalog, type ProviderCatalog } from "../lib/models";
 import { activeSessionId } from "../lib/state";
 
 /** 底部状态栏：固定段 + config 开关，3s 轮询 + 事件驱动。 */
 export default function StatusBar() {
   const [report, setReport] = createSignal<StatuslineReport | null>(null);
+  const [cat, setCat] = createSignal<ProviderCatalog[]>([]);
   let timer: ReturnType<typeof setInterval> | undefined;
 
   const reload = async () => {
@@ -16,11 +18,19 @@ export default function StatusBar() {
 
   onMount(async () => {
     await reload();
+    void modelsCatalog().then(setCat);
     timer = setInterval(() => void reload(), 3000);
   });
   onCleanup(() => timer && clearInterval(timer));
 
   const has = (item: string) => report()?.items.includes(item) ?? false;
+  // "provider/model-id" -> models.dev 显示名（查不到回退原串）
+  const modelLabel = () => {
+    const raw = report()?.model ?? "";
+    const slash = raw.indexOf("/");
+    if (slash <= 0) return raw;
+    return displayName(cat(), raw.slice(0, slash), raw.slice(slash + 1));
+  };
   const shortWorkdir = () => {
     const w = report()?.workdir ?? "";
     const home = "/Users/";
@@ -84,7 +94,9 @@ export default function StatusBar() {
           </span>
         </Show>
         <Show when={has("model")}>
-          <span class="text-[var(--text-faint)]">{report()?.model}</span>
+          <span class="text-[var(--text-faint)]" title={report()?.model}>
+            {modelLabel()}
+          </span>
         </Show>
       </span>
     </div>

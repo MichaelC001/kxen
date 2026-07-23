@@ -22,8 +22,15 @@ struct ChatRequest<'a> {
     model: &'a str,
     messages: Vec<WireMessage<'a>>,
     stream: bool,
+    // OpenAI 兼容协议只有显式要求才在流末返回 usage 块（统计 in/out tokens 全靠它）
+    stream_options: StreamOptions,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<&'a [crate::llm::tool::ToolDefinition]>,
+}
+
+#[derive(Serialize)]
+struct StreamOptions {
+    include_usage: bool,
 }
 
 /// wire 消息：content 无图片纯字符串，有图片走 image_url/text 块数组。
@@ -122,7 +129,7 @@ impl XaiProvider {
         let start = async move {
             let tools_opt = tools_owned.as_deref();
             let wire: Vec<WireMessage> = messages.iter().map(wire_message).collect();
-            http.post(self_url.as_ref()).bearer_auth(bearer).json(&ChatRequest { model: &model, messages: wire, stream: true, tools: tools_opt }).send().await
+            http.post(self_url.as_ref()).bearer_auth(bearer).json(&ChatRequest { model: &model, messages: wire, stream: true, stream_options: StreamOptions { include_usage: true }, tools: tools_opt }).send().await
         };
 
         Box::pin(futures::stream::once(start).flat_map(|result| match result {

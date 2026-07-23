@@ -13,6 +13,8 @@ pub struct Config {
     pub statusline: StatuslineConfig,
     pub voice: VoiceConfig,
     pub custom_providers: HashMap<String, CustomProviderDef>,
+    /// 运行中再发消息的策略：queue（默认，排队接续）| interrupt（打断当前立即发送）
+    pub send_when_running: String,
 }
 
 /// 自定义类型提供商：base_url + 模型清单 + 协议（openai|anthropic）+ 能力标记（text/vision/audio）。

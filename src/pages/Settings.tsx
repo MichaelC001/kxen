@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { ArrowLeft } from "lucide-solid";
 import KnowledgeSection from "../components/settings/KnowledgeSection";
@@ -6,6 +6,7 @@ import ProvidersSection from "../components/settings/ProvidersSection";
 import RoutingSection from "../components/settings/RoutingSection";
 import VoiceSection from "../components/settings/VoiceSection";
 import { client } from "../lib/client";
+import { configGet } from "../lib/chat";
 import { onDragStart } from "../lib/drag";
 import { mode, setMode } from "../lib/theme";
 
@@ -23,6 +24,17 @@ export default function Settings() {
   const [section, setSection] = createSignal<(typeof SECTIONS)[number]>("通用");
   const [saved] = createSignal("");
   const [diagNote, setDiagNote] = createSignal("");
+  const [sendPolicy, setSendPolicy] = createSignal("queue");
+
+  onMount(async () => {
+    const cfg = await configGet().catch(() => null);
+    if (cfg?.send_when_running) setSendPolicy(cfg.send_when_running);
+  });
+
+  const setPolicy = async (p: string) => {
+    setSendPolicy(p);
+    await client.rpc("config.set_send_policy", { policy: p }).catch(() => {});
+  };
 
   const exportDiag = async () => {
     const r = await client.rpc<{ path: string }>("diagnostics.export").catch(() => null);
@@ -31,7 +43,7 @@ export default function Settings() {
   };
 
   return (
-    <div class="h-full overflow-auto">
+    <div class="h-full flex-1 overflow-auto">
       <div class="h-8" data-tauri-drag-region onMouseDown={onDragStart} />
       <div class="px-8 py-6 pt-2 flex gap-8">
         <nav class="w-36 shrink-0 space-y-0.5">
@@ -82,6 +94,30 @@ export default function Settings() {
                         onClick={() => setMode(m)}
                       >
                         {m === "auto" ? "跟随系统" : m === "dark" ? "暗色" : "亮色"}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </div>
+              <div class="flex items-center justify-between px-4 py-3">
+                <div>
+                  <div class="text-sm">运行中发送</div>
+                  <div class="text-xs text-[var(--text-faint)]">
+                    生成中再发消息：排队等当前完成，或打断当前立即发送
+                  </div>
+                </div>
+                <div class="flex gap-1">
+                  <For each={["queue", "interrupt"] as const}>
+                    {(p) => (
+                      <button
+                        class="pressable px-2.5 py-1 rounded-md text-xs border"
+                        classList={{
+                          "border-[var(--accent)] text-[var(--accent-hover)]": sendPolicy() === p,
+                          "border-[var(--border)] text-[var(--text-dim)]": sendPolicy() !== p,
+                        }}
+                        onClick={() => void setPolicy(p)}
+                      >
+                        {p === "queue" ? "排队" : "打断"}
                       </button>
                     )}
                   </For>

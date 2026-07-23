@@ -38,7 +38,6 @@ export function detectTrigger(value: string, cursor: number): Trigger | null {
       const bounded =
         i === 0 || prev === " " || prev === "\t" || prev === "(" || prev === "[" || prev === "{";
       if (!bounded) return null;
-      if (c === "/" && i !== 0) return null;
       const kind = c === "@" ? "at" : c === "/" ? "slash" : "hash";
       return { kind, start: i, query: value.slice(i + 1, cursor) };
     }

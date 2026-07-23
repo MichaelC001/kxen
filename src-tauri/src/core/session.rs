@@ -24,6 +24,9 @@ pub struct Session {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Part {
     Text { text: String },
+    /// 模型可见但 UI 隐藏的上下文（@chip 文件内容 / 知识沉淀注记）。
+    /// 历史回放给模型时带上，时间线渲染时跳过。
+    Context { text: String },
     ToolCall { name: String, input: serde_json::Value, output: String },
     Reasoning { text: String },
 }
@@ -212,7 +215,7 @@ pub fn export_markdown(dir: &Path, id: &str) -> std::io::Result<String> {
                     let summary: String = output.chars().take(120).collect();
                     body.push_str(&format!("\n> tool `{name}`: {input} -> {summary}\n"));
                 }
-                Part::Reasoning { .. } => {}
+                Part::Reasoning { .. } | Part::Context { .. } => {}
             }
         }
         if !body.trim().is_empty() {

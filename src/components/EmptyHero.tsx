@@ -1,4 +1,7 @@
-// 空态：logo + 四快捷卡（stagger 入场）。
+// 空态：logo + 四快捷卡。
+// 入场动画只在 app 首次挂载播放；之后点新会话直接静态到位
+//（旧时间线清空与空态呈现同帧完成，不再经历 300ms 空白 + 闪入的割裂感）。
+import { onMount } from "solid-js";
 import { Target, Users, Workflow, Wrench } from "lucide-solid";
 
 const CARDS = [
@@ -8,10 +11,16 @@ const CARDS = [
   { icon: Users, title: "agent teams", desc: "spawn 多模型 teammates 组队干活，各自独立上下文" },
 ];
 
+let heroPlayed = false;
+
 export default function EmptyHero() {
+  const animated = !heroPlayed;
+  onMount(() => {
+    heroPlayed = true;
+  });
   return (
     <div class="pt-16 space-y-8 w-full">
-      <div class="empty-hero flex items-center gap-4">
+      <div class={animated ? "empty-hero" : ""} classList={{ "flex items-center gap-4": true }}>
         <img
           src="/icon.png"
           alt="kxen"
@@ -25,8 +34,8 @@ export default function EmptyHero() {
       <div class="grid grid-cols-2 gap-2.5">
         {CARDS.map((c, i) => (
           <div
-            class="empty-card rounded-xl border border-[var(--border)] bg-[var(--bg-raised)] p-3.5 space-y-1.5"
-            style={`animation-delay: ${80 + i * 50}ms`}
+            class={`rounded-xl border border-[var(--border)] bg-[var(--bg-raised)] p-3.5 space-y-1.5 ${animated ? "empty-card" : ""}`}
+            style={animated ? `animation-delay: ${80 + i * 50}ms` : ""}
           >
             <c.icon size={16} class="text-[var(--accent-hover)]" />
             <div class="text-xs font-medium font-mono">{c.title}</div>
@@ -34,7 +43,10 @@ export default function EmptyHero() {
           </div>
         ))}
       </div>
-      <div class="empty-card text-xs text-[var(--text-faint)]" style="animation-delay: 300ms">
+      <div
+        class={`text-xs text-[var(--text-faint)] ${animated ? "empty-card" : ""}`}
+        style={animated ? "animation-delay: 300ms" : ""}
+      >
         输入消息开始 · @ 引用 · / 命令 · # 沉淀 · 粘贴图片
       </div>
     </div>

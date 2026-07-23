@@ -7,7 +7,7 @@ use crate::llm::{Delta, LlmClient, Message};
 use super::context::AgentContext;
 use super::events::{AgentEvent, AgentOutcome, RunStats};
 use super::execute::execute_tool;
-use super::helpers::{result_summary, result_text, summarize_args};
+use super::helpers::{result_display, result_text, summarize_args};
 
 pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> AgentOutcome {
     let base_tools = match ctx.allowed_tools {
@@ -50,7 +50,9 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
     'outer: loop {
         turns += 1;
         if turns > ctx.max_turns {
-            (ctx.on_event)(AgentEvent::Error { message: format!("max turns ({}) reached", ctx.max_turns) });
+            let reason = format!("已达最大轮次（{}），任务未完成——发送「继续」可接着做", ctx.max_turns);
+            (ctx.on_event)(AgentEvent::Error { message: reason.clone() });
+            final_text = reason; // 终态必须落库：run 不许无声结束
             break;
         }
         if ctx.cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
@@ -111,8 +113,9 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
                 Delta::Usage { input, output } => usage = Some((input, output)),
                 Delta::Done => break,
                 Delta::Error(e) => {
-                    (ctx.on_event)(AgentEvent::Error { message: e });
-                    return AgentOutcome { final_text, turns, aborted, stats: stats(ttft, usage) };
+                    (ctx.on_event)(AgentEvent::Error { message: e.clone() });
+                    // 流错误（凭证缺失/网络/限流）同样落终态，避免会话只剩用户消息
+                    return AgentOutcome { final_text: format!("(错误: {e})"), turns, aborted, stats: stats(ttft, usage) };
                 }
                 Delta::ToolCall { .. } => {}
             }
@@ -133,7 +136,7 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
         let mut results = Vec::with_capacity(calls.len());
         let mut loop_stop: Option<crate::agent::loop_detect::LoopStop> = None;
         for call in &calls {
-            (ctx.on_event)(AgentEvent::ToolCall { name: call.name.clone(), summary: summarize_args(&call.arguments) });
+            (ctx.on_event)(AgentEvent::ToolCall { name: call.name.clone(), summary: summarize_args(&call.name, &call.arguments) });
             // 工具执行段：cancel 打断即落 interrupted 终态（不等待执行完成，后续任务由 registry 收尾）
             let cancel = ctx.cancel.clone();
             let result = match &cancel {
@@ -150,7 +153,7 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
                 aborted = true;
                 break;
             }
-            (ctx.on_event)(AgentEvent::ToolResult { name: call.name.clone(), summary: result_summary(&call.name, &result) });
+            (ctx.on_event)(AgentEvent::ToolResult { name: call.name.clone(), summary: result_display(&result) });
             if let crate::agent::loop_detect::LoopVerdict::Stop(stop) = ctx.loop_detector.record(&call.name, &call.arguments, &result_text(&result)) {
                 loop_stop = Some(stop);
                 results.push(result);

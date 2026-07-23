@@ -3,6 +3,7 @@ import { createSignal, For, onMount, Show } from "solid-js";
 import { Bell, Trash2 } from "lucide-solid";
 import EmptyLine from "./EmptyLine";
 import { client } from "../lib/client";
+import { onClickOutside } from "../lib/dismiss";
 import { relTime } from "../lib/time";
 
 interface Notice {
@@ -15,6 +16,11 @@ const READ_KEY = "kxen-notif-read-at";
 export default function NotificationCenter() {
   const [open, setOpen] = createSignal(false);
   const [items, setItems] = createSignal<Notice[]>([]);
+  let root: HTMLDivElement | undefined;
+  onClickOutside(
+    () => root,
+    () => setOpen(false),
+  );
 
   const readAt = () => Number(localStorage.getItem(READ_KEY) ?? 0);
   const unread = () => items().filter((n) => n.at > readAt()).length;
@@ -47,7 +53,7 @@ export default function NotificationCenter() {
   };
 
   return (
-    <div class="relative">
+    <div class="relative" ref={(el) => (root = el)}>
       <button
         class="pressable relative px-1.5 py-1 rounded text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60"
         onClick={openPanel}
@@ -61,7 +67,7 @@ export default function NotificationCenter() {
         </Show>
       </button>
       <Show when={open()}>
-        <div class="absolute bottom-full left-0 mb-1.5 w-72 max-h-80 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] shadow-xl shadow-black/30 z-30">
+        <div class="composer-popup absolute bottom-full left-0 mb-1.5 w-72 max-h-80 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] z-30">
           <div class="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
             <span class="text-xs text-[var(--text-dim)]">通知</span>
             <div class="flex gap-2">

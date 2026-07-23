@@ -30,6 +30,8 @@ export function setVoiceProviderKey(provider: string, key: string): Promise<void
 }
 
 export interface VoiceSession {
+  /** 实际启动的引擎（主引擎失败会静默降级，apple 才有逐字 partial）。 */
+  engine: string;
   /** 松开 PTT：停止并返回最终文本（apple 等 final；provider 上传转写）。 */
   stop: () => Promise<string | null>;
 }
@@ -52,16 +54,17 @@ export async function startVoiceSession(
     if (p.kind === "voice.error") onError(p.message ?? "语音引擎错误");
   });
   try {
-    await client.rpc("voice.start", engine ? { engine } : {});
+    const started = await client.rpc<{ engine: string }>("voice.start", engine ? { engine } : {});
+    return {
+      engine: started.engine,
+      stop: async () => {
+        off();
+        const r = await client.rpc<{ text: string | null }>("voice.stop");
+        return r.text ?? null;
+      },
+    };
   } catch (e) {
     off();
     throw e;
   }
-  return {
-    stop: async () => {
-      off();
-      const r = await client.rpc<{ text: string | null }>("voice.stop");
-      return r.text ?? null;
-    },
-  };
 }

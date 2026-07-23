@@ -1,4 +1,4 @@
-// Playwright-WebKit 键盘能力对照：textarea / 裸 contenteditable / Lexical 三层分离。
+// Playwright-WebKit 键盘能力对照：textarea / 裸 contenteditable 两层（探针实证 input 事件原生正常）。
 import { describe, expect, it } from "vitest";
 import { userEvent } from "@vitest/browser/context";
 

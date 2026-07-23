@@ -23,6 +23,8 @@ export function createVoicePtt(opts: {
   setError: (v: string) => void;
   engine: () => string;
   startSession?: StartSession;
+  /** 启动成功回调：回传实际引擎（降级链可能落到非主引擎）。 */
+  onStarted?: (engine: string) => void;
 }): VoiceController {
   const startSession: StartSession = opts.startSession ?? startVoiceSession;
   let session: VoiceSession | null = null;
@@ -57,6 +59,7 @@ export function createVoicePtt(opts: {
       }
       session = s;
       opts.setRecording(true);
+      opts.onStarted?.(s.engine);
     } catch (e) {
       opts.setError(e instanceof Error ? e.message : String(e));
       // 失败复位：PTT 不留激活态（继续按住只剩普通空格键，keyup 自然结束）

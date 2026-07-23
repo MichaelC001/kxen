@@ -186,6 +186,7 @@ mod tests {
             statusline: Default::default(),
             voice: Default::default(),
             custom_providers: Default::default(),
+            send_when_running: String::new(),
         };
         SubagentDeps {
             registry: Arc::new(crate::tools::task::TaskRegistry::new()),
