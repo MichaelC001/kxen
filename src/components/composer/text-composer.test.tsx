@@ -128,13 +128,14 @@ describe("TextComposer (webkit)", () => {
     ta().focus();
     await userEvent.keyboard("/ultra");
     await new Promise((r) => setTimeout(r, 400));
-    const rows = [...document.querySelectorAll(".composer-popup .popup-row")];
+    const rows = [...document.querySelectorAll(".composer-popup button")];
     const ultra = rows.find((r) => r.textContent?.includes("大任务模式"));
     expect(ultra).toBeTruthy();
     const label = ultra!.querySelector("span") as HTMLElement;
     expect(label.textContent).toContain("/ultracode");
-    // 长描述曾把 label 挤成 0 宽（flex-basis 0 无剩余空间可 grow），修复后必须可见
-    expect(label.offsetWidth).toBeGreaterThan(0);
+    // 两行布局下 label 独占一行（曾经的单行 flex 布局会把 label 饿成 0 宽）
+    const rowWidth = (ultra as HTMLElement).offsetWidth;
+    expect(label.offsetWidth).toBeGreaterThan(rowWidth * 0.5);
     dispose();
   });
 

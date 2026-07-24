@@ -19,13 +19,13 @@ export default function ComposerPopup(props: {
       <For each={props.items}>
         {(item, i) => (
           <button
-            class="popup-row w-full"
+            class="w-full flex flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-[var(--bg-overlay)]"
             classList={{ "bg-[var(--bg-overlay)]": i() === props.selected }}
             onClick={() => item.apply()}
           >
-            <span class="flex-1 text-left truncate">{item.label}</span>
+            <span class="w-full text-left truncate">{item.label}</span>
             <Show when={item.detail}>
-              <span class="popup-detail text-2xs text-[var(--text-faint)] truncate text-right">
+              <span class="w-full text-2xs text-[var(--text-faint)] leading-snug">
                 {item.detail}
               </span>
             </Show>
