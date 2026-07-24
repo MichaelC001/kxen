@@ -1,5 +1,6 @@
-// 普通文件附件的路径解析：浏览器 File 只暴露 basename + size，
-// 真实位置靠后端 workspace 索引反查（fs.resolve_name），同名文件按 size 消歧。
+// 附件路径解析两条路：
+// 1. 拖拽/粘贴的浏览器 File 只暴露 basename + size，真实位置靠后端 workspace 索引反查（fs.resolve_name），同名按 size 消歧；
+// 2. 原生对话框选中带真实绝对路径，经 fs.allow_path 登记授权，图片再走 fs.read_attachment 读 base64。
 import { client } from "../../lib/client";
 
 export interface NameMatch {
@@ -31,4 +32,66 @@ export function resolveAttachPath(
   const sized = named.filter((c) => c.size === size);
   const onlySized = sized[0];
   return sized.length === 1 && onlySized ? onlySized.path : null;
+}
+
+/** 图片扩展名判定（对话框路径分流：图片读 base64 内联，其余走文件 chip）。 */
+export function isImagePath(p: string): boolean {
+  return /\.(png|jpe?g|gif|webp|bmp)$/i.test(p);
+}
+
+/** basename 提取：chip label 只显示文件名，完整路径放 title。 */
+export function baseName(p: string): string {
+  return p.split("/").filter(Boolean).pop() ?? p;
+}
+
+export interface AllowPathResult {
+  path: string;
+  rel: string | null;
+}
+
+/** 对话框选中路径登记会话授权：返回 canonical 绝对路径 + workspace 相对路径（区外为 null）。 */
+export async function fsAllowPath(sessionId: string, path: string): Promise<AllowPathResult> {
+  return client.rpc<AllowPathResult>("fs.allow_path", { session_id: sessionId, path });
+}
+
+export type AttachmentRead =
+  | { kind: "text"; text: string }
+  | { kind: "base64"; media_type: string; data: string };
+
+/** 读已授权附件：utf8 文本原样返回，二进制 base64 内联（2MB cap 在后端）。 */
+export async function fsReadAttachment(sessionId: string, path: string): Promise<AttachmentRead> {
+  return client.rpc<AttachmentRead>("fs.read_attachment", { session_id: sessionId, path });
+}
+
+export type PickedChip =
+  | {
+      kind: "image";
+      ref: string;
+      label: string;
+      title: string;
+      image: { media_type: string; data: string };
+    }
+  | { kind: "file"; ref: string; label: string; title: string };
+
+/** 对话框路径 -> chip 数据：登记授权后按图片/文件分流；任一步失败返回 null（调用方跳过该文件）。 */
+export async function resolvePickedPath(
+  sessionId: string,
+  path: string,
+): Promise<PickedChip | null> {
+  const allowed = await fsAllowPath(sessionId, path).catch(() => null);
+  if (!allowed) return null;
+  if (isImagePath(path)) {
+    const read = await fsReadAttachment(sessionId, allowed.path).catch(() => null);
+    if (read?.kind !== "base64") return null;
+    return {
+      kind: "image",
+      ref: `data:${read.media_type};base64,${read.data}`,
+      label: baseName(path),
+      title: allowed.path,
+      image: { media_type: read.media_type, data: read.data },
+    };
+  }
+  // 工作区内引用 rel（与 @ 引用同路径形态），区外引用绝对路径 + title 展示
+  const ref = allowed.rel ?? allowed.path;
+  return { kind: "file", ref, label: baseName(path), title: ref };
 }

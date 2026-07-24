@@ -318,6 +318,8 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let dir = state.active_workspace.read().expect("workspace").clone();
             Ok(json!(kxen_app::tools::search::find_by_name(name, &dir)))
         }
+        "fs.allow_path" => super::ops_attach::fs_allow_path(&params, &app.state::<Arc<AppState>>()),
+        "fs.read_attachment" => super::ops_attach::fs_read_attachment(&params, &app.state::<Arc<AppState>>()),
         "command.list" => {
             let state = app.state::<Arc<AppState>>();
             let dir = state.active_workspace.read().expect("workspace").clone();

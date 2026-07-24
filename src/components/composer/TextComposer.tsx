@@ -3,11 +3,11 @@
 import { createEffect, createSignal, Show, onCleanup, onMount } from "solid-js";
 import { Send, Square } from "lucide-solid";
 import { commandList, type CommandInfo, type ContextItem } from "../../lib/chat";
-import { activeSessionId } from "../../lib/state";
+import { activeSessionId, ensureActiveSession } from "../../lib/state";
 import { clearDraft, getDraft, setDraft } from "../../lib/drafts";
 import { COMPOSER_INSERT_EVENT } from "../../lib/composer-bus";
 import { buildItems, detectTrigger, type PopupState, type Trigger } from "./triggers";
-import { fsResolveName, resolveAttachPath } from "./attach";
+import { fsResolveName, resolveAttachPath, resolvePickedPath } from "./attach";
 import { createVoicePtt } from "./voice-ptt";
 import { caretRect } from "./caret";
 import { createPasteStore, isLargePaste, normalizePaste } from "./paste";
@@ -131,10 +131,7 @@ export default function TextComposer(props: {
       const items = await buildItems(trigger, commands(), {
         onChip: (kind, ref, label) => {
           removeTriggerText(trigger);
-          setRowChips((prev) => [
-            ...prev,
-            { id: `chip_${chipSeq++}`, kind, ref, label, title: ref },
-          ]);
+          pushChip({ kind, ref, label, title: ref });
           setPopup(null);
           ta?.focus();
         },
@@ -165,6 +162,9 @@ export default function TextComposer(props: {
     }, 200);
   }
 
+  const pushChip = (chip: Omit<RowChip, "id">) =>
+    setRowChips((prev) => [...prev, { id: `chip_${chipSeq++}`, ...chip }]);
+
   function attachFiles(files: FileList | File[]) {
     for (const file of files) {
       if (file.type.startsWith("image/")) {
@@ -172,16 +172,12 @@ export default function TextComposer(props: {
         reader.onload = () => {
           const dataUrl = String(reader.result);
           images.set(dataUrl, { media_type: file.type, data: dataUrl.split(",")[1] ?? "" });
-          setRowChips((prev) => [
-            ...prev,
-            {
-              id: `chip_${chipSeq++}`,
-              kind: "image",
-              ref: dataUrl,
-              label: `图片 ${file.type.split("/")[1] ?? ""}`,
-              preview: dataUrl,
-            },
-          ]);
+          pushChip({
+            kind: "image",
+            ref: dataUrl,
+            label: `图片 ${file.type.split("/")[1] ?? ""}`,
+            preview: dataUrl,
+          });
         };
         reader.readAsDataURL(file);
       } else {
@@ -194,10 +190,28 @@ export default function TextComposer(props: {
   async function attachOneFile(file: File) {
     const candidates = await fsResolveName(file.name).catch(() => []);
     const rel = resolveAttachPath(file.name, file.size, candidates) ?? file.name;
-    setRowChips((prev) => [
-      ...prev,
-      { id: `chip_${chipSeq++}`, kind: "file", ref: rel, label: file.name, title: rel },
-    ]);
+    pushChip({ kind: "file", ref: rel, label: file.name, title: rel });
+  }
+
+  /** 原生对话框附件：真实绝对路径。授权绑会话（草稿态先落库）；图片读 base64 内联，文件走 context chip。 */
+  async function attachPaths(paths: string[]) {
+    const sid = await ensureActiveSession();
+    for (const path of paths) {
+      const chip = await resolvePickedPath(sid, path);
+      if (!chip) continue;
+      if (chip.kind === "image") {
+        images.set(chip.ref, chip.image);
+        pushChip({
+          kind: "image",
+          ref: chip.ref,
+          label: chip.label,
+          title: chip.title,
+          preview: chip.ref,
+        });
+      } else {
+        pushChip({ kind: "file", ref: chip.ref, label: chip.label, title: chip.title });
+      }
+    }
   }
 
   function onPaste(e: ClipboardEvent) {
@@ -309,7 +323,7 @@ export default function TextComposer(props: {
           onCompositionEnd={() => (imeLockUntil = Date.now() + 50)}
         />
         <div class="composer-actionbar">
-          <AttachMenu onFiles={attachFiles} />
+          <AttachMenu onPaths={(paths) => void attachPaths(paths)} />
           <MicControl
             recording={recording}
             activeVoice={activeVoice}

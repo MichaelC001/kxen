@@ -79,7 +79,9 @@ pub(crate) async fn run_llm(
         if text_items.is_empty() {
             (String::new(), Vec::new())
         } else {
-            kxen_app::agent::context::build_context(&text_items, &session_path).await
+            // picked 授权快照随 run 固定：run 中途新增授权不进本轮注入
+            let picked = state.picked_files.snapshot(&session_id);
+            kxen_app::agent::context::build_context(&text_items, &session_path, picked.as_ref()).await
         }
     };
     for f in &context_failures {

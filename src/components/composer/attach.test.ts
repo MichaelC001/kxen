@@ -1,6 +1,44 @@
-// 附件路径解析：子目录命中、同名 size 消歧、逃逸候选拒绝。
-import { describe, expect, it } from "vitest";
-import { isSafeRelPath, resolveAttachPath } from "./attach";
+// 附件路径解析：子目录命中、同名 size 消歧、逃逸候选拒绝、对话框路径分类与授权读取。
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  baseName,
+  isImagePath,
+  isSafeRelPath,
+  resolveAttachPath,
+  resolvePickedPath,
+} from "./attach";
+
+// resolvePickedPath 的 RPC 两层 mock：fs.allow_path 登记授权，fs.read_attachment 读图片
+const rpcMock = vi.hoisted(() => ({
+  allow: null as unknown,
+  read: null as unknown,
+  allowFail: false,
+  readFail: false,
+}));
+vi.mock("../../lib/client", () => ({
+  client: {
+    rpc: (method: string) => {
+      if (method === "fs.allow_path") {
+        return rpcMock.allowFail
+          ? Promise.reject(new Error("denied"))
+          : Promise.resolve(rpcMock.allow);
+      }
+      if (method === "fs.read_attachment") {
+        return rpcMock.readFail
+          ? Promise.reject(new Error("denied"))
+          : Promise.resolve(rpcMock.read);
+      }
+      return Promise.reject(new Error(`unexpected ${method}`));
+    },
+  },
+}));
+
+afterEach(() => {
+  rpcMock.allow = null;
+  rpcMock.read = null;
+  rpcMock.allowFail = false;
+  rpcMock.readFail = false;
+});
 
 describe("isSafeRelPath", () => {
   it("放行普通相对路径", () => {
@@ -52,5 +90,71 @@ describe("resolveAttachPath", () => {
     ];
     expect(resolveAttachPath("secret.txt", 1, candidates)).toBeNull();
     expect(resolveAttachPath("passwd", 1, candidates)).toBeNull();
+  });
+});
+
+describe("isImagePath", () => {
+  it("按扩展名判定图片（大小写不敏感）", () => {
+    for (const p of [
+      "/tmp/a.png",
+      "/tmp/a.JPG",
+      "/tmp/a.jpeg",
+      "/x/y.gif",
+      "/x/y.webp",
+      "/x/y.bmp",
+    ]) {
+      expect(isImagePath(p), p).toBe(true);
+    }
+    for (const p of ["/tmp/a.txt", "/tmp/png", "/tmp/a.png.bak"]) {
+      expect(isImagePath(p), p).toBe(false);
+    }
+  });
+});
+
+describe("baseName", () => {
+  it("取路径末段", () => {
+    expect(baseName("/tmp/dir/a.txt")).toBe("a.txt");
+    expect(baseName("/a.txt")).toBe("a.txt");
+    expect(baseName("a.txt")).toBe("a.txt");
+  });
+});
+
+describe("resolvePickedPath", () => {
+  it("工作区内文件 chip 引用 rel", async () => {
+    rpcMock.allow = { path: "/w/src/a.txt", rel: "src/a.txt" };
+    const chip = await resolvePickedPath("s1", "/w/src/a.txt");
+    expect(chip).toEqual({ kind: "file", ref: "src/a.txt", label: "a.txt", title: "src/a.txt" });
+  });
+
+  it("工作区外文件 chip 引用绝对路径", async () => {
+    rpcMock.allow = { path: "/etc/hosts", rel: null };
+    const chip = await resolvePickedPath("s1", "/etc/hosts");
+    expect(chip).toEqual({ kind: "file", ref: "/etc/hosts", label: "hosts", title: "/etc/hosts" });
+  });
+
+  it("图片走 base64 内联，label 用 basename、title 用绝对路径", async () => {
+    rpcMock.allow = { path: "/tmp/pic.png", rel: null };
+    rpcMock.read = { kind: "base64", media_type: "image/png", data: "QUJD" };
+    const chip = await resolvePickedPath("s1", "/tmp/pic.png");
+    expect(chip).toEqual({
+      kind: "image",
+      ref: "data:image/png;base64,QUJD",
+      label: "pic.png",
+      title: "/tmp/pic.png",
+      image: { media_type: "image/png", data: "QUJD" },
+    });
+  });
+
+  it("授权失败跳过该文件", async () => {
+    rpcMock.allowFail = true;
+    expect(await resolvePickedPath("s1", "/gone.txt")).toBeNull();
+  });
+
+  it("图片读出文本或读取失败均不成 chip", async () => {
+    rpcMock.allow = { path: "/tmp/pic.png", rel: null };
+    rpcMock.read = { kind: "text", text: "not an image" };
+    expect(await resolvePickedPath("s1", "/tmp/pic.png")).toBeNull();
+    rpcMock.readFail = true;
+    expect(await resolvePickedPath("s1", "/tmp/pic.png")).toBeNull();
   });
 });

@@ -1,21 +1,29 @@
-// AttachMenu：+ 按钮（开启时旋转为 ×）+ 文件/图片选择（hidden input）。
+// AttachMenu：+ 按钮（开启时旋转为 ×）+ 原生对话框文件/图片选择。
+// 不用浏览器 file input：它只给 File 对象拿不到真实路径，附件授权与读取都要绝对路径。
 import { createSignal, Show } from "solid-js";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { FilePlus2, ImagePlus, Plus } from "lucide-solid";
 import { onClickOutside } from "../../lib/dismiss";
 
-export default function AttachMenu(props: { onFiles: (files: FileList) => void }) {
+const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
+
+export default function AttachMenu(props: { onPaths: (paths: string[]) => void }) {
   const [open, setOpen] = createSignal(false);
   let root: HTMLDivElement | undefined;
-  let fileInput: HTMLInputElement | undefined;
-  let imageInput: HTMLInputElement | undefined;
   onClickOutside(
     () => root,
     () => setOpen(false),
   );
 
-  const pick = (input: HTMLInputElement | undefined) => {
+  const pick = async (images: boolean) => {
     setOpen(false);
-    input?.click();
+    const selected = await openDialog({
+      multiple: true,
+      title: images ? "选择图片" : "选择文件",
+      ...(images ? { filters: [{ name: "图片", extensions: IMAGE_EXTS }] } : {}),
+    }).catch(() => null);
+    const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
+    if (paths.length > 0) props.onPaths(paths);
   };
 
   return (
@@ -30,31 +38,16 @@ export default function AttachMenu(props: { onFiles: (files: FileList) => void }
       </button>
       <Show when={open()}>
         <div class="composer-popup absolute bottom-full left-0 mb-1.5 w-44 rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] overflow-hidden z-20">
-          <button class="popup-row" onClick={() => pick(imageInput)}>
+          <button class="popup-row" onClick={() => void pick(true)}>
             <ImagePlus size={13} />
             选择图片
           </button>
-          <button class="popup-row" onClick={() => pick(fileInput)}>
+          <button class="popup-row" onClick={() => void pick(false)}>
             <FilePlus2 size={13} />
             选择文件
           </button>
         </div>
       </Show>
-      <input
-        ref={(el) => (imageInput = el)}
-        type="file"
-        accept="image/*"
-        multiple
-        class="hidden"
-        onChange={(e) => e.currentTarget.files && props.onFiles(e.currentTarget.files)}
-      />
-      <input
-        ref={(el) => (fileInput = el)}
-        type="file"
-        multiple
-        class="hidden"
-        onChange={(e) => e.currentTarget.files && props.onFiles(e.currentTarget.files)}
-      />
     </div>
   );
 }

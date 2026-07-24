@@ -54,6 +54,8 @@ pub struct AppState {
     pub notifications: std::sync::Mutex<std::collections::VecDeque<(u64, String)>>,
     /// 前台聚焦会话（OS 通知只发非前台会话的完成事件）
     pub foreground_session: std::sync::RwLock<String>,
+    /// 原生对话框附件授权清单（选择即授权；context 边界守卫与 read_attachment 的唯一放行依据）
+    pub picked_files: kxen_app::core::attachment::PickedFiles,
 }
 
 impl AppState {
@@ -121,6 +123,7 @@ impl AppState {
             session_involved: std::sync::Mutex::new(std::collections::HashMap::new()),
             notifications: std::sync::Mutex::new(kxen_app::core::notifications::load()),
             foreground_session: std::sync::RwLock::new(String::new()),
+            picked_files: kxen_app::core::attachment::PickedFiles::default(),
             workdir,
         }
     }

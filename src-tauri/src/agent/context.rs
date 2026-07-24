@@ -2,6 +2,7 @@
 //! 数值依据 docs/research/2026-07-21-agent-ux.md §1：16KB 大纲降级、64KB 单文件 cap、200KB 总量 cap。
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 const OUTLINE_THRESHOLD: usize = 16 * 1024;
@@ -32,7 +33,8 @@ pub enum ContextItem {
 
 /// 全部 context item -> 拼接的注入文本 + 失败清单（调用方负责把失败告知用户）。
 /// 单项失败不致命：降级为错误说明块，让模型知情而不是静默丢失；但用户也必须可见。
-pub async fn build_context(items: &[ContextItem], workdir: &Path) -> (String, Vec<String>) {
+/// allowed：原生对话框授权的 workspace 外绝对路径（canonical），仅越过边界检查，safety 规则照跑。
+pub async fn build_context(items: &[ContextItem], workdir: &Path, allowed: Option<&HashSet<PathBuf>>) -> (String, Vec<String>) {
     let mut out = String::new();
     let mut failures = Vec::new();
     for item in items {
@@ -41,8 +43,8 @@ pub async fn build_context(items: &[ContextItem], workdir: &Path) -> (String, Ve
             break;
         }
         let (block, failure) = match item {
-            ContextItem::File { path } => file_block(path, workdir),
-            ContextItem::Dir { path } => dir_block(path, workdir),
+            ContextItem::File { path } => file_block(path, workdir, allowed),
+            ContextItem::Dir { path } => dir_block(path, workdir, allowed),
             ContextItem::Web { url } | ContextItem::Docs { url } => web_block(url).await,
             ContextItem::Note { text } => (format!("\n{text}\n"), None),
         };
@@ -60,11 +62,12 @@ fn resolve(input: &str, workdir: &Path) -> PathBuf {
 }
 
 /// @ 引用的 workspace 边界守卫：canonicalize 后必须仍在 workdir 内（symlink 跳出拦截），
-/// 再叠 safety 的保护路径规则（.git/系统目录/凭证不进模型上下文）。
-fn guard_context_path(full: &Path, workdir: &Path) -> Result<PathBuf, String> {
+/// 例外是 picked 授权清单内的绝对路径（原生对话框选择即授权），
+/// 两者都再叠 safety 的保护路径规则（.git/系统目录/凭证不进模型上下文，授权不豁免）。
+fn guard_context_path(full: &Path, workdir: &Path, allowed: Option<&HashSet<PathBuf>>) -> Result<PathBuf, String> {
     let canon_work = workdir.canonicalize().unwrap_or_else(|_| workdir.to_path_buf());
     let canon = canon_lenient(full);
-    if !canon.starts_with(&canon_work) {
+    if !canon.starts_with(&canon_work) && !allowed.is_some_and(|set| set.contains(&canon)) {
         return Err(format!("path escapes workspace: {}", full.display()));
     }
     if let crate::tools::safety::Verdict::Deny { rule_id, reason, .. } =
@@ -110,10 +113,10 @@ fn canon_lenient(p: &Path) -> PathBuf {
     out
 }
 
-fn file_block(path: &str, workdir: &Path) -> (String, Option<String>) {
+fn file_block(path: &str, workdir: &Path, allowed: Option<&HashSet<PathBuf>>) -> (String, Option<String>) {
     let full = resolve(path, workdir);
     let rel = full.strip_prefix(workdir).unwrap_or(&full).to_string_lossy().into_owned();
-    let full = match guard_context_path(&full, workdir) {
+    let full = match guard_context_path(&full, workdir, allowed) {
         Ok(p) => p,
         Err(e) => return (format!("\n<file_content path=\"{rel}\">(blocked: {e})</file_content>\n"), Some(format!("{rel}（{e}）"))),
     };
@@ -145,10 +148,10 @@ fn file_block(path: &str, workdir: &Path) -> (String, Option<String>) {
     }
 }
 
-fn dir_block(path: &str, workdir: &Path) -> (String, Option<String>) {
+fn dir_block(path: &str, workdir: &Path, allowed: Option<&HashSet<PathBuf>>) -> (String, Option<String>) {
     let full = resolve(path, workdir);
     let rel = full.strip_prefix(workdir).unwrap_or(&full).to_string_lossy().into_owned();
-    let full = match guard_context_path(&full, workdir) {
+    let full = match guard_context_path(&full, workdir, allowed) {
         Ok(p) => p,
         Err(e) => return (format!("\n<dir_listing path=\"{rel}\">(blocked: {e})</dir_listing>\n"), Some(format!("{rel}（{e}）"))),
     };
@@ -215,16 +218,38 @@ mod tests {
             ContextItem::File { path: "big.txt".into() },
             ContextItem::File { path: "huge.txt".into() },
         ];
-        let (out, failures) = rt.block_on(build_context(&items, &dir));
+        let (out, failures) = rt.block_on(build_context(&items, &dir, None));
         assert!(out.contains("hello"));
         assert!(out.contains("First 1KB of big.txt"), "16KB+ 应走大纲降级");
         assert!(out.contains("64KB cap"), "64KB+ 应被拒绝");
         assert!(failures.is_empty());
         // 硬失败进清单（用户可见）：不存在的文件
         let missing = vec![ContextItem::File { path: "nope.txt".into() }];
-        let (_, failures2) = rt.block_on(build_context(&missing, &dir));
+        let (_, failures2) = rt.block_on(build_context(&missing, &dir, None));
         assert_eq!(failures2.len(), 1);
         assert!(failures2[0].contains("nope.txt"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn guard_allows_picked_absolute_path_outside_workspace() {
+        let tag = format!("kxen-guard-{}", std::process::id());
+        let work = std::env::temp_dir().join(format!("{tag}-work"));
+        let outside = std::env::temp_dir().join(format!("{tag}-outside"));
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let file = outside.join("picked.txt");
+        std::fs::write(&file, "picked content").unwrap();
+        let canon = file.canonicalize().unwrap();
+
+        // 清单外：workspace 外绝对路径仍拒
+        let denied = guard_context_path(&file, &work, None);
+        assert!(denied.unwrap_err().contains("escapes workspace"));
+        // 清单内：放行（授权只越过边界检查，不豁免 safety 规则）
+        let allowed: HashSet<PathBuf> = [canon.clone()].into_iter().collect();
+        assert_eq!(guard_context_path(&file, &work, Some(&allowed)).unwrap(), canon);
+
+        std::fs::remove_dir_all(&work).ok();
+        std::fs::remove_dir_all(&outside).ok();
     }
 }

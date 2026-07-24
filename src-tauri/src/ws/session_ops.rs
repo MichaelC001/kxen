@@ -86,7 +86,7 @@ pub(super) fn session_update_meta(params: &Value) -> Result<Value, String> {
 /// 1. 先清 pending 队列 + cancel active run token——断粮：run 收尾的续跑逻辑读不到下一条，
 ///    取消令牌让在跑的 run 尽快落地，防删除后幽灵续跑重建文件；
 /// 2. 轮询等 run 落地（3s 超时按失败继续，删除不能被卡死）；
-/// 3. 再摘外围引用：approvals / cron / goal / team / extras——它们都可能在 run 结束后回调会话；
+/// 3. 再摘外围引用：approvals / cron / goal / team / extras / picked 授权——它们都可能在 run 结束后回调会话；
 /// 4. 最后删文件（queue/compact 随 meta/jsonl 一并清，属同一会话生命周期）。
 /// 每步失败只记日志不中断：删除是用户明确意图，半清理好过不清理。
 /// goal 标 Canceled 不删文件（审计痕迹）；shadow git 按 workdir 共享，不动。
@@ -153,6 +153,7 @@ pub(super) async fn session_delete(params: &Value, state: &crate::AppState) -> R
     }
     state.team.drop_session(id);
     state.drop_extras(id);
+    state.picked_files.drop_session(id);
 
     // 4. 删文件（meta/jsonl/compact/queue 一并；trash 可恢复）
     kxen_app::core::session::remove(&sessions_dir, id);
