@@ -10,3 +10,4 @@ dist/
 src/components/composer/__screenshots__/
 src/components/__screenshots__/
 .DS_Store
+src-tauri/gen/

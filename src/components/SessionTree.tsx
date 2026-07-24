@@ -1,6 +1,7 @@
 // SessionTree：Codex 式项目-会话树（每组 ≤5 条，组可折叠，行内置顶/重命名/删除确认/拖拽排序）。
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { ChevronDown, ChevronRight, FolderOpen, FolderPlus, Plus } from "lucide-solid";
+import { ChevronDown, ChevronRight, FolderOpen, FolderPlus, PenLine, Plus } from "lucide-solid";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   sessionDelete,
   sessionUpdateMeta,
@@ -102,13 +103,27 @@ export default function SessionTree() {
     await refreshSessions();
   };
 
-  const addPath = async () => {
-    const path = newPath().trim();
-    if (!path) return;
+  const addAndSwitch = async (path: string) => {
     await workspaceAdd(path).catch(() => {});
     await workspaceSwitch(path).catch(() => {});
     await refreshSessions();
     await reloadRecents();
+  };
+
+  // 原生目录选择器：用户不应手敲绝对路径
+  const pickDir = async () => {
+    const selected = await openDialog({
+      directory: true,
+      multiple: false,
+      title: "选择项目目录",
+    }).catch(() => null);
+    if (typeof selected === "string" && selected) await addAndSwitch(selected);
+  };
+
+  const addPath = async () => {
+    const path = newPath().trim();
+    if (!path) return;
+    await addAndSwitch(path);
     setAdding(false);
     setNewPath("");
   };
@@ -203,13 +218,22 @@ export default function SessionTree() {
       <Show
         when={adding()}
         fallback={
-          <button
-            class="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-xs text-[var(--text-faint)] hover:bg-[var(--bg-overlay)]/60"
-            onClick={() => setAdding(true)}
-          >
-            <FolderPlus size={12} />
-            添加项目目录…
-          </button>
+          <div class="flex items-center gap-0.5">
+            <button
+              class="flex-1 flex items-center gap-1.5 px-1.5 py-1 rounded text-xs text-[var(--text-faint)] hover:bg-[var(--bg-overlay)]/60"
+              onClick={() => void pickDir()}
+            >
+              <FolderPlus size={12} />
+              添加项目目录…
+            </button>
+            <button
+              class="p-1 rounded text-[var(--text-faint)] hover:bg-[var(--bg-overlay)]/60"
+              title="手动输入路径"
+              onClick={() => setAdding(true)}
+            >
+              <PenLine size={12} />
+            </button>
+          </div>
         }
       >
         <div class="flex items-center gap-1 px-1.5 py-1">

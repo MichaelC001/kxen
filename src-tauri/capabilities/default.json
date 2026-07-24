@@ -7,6 +7,7 @@
     "core:default",
     "websocket:default",
     "core:window:allow-start-dragging",
-    "notification:default"
+    "notification:default",
+    "dialog:default"
   ]
 }

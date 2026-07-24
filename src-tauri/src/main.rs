@@ -145,6 +145,7 @@ pub fn run() {
         let app = tauri::Builder::default()
             .plugin(tauri_plugin_websocket::init())
             .plugin(tauri_plugin_notification::init())
+            .plugin(tauri_plugin_dialog::init())
             .invoke_handler(tauri::generate_handler![ws_port])
             .manage(Arc::new(AppState::new()))
             .setup(|app| {
