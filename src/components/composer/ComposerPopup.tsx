@@ -25,7 +25,9 @@ export default function ComposerPopup(props: {
           >
             <span class="flex-1 text-left truncate">{item.label}</span>
             <Show when={item.detail}>
-              <span class="text-2xs text-[var(--text-faint)] truncate">{item.detail}</span>
+              <span class="popup-detail text-2xs text-[var(--text-faint)] truncate text-right">
+                {item.detail}
+              </span>
             </Show>
           </button>
         )}

@@ -1,6 +1,7 @@
 // TextComposer 实测：原生键入 / IME Enter 守卫 / slash 任意位置 / 大粘贴折叠 / 图片 chip / 草稿隔离。
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
+import "../../styles.css";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "@vitest/browser/context";
 import TextComposer from "./TextComposer";
@@ -33,7 +34,15 @@ vi.mock("../../lib/chat", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../../lib/chat")>();
   return {
     ...orig,
-    commandList: async () => [{ name: "doctor", description: "环境自检", kind: "builtin" }],
+    commandList: async () => [
+      { name: "doctor", description: "环境自检", kind: "builtin" },
+      {
+        name: "ultracode",
+        description: "大任务模式：分解 -> workflow 并行实现 -> 集成验证",
+        kind: "builtin",
+        argument_hint: "<实现任务>",
+      },
+    ],
     sessionList: async () => [],
     sessionCreate: async () => {
       if (!chatMock.deferred) return chatMock.meta();
@@ -110,6 +119,22 @@ describe("TextComposer (webkit)", () => {
     const rect = popup!.getBoundingClientRect();
     expect(rect.bottom).toBeGreaterThan(0);
     expect(rect.top).toBeLessThan(window.innerHeight);
+    dispose();
+  });
+
+  it("slash 长描述不挤没命令名（flex 饿死回归）", async () => {
+    const { dispose, ta } = mount();
+    await new Promise((r) => setTimeout(r, 100));
+    ta().focus();
+    await userEvent.keyboard("/ultra");
+    await new Promise((r) => setTimeout(r, 400));
+    const rows = [...document.querySelectorAll(".composer-popup .popup-row")];
+    const ultra = rows.find((r) => r.textContent?.includes("大任务模式"));
+    expect(ultra).toBeTruthy();
+    const label = ultra!.querySelector("span") as HTMLElement;
+    expect(label.textContent).toContain("/ultracode");
+    // 长描述曾把 label 挤成 0 宽（flex-basis 0 无剩余空间可 grow），修复后必须可见
+    expect(label.offsetWidth).toBeGreaterThan(0);
     dispose();
   });
 
