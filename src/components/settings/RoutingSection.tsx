@@ -26,6 +26,11 @@ const PROVIDERS = [
   { id: "openai", label: "GPT/Codex" },
   { id: "xai", label: "Grok Build" },
   { id: "kimi-for-coding", label: "Kimi Code" },
+  { id: "deepseek", label: "DeepSeek" },
+  { id: "mistral", label: "Mistral" },
+  { id: "groq", label: "Groq" },
+  { id: "google", label: "Gemini" },
+  { id: "together", label: "Together" },
 ];
 
 interface Slot {
@@ -109,6 +114,11 @@ export default function RoutingSection() {
       openai: "gpt-5.4",
       xai: "grok-build-0.1",
       "kimi-for-coding": "kimi-for-coding",
+      deepseek: "deepseek-chat",
+      mistral: "mistral-large-latest",
+      groq: "llama-3.3-70b-versatile",
+      google: "gemini-2.5-flash",
+      together: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     })[provider] ?? "";
 
   return (

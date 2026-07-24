@@ -1,32 +1,55 @@
-// 中心看板：多 workspace 卡片视图（会话数/运行态/最近活动/脏文件数），点击切换并回会话页。
-import { createSignal, For, onMount, Show } from "solid-js";
+// 工作看板：workspace = 并行任务运行单元，一列一个 workspace。
+// 列内分区：运行中会话 / 隔离树 / goal / 排队与 cron 计数；8s 轮询 + goal/task 事件即时刷新。
+import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { A, useNavigate } from "@solidjs/router";
-import { ArrowLeft, FolderGit2, Play } from "lucide-solid";
-import { workspacesOverview, workspaceSwitch, type WorkspaceOverview } from "../lib/chat";
+import { ArrowLeft, FolderGit2, GitBranch, Play, Target } from "lucide-solid";
+import { onTopic, workspacesOverview, workspaceSwitch, type WorkspaceOverview } from "../lib/chat";
+import { goalStatusMeta, rankCards, type GoalTone } from "../lib/board";
 import { relTime } from "../lib/time";
 import { onDragStart } from "../lib/drag";
+import EmptyLine from "../components/EmptyLine";
+
+const TONE_CLASS: Record<GoalTone, string> = {
+  ok: "text-[var(--ok)]",
+  warn: "text-[var(--warn)]",
+  dim: "text-[var(--text-faint)]",
+};
 
 export default function Workspaces() {
   const navigate = useNavigate();
   const [cards, setCards] = createSignal<WorkspaceOverview[]>([]);
   const [note, setNote] = createSignal("");
+  let unlisten: (() => void) | undefined;
+  let timer: ReturnType<typeof setInterval> | undefined;
 
-  onMount(async () => {
+  const reload = async () => {
     const list = await workspacesOverview().catch(() => null);
     if (list) setCards(list);
+  };
+
+  onMount(async () => {
+    await reload();
+    unlisten = onTopic(["goal.update", "task.update"], () => void reload());
+    timer = setInterval(() => void reload(), 8000);
   });
+  onCleanup(() => {
+    unlisten?.();
+    if (timer) clearInterval(timer);
+  });
+
+  const flash = (msg: string) => {
+    setNote(msg);
+    setTimeout(() => setNote(""), 3000);
+  };
 
   const open = async (path: string) => {
     try {
       await workspaceSwitch(path);
       navigate("/");
     } catch (e) {
-      setNote(String(e));
-      setTimeout(() => setNote(""), 3000);
+      flash(String(e));
     }
   };
-
-  const basename = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
 
   return (
     <div class="h-full flex-1 overflow-auto">
@@ -39,50 +62,131 @@ export default function Workspaces() {
           <ArrowLeft size={13} />
           返回会话
         </A>
-        <h1 class="text-lg font-medium text-[var(--text)] mb-4">工作区</h1>
+        <h1 class="text-lg font-medium text-[var(--text)] mb-4">工作看板</h1>
         <Show when={note()}>
-          <div class="text-xs text-[var(--err,#e5534b)] mb-3">{note()}</div>
+          <div class="text-xs text-[var(--err)] mb-3">{note()}</div>
         </Show>
         <Show
           when={cards().length > 0}
-          fallback={<div class="text-sm text-[var(--text-dim)]">还没有工作区记录</div>}
+          fallback={
+            <div class="max-w-md rounded-lg border border-dashed border-[var(--border)] p-8 text-center">
+              <p class="text-sm text-[var(--text-dim)]">还没有工作区</p>
+              <p class="text-xs text-[var(--text-faint)] mt-1">
+                在会话页打开的项目会出现在这里：每个工作区一列，并行跑着什么一眼可见
+              </p>
+            </div>
+          }
         >
-          <div class="grid grid-cols-2 gap-3 max-w-3xl">
-            <For each={cards()}>
-              {(c) => (
-                <button
-                  class="pressable text-left rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-4 hover:border-[var(--text-dim)] transition-colors"
-                  onClick={() => void open(c.path)}
-                >
-                  <div class="flex items-center gap-2 mb-1">
-                    <FolderGit2 size={15} class="text-[var(--text-dim)] shrink-0" />
-                    <span class="text-sm font-medium text-[var(--text)] truncate">
-                      {basename(c.path)}
-                    </span>
-                    <Show when={c.running > 0}>
-                      <span class="ml-auto inline-flex items-center gap-1 text-xs text-[var(--ok)] shrink-0">
-                        <Play size={11} />
-                        {c.running} 运行中
-                      </span>
-                    </Show>
-                  </div>
-                  <div class="text-xs text-[var(--text-dim)] truncate mb-2 selectable">
-                    {c.path}
-                  </div>
-                  <div class="flex items-center gap-3 text-xs text-[var(--text-dim)]">
-                    <span>{c.sessions} 会话</span>
-                    <Show when={c.dirty !== null}>
-                      <span classList={{ "text-[var(--warn,#d29922)]": (c.dirty ?? 0) > 0 }}>
-                        {c.dirty} 未提交
-                      </span>
-                    </Show>
-                    <span class="ml-auto">{relTime(c.last_activity)}</span>
-                  </div>
-                </button>
-              )}
-            </For>
+          <div class="flex items-start gap-3 overflow-x-auto pb-4">
+            <For each={rankCards(cards())}>{(c) => <Column card={c} onOpen={open} />}</For>
           </div>
         </Show>
+      </div>
+    </div>
+  );
+}
+
+function Section(props: { title: string; children: JSX.Element }) {
+  return (
+    <div>
+      <div class="text-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
+        {props.title}
+      </div>
+      {props.children}
+    </div>
+  );
+}
+
+function Column(props: { card: WorkspaceOverview; onOpen: (path: string) => void }) {
+  const c = () => props.card;
+  const basename = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
+
+  return (
+    <div class="w-72 shrink-0 rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] flex flex-col">
+      <button
+        class="pressable text-left p-3 border-b border-[var(--border)] hover:border-[var(--text-dim)] transition-colors"
+        title="切换到该工作区"
+        onClick={() => void props.onOpen(c().path)}
+      >
+        <div class="flex items-center gap-2">
+          <FolderGit2 size={14} class="text-[var(--text-dim)] shrink-0" />
+          <span class="text-sm font-medium text-[var(--text)] truncate">{basename(c().path)}</span>
+          <Show when={c().running > 0}>
+            <span class="ml-auto inline-flex items-center gap-1 text-2xs text-[var(--ok)] shrink-0">
+              <Play size={10} />
+              {c().running} 运行中
+            </span>
+          </Show>
+        </div>
+        <div class="text-2xs text-[var(--text-faint)] truncate selectable mt-0.5">{c().path}</div>
+      </button>
+
+      <div class="px-3 py-2 space-y-3 flex-1">
+        <Section title="运行中">
+          <For each={c().running_sessions} fallback={<EmptyLine text="无运行中会话" />}>
+            {(s) => (
+              <div class="flex items-center gap-1.5 px-1 py-0.5 text-xs">
+                <span class="w-1.5 h-1.5 rounded-full bg-[var(--ok)] shrink-0 animate-pulse" />
+                <span class="flex-1 truncate text-[var(--text)]">{s.title}</span>
+                <Show when={s.queued > 0}>
+                  <span class="text-2xs tabular-nums text-[var(--warn)] shrink-0">
+                    +{s.queued} 排队
+                  </span>
+                </Show>
+              </div>
+            )}
+          </For>
+        </Section>
+
+        <Section title="隔离树">
+          <For each={c().worktrees} fallback={<EmptyLine text="无隔离树" />}>
+            {(t) => (
+              <button
+                class="pressable w-full flex items-center gap-1.5 px-1 py-0.5 rounded text-xs hover:bg-[var(--bg-overlay)]"
+                title="切换到该隔离树（会话页看 diff 与改动）"
+                onClick={() => void props.onOpen(t.path)}
+              >
+                <GitBranch size={11} class="text-[var(--text-faint)] shrink-0" />
+                <span class="font-mono flex-1 truncate text-left text-[var(--text)]">
+                  {t.branch}
+                </span>
+                <Show when={(t.dirty ?? 0) > 0}>
+                  <span class="text-2xs tabular-nums text-[var(--warn)] shrink-0">
+                    {t.dirty} 改
+                  </span>
+                </Show>
+              </button>
+            )}
+          </For>
+        </Section>
+
+        <Show when={c().goal}>
+          {(g) => (
+            <Section title="goal">
+              <div class="flex items-start gap-1.5 px-1 py-0.5 text-xs">
+                <Target size={11} class="text-[var(--text-faint)] shrink-0 mt-0.5" />
+                <span class="flex-1 line-clamp-2 text-[var(--text)]">{g().objective}</span>
+                <span class={`text-2xs shrink-0 ${TONE_CLASS[goalStatusMeta(g().status).tone]}`}>
+                  {goalStatusMeta(g().status).label}
+                </span>
+              </div>
+            </Section>
+          )}
+        </Show>
+      </div>
+
+      <div class="flex items-center gap-3 px-3 py-2 border-t border-[var(--border)] text-2xs text-[var(--text-dim)]">
+        <span>{c().sessions} 会话</span>
+        <Show when={c().queued > 0}>
+          <span class="text-[var(--warn)]">{c().queued} 排队</span>
+        </Show>
+        <Show when={c().cron > 0}>
+          <span>{c().cron} cron</span>
+        </Show>
+        <Show when={c().dirty !== null}>
+          <span classList={{ "text-[var(--warn)]": (c().dirty ?? 0) > 0 }}>{c().dirty} 未提交</span>
+        </Show>
+        <span class="ml-auto">{relTime(c().last_activity)}</span>
       </div>
     </div>
   );

@@ -10,11 +10,26 @@ const KINDS: { id: Kind; label: string; detail: string }[] = [
     label: "订阅 OAuth",
     detail: "Claude/ChatGPT/Grok/Kimi 订阅（OAuth JSON 或 access token）",
   },
-  { id: "apikey", label: "API Key", detail: "官方平台 key（OpenAI / xAI）" },
+  {
+    id: "apikey",
+    label: "API Key",
+    detail: "官方平台 key（OpenAI / xAI / DeepSeek / Mistral / Groq / Gemini / Together）",
+  },
   { id: "custom", label: "自定义提供商", detail: "OpenAI / Anthropic 兼容端点（中转、自部署）" },
 ];
 
-const OAUTH_PROVIDERS = ["anthropic", "openai", "xai", "kimi-for-coding", "openrouter"];
+const OAUTH_PROVIDERS = [
+  "anthropic",
+  "openai",
+  "xai",
+  "kimi-for-coding",
+  "openrouter",
+  "deepseek",
+  "mistral",
+  "groq",
+  "google",
+  "together",
+];
 const CAPS = ["text", "vision", "audio"];
 
 export default function AddAccountPanel(props: { onDone: (msg: string) => void }) {

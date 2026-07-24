@@ -73,6 +73,15 @@ impl LlmClient {
                 // 本地 Ollama 无鉴权，OpenAI 兼容端点的 bearer 仅为占位
                 crate::llm::xai::XaiProvider::custom("http://localhost:11434/v1/chat/completions".to_string(), "ollama".to_string()).stream_chat_with_tools(&model.model, messages, tools)
             }
+            p if crate::llm::compat::preset(p).is_some() => {
+                // 内置 OpenAI 兼容预设：与自定义提供商同路径，仅端点来自预设表
+                let provider = p.to_string();
+                let Some(crate::auth::credential::CredentialKind::Api { key }) = crate::auth::credential::credential_for(&store, p, model.account.as_deref()) else {
+                    return Box::pin(futures::stream::once(async move { Delta::Error(format!("{provider} credential missing (import API key in settings)")) }));
+                };
+                let url = crate::llm::compat::chat_url(p).expect("preset checked");
+                crate::llm::xai::XaiProvider::custom(url, key.clone()).stream_chat_with_tools(&model.model, messages, tools)
+            }
             other if other.starts_with("custom:") => {
                 // 自定义类型提供商：config.toml 给端点+协议，auth.json 给 key（custom:<name>）
                 let name = other[7..].to_string();

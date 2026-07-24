@@ -49,7 +49,7 @@ pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Res
         "provider.accounts" => {
             let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
-            let mut out: Vec<Value> = ["anthropic", "openai", "xai", "kimi-for-coding", "openrouter"]
+            let mut out: Vec<Value> = ["anthropic", "openai", "xai", "kimi-for-coding", "openrouter", "deepseek", "mistral", "groq", "google", "together"]
                 .iter()
                 .flat_map(|p| {
                     kxen_app::auth::credential::accounts_of(&store, p).into_iter().map(|key| {

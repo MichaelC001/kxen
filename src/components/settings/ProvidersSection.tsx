@@ -27,6 +27,11 @@ const PROVIDER_LABELS: Record<string, string> = {
   "kimi-for-coding": "Kimi Code",
   openrouter: "OpenRouter",
   ollama: "Ollama (本地)",
+  deepseek: "DeepSeek",
+  mistral: "Mistral",
+  groq: "Groq",
+  google: "Google Gemini",
+  together: "Together AI",
 };
 
 const GUIDES: Record<string, string[]> = {
@@ -46,6 +51,26 @@ const GUIDES: Record<string, string[]> = {
     "1. 安装并运行 `ollama serve`",
     "2. `ollama pull llama3.3` 拉模型",
     "3. 无需凭证，直接选模型用",
+  ],
+  deepseek: [
+    "1. 到 https://platform.deepseek.com 创建 API Key",
+    "2. 点「添加账号」选 deepseek 粘贴（kind 选 API Key）",
+  ],
+  mistral: [
+    "1. 到 https://console.mistral.ai 创建 API Key",
+    "2. 点「添加账号」选 mistral 粘贴（kind 选 API Key）",
+  ],
+  groq: [
+    "1. 到 https://console.groq.com/keys 创建 API Key",
+    "2. 点「添加账号」选 groq 粘贴（kind 选 API Key）",
+  ],
+  google: [
+    "1. 到 https://aistudio.google.com/apikey 创建 API Key",
+    "2. 点「添加账号」选 google 粘贴（kind 选 API Key）",
+  ],
+  together: [
+    "1. 到 https://api.together.xyz/settings/api-keys 创建 API Key",
+    "2. 点「添加账号」选 together 粘贴（kind 选 API Key）",
   ],
 };
 

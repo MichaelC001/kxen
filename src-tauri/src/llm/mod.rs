@@ -5,6 +5,7 @@ pub mod anthropic;
 pub mod anthropic_sse;
 pub mod catalog;
 pub mod client;
+pub mod compat;
 pub mod retry;
 pub mod models;
 pub mod mrm;

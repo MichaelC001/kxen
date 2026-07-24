@@ -1,6 +1,7 @@
 //! workspace：多项目目录管理（最近列表持久化 + 当前切换）。
 
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,7 +44,31 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-// ---------------- 中心看板（/workspaces 卡片数据源） ----------------
+// ---------------- 工作看板（/workspaces 卡片数据源） ----------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RunningSession {
+    pub id: String,
+    pub title: String,
+    /// 该会话排队待跑消息数（run 进行中发送的消息在此等续跑）
+    pub queued: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WorktreeDigest {
+    pub name: String,
+    pub branch: String,
+    pub path: String,
+    /// 脏文件数（status 失败为 None，前端不展示计数）
+    pub dirty: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GoalDigest {
+    pub id: String,
+    pub objective: String,
+    pub status: String,
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct WorkspaceOverview {
@@ -53,27 +78,87 @@ pub struct WorkspaceOverview {
     pub last_activity: u64,
     /// git 脏文件数（非仓库/命令失败为 None，前端不展示该项）
     pub dirty: Option<usize>,
+    /// 运行中会话明细（看板「正在跑什么」区）
+    pub running_sessions: Vec<RunningSession>,
+    /// 该 workspace 的 kxen 隔离树（调用方异步采集注入：git spawn 不进纯函数）
+    pub worktrees: Vec<WorktreeDigest>,
+    /// 活态 goal 摘要（绑定到本 workspace 会话的最近更新一个）
+    pub goal: Option<GoalDigest>,
+    /// 全 workspace 排队消息总数
+    pub queued: usize,
+    /// 绑定到本 workspace 会话的 cron job 数
+    pub cron: usize,
 }
 
-/// 卡片聚合：会话数 + 运行中数 + 最近活动（会话 updated_at 优先，回落 workspace last_used）。
+/// 卡片聚合（纯函数，可测）：昂贵数据全部由调用方采集注入——
+/// goals 一次全量读盘、cron/queue 是内存快照、worktree 是异步 git 采集结果。
 pub fn overview(
     workspaces: Vec<Workspace>,
     sessions: &[crate::core::session::Session],
-    running: &std::collections::HashSet<String>,
+    running: &HashSet<String>,
+    queued: &HashMap<String, usize>,
+    goals: &[crate::core::goal::Goal],
+    cron: &[crate::core::schedule::CronJob],
+    worktrees: &HashMap<String, Vec<WorktreeDigest>>,
 ) -> Vec<WorkspaceOverview> {
     workspaces
         .into_iter()
         .map(|w| {
             let mine: Vec<_> = sessions.iter().filter(|s| s.directory == w.path).collect();
+            let mine_ids: HashSet<&str> = mine.iter().map(|s| s.id.as_str()).collect();
+            let running_sessions: Vec<RunningSession> = mine
+                .iter()
+                .filter(|s| running.contains(&s.id))
+                .map(|s| RunningSession {
+                    id: s.id.clone(),
+                    title: s.title.clone(),
+                    queued: queued.get(&s.id).copied().unwrap_or(0),
+                })
+                .collect();
             WorkspaceOverview {
                 sessions: mine.len(),
-                running: mine.iter().filter(|s| running.contains(&s.id)).count(),
+                running: running_sessions.len(),
                 last_activity: mine.iter().map(|s| s.updated_at).max().unwrap_or(w.last_used),
                 dirty: dirty_count(&w.path),
+                queued: mine_ids.iter().filter_map(|id| queued.get(*id)).sum(),
+                cron: cron.iter().filter(|j| mine_ids.contains(j.session_id.as_str())).count(),
+                // 全局 goal（session_id=None）不归属任何 workspace：打到每张卡上是噪音
+                goal: goals
+                    .iter()
+                    .filter(|g| live(g) && g.session_id.as_deref().is_some_and(|sid| mine_ids.contains(sid)))
+                    .max_by_key(|g| g.updated_at)
+                    .map(|g| GoalDigest {
+                        id: g.id.clone(),
+                        objective: g.contract.objective.clone(),
+                        status: status_str(g.status).into(),
+                    }),
+                worktrees: worktrees.get(&w.path).cloned().unwrap_or_default(),
+                running_sessions,
                 path: w.path,
             }
         })
         .collect()
+}
+
+/// 活态 = 还在推进或等人介入（与 goal.rs focus 的口径一致）。
+fn live(g: &crate::core::goal::Goal) -> bool {
+    use crate::core::goal::GoalStatus::*;
+    matches!(g.status, Active | Paused | Blocked | BudgetLimited)
+}
+
+/// 与 GoalUpdate 事件一致的 snake_case 状态串（前端按此配色板）。
+fn status_str(s: crate::core::goal::GoalStatus) -> &'static str {
+    use crate::core::goal::GoalStatus::*;
+    match s {
+        Draft => "draft",
+        Queued => "queued",
+        Active => "active",
+        Paused => "paused",
+        Blocked => "blocked",
+        BudgetLimited => "budget_limited",
+        Complete => "complete",
+        Canceled => "canceled",
+    }
 }
 
 fn dirty_count(path: &str) -> Option<usize> {
@@ -84,6 +169,8 @@ fn dirty_count(path: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::goal::{Goal, GoalBudget, GoalContract, GoalStatus};
+    use crate::core::schedule::CronJob;
 
     #[test]
     fn touch_orders_by_recency() {
@@ -97,15 +184,10 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    #[test]
-    fn overview_aggregates_sessions() {
-        let ws = vec![
-            Workspace { path: "/a".into(), last_used: 100 },
-            Workspace { path: "/b".into(), last_used: 200 },
-        ];
-        let session = |id: &str, dir: &str, updated: u64| crate::core::session::Session {
+    fn session(id: &str, dir: &str, updated: u64) -> crate::core::session::Session {
+        crate::core::session::Session {
             id: id.into(),
-            title: id.into(),
+            title: format!("标题-{id}"),
             directory: dir.into(),
             parent_id: None,
             created_at: 0,
@@ -113,10 +195,56 @@ mod tests {
             pinned: false,
             sort_order: None,
             model: None,
-        };
+        }
+    }
+
+    fn goal(id: &str, sid: Option<&str>, status: GoalStatus, updated: u64) -> Goal {
+        Goal {
+            id: id.into(),
+            contract: GoalContract {
+                objective: format!("目标-{id}"),
+                completion_criteria: "标准".into(),
+                constraints: None,
+                budget: GoalBudget::default(),
+            },
+            status,
+            created_at: 0,
+            updated_at: updated,
+            activated_at: None,
+            turns_used: 0,
+            tokens_used: 0,
+            last_block_reason: None,
+            consecutive_blocks: 0,
+            block_reason: None,
+            verification_evidence: None,
+            session_id: sid.map(String::from),
+            paused_ms: 0,
+            paused_at: None,
+        }
+    }
+
+    fn cron_job(id: &str, sid: &str) -> CronJob {
+        CronJob {
+            id: id.into(),
+            cron: "* * * * *".into(),
+            prompt: "p".into(),
+            session_id: sid.into(),
+            once: false,
+            next_fire: 0,
+            enabled: true,
+            history: std::collections::VecDeque::new(),
+        }
+    }
+
+    #[test]
+    fn overview_aggregates_sessions() {
+        let ws = vec![
+            Workspace { path: "/a".into(), last_used: 100 },
+            Workspace { path: "/b".into(), last_used: 200 },
+        ];
         let sessions = vec![session("s1", "/a", 500), session("s2", "/a", 900), session("s3", "/b", 300)];
-        let running: std::collections::HashSet<String> = ["s2".to_string()].into_iter().collect();
-        let cards = overview(ws, &sessions, &running);
+        let running: HashSet<String> = ["s2".to_string()].into_iter().collect();
+        let cards = overview(ws, &sessions, &running, &HashMap::new(), &[], &[], &HashMap::new());
         assert_eq!(cards[0].sessions, 2);
         assert_eq!(cards[0].running, 1);
         assert_eq!(cards[0].last_activity, 900, "会话 updated_at 优先于 workspace last_used");
@@ -124,5 +252,51 @@ mod tests {
         assert_eq!(cards[1].running, 0);
         assert_eq!(cards[1].last_activity, 300);
         assert!(cards[0].dirty.is_none(), "/a 非 git 仓库");
+    }
+
+    #[test]
+    fn overview_board_fields() {
+        let ws = vec![
+            Workspace { path: "/a".into(), last_used: 100 },
+            Workspace { path: "/b".into(), last_used: 200 },
+        ];
+        let sessions = vec![session("s1", "/a", 500), session("s2", "/a", 900), session("s3", "/b", 300)];
+        let running: HashSet<String> = ["s2".to_string()].into_iter().collect();
+        let queued: HashMap<String, usize> = [("s1".to_string(), 2), ("s2".to_string(), 1), ("s3".to_string(), 5)].into_iter().collect();
+        let goals = vec![
+            goal("g1", Some("s1"), GoalStatus::Active, 100),
+            goal("g2", Some("s2"), GoalStatus::Blocked, 200),
+            goal("g3", Some("s1"), GoalStatus::Complete, 300),
+            goal("g4", None, GoalStatus::Active, 400),
+        ];
+        let cron = vec![cron_job("c1", "s1"), cron_job("c2", "s3"), cron_job("c3", "s9")];
+        let mut worktrees: HashMap<String, Vec<WorktreeDigest>> = HashMap::new();
+        worktrees.insert(
+            "/a".to_string(),
+            vec![WorktreeDigest { name: "exp".into(), branch: "kxen/exp".into(), path: "/a/.kxen/worktrees/exp".into(), dirty: Some(3) }],
+        );
+
+        let cards = overview(ws, &sessions, &running, &queued, &goals, &cron, &worktrees);
+        let a = &cards[0];
+        let b = &cards[1];
+
+        assert_eq!(a.running_sessions.len(), 1);
+        assert_eq!(a.running_sessions[0].id, "s2");
+        assert_eq!(a.running_sessions[0].title, "标题-s2");
+        assert_eq!(a.running_sessions[0].queued, 1, "运行中会话带自身排队数");
+        assert_eq!(a.queued, 3, "workspace 排队总数 = 各会话队列之和");
+        assert_eq!(b.queued, 5);
+
+        let g = a.goal.as_ref().expect("活态 goal 应命中");
+        assert_eq!(g.id, "g2", "多个活态 goal 取最近更新");
+        assert_eq!(g.status, "blocked");
+        assert!(b.goal.is_none(), "g4 是全局 goal，不归属任何 workspace 卡片");
+
+        assert_eq!(a.cron, 1, "只数绑定到本 workspace 会话的 job");
+        assert_eq!(b.cron, 1);
+        assert_eq!(a.worktrees.len(), 1);
+        assert_eq!(a.worktrees[0].branch, "kxen/exp");
+        assert_eq!(a.worktrees[0].dirty, Some(3));
+        assert!(b.worktrees.is_empty());
     }
 }

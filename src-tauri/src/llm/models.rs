@@ -37,6 +37,12 @@ pub async fn fetch_models(store: &AuthStore, provider: &str, account: Option<&st
             "anthropic" => ("https://api.anthropic.com/v1/models".to_string(), true),
             "openrouter" => ("https://openrouter.ai/api/v1/models".to_string(), false),
             "ollama" => ("http://localhost:11434/v1/models".to_string(), false),
+            p if crate::llm::compat::preset(p).is_some() => match crate::llm::compat::models_url(p) {
+                Some(url) => (url, false),
+                None => {
+                    return ModelsOutcome { models: vec![], source: "unsupported".into(), detail: format!("{p} 端点未暴露 /models（用内置目录）") };
+                }
+            },
             other => {
                 return ModelsOutcome { models: vec![], source: "unsupported".into(), detail: format!("{other} 订阅端点不支持 /models") };
             }

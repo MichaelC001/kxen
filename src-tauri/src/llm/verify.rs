@@ -28,6 +28,9 @@ pub async fn verify_provider(store: &crate::auth::credential::AuthStore, provide
             let cfg = crate::core::config::Config::load(&crate::core::paths::config_dir().join("config.toml"), None).unwrap_or_default();
             return cfg.custom_providers.get(name).and_then(|d| d.models.first().cloned());
         }
+        if let Some(m) = crate::llm::compat::default_model(provider) {
+            return Some(m.to_string());
+        }
         DEFAULT_MODELS.iter().find(|(p, _)| *p == provider).map(|(_, m)| m.to_string())
     });
     let Some(model_id) = model_id else {

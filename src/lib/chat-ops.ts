@@ -47,12 +47,36 @@ export async function workspaceSwitch(path: string): Promise<void> {
   return client.rpc("workspace.switch", { path });
 }
 
+export interface RunningSessionInfo {
+  id: string;
+  title: string;
+  queued: number;
+}
+
+export interface WorktreeDigest {
+  name: string;
+  branch: string;
+  path: string;
+  dirty: number | null;
+}
+
+export interface GoalDigest {
+  id: string;
+  objective: string;
+  status: string;
+}
+
 export interface WorkspaceOverview {
   path: string;
   sessions: number;
   running: number;
   last_activity: number;
   dirty: number | null;
+  running_sessions: RunningSessionInfo[];
+  worktrees: WorktreeDigest[];
+  goal: GoalDigest | null;
+  queued: number;
+  cron: number;
 }
 
 export async function workspacesOverview(): Promise<WorkspaceOverview[]> {

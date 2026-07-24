@@ -112,6 +112,15 @@ impl PendingQueues {
             .is_some_and(|q| !q.is_empty())
     }
 
+    /// 全量非空队列长度快照（workspace 看板聚合：一次锁取出，避免逐 session 加锁）
+    pub fn counts(&self) -> HashMap<String, usize> {
+        crate::core::shared::lock(&self.map)
+            .iter()
+            .filter(|(_, q)| !q.is_empty())
+            .map(|(id, q)| (id.clone(), q.len()))
+            .collect()
+    }
+
     /// 启动恢复：读全部 queue 文件进内存，返回有待跑消息的 session id（调用方据此续跑）。
     /// 坏文件跳过不删：可能是另一版本写的新格式，留给人工处置比静默丢消息安全。
     pub fn restore(&self) -> Vec<String> {
