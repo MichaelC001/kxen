@@ -9,7 +9,7 @@ export default function ComposerPopup(props: {
 }) {
   return (
     <div
-      class="composer-popup fixed w-64 max-h-72 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] z-30"
+      class="composer-popup fixed w-96 max-h-80 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] z-30"
       style={
         props.pos
           ? `left:${props.pos.left}px;bottom:${props.pos.bottom}px`
