@@ -1,4 +1,5 @@
 //! cron 定时任务存储（data_dir/schedule.json 持久化，重启恢复；一次性/周期）。tick 由宿主循环驱动。
+//! 每个 job 随文件携带最近 HISTORY_CAP 条执行记录（时间+成败+错误），暂停的 job 到期不出列。
 
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +14,27 @@ pub struct CronJob {
     pub once: bool,
     /// 下次触发（epoch ms，创建时算好，触发后重算）
     pub next_fire: u64,
+    /// 暂停标记：暂停不出列、不追补；恢复时按当前时间重算 next_fire
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    /// 最近执行记录（新->旧，cap HISTORY_CAP）
+    #[serde(default)]
+    pub history: std::collections::VecDeque<RunRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunRecord {
+    pub at: u64,
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// 单 job 执行历史上限（随 schedule.json 落盘，膨胀受控）
+pub const HISTORY_CAP: usize = 10;
+
+fn default_enabled() -> bool {
+    true
 }
 
 static JOBS: std::sync::Mutex<Vec<CronJob>> = std::sync::Mutex::new(Vec::new());
@@ -69,12 +91,14 @@ pub fn add(cron: &str, prompt: &str, session_id: &str, once: bool) -> Result<Cro
     ensure_loaded(); // 先加载存量再 push+persist，否则重启后首次 add 覆盖全部历史
     let next_fire = next_fire_of(cron, now_ms())?;
     let job = CronJob {
-        id: format!("cron-{}-{:04x}", now_ms(), std::process::id() & 0xffff),
+        id: crate::core::ids::new_id("cron"),
         cron: cron.to_string(),
         prompt: prompt.to_string(),
         session_id: session_id.to_string(),
         once,
         next_fire,
+        enabled: true,
+        history: std::collections::VecDeque::new(),
     };
     crate::core::shared::lock(&JOBS).push(job.clone());
     persist();
@@ -99,19 +123,61 @@ pub fn remove(id: &str) -> bool {
     removed
 }
 
+/// 会话删除连带清理：该 session 的 job 全下掉（已删会话的 job 不许再被 tick 出列）。幂等。
+pub fn remove_by_session(session_id: &str) -> usize {
+    ensure_loaded();
+    let mut jobs = crate::core::shared::lock(&JOBS);
+    let before = jobs.len();
+    jobs.retain(|j| j.session_id != session_id);
+    let removed = before - jobs.len();
+    drop(jobs);
+    if removed > 0 {
+        persist();
+    }
+    removed
+}
+
 #[cfg(test)]
 pub fn clear() {
     crate::core::shared::lock(&JOBS).clear();
 }
 
-/// 到期任务出列（once 删除；周期任务就地重算下次）。
+/// 暂停/恢复：恢复时按当前时间重算 next_fire（暂停期间的到期不追补，避免唤醒风暴）
+pub fn set_enabled(id: &str, enabled: bool) -> bool {
+    ensure_loaded();
+    let mut jobs = crate::core::shared::lock(&JOBS);
+    let Some(job) = jobs.iter_mut().find(|j| j.id == id) else { return false };
+    job.enabled = enabled;
+    if enabled {
+        match next_fire_of(&job.cron, now_ms()) {
+            Ok(nf) => job.next_fire = nf,
+            Err(_) => return false,
+        }
+    }
+    drop(jobs);
+    persist();
+    true
+}
+
+/// 记录一次执行结果（新->旧，cap HISTORY_CAP；job 已删则静默丢弃）
+pub fn record(id: &str, ok: bool, error: Option<String>) {
+    ensure_loaded();
+    let mut jobs = crate::core::shared::lock(&JOBS);
+    let Some(job) = jobs.iter_mut().find(|j| j.id == id) else { return };
+    job.history.push_front(RunRecord { at: now_ms(), ok, error });
+    job.history.truncate(HISTORY_CAP);
+    drop(jobs);
+    persist();
+}
+
+/// 到期任务出列（once 删除；周期任务就地重算下次；暂停 job 不出列）。
 pub fn drain_due(now: u64) -> Vec<CronJob> {
     ensure_loaded();
     let mut jobs = crate::core::shared::lock(&JOBS);
     let mut due = Vec::new();
     let mut i = 0;
     while i < jobs.len() {
-        if jobs[i].next_fire <= now {
+        if jobs[i].enabled && jobs[i].next_fire <= now {
             let job = jobs[i].clone();
             due.push(job.clone());
             if job.once {
@@ -168,5 +234,35 @@ mod tests {
         let after = list().into_iter().find(|j| j.id == job.id).unwrap();
         assert!(after.next_fire > job.next_fire);
         remove(&job.id);
+    }
+
+    #[test]
+    fn disabled_job_not_drained_and_resume_recomputes() {
+        let _g = crate::core::shared::lock(&TEST_LOCK);
+        clear();
+        let job = add("*/1 * * * *", "ping", "s3", false).unwrap();
+        assert!(set_enabled(&job.id, false));
+        assert!(drain_due(job.next_fire + 1).is_empty(), "暂停 job 到期不出列");
+        assert!(set_enabled(&job.id, true));
+        let after = list().into_iter().find(|j| j.id == job.id).unwrap();
+        assert!(after.enabled);
+        assert!(after.next_fire >= now_ms(), "恢复必须重算 next_fire，不追补暂停期");
+        remove(&job.id);
+        assert!(!set_enabled("cron-missing", false), "不存在的 job 返回 false");
+    }
+
+    #[test]
+    fn record_caps_history_and_ignores_missing_job() {
+        let _g = crate::core::shared::lock(&TEST_LOCK);
+        clear();
+        let job = add("*/1 * * * *", "ping", "s4", false).unwrap();
+        for i in 0..12 {
+            record(&job.id, i % 2 == 0, if i % 2 == 0 { None } else { Some(format!("err{i}")) });
+        }
+        let after = list().into_iter().find(|j| j.id == job.id).unwrap();
+        assert_eq!(after.history.len(), HISTORY_CAP, "历史必须 cap");
+        assert_eq!(after.history.front().unwrap().error.as_deref(), Some("err11"), "最新记录在前");
+        remove(&job.id);
+        record(&job.id, true, None); // 已删 job：静默丢弃不 panic
     }
 }

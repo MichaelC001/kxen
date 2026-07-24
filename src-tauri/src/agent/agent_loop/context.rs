@@ -9,7 +9,7 @@ use std::sync::Arc;
 use super::events::AgentEvent;
 
 /// 会话级共享态：tool_search 挂载的 deferred 工具 + todo 清单。
-/// 放 AppState，跨 send_message 存续；子代理不继承（各自独立）。
+/// 按 session 隔离（SessionExtrasRegistry 惰性创建），同 session 的 lead/teammate/subagent 共享。
 #[derive(Default)]
 pub struct SessionExtras {
     pub extra_tools: std::sync::Mutex<std::collections::HashSet<String>>,
@@ -18,6 +18,27 @@ pub struct SessionExtras {
     pub loaded_skills: std::sync::Mutex<std::collections::HashSet<String>>,
     /// skill -> skill 递归深度（cap 3）。
     pub skill_depth: std::sync::atomic::AtomicU32,
+}
+
+/// 按 session 隔离的 extras 注册表：进程级单例会让 A 会话的 todo/挂载工具
+/// 泄露到 B 会话（P0-14），故按 session_id 惰性创建各自实例。
+#[derive(Default)]
+pub struct SessionExtrasRegistry {
+    inner: std::sync::Mutex<std::collections::HashMap<String, Arc<SessionExtras>>>,
+}
+
+impl SessionExtrasRegistry {
+    pub fn extras_for(&self, session_id: &str) -> Arc<SessionExtras> {
+        crate::core::shared::lock(&self.inner)
+            .entry(session_id.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// 会话销毁时清状态：下次取用重建空实例。
+    pub fn drop_extras(&self, session_id: &str) {
+        crate::core::shared::lock(&self.inner).remove(session_id);
+    }
 }
 
 pub struct AgentContext {
@@ -49,7 +70,7 @@ pub struct AgentContext {
     pub approvals: Option<Arc<crate::agent::approval::ApprovalBroker>>,
     /// MCP 工具桥（mcp__server__tool 前缀调用；None = 未配置 MCP server）。
     pub mcp: Option<Arc<crate::mcp::McpManager>>,
-    /// LSP 诊断（rust-analyzer 懒启动；None = 未接线）。
+    /// LSP 多语言诊断/导航（rust/ts/js/py/go per-language 懒启动；None = 未接线）。
     pub lsp: Option<Arc<crate::lsp::LspManager>>,
     pub on_event: Arc<dyn Fn(AgentEvent) + Send + Sync>,
 }

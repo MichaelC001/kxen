@@ -1,5 +1,5 @@
 //! 删除会话兜底蒸馏：消息流 -> 当前 provider 一次性调用 -> 0..N 条 note 落 personal notes/。
-//! 纯函数（build_prompt/parse_output）可单测；distill_on_delete 全权 best-effort，任何失败不阻塞删除。
+//! 纯函数（build_prompt/parse_output）可单测；流错误经 Result 上抛，是否阻塞由调用方决定。
 
 use super::{add, Scope};
 use crate::llm::{LlmClient, Message, ModelRef};
@@ -53,15 +53,16 @@ pub fn parse_output(text: &str) -> Vec<NewNote> {
         .collect()
 }
 
-/// 删除前兜底蒸馏。返回沉淀条数；任何环节失败记日志并返回 0（调用方照常删除）。
+/// 删除前兜底蒸馏。返回沉淀条数；LLM 流报错（Delta::Error）以 Err 传播，
+/// 由调用方决定静默（删除路径）或留水位重试（consolidation）；单条落盘失败仍跳过不计数。
 pub async fn distill_on_delete(
     model: &ModelRef,
     store: &crate::auth::credential::AuthStore,
     workdir: &std::path::Path,
     transcript: Vec<String>,
-) -> usize {
+) -> Result<usize, String> {
     if transcript.is_empty() {
-        return 0;
+        return Ok(0);
     }
     let joined = transcript.join("\n\n");
     // 蒸馏输入截断：长会话只取尾部 12k 字符（最近的纠正/结论密度最高）
@@ -71,8 +72,10 @@ pub async fn distill_on_delete(
     let mut text = String::new();
     use futures::StreamExt;
     while let Some(delta) = stream.next().await {
-        if let crate::llm::Delta::Text(t) = delta {
-            text.push_str(&t);
+        match delta {
+            crate::llm::Delta::Text(t) => text.push_str(&t),
+            crate::llm::Delta::Error(e) => return Err(e),
+            _ => {}
         }
     }
     let notes = parse_output(&text);
@@ -83,7 +86,7 @@ pub async fn distill_on_delete(
             written += 1;
         }
     }
-    written
+    Ok(written)
 }
 
 #[cfg(test)]

@@ -26,8 +26,8 @@ kxen 是 macOS Apple Silicon 专精的开源 Coding Agent Harness，**只做 cod
 ### 3.1 形态与平台
 
 - Tauri 2.x 纯 GUI 单 app，仅 macOS Apple Silicon（aarch64-apple-darwin）
-- 无 CLI、无 TUI、无 daemon、无端口、无 HTTP server
-- doctor 为 GUI 状态页；upgrade 走 tauri-plugin-updater（GitHub Releases）
+- 无 CLI、无 TUI、无 daemon、无对外 server；前端经 127.0.0.1 随机端口 WebSocket 连接 Rust 后端（端口启动时随机分配，握手强制 token 认证，token 经 Tauri command 下发）
+- doctor 为设置页诊断区（凭证 + MCP/LSP/MRM/event bus 状态汇总）与诊断包导出；updater 未接入
 
 ### 3.2 模型与订阅
 

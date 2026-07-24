@@ -1,7 +1,10 @@
-//! rust-analyzer 子进程 client：spawn + initialize 握手 + didOpen/didChange + publishDiagnostics 入 store。
+//! 语言无关 LSP 子进程 client：spawn + initialize 握手 + didOpen/didChange + publishDiagnostics 入 store。
+//! 二进制/args/languageId 全部来自 LanguageSpec；URI 一律 percent encoding（LSP 规范要求）。
 
+use super::languages::LanguageSpec;
 use super::protocol::{encode, FrameDecoder};
 use super::store::Store;
+use super::uri;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -13,6 +16,7 @@ use tokio::process::{Child, ChildStdin};
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub struct LspClient {
+    spec: &'static LanguageSpec,
     child: tokio::sync::Mutex<Child>,
     stdin: tokio::sync::Mutex<ChildStdin>,
     pending: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Value>>>>,
@@ -24,18 +28,21 @@ pub struct LspClient {
 
 impl LspClient {
     /// spawn + initialize（rootUri=workspace）+ initialized。
-    pub async fn start(root: &Path, store: Arc<Store>) -> Result<Arc<Self>, String> {
-        let mut child = tokio::process::Command::new("rust-analyzer")
+    pub async fn start(root: &Path, spec: &'static LanguageSpec) -> Result<Arc<Self>, String> {
+        let mut child = tokio::process::Command::new(spec.command)
+            .args(spec.args)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
             .spawn()
-            .map_err(|e| format!("rust-analyzer spawn failed: {e}"))?;
+            .map_err(|e| format!("{} spawn failed: {e}", spec.command))?;
         let stdin = child.stdin.take().ok_or("no stdin")?;
         let mut stdout = child.stdout.take().ok_or("no stdout")?;
         let pending: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Value>>>> = Arc::new(Mutex::new(HashMap::new()));
         let pending_rx = pending.clone();
+        let store = Arc::new(Store::default());
         let store_rx = store.clone();
+        let source = spec.command;
         tokio::spawn(async move {
             let mut decoder = FrameDecoder::default();
             let mut chunk = [0u8; 8192];
@@ -52,7 +59,7 @@ impl LspClient {
                         }
                     } else if v.get("method").and_then(Value::as_str) == Some("textDocument/publishDiagnostics") {
                         if let Some(params) = v.get("params") {
-                            store_rx.update_from_publish(params);
+                            store_rx.update_from_publish(params, source);
                         }
                     }
                 }
@@ -60,6 +67,7 @@ impl LspClient {
             pending_rx.lock().expect("lsp pending").clear();
         });
         let client = Arc::new(Self {
+            spec,
             child: tokio::sync::Mutex::new(child),
             stdin: tokio::sync::Mutex::new(stdin),
             pending,
@@ -67,20 +75,25 @@ impl LspClient {
             opened: Mutex::new(HashMap::new()),
             store,
         });
-        let root_uri = format!("file://{}", root.display());
         let init = client
             .request(
                 "initialize",
                 json!({
                     "processId": std::process::id(),
-                    "rootUri": root_uri,
-                    "capabilities": { "textDocument": { "publishDiagnostics": {} } },
+                    "rootUri": uri::encode(root),
+                    "capabilities": { "textDocument": {
+                        "publishDiagnostics": {},
+                        "hover": {},
+                        "definition": {},
+                        "references": {},
+                        "documentSymbol": { "hierarchicalDocumentSymbolSupport": true },
+                    } },
                 }),
             )
             .await?;
         if init.get("error").is_some() {
             client.kill().await;
-            return Err(format!("rust-analyzer initialize rejected: {}", init["error"]));
+            return Err(format!("{} initialize rejected: {}", spec.command, init["error"]));
         }
         client.notify("initialized", json!({})).await?;
         Ok(client)
@@ -89,7 +102,7 @@ impl LspClient {
     /// 同步文件到 server：首次 didOpen（全文），之后 didChange（全文同步）。
     pub async fn sync_file(&self, path: &Path) -> Result<(), String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-        let uri = format!("file://{}", path.display());
+        let uri = uri::encode(path);
         // guard 不跨 await：块内定 method/params，落锁后再发
         let (method, params) = {
             let mut opened = self.opened.lock().expect("lsp opened");
@@ -109,13 +122,48 @@ impl LspClient {
                     (
                         "textDocument/didOpen",
                         json!({
-                            "textDocument": { "uri": uri, "languageId": "rust", "version": 1, "text": text },
+                            "textDocument": { "uri": uri, "languageId": self.spec.id, "version": 1, "text": text },
                         }),
                     )
                 }
             }
         };
         self.notify(method, params).await
+    }
+
+    /// 已同步到 server 的文档版本（等发布逻辑用；未同步过 -> None）。
+    pub fn synced_version(&self, path: &Path) -> Option<u64> {
+        self.opened.lock().expect("lsp opened").get(path).copied()
+    }
+
+    /// line/character 1-based 入参（协议侧转 0-based）。
+    pub async fn hover(&self, path: &Path, line: u64, character: u64) -> Result<Value, String> {
+        self.position_request("textDocument/hover", path, line, character, json!({})).await
+    }
+
+    pub async fn definition(&self, path: &Path, line: u64, character: u64) -> Result<Value, String> {
+        self.position_request("textDocument/definition", path, line, character, json!({})).await
+    }
+
+    pub async fn references(&self, path: &Path, line: u64, character: u64) -> Result<Value, String> {
+        self.position_request("textDocument/references", path, line, character, json!({ "context": { "includeDeclaration": true } })).await
+    }
+
+    pub async fn document_symbols(&self, path: &Path) -> Result<Value, String> {
+        let resp = self.request("textDocument/documentSymbol", json!({ "textDocument": { "uri": uri::encode(path) } })).await?;
+        take_result("textDocument/documentSymbol", resp)
+    }
+
+    async fn position_request(&self, method: &str, path: &Path, line: u64, character: u64, extra: Value) -> Result<Value, String> {
+        let mut params = json!({
+            "textDocument": { "uri": uri::encode(path) },
+            "position": { "line": line.saturating_sub(1), "character": character.saturating_sub(1) },
+        });
+        if let (Some(obj), Some(extra)) = (params.as_object_mut(), extra.as_object()) {
+            obj.extend(extra.clone());
+        }
+        let resp = self.request(method, params).await?;
+        take_result(method, resp)
     }
 
     pub async fn kill(&self) {
@@ -130,7 +178,7 @@ impl LspClient {
         self.stdin.lock().await.write_all(&frame).await.map_err(|e| format!("lsp write: {e}"))?;
         match tokio::time::timeout(REQUEST_TIMEOUT, rx).await {
             Ok(Ok(v)) => Ok(v),
-            Ok(Err(_)) => Err("rust-analyzer died".into()),
+            Ok(Err(_)) => Err(format!("{} died", self.spec.command)),
             Err(_) => Err(format!("lsp request {method} timed out")),
         }
     }
@@ -139,4 +187,12 @@ impl LspClient {
         let frame = encode(&serde_json::to_string(&json!({ "jsonrpc": "2.0", "method": method, "params": params })).map_err(|e| e.to_string())?);
         self.stdin.lock().await.write_all(&frame).await.map_err(|e| format!("lsp write: {e}"))
     }
+}
+
+/// response 帧取 result；server 报错帧 -> Err。
+fn take_result(method: &str, resp: Value) -> Result<Value, String> {
+    if let Some(err) = resp.get("error") {
+        return Err(format!("{method} failed: {err}"));
+    }
+    Ok(resp.get("result").cloned().unwrap_or(Value::Null))
 }

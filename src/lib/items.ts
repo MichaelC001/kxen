@@ -1,4 +1,4 @@
-// 存储消息 -> 时间线条目（工具调用/推理/文本按序还原）。
+// 存储消息 -> 时间线条目（工具调用/推理/文本/图片按序还原）。
 import type { RunStats, StoredMessage } from "./chat";
 
 export interface MsgItem {
@@ -6,6 +6,7 @@ export interface MsgItem {
   role: "user" | "assistant";
   content: string;
   reasoning?: string | undefined;
+  images?: { media_type: string; data: string }[] | undefined;
   stats?: RunStats | undefined;
   error?: string | undefined;
   messageId?: string | undefined;
@@ -14,6 +15,7 @@ export interface ToolItem {
   kind: "tool";
   name: string;
   call: string;
+  args?: string | undefined;
   result?: string | undefined;
 }
 export interface PhaseItem {
@@ -33,6 +35,8 @@ export function toItems(messages: StoredMessage[]): Item[] {
   const items: Item[] = [];
   for (const m of messages) {
     if (m.role === "system") continue;
+    // reasoning 在 parts 里先于正文落盘（reasoning -> tool -> text）：先攒着，消息收尾时挂到本条 assistant 气泡
+    let reasoning = "";
     for (const p of m.parts) {
       if (p.type === "text" && p.text) {
         const last = items.at(-1);
@@ -46,18 +50,44 @@ export function toItems(messages: StoredMessage[]): Item[] {
           items.push({ kind: "msg", role: m.role, content: p.text, messageId: m.id });
         }
       } else if (p.type === "reasoning" && p.text && m.role === "assistant") {
+        reasoning += p.text;
+      } else if (p.type === "image" && p.media_type && p.data !== undefined) {
+        const img = { media_type: p.media_type, data: p.data };
         const last = items.at(-1);
-        if (last?.kind === "msg" && last.role === "assistant") {
-          items[items.length - 1] = { ...last, reasoning: `${last.reasoning ?? ""}${p.text}` };
+        if (last?.kind === "msg" && last.role === m.role) {
+          items[items.length - 1] = {
+            ...last,
+            images: [...(last.images ?? []), img],
+            messageId: m.id,
+          };
+        } else {
+          items.push({ kind: "msg", role: m.role, content: "", images: [img], messageId: m.id });
         }
       } else if (p.type === "tool_call" && p.name) {
         items.push({
           kind: "tool",
           name: p.name,
           call: typeof p.input === "string" ? p.input : JSON.stringify(p.input),
+          args: p.args == null ? undefined : JSON.stringify(p.args, null, 2),
           result: p.output || undefined,
         });
       }
+    }
+    if (reasoning) {
+      // 只往回扫本条消息的尾部条目（tool 条目无 messageId，扫到即说明本条没建气泡）
+      let attached = false;
+      for (let i = items.length - 1; i >= 0; i--) {
+        const it = items[i];
+        if (!it || it.kind !== "msg" || it.messageId !== m.id) break;
+        if (it.role === "assistant") {
+          items[i] = { ...it, reasoning: `${it.reasoning ?? ""}${reasoning}` };
+          attached = true;
+          break;
+        }
+      }
+      // 纯思考无正文的极端情况也要补一条气泡，reasoning 不许静默丢
+      if (!attached)
+        items.push({ kind: "msg", role: "assistant", content: "", reasoning, messageId: m.id });
     }
   }
   return items;

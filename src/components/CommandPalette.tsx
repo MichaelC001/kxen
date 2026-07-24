@@ -1,9 +1,10 @@
 // Cmd-K 命令面板：命令 / 会话 / 模型三路搜索，键盘可达（全局挂载）。
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Search } from "lucide-solid";
-import { commandList, setModel, type CommandInfo } from "../lib/chat";
+import { commandList, type CommandInfo } from "../lib/chat";
 import { fmtCtx, modelsCatalog, type ProviderCatalog } from "../lib/models";
-import { sessions, switchSession } from "../lib/state";
+import { activeSessionId, sessions, switchSession } from "../lib/state";
+import { sessionSetModel } from "../lib/session-model";
 import { insertComposerText } from "../lib/composer-bus";
 
 interface Row {
@@ -69,7 +70,7 @@ export default function CommandPalette() {
             kind: "model",
             label: m.name,
             detail: `${p.provider}/${m.id} · ctx ${fmtCtx(m.context)}`,
-            apply: () => void setModel(p.provider, m.id),
+            apply: () => void sessionSetModel(activeSessionId(), p.provider, m.id),
           });
         }
       }

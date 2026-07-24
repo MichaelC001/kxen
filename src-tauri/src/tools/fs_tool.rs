@@ -1,6 +1,6 @@
-//! 读写删工具：read（锚点输出）/ edit（锚点+兼容双模式 + 免强制先读 + find_shifted 自愈）/ write（trash 删除）。
+//! 读写删工具：read（锚点输出 + offset/limit 分页）/ edit（锚点+兼容双模式 + 免强制先读 + find_shifted 自愈）/ write（trash 删除）。
 
-use crate::tools::hashline::{generate_anchors, render_anchored, Anchor};
+use crate::tools::hashline::{generate_anchors, render_anchored_window, Anchor};
 use crate::tools::safety::{guard_path, Verdict};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -28,7 +28,8 @@ pub enum FsToolError {
 
 #[derive(Default)]
 pub struct FileTracker {
-    seen: Mutex<HashMap<PathBuf, (u64, u64)>>, // path -> (mtime_secs, size)
+    // 存 SystemTime 全精度（纳秒）：秒级 mtime + size 会漏同秒同大小的改写
+    seen: Mutex<HashMap<PathBuf, (std::time::SystemTime, u64)>>, // path -> (mtime, size)
     /// 改动快照（Codex turn-diff 口径）：首次写/改/删前留存原文，面板数据源。
     pub snapshots: crate::tools::snapshot::SnapshotStore,
 }
@@ -36,8 +37,9 @@ pub struct FileTracker {
 impl FileTracker {
     pub fn mark(&self, path: &Path) {
         if let Ok(meta) = std::fs::metadata(path) {
-            let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
-            self.seen.lock().expect("tracker").insert(path.to_path_buf(), (mtime, meta.len()));
+            if let Ok(mtime) = meta.modified() {
+                self.seen.lock().expect("tracker").insert(path.to_path_buf(), (mtime, meta.len()));
+            }
         }
     }
 
@@ -46,8 +48,7 @@ impl FileTracker {
         let seen = self.seen.lock().expect("tracker");
         let Some((mtime, size)) = seen.get(path) else { return false };
         let Ok(meta) = std::fs::metadata(path) else { return false };
-        let now_mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
-        now_mtime == *mtime && meta.len() == *size
+        meta.modified().ok() == Some(*mtime) && meta.len() == *size
     }
 
     /// 本会话涉及的全部文件（OKF globs 激活的数据源）。
@@ -62,26 +63,31 @@ impl FileTracker {
 pub struct ReadResult {
     pub content: String,
     pub total_lines: usize,
-    pub truncated: bool,
+    pub start_line: usize, // 1 基，请求的起始行（越界时原样保留供提示）
+    pub end_line: usize,   // 1 基闭区间；end_line < start_line 表示空窗口
+    pub truncated: bool,   // 后面还有行未返回
 }
 
-pub fn read(path: &Path, tracker: &FileTracker, cwd: &str) -> Result<ReadResult, FsToolError> {
+/// offset 1 基起始行（缺省 1）；limit 缺省 READ_MAX_LINES 且硬 cap 在 READ_MAX_LINES。
+pub fn read(path: &Path, tracker: &FileTracker, cwd: &str, offset: Option<usize>, limit: Option<usize>) -> Result<ReadResult, FsToolError> {
     safety_check(path, cwd)?;
     let text = std::fs::read_to_string(path)?;
     tracker.mark(path);
 
     let all: Vec<&str> = text.lines().collect();
     let total = all.len();
-    let truncated = total > READ_MAX_LINES;
-    let taken: Vec<&str> = all.into_iter().take(READ_MAX_LINES).collect();
-    let body = taken.join("\n");
-    let body = body
-        .lines()
+    let start = offset.unwrap_or(1).max(1);
+    let limit = limit.unwrap_or(READ_MAX_LINES).clamp(1, READ_MAX_LINES);
+    let start_idx = (start - 1).min(total);
+    let end_idx = (start_idx + limit).min(total);
+    // 展示行做字符截断，锚点 hash 用原始行：截断后的行也能被锚点编辑命中
+    let display: Vec<String> = all
+        .iter()
         .map(|l| if l.chars().count() > READ_MAX_LINE_CHARS { l.chars().take(READ_MAX_LINE_CHARS).collect::<String>() + "…" } else { l.to_string() })
-        .collect::<Vec<_>>()
-        .join("\n");
+        .collect();
+    let content = render_anchored_window(&all, &display, start_idx, end_idx);
 
-    Ok(ReadResult { content: render_anchored(&body), total_lines: total, truncated })
+    Ok(ReadResult { content, total_lines: total, start_line: start, end_line: end_idx, truncated: end_idx < total })
 }
 
 // ---------------- edit ----------------
@@ -257,43 +263,7 @@ mod tests {
     use super::*;
     use crate::tools::hashline::generate_anchors;
 
-    fn temp_file(content: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("kxen-fstool-{}-{}", std::process::id(), rand()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("test.txt");
-        std::fs::write(&path, content).unwrap();
-        path
-    }
-
-    fn rand() -> u32 {
-        // 纳秒 + 进程内序号混合：并行测试同纳秒也不再撞目录（flake 实证）
-        static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
-        nanos ^ SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed).wrapping_mul(0x9e37)
-    }
-
-    #[test]
-    fn anchor_edit_roundtrip() {
-        let path = temp_file("alpha\nbeta\ngamma\n");
-        let tracker = FileTracker::default();
-        tracker.mark(&path);
-        let lines: Vec<&str> = "alpha\nbeta\ngamma\n".lines().collect();
-        let anchors = generate_anchors(&lines);
-        let spec = EditSpec::Anchors { edits: vec![AnchorEdit { anchor: anchors[1].to_string(), new_text: "BETA".into() }] };
-        let result = edit(&path, &spec, &tracker, "/tmp").unwrap();
-        assert_eq!(result.applied, 1);
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "alpha\nBETA\ngamma\n");
-    }
-
-    #[test]
-    fn match_edit_ambiguous() {
-        let path = temp_file("x\nx\n");
-        let tracker = FileTracker::default();
-        tracker.mark(&path);
-        let spec = EditSpec::Match { old_string: "x".into(), new_string: "y".into(), expected_replacements: None };
-        assert!(matches!(edit(&path, &spec, &tracker, "/tmp"), Err(FsToolError::Ambiguous { .. })));
-    }
-
+    // find_shifted 是私有函数，此测试留在体内；公开 API 测试见 tests/fs_tool_eval.rs
     #[test]
     fn shifted_anchor_recovers() {
         let lines = vec!["a", "b", "c", "d"];

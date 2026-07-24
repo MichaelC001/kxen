@@ -5,6 +5,7 @@ use crate::tools::shell::{wrap_command, ShellKind};
 use crate::tools::task::{append_capped, task_id, TaskHandle, TaskRegistry};
 use crate::core::shared::{lock, SharedStr};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
@@ -65,17 +66,27 @@ pub struct ApprovalCtx<'a> {
     pub session_id: &'a str,
 }
 
-pub async fn exec(params: ExecParams, registry: &Arc<TaskRegistry>, cwd: &str, approval: Option<&ApprovalCtx<'_>>) -> Result<ExecOutcome, ExecError> {
-    validate_dialect(params.shell_type, &params.command)?;
+impl<'a> ApprovalCtx<'a> {
+    /// broker 与 bus 齐备才算有审批通道（缺一则 Ask 档按拒绝处理，不静默放行）。
+    pub fn new(
+        broker: Option<&'a crate::agent::approval::ApprovalBroker>,
+        bus: Option<&'a crate::core::event::EventBus>,
+        cancel: Option<&'a crate::agent::cancel::CancelToken>,
+        session_id: Option<&'a str>,
+    ) -> Option<Self> {
+        Some(Self { broker: broker?, bus: bus?, cancel, session_id: session_id.unwrap_or("") })
+    }
+}
 
-    match evaluate_shell_command(&params.command, cwd) {
-        Verdict::Deny { rule_id, reason, suggestion } => {
-            return Err(ExecError::Safety {
-                rule: rule_id.to_string(),
-                reason: reason.into_owned(),
-                suggestion: suggestion.map(|s| format!(" Suggestion: {s}")).unwrap_or_default(),
-            });
-        }
+/// safety 闸门：Deny 直接拒绝；Ask 有审批通道则挂起等用户决定，无通道/拒绝/中断按拒绝。
+/// 评估用的 cwd 必须是真实执行目录（与 spawn 的 current_dir 一致），否则相对路径判定失真。
+pub async fn safety_gate(command: &str, cwd: &str, approval: Option<&ApprovalCtx<'_>>) -> Result<(), ExecError> {
+    match evaluate_shell_command(command, cwd) {
+        Verdict::Deny { rule_id, reason, suggestion } => Err(ExecError::Safety {
+            rule: rule_id.to_string(),
+            reason: reason.into_owned(),
+            suggestion: suggestion.map(|s| format!(" Suggestion: {s}")).unwrap_or_default(),
+        }),
         Verdict::Ask { reason } => {
             let Some(appr) = approval else {
                 return Err(ExecError::Safety {
@@ -84,34 +95,41 @@ pub async fn exec(params: ExecParams, registry: &Arc<TaskRegistry>, cwd: &str, a
                     suggestion: String::new(),
                 });
             };
-            let (id, rx) = appr.broker.register();
-            appr.bus.publish(crate::core::event::Event::LlmDelta(serde_json::json!({
-                "kind": "approval",
-                "approval_id": id,
-                "command": params.command,
-                "reason": reason,
-                "session_id": appr.session_id,
-            })));
-            if !appr.broker.wait(rx, appr.cancel).await {
-                return Err(ExecError::Safety {
+            match crate::agent::approval::request_approval(appr, command, &reason).await {
+                crate::agent::approval::ApprovalOutcome::Allow => Ok(()),
+                crate::agent::approval::ApprovalOutcome::Timeout => Err(ExecError::Safety {
+                    rule: "approval".into(),
+                    reason: format!("{reason}（用户超时未响应）"),
+                    suggestion: String::new(),
+                }),
+                crate::agent::approval::ApprovalOutcome::Deny => Err(ExecError::Safety {
                     rule: "approval".into(),
                     reason: format!("{reason}（用户拒绝或已中断）"),
                     suggestion: String::new(),
-                });
+                }),
             }
         }
-        _ => {}
+        _ => Ok(()),
     }
+}
+
+pub async fn exec(params: ExecParams, registry: &Arc<TaskRegistry>, cwd: &str, approval: Option<&ApprovalCtx<'_>>) -> Result<ExecOutcome, ExecError> {
+    validate_dialect(params.shell_type, &params.command)?;
 
     let workdir: std::borrow::Cow<'_, str> = if params.path.starts_with('/') {
         std::borrow::Cow::Borrowed(params.path.as_str())
     } else {
         std::borrow::Cow::Owned(format!("{cwd}/{}", params.path))
     };
+    safety_gate(&params.command, &workdir, approval).await?;
     let argv = wrap_command(params.shell_type, &workdir, &params.command);
 
     if params.background {
         let id = spawn_task(argv, &params.command, &workdir, registry, None).await?;
+        // 显式 background 给了 timeout_ms 也要挂看门狗：与 auto-bg 同规约，失控长跑进程不能无限存活
+        if let Some(timeout_ms) = params.timeout_ms {
+            spawn_timeout_watchdog(registry, &id, timeout_ms);
+        }
         return Ok(ExecOutcome::Background { task_id: id });
     }
 
@@ -140,9 +158,21 @@ pub async fn exec(params: ExecParams, registry: &Arc<TaskRegistry>, cwd: &str, a
                     truncated: true,
                 });
             }
+            // auto background 后仍保留 hard timeout：失控长跑进程不能无限存活
+            spawn_timeout_watchdog(registry, &out_id, hard_timeout - budget);
             Ok(ExecOutcome::Background { task_id: out_id })
         }
     }
+}
+
+/// auto-bg 的 hard timeout 看门狗：到期 kill 整个进程组。
+fn spawn_timeout_watchdog(registry: &Arc<TaskRegistry>, task_id: &str, remaining_ms: u64) {
+    let registry = registry.clone();
+    let id = task_id.to_string();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(remaining_ms)).await;
+        registry.kill(&id).await;
+    });
 }
 
 async fn wait_task(task: Arc<TaskHandle>) -> (String, i32, bool) {
@@ -197,7 +227,8 @@ pub async fn spawn_task(
         pid,
         exit_code: exit_code.clone(),
         child: Arc::new(Mutex::new(None)),
-        port,
+        port: Arc::new(Mutex::new(port)),
+        killed: AtomicBool::new(false),
     });
     registry.register(handle.clone());
 
@@ -235,4 +266,35 @@ pub async fn spawn_task(
     });
 
     Ok(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn explicit_background_with_timeout_is_watched() {
+        let registry = Arc::new(TaskRegistry::new());
+        let params = ExecParams {
+            shell_type: ShellKind::Zsh,
+            path: std::env::temp_dir().to_string_lossy().into_owned(),
+            command: "sleep 30".into(),
+            timeout_ms: Some(300),
+            background: true,
+        };
+        let ExecOutcome::Background { task_id } = exec(params, &registry, "/tmp", None).await.expect("exec") else {
+            panic!("background: true 必须返回 Background");
+        };
+        let task = registry.get(&task_id).expect("spawned task registered");
+        let mut exited = false;
+        for _ in 0..100 {
+            if lock(&task.exit_code).is_some() {
+                exited = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(exited, "显式 background + timeout_ms 必须被看门狗终止");
+        assert_eq!(task.status(), crate::tools::task::TaskStatus::Killed);
+    }
 }

@@ -14,9 +14,9 @@ macOS Apple Silicon 原生 Coding Agent Harness（Tauri 2 + Rust + QuickJS）。
 ## 开发
 
 ```bash
-cargo test          # 全部测试（47 个）
-cargo run           # 启动 app（dev）
-cd ui && vp dev     # 前端 dev server（端口 7823）
+cd src-tauri && cargo test    # 全部 Rust 测试（300+）
+pnpm tauri:dev                # 启动 app（dev，前端 + Rust 后端一起起）
+pnpm dev                      # 仅前端 dev server（端口 7823）
 ```
 
 设计文档：`docs/rust/01-design.md`

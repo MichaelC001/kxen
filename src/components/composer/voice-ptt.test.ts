@@ -109,4 +109,31 @@ describe("voice PTT (webkit)", () => {
     expect(started).toBe(0);
     el.remove();
   });
+
+  it("startSession 收到当前 session id（多会话 PTT 键控）", async () => {
+    const el = mountTa();
+    let gotSid = "";
+    const ctl = createVoicePtt({
+      getText: () => el.value,
+      setText: (v) => (el.value = v),
+      afterChange: () => {},
+      setRecording: () => {},
+      setError: () => {},
+      engine: () => "apple",
+      sessionId: () => "sess-42",
+      startSession: async (_e, _p, _err, sid) => {
+        gotSid = sid;
+        return { engine: "apple", stop: async () => null };
+      },
+    });
+    el.addEventListener("keydown", (e) => ctl.onSpaceDown(e));
+    el.addEventListener("keyup", (e) => ctl.onSpaceUp(e));
+    el.focus();
+    key(el, "keydown");
+    await new Promise((r) => setTimeout(r, 500));
+    key(el, "keyup");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(gotSid).toBe("sess-42");
+    el.remove();
+  });
 });

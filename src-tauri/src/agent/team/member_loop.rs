@@ -18,14 +18,15 @@ pub(super) async fn teammate_loop(
     role: String,
     model: ModelRef,
     prompt: String,
-    plan_approval: bool,
+    approved: bool,
     cancel: CancelToken,
     notify: Arc<Notify>,
 ) {
     // 原始任务简报常驻：loop 每轮 messages 重建（无跨轮历史），唤醒只带新消息会丢任务上下文
     let base_prompt = prompt;
     let mut wake_prompt: Option<String> = None;
-    let mut approved = !plan_approval;
+    // approved 初值由调用方给：spawn 按 !plan_approval，restore 按落盘记录（崩溃前已批的不重批）
+    let mut approved = approved;
     loop {
         if cancel.is_cancelled() {
             break;
@@ -62,8 +63,14 @@ pub(super) async fn teammate_loop(
             }
             // teammate_idle hook：exit 非零 = 打回（反馈进 inbox， teammate 继续工作）
             if let Some(hooks) = &state.deps.hooks {
-                if let Err(feedback) = hooks.run_named("teammate_idle", &name, &json!({ "agent": name, "result": outcome.final_text })).await {
-                    let _ = append_inbox(&state.dir, &name, "hooks", &format!("keep working: {feedback}"));
+                let appr = crate::tools::exec::ApprovalCtx::new(
+                    state.deps.approvals.as_deref(),
+                    Some(&state.bus),
+                    Some(&cancel),
+                    Some(&state.session_id),
+                );
+                if let Err(feedback) = hooks.run_named_with_approval("teammate_idle", &name, &json!({ "agent": name, "result": outcome.final_text }), appr.as_ref()).await {
+                    idle_rejected(&state, &name, &feedback);
                 }
             }
             set_status(&state, &name, MemberStatus::Idle);
@@ -103,6 +110,14 @@ pub(super) async fn teammate_loop(
 
 const READONLY_TEAM_TOOLS: &[&str] = &["read", "glob", "grep", "send_message", "team_task"];
 
+/// idle hook 打回：反馈进 inbox 并唤醒（不唤醒则 teammate 沉睡到下一封外部来信，打回形同虚设）。
+fn idle_rejected(state: &Arc<TeamState>, name: &str, feedback: &str) {
+    let _ = append_inbox(&state.dir, name, "hooks", &format!("keep working: {feedback}"));
+    if let Some(n) = lock(&state.notifies).get(name) {
+        n.notify_one();
+    }
+}
+
 fn build_ctx(state: &Arc<TeamState>, name: &str, _role: &str, model: &ModelRef, allowed: Option<&'static [&'static str]>, cancel: CancelToken) -> AgentContext {
     let agent_name = name.to_string();
     let session_id = state.session_id.clone();
@@ -114,13 +129,16 @@ fn build_ctx(state: &Arc<TeamState>, name: &str, _role: &str, model: &ModelRef, 
     AgentContext {
         registry: state.deps.registry.clone(),
         tracker: crate::tools::fs_tool::FileTracker::default(),
-        workdir: state.deps.workdir.clone(),
+        // member 绑其 team session 的目录，不随 workspace switch 漂移（旧 workspace 的活跃 member 继续干活）
+        workdir: state.workdir.clone(),
         model: model.clone(),
-        store: state.deps.store.clone(),
+        // 每轮取实时凭证快照：探测/刷新晚于 deps 构造，冻结副本会让派发报假「无可用模型」
+        store: lock(&state.deps.store).clone(),
         max_turns: 16,
         mrm: Some(state.deps.mrm.read().expect("mrm").clone()),
         allowed_tools: allowed,
-        extras: Some(state.deps.extras.clone()),
+        // lead 与 teammates 同会话作用域：共享该 session 的 extras（todo/挂载工具互通）
+        extras: Some(state.deps.extras.extras_for(&state.session_id)),
         hooks: state.deps.hooks.clone(),
         loop_detector: crate::agent::loop_detect::LoopDetector::new(),
         cancel: Some(cancel),
@@ -131,7 +149,7 @@ fn build_ctx(state: &Arc<TeamState>, name: &str, _role: &str, model: &ModelRef, 
         bus: Some(state.bus.clone()),
         approvals: state.deps.approvals.clone(),
         mcp: state.deps.mcp.clone(),
-        lsp: state.deps.lsp.clone(),
+        lsp: Some(state.deps.lsp.for_workspace(&state.workdir)),
         on_event: Arc::new(move |event| {
             let mut payload = match serde_json::to_value(&event) {
                 Ok(v) => v,

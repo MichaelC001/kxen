@@ -40,26 +40,35 @@ interface VoiceEventPayload {
   kind?: string;
   text?: string;
   message?: string;
+  session_id?: string;
 }
 
-/** 开始语音会话：partial 实时回调（当前完整假设，非增量）；错误回调。 */
+/** 开始语音会话：partial 实时回调（当前完整假设，非增量）；错误回调。sessionId 用于多会话并发 PTT 时只收本会话事件。 */
 export async function startVoiceSession(
   engine: string | undefined,
   onPartial: (text: string) => void,
   onError: (msg: string) => void,
+  sessionId = "",
 ): Promise<VoiceSession> {
   const off = client.stream("llm.delta").on((payload) => {
     const p = payload as VoiceEventPayload;
+    // 后端 voice 帧带 session_id（WS 层已按 session 准入），其他会话的帧到这也是串台，丢
+    if ((p.session_id ?? "") !== sessionId) return;
     if (p.kind === "voice.partial" && p.text) onPartial(p.text);
     if (p.kind === "voice.error") onError(p.message ?? "语音引擎错误");
   });
   try {
-    const started = await client.rpc<{ engine: string }>("voice.start", engine ? { engine } : {});
+    const started = await client.rpc<{ engine: string }>("voice.start", {
+      ...(engine ? { engine } : {}),
+      session_id: sessionId,
+    });
     return {
       engine: started.engine,
       stop: async () => {
         off();
-        const r = await client.rpc<{ text: string | null }>("voice.stop");
+        const r = await client.rpc<{ text: string | null }>("voice.stop", {
+          session_id: sessionId,
+        });
         return r.text ?? null;
       },
     };

@@ -1,24 +1,25 @@
 import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import {
-  currentModel,
   onLlmDelta,
   sendMessage,
   sessionAbort,
   sessionExport,
   sessionMessages,
   sessionPendingList,
-  sessionRewind,
   statusline,
   type ContextItem,
 } from "../lib/chat";
 import { createConverge } from "../lib/converge";
 import { createDeltaBatcher } from "../lib/delta-batch";
-import { applyApprovalEvent, respondApproval as respondApprovalImpl } from "../lib/approvals";
+import { respondApproval as respondApprovalImpl } from "../lib/approvals";
+import { applyStreamEvent, appendRawItem } from "../lib/session-events";
 import { editResend as editResendImpl, forkAt, rerun as rerunImpl } from "../lib/session-actions";
-import { displayName, modelsCatalog } from "../lib/models";
+import { createSessionRewind } from "../lib/rewind";
+import { createSessionModelLabel } from "../lib/session-model";
 import AssistantItem from "../components/AssistantItem";
 import ApprovalCard from "../components/ApprovalCard";
 import PendingQueue from "../components/PendingQueue";
+import RewindConfirm from "../components/RewindConfirm";
 import UserItem from "../components/UserItem";
 import {
   activeSessionId,
@@ -104,19 +105,7 @@ export default function Session() {
   });
 
   const appendRaw = (field: "content" | "reasoning", text: string) => {
-    setItems((prev) => {
-      const last = prev.at(-1);
-      if (last?.kind === "msg" && last.role === "assistant") {
-        return [...prev.slice(0, -1), { ...last, [field]: (last[field] ?? "") + text }];
-      }
-      const msg = {
-        kind: "msg" as const,
-        role: "assistant" as const,
-        content: field === "content" ? text : "",
-        reasoning: field === "reasoning" ? text : undefined,
-      };
-      return [...prev, msg];
-    });
+    setItems((prev) => appendRawItem(prev, field, text));
     scroll();
   };
 
@@ -130,8 +119,6 @@ export default function Session() {
   onMount(async () => {
     const sl = await statusline("").catch(() => null);
     if (sl) setWorkdir(sl.workdir);
-    const m = await currentModel().catch(() => null);
-    if (m) setModelLabel(displayName(await modelsCatalog().catch(() => []), m.provider, m.model));
     unlisten = await onLlmDelta(
       activeSessionId,
       (text) => appendAssistant("content", text),
@@ -139,38 +126,11 @@ export default function Session() {
       (stats, error) => {
         setOrbPhase(error ? "error" : "thinking");
         setStreamingSid("");
-        batcher.flushNow(); // 残余 delta 先上屏再对账 // 残余 delta 先上屏再对账
+        batcher.flushNow(); // 残余 delta 先上屏再对账
         // Done 对账：存储快照为最终权威（含终态文本），stats/error 尾注重挂
         converge(activeSessionId(), { stats, error });
       },
-      (event) => {
-        if (event.kind === "tool_call") {
-          setOrbPhase("searching");
-          setItems((prev) => [
-            ...prev,
-            { kind: "tool", name: event.name, call: event.summary ?? "" },
-          ]);
-        } else if (event.kind === "tool_result") {
-          setItems((prev) => {
-            for (let i = prev.length - 1; i >= 0; i--) {
-              const item = prev[i];
-              if (!item) continue;
-              if (item.kind === "tool" && item.name === event.name && item.result === undefined) {
-                const next = [...prev];
-                next[i] = { ...item, result: event.summary ?? "" };
-                return next;
-              }
-            }
-            return prev;
-          });
-        } else if (event.kind === "approval") {
-          setOrbPhase("thinking");
-          applyApprovalEvent(setItems, event);
-        } else {
-          setItems((prev) => [...prev, { kind: "phase", name: event.name }]);
-        }
-        scroll();
-      },
+      (event) => applyStreamEvent(event, { setItems, setOrbPhase, scroll }),
     );
   });
 
@@ -187,7 +147,10 @@ export default function Session() {
       setStreamingSid(sid);
       setOrbPhase("thinking");
     }
-    setItems((prev) => [...prev, { kind: "msg", role: "user", content: text }]);
+    setItems((prev) => [
+      ...prev,
+      { kind: "msg", role: "user", content: text, images: images.length ? images : undefined },
+    ]);
     scroll(true); // 自己发的消息强制到底
     const r = await sendMessage(sid, text, context, images).catch(() => null);
     if (r?.queued) setPendingQueue((prev) => [...prev, text]);
@@ -204,7 +167,8 @@ export default function Session() {
   const respondApproval = (id: string, allow: boolean) => respondApprovalImpl(setItems, id, allow);
 
   const [exportNote, setExportNote] = createSignal("");
-  const [modelLabel, setModelLabel] = createSignal("");
+  // assistant 消息署名：当前 session 的生效模型（覆盖优先；切会话/切模型自动重取）
+  const modelLabel = createSessionModelLabel(activeSessionId);
   const doExport = async () => {
     const r = await sessionExport(activeSessionId()).catch(() => null);
     setExportNote(r ? `已导出 ${r.path}` : "导出失败");
@@ -213,13 +177,11 @@ export default function Session() {
 
   const rerun = (idx: number) => rerunImpl(send, items(), idx);
 
-  /** 回退到指定消息：shadow git 代码回滚 + 会话截断，随后真源重载。 */
-  const rewindAt = async (messageId: string) => {
-    const sid = activeSessionId();
-    if (!sid) return;
-    await sessionRewind(sid, messageId).catch(() => {});
-    converge(sid);
-  };
+  const rewind = createSessionRewind({
+    sessionId: activeSessionId,
+    onDone: () => converge(activeSessionId()),
+  });
+  const rewindAt = (messageId: string) => void rewind.flow.request(messageId);
   const editResend = async (idx: number, text: string) => {
     const done = await editResendImpl(send, items(), idx, text);
     if (!done) {
@@ -253,6 +215,9 @@ export default function Session() {
           </span>
         </Show>
         <span class="ml-auto flex items-center gap-1">
+          <Show when={rewind.note()}>
+            <span class="text-2xs text-[var(--err)]">{rewind.note()}</span>
+          </Show>
           <Show when={exportNote()}>
             <span class="text-2xs text-[var(--ok)]">{exportNote()}</span>
           </Show>
@@ -275,7 +240,14 @@ export default function Session() {
           <For each={items()}>
             {(item, i) => {
               if (item.kind === "tool") {
-                return <ToolCard name={item.name} call={item.call} result={item.result} />;
+                return (
+                  <ToolCard
+                    name={item.name}
+                    call={item.call}
+                    args={item.args}
+                    result={item.result}
+                  />
+                );
               }
               if (item.kind === "approval") {
                 return (
@@ -336,6 +308,12 @@ export default function Session() {
 
       <div class="px-3 pb-3 composer-fade">
         <div class="w-full">
+          <Show when={rewind.pending()}>
+            <RewindConfirm
+              onConfirm={() => void rewind.flow.confirm()}
+              onCancel={() => rewind.flow.cancel()}
+            />
+          </Show>
           <PendingQueue queue={pendingQueue} onClear={() => void clearQueue()} />
           <Composer
             streaming={streaming}

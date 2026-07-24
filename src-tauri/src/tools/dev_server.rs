@@ -51,8 +51,19 @@ pub async fn dev_server(params: DevServerParams, registry: &Arc<TaskRegistry>) -
 
     let result = tokio::time::timeout(Duration::from_millis(timeout), wait_ready(task.clone(), ready.pattern.clone(), ready.port)).await;
     match result {
-        Ok(url) => Ok(DevServerStarted { task_id, url, pid: task.pid }),
+        // 就绪但无 url 是正常成功（pattern 命中但输出解析不到端口）
+        Ok(Ready::Ready(url)) => Ok(DevServerStarted { task_id, url, pid: task.pid }),
+        Ok(Ready::Exited(code)) => {
+            // 进程就绪前退出：必须报错带退出信息，不得伪装成「成功但 url 为 None」
+            let tail = lock(&task.output).clone();
+            Err(ExecError::Spawn(format!(
+                "dev server exited before ready (exit code {code}). tail:\n{}",
+                crate::tools::task::tail_of(&tail, 800)
+            )))
+        }
         Err(_) => {
+            // readiness 超时：进程必须跟着死（复用进程组 SIGTERM->SIGKILL），不留孤儿
+            registry.kill(&task_id).await;
             let tail = lock(&task.output).clone();
             Err(ExecError::Spawn(format!(
                 "dev server not ready within {timeout}ms. tail:\n{}",
@@ -62,29 +73,46 @@ pub async fn dev_server(params: DevServerParams, registry: &Arc<TaskRegistry>) -
     }
 }
 
-async fn wait_ready(task: Arc<crate::tools::task::TaskHandle>, pattern: Option<String>, port: Option<u16>) -> Option<String> {
+/// wait_ready 的两种收敛：就绪（url 可能解析不到）与进程提前退出（带退出码）。
+enum Ready {
+    Ready(Option<String>),
+    Exited(i32),
+}
+
+async fn wait_ready(task: Arc<crate::tools::task::TaskHandle>, pattern: Option<String>, port: Option<u16>) -> Ready {
     let patterns: Vec<String> = pattern
         .map(|p| vec![p.to_lowercase()])
         .unwrap_or_else(|| READY_DEFAULT_PATTERNS.iter().map(|s| s.to_string()).collect());
 
     loop {
         // 进程提前退出 -> 失败
-        if lock(&task.exit_code).is_some() {
-            return None;
+        if let Some(code) = *lock(&task.exit_code) {
+            return Ready::Exited(code);
         }
         // pattern 匹配
         {
             let output = lock(&task.output);
             let lower = output.to_lowercase();
             if patterns.iter().any(|p| lower.contains(p)) {
-                let port_found = port.or_else(|| parse_port(&output));
-                return port_found.map(|p| format!("http://localhost:{p}"));
+                let port_found = match port {
+                    Some(p) => Some(p),
+                    None => {
+                        let parsed = parse_port(&output);
+                        // 解析出的 port 写回 task 状态：health 检查与 task.list 共用同一份
+                        *lock(&task.port) = parsed;
+                        if parsed.is_none() {
+                            tracing::warn!("ready pattern 命中但输出里解析不到 port");
+                        }
+                        parsed
+                    }
+                };
+                return Ready::Ready(port_found.map(|p| format!("http://localhost:{p}")));
             }
         }
         // 端口可达
         if let Some(p) = port {
             if tokio::net::TcpStream::connect(("127.0.0.1", p)).await.is_ok() {
-                return Some(format!("http://localhost:{p}"));
+                return Ready::Ready(Some(format!("http://localhost:{p}")));
             }
         }
         tokio::time::sleep(Duration::from_millis(120)).await;
@@ -105,13 +133,14 @@ fn parse_port(output: &str) -> Option<u16> {
 }
 
 fn spawn_health_check(task: Arc<crate::tools::task::TaskHandle>, registry: Arc<TaskRegistry>) {
-    let Some(port) = task.port else { return };
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(HEALTH_CHECK_INTERVAL_MS)).await;
             if lock(&task.exit_code).is_some() {
                 break;
             }
+            // port 由 readiness 解析后写回（spawn 时可能没有）：每轮现读，没有就跳过本轮
+            let Some(port) = *lock(&task.port) else { continue };
             if tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_err() {
                 // 端口失连：进程活着但服务死了——标 Failed 让 list 可见
                 //（status 目前是 Copy 写在 handle 里，简化：kill 并标记）
@@ -125,7 +154,7 @@ fn spawn_health_check(task: Arc<crate::tools::task::TaskHandle>, registry: Arc<T
 pub async fn restart_task(id: &str, registry: &Arc<TaskRegistry>) -> Result<String, ExecError> {
     let task = registry.get(id).ok_or_else(|| ExecError::Spawn(format!("task not found: {id}")))?;
     let (command, workdir) = (task.command.clone(), task.workdir.clone());
-    let port = task.port;
+    let port = *lock(&task.port);
     registry.kill(id).await;
     // 给旧进程退出时间
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -143,5 +172,33 @@ mod tests {
         assert_eq!(parse_port("ready at 127.0.0.1:4096"), Some(4096));
         assert_eq!(parse_port("server port 3000 ready"), Some(3000));
         assert_eq!(parse_port("no port here"), None);
+    }
+
+    #[tokio::test]
+    async fn early_exit_is_error_with_exit_info() {
+        let registry = Arc::new(TaskRegistry::new());
+        let params = DevServerParams {
+            command: "exit 3".into(),
+            workdir: std::env::temp_dir().to_string_lossy().into_owned(),
+            ready: None,
+            shell: Some(ShellKind::Zsh),
+        };
+        let err = dev_server(params, &registry).await.expect_err("进程提前退出必须报错");
+        let msg = err.to_string();
+        assert!(msg.contains("exit code 3"), "报错须含退出信息: {msg}");
+    }
+
+    #[tokio::test]
+    async fn ready_without_url_is_success() {
+        let registry = Arc::new(TaskRegistry::new());
+        let params = DevServerParams {
+            command: "echo ready; sleep 30".into(),
+            workdir: std::env::temp_dir().to_string_lossy().into_owned(),
+            ready: None,
+            shell: Some(ShellKind::Zsh),
+        };
+        let started = dev_server(params, &registry).await.expect("就绪但无 url 属正常成功");
+        assert!(started.url.is_none());
+        registry.kill(&started.task_id).await;
     }
 }

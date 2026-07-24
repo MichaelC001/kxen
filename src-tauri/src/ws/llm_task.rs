@@ -13,58 +13,26 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
     let state = app.state::<Arc<AppState>>();
     let sessions_dir = kxen_app::core::paths::sessions_dir();
 
+    // cron 触发的 run：消息前缀 [cron <id>]（main.rs tick 注入格式），run 结束回写 job 执行历史
+    let cron_job_id = text
+        .strip_prefix("[cron ")
+        .and_then(|rest| rest.split(']').next())
+        .map(str::to_string);
+
     // 多 workspace：run 的 workdir 取 session 归属目录（fallback 当前活跃 workspace）
     let session_dir = ses::load_meta(&sessions_dir, &session_id)
         .map(|m| m.directory)
         .unwrap_or_else(|_| state.active_workspace.read().expect("workspace").to_string_lossy().into_owned());
     let session_path = std::path::PathBuf::from(&session_dir);
 
-    // /compact 手动压缩：重写会话历史（蒸馏旧段 + 保留最近），不走正常 run
+    // /compact 手动压缩：蒸馏旧段落检查点（原始 JSONL 不动，rewind 锚点保留），不走正常 run
     if text.trim() == "/compact" {
-        let state = app.state::<Arc<AppState>>();
-        let model = state.model.lock().map(|m| m.clone()).unwrap_or_default();
+        let model = super::session_ops::effective_session_model(Some(&session_id), &state);
         let store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
-        let stored = ses::load_messages(&sessions_dir, &session_id);
-        let llm_msgs: Vec<kxen_app::llm::Message> = stored
-            .iter()
-            .filter_map(|m| {
-                let text: String = m
-                    .parts
-                    .iter()
-                    .filter_map(|p| match p {
-                        ses::Part::Text { text } | ses::Part::Context { text } => Some(text.as_str()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if text.is_empty() {
-                    return None;
-                }
-                Some(match m.role {
-                    ses::Role::User => kxen_app::llm::Message::user(text),
-                    ses::Role::Assistant => kxen_app::llm::Message::assistant(text),
-                    ses::Role::System => kxen_app::llm::Message::system(text),
-                })
-            })
-            .collect();
-        let before = kxen_app::agent::compact::estimate_tokens(&llm_msgs);
-        let compacted = kxen_app::agent::compact::compact_messages(&model, &store, &llm_msgs, 4).await;
-        let after = kxen_app::agent::compact::estimate_tokens(&compacted);
-        // 回写：每条压缩后消息转 stored（text part），图片不保留（压缩的既定代价）
-        let stored_msgs: Vec<ses::Message> = compacted
-            .iter()
-            .map(|m| {
-                let role = match m.role {
-                    kxen_app::llm::types::Role::User => ses::Role::User,
-                    _ => ses::Role::Assistant,
-                };
-                ses::new_message(&session_id, role, vec![ses::Part::Text { text: m.content.clone() }])
-            })
-            .collect();
-        if let Err(e) = ses::rewrite_messages(&sessions_dir, &session_id, &stored_msgs) {
-            tracing::error!(error = %e, "compact rewrite failed");
-        }
-        let notice = format!("上下文已压缩：约 {before} -> {after} tokens");
+        let notice = match kxen_app::agent::compact::compact_session(&sessions_dir, &session_id, &model, &store, 4).await {
+            Some((before, after)) => format!("上下文已压缩：约 {before} -> {after} tokens"),
+            None => "历史太短，无需压缩".to_string(),
+        };
         let msg = ses::new_message(&session_id, ses::Role::Assistant, vec![ses::Part::Text { text: notice }]);
         let _ = ses::append_message(&sessions_dir, &msg);
         // done 事件让前端收敛（不发 run，前端在等终态）
@@ -120,30 +88,26 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
     if !context_block.is_empty() {
         parts.push(ses::Part::Context { text: context_block.clone() });
     }
+    // 图片逐个落 Part::Image（base64 内联）：重开/导出/fork 均可见，会话目录自包含
+    for img in &images {
+        parts.push(ses::Part::Image { media_type: img.media_type.clone(), data: img.data.clone() });
+    }
     let user_msg = ses::new_message(&session_id, ses::Role::User, parts);
     let with_images = !images.is_empty();
     if let Err(e) = ses::append_message(&sessions_dir, &user_msg) {
         tracing::error!(error = %e, "session append failed");
         return;
     }
-    // checkpoint：turn 前状态打 shadow git 检查点（后台异步，不阻塞 run 启动）
-    {
-        let dir = session_path.clone();
-        let label = user_msg.id.clone();
-        tokio::spawn(async move {
-            match tokio::task::spawn_blocking(move || kxen_app::tools::checkpoint::commit(&dir, &label)).await {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => tracing::warn!(error = %e, "checkpoint commit failed"),
-                Err(e) => tracing::warn!(error = %e, "checkpoint commit join failed"),
-            }
-        });
-    }
+    // checkpoint 屏障：turn 前状态打 shadow git 检查点，等落盘完成再进 run
+    // （rewind 依赖该 commit 存在；失败只 warn 不阻塞 run）
+    kxen_app::tools::checkpoint::checkpoint_barrier(&session_path, &user_msg.id).await;
     let text = if context_block.is_empty() { text } else { format!("{text}\n{context_block}") };
 
     let (model, store, registry, workdir, bus) = {
         // 主会话模型快过期先刷新（克隆出来刷避免持锁跨 await；成功则回写共享 store）
-        let provider = state.model.lock().map(|m| m.provider.clone()).unwrap_or_default();
-        let account = state.model.lock().ok().and_then(|m| m.account.clone());
+        let model = super::session_ops::effective_session_model(Some(&session_id), &state);
+        let provider = model.provider.clone();
+        let account = model.account.clone();
         let mut store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
         let refreshed = kxen_app::auth::refresh::ensure_fresh(&mut store, &provider, account.as_deref()).await;
         if refreshed {
@@ -153,7 +117,7 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
             }
         }
         (
-            state.model.lock().map(|m| m.clone()).unwrap_or_default(),
+            model,
             store,
             state.registry.clone(),
             std::sync::Arc::from(session_path.as_path()),
@@ -161,29 +125,8 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         )
     };
 
-    // 历史：存储里的 user/assistant 文本（Context part 同样喂给模型，UI 侧不显示）
-    let mut messages: Vec<Message> = ses::load_messages(&sessions_dir, &session_id)
-        .into_iter()
-        .filter_map(|m| {
-            let text: String = m
-                .parts
-                .iter()
-                .filter_map(|p| match p {
-                    ses::Part::Text { text } | ses::Part::Context { text } => Some(text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            if text.is_empty() {
-                return None;
-            }
-            Some(match m.role {
-                ses::Role::User => Message::user(text),
-                ses::Role::Assistant => Message::assistant(text),
-                ses::Role::System => Message::system(text),
-            })
-        })
-        .collect();
+    // 历史：应用压缩检查点后的模型视图（Text/Context 进模型，其余 part 丢弃；与 compact 同口径）
+    let mut messages: Vec<Message> = kxen_app::agent::compact::flatten_stored(&ses::load_history(&sessions_dir, &session_id));
     // lead inbox：teammate 来信作为用户角色消息注入（排在本轮新消息之前）
     let inbox = state.team.drain_lead_inbox(&session_id);
     for (from, note) in inbox {
@@ -199,11 +142,12 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         messages.push(Message::user(text));
     }
 
-    // 转录件：run 结束后整条 assistant 消息（文本 + 工具调用）落盘
+    // 转录件：run 结束后整条 assistant 消息（reasoning + 工具调用 + 文本）一次落盘
     let transcript = Arc::new(std::sync::Mutex::new(Vec::<ses::Part>::new()));
     let transcript_writer = transcript.clone();
     let sid = session_id.clone();
     let stream_id_event = stream_id.clone();
+    let sessions_dir_event = sessions_dir.clone();
 
     // 取消令牌：注册到 active_runs，run 结束移除（session.abort 可达）
     let cancel = kxen_app::agent::cancel::CancelToken::new();
@@ -226,7 +170,7 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         max_turns: 32,
         mrm: Some(state.mrm.read().expect("mrm lock").clone()),
         allowed_tools: None,
-        extras: Some(state.extras.clone()),
+        extras: Some(state.extras_for(&session_id)),
         hooks: Some(state.hooks.clone()),
         loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
         cancel: Some(cancel.clone()),
@@ -241,19 +185,37 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         on_event: Arc::new(move |event| {
             use kxen_app::agent::agent_loop::AgentEvent as AE;
             match &event {
-                AE::ToolCall { name, summary } => {
+                AE::Reasoning { text } => {
+                    // 分片落盘为整块：连续 reasoning delta 并入尾部 Reasoning part
+                    let mut guard = transcript_writer.lock().expect("transcript");
+                    match guard.last_mut() {
+                        Some(ses::Part::Reasoning { text: existing }) => existing.push_str(text),
+                        _ => guard.push(ses::Part::Reasoning { text: text.clone() }),
+                    }
+                }
+                AE::ToolCall { name, summary, arguments } => {
+                    // input 留一行摘要（UI 头行），args 存精确参数；parse 失败留原文不丢数据
+                    let args = serde_json::from_str(arguments).unwrap_or_else(|_| json!(arguments));
                     transcript_writer
                         .lock()
                         .expect("transcript")
-                        .push(ses::Part::ToolCall { name: name.clone(), input: json!(summary), output: String::new() });
+                        .push(ses::Part::ToolCall { name: name.clone(), input: json!(summary), output: String::new(), args: Some(args) });
                 }
-                AE::ToolResult { name, summary } => {
+                AE::ToolResult { name, output, .. } => {
                     let mut guard = transcript_writer.lock().expect("transcript");
-                    if let Some(ses::Part::ToolCall { output, .. }) =
+                    if let Some(ses::Part::ToolCall { output: slot, .. }) =
                         guard.iter_mut().rev().find(|p| matches!(p, ses::Part::ToolCall { name: n, output, .. } if n == name && output.is_empty()))
                     {
-                        *output = summary.clone();
+                        // 完整结果落盘，cap 10_000 字节防 JSONL 单行爆炸（UI 折叠区本就截断展示）
+                        *slot = cap_output(output, 10_000);
                     }
+                }
+                AE::Compacted { summary } => {
+                    // auto-compact 落检查点（upto = 当前存储尾消息 id）；前端无对应渲染，不上行
+                    if let Some(upto) = ses::load_messages(&sessions_dir_event, &sid).last().map(|m| m.id.clone()) {
+                        let _ = ses::save_compaction(&sessions_dir_event, &sid, &ses::Compaction::new(upto, summary.clone()));
+                    }
+                    return;
                 }
                 _ => {}
             }
@@ -271,23 +233,46 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
     let outcome = kxen_app::agent::agent_loop::run_turn(&mut ctx, messages).await;
     kxen_app::core::shared::lock(&state.session_involved).insert(session_id.clone(), ctx.tracker.files());
     kxen_app::core::shared::lock(&state.active_runs).remove(&session_id);
-    // stop hook（run 结束挂点，fire-and-log）
+    // run 收尾清掉本 session 挂起的审批：等待方按 deny 唤醒，防 pending 泄漏（session 删除同理可达）
+    state.approvals.cancel_session(&session_id);
+    // stop hook（run 结束挂点，fire-and-log；Ask 档走审批通道）
+    let stop_appr = kxen_app::tools::exec::ApprovalCtx::new(
+        Some(state.approvals.as_ref()),
+        Some(&state.bus),
+        Some(&cancel),
+        Some(session_id.as_str()),
+    );
     if let Err(e) = state
         .hooks
-        .run_named("stop", &session_id, &serde_json::json!({ "session_id": session_id, "aborted": outcome.aborted }))
+        .run_named_with_approval("stop", &session_id, &serde_json::json!({ "session_id": session_id, "aborted": outcome.aborted }), stop_appr.as_ref())
         .await
     {
         tracing::warn!(error = %e, "stop hook failed");
     }
     kxen_app::core::shared::lock(&state.run_streams).remove(&stream_id);
-    // 用量累计（状态栏 tokens 段）
+    // 用量累计（状态栏 tokens 段；落盘供重启恢复）
     if let Some(stats) = outcome.stats {
         let mut map = kxen_app::core::shared::lock(&state.session_tokens);
         let entry = map.entry(session_id.clone()).or_insert((0, 0));
         entry.0 += stats.input_tokens;
         entry.1 += stats.output_tokens;
+        kxen_app::core::usage::persist(&map);
         drop(map);
-        kxen_app::core::shared::lock(&state.session_last_input).insert(session_id.clone(), stats.input_tokens);
+        // ctx 水位取最近一次请求的 input（累计值不代表窗口占用）
+        kxen_app::core::shared::lock(&state.session_last_input).insert(session_id.clone(), stats.last_input_tokens);
+    }
+
+    // cron 执行历史回写（schedule.list 的最近执行状态；job 已删则 record 静默丢弃）
+    if let Some(job_id) = cron_job_id {
+        let errored = outcome.final_text.starts_with("(错误");
+        let error = if outcome.aborted {
+            Some("run 被中断".to_string())
+        } else if errored {
+            Some(outcome.final_text.chars().take(200).collect())
+        } else {
+            None
+        };
+        kxen_app::core::schedule::record(&job_id, !outcome.aborted && !errored, error);
     }
 
     let mut parts = transcript.lock().expect("transcript").clone();
@@ -306,14 +291,11 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         tracing::error!(error = %e, "session append failed");
     }
 
-    // 队列下一条：run 进行中收到的消息按序接续（后端锁是唯一竞态防线，前端状态不可靠）
-    let next = kxen_app::core::shared::lock(&state.pending_messages)
-        .get_mut(&session_id)
-        .and_then(|q| q.pop_front());
-    if let Some((text, context, images)) = next {
+    // 队列下一条：run 进行中收到的消息按序接续（pop 即落盘重写，崩溃窗口丢一条与旧纯内存等价）
+    if let Some(q) = state.pending_messages.pop(&session_id) {
         let stream_id = super::protocol::stream_id("run");
         kxen_app::core::shared::lock(&state.run_streams).insert(stream_id.clone(), session_id.clone());
-        spawn_run(stream_id, session_id, text, context, images, app.clone());
+        spawn_run(stream_id, session_id, q.text, q.context, q.images, app.clone());
     }
 }
 
@@ -328,4 +310,9 @@ fn spawn_run(
     app: AppHandle,
 ) {
     tokio::spawn(run_llm(stream_id, session_id, text, context, images, app));
+}
+
+/// 转录落盘的单行上限：截在 char 边界上（多字节字符不截烂）
+fn cap_output(s: &str, max: usize) -> String {
+    if s.len() <= max { s.to_string() } else { s[..s.floor_char_boundary(max)].to_string() }
 }

@@ -3,6 +3,7 @@
 use crate::core::shared::{lock, SharedStr};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::process::Child;
 
@@ -25,7 +26,10 @@ pub struct TaskHandle {
     pub pid: Option<u32>,
     pub exit_code: Arc<Mutex<Option<i32>>>,
     pub child: Arc<Mutex<Option<Child>>>,
-    pub port: Option<u16>,
+    /// readiness 解析出的 port 会后写（spawn 时没有）：共享槽，list/health 读现值
+    pub port: Arc<Mutex<Option<u16>>>,
+    /// kill() 终止标记：kill 的退出码（-1/143）与自身失败同形，没有它 status 会把 Killed 误报成 Failed
+    pub killed: AtomicBool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -47,6 +51,8 @@ pub struct TaskRegistry {
 impl TaskHandle {
     pub fn status(&self) -> TaskStatus {
         match *self.exit_code.lock().expect("exit") {
+            // kill 的退出码（-1/143）与自身失败同形，须靠 killed 标记区分
+            Some(_) if self.killed.load(Ordering::Relaxed) => TaskStatus::Killed,
             Some(0) => TaskStatus::Exited,
             Some(_) => TaskStatus::Failed,
             None => TaskStatus::Running,
@@ -76,7 +82,7 @@ impl TaskRegistry {
                 command: t.command.clone(),
                 status: t.status(),
                 uptime_ms: now.saturating_sub(t.started_at),
-                port: t.port,
+                port: *lock(&t.port),
                 tail: tail_of(&t.output.lock().expect("output"), 400),
             })
             .collect()
@@ -92,6 +98,10 @@ impl TaskRegistry {
     /// 进程组终止：SIGTERM -> 800ms 宽限 -> SIGKILL 升级（spawn 时 process_group(0) 组长，组覆盖孙进程）。
     pub async fn kill(&self, id: &str) -> bool {
         let Some(task) = self.get(id) else { return false };
+        // 只给仍在运行的任务打标记：已自行退出的保持 Exited/Failed 原判定
+        if task.exit_code.lock().expect("exit").is_none() {
+            task.killed.store(true, Ordering::Relaxed);
+        }
         if let Some(pid) = task.pid {
             let _ = std::process::Command::new("kill").args(["-TERM", &format!("-{pid}")]).status();
             let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
@@ -143,13 +153,7 @@ fn now_ms() -> u64 {
 }
 
 pub fn task_id() -> String {
-    format!("task_{}_{:06x}", now_ms(), rand_u32())
-}
-
-fn rand_u32() -> u32 {
-    use std::time::SystemTime;
-    let nanos = SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
-    nanos ^ (std::process::id() << 16)
+    crate::core::ids::new_id("task")
 }
 
 #[cfg(test)]
@@ -169,5 +173,36 @@ mod tests {
         append_capped(&out, &trunc, &"x".repeat(100), 60);
         assert!(lock(&out).len() <= 60);
         assert!(*lock(&trunc));
+    }
+
+    #[tokio::test]
+    async fn killed_task_reports_killed_not_failed() {
+        let registry = Arc::new(TaskRegistry::new());
+        let id = crate::tools::exec::spawn_task(vec!["sleep".into(), "30".into()], "sleep 30", "/tmp", &registry, None)
+            .await
+            .expect("spawn");
+        assert!(registry.kill(&id).await);
+        let task = registry.get(&id).expect("task");
+        for _ in 0..100 {
+            if task.status() != TaskStatus::Running {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(task.status(), TaskStatus::Killed, "被 kill 的任务不得误报 Failed");
+    }
+
+    #[tokio::test]
+    async fn self_exit_failure_stays_failed() {
+        let registry = Arc::new(TaskRegistry::new());
+        let id = crate::tools::exec::spawn_task(vec!["false".into()], "false", "/tmp", &registry, None).await.expect("spawn");
+        let task = registry.get(&id).expect("task");
+        for _ in 0..100 {
+            if task.status() != TaskStatus::Running {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(task.status(), TaskStatus::Failed, "自行非零退出保持 Failed，不得误报 Killed");
     }
 }

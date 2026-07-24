@@ -25,11 +25,15 @@ pub(super) fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Valu
         cache.1.clone()
     };
 
-    let focus = kxen_app::core::goal::Goal::focus(&kxen_app::core::paths::goals_dir());
+    // statusline 跟当前 session 的 goal 焦点（P2-08）：多会话并发各看各的，空 id 回落全局
+    let focus = kxen_app::core::goal::Goal::focus_for(
+        &kxen_app::core::paths::goals_dir(),
+        if session_id.is_empty() { None } else { Some(session_id) },
+    );
     let tasks_running = state.registry.list().iter().filter(|t| matches!(t.status, kxen_app::tools::task::TaskStatus::Running)).count();
     let tokens = kxen_app::core::shared::lock(&state.session_tokens).get(session_id).copied().unwrap_or((0, 0));
     let last_input = kxen_app::core::shared::lock(&state.session_last_input).get(session_id).copied().unwrap_or(0);
-    let model = state.model.lock().map(|m| m.clone()).unwrap_or_default();
+    let model = super::session_ops::effective_session_model(if session_id.is_empty() { None } else { Some(session_id) }, state);
     // ctx 占用近似：最近一次 run 的 input / 模型上下文窗（catalog 实测值，非 200k 硬编码）
     let window = kxen_app::agent::compact::context_window(&model) as f64;
     let ctx_pct = ((last_input as f64 / window) * 100.0).min(100.0) as u32;

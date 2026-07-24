@@ -1,7 +1,7 @@
 //! skills 视图：统一知识系统 kind=Skill 条目的适配层（扫描与解析已并入 knowledge）。
 //! 保留语义：递归深度 cap 3、$ARGUMENTS 展开、项目覆盖个人同名 first-wins（scan 序保证）。
 
-use crate::knowledge::{self, Entry, Kind};
+use crate::knowledge::{self, Entry, Kind, Scope};
 use std::path::Path;
 
 pub const SKILL_RECURSION_CAP: u32 = 3;
@@ -36,9 +36,11 @@ impl From<Entry> for Skill {
 }
 
 pub fn scan(workdir: &Path) -> Vec<Skill> {
+    let trusted = crate::core::trust::is_trusted(workdir);
     let mut skills: Vec<Skill> = knowledge::scan(workdir)
         .into_iter()
-        .filter(|e| e.kind == Kind::Skill && e.enabled)
+        // 信任门：skill 加载即提示词注入面，未信任项目的不进清单；personal 跟人走不受影响
+        .filter(|e| e.kind == Kind::Skill && e.enabled && (trusted || e.scope != Scope::Project))
         .map(Skill::from)
         .collect();
     skills.sort_by(|a, b| a.name.cmp(&b.name));
@@ -82,6 +84,19 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    /// 进程级隔离信任 store：与 render 测试同值（Once 写序防并行 env 竞态）。
+    fn setup() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            unsafe {
+                std::env::set_var(
+                    "KXEN_TRUST_FILE",
+                    std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())),
+                );
+            }
+        });
+    }
+
     fn fixture(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("kxen-skills-{tag}-{}", std::process::id()));
         let flat = dir.join(".agents/skills");
@@ -99,7 +114,9 @@ mod tests {
 
     #[test]
     fn scan_flat_and_nested() {
+        setup();
         let dir = fixture("scan");
+        crate::core::trust::trust(&dir); // 生产语义：未信任项目 skill 不进清单，夹具显式信任
         let skills = scan(&dir);
         let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"commit"));
@@ -108,8 +125,19 @@ mod tests {
     }
 
     #[test]
+    fn untrusted_project_skills_not_listed() {
+        setup();
+        let dir = fixture("untrusted");
+        assert!(scan(&dir).is_empty(), "未信任项目的 skill 不得进清单");
+        assert!(find(&dir, "commit").is_none(), "未信任项目的 skill 不可加载");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn arguments_expansion() {
+        setup();
         let dir = fixture("args");
+        crate::core::trust::trust(&dir);
         let skill = find(&dir, "commit").unwrap();
         let loaded = render_loaded(&skill, "fix login bug", "user", "");
         assert!(loaded.contains("请按规范提交：fix login bug"));
@@ -124,7 +152,9 @@ mod tests {
 
     #[test]
     fn missing_description_is_skipped() {
+        setup();
         let dir = std::env::temp_dir().join(format!("kxen-skills-bad-{}", std::process::id()));
+        crate::core::trust::trust(&dir);
         let flat = dir.join(".agents/skills");
         std::fs::create_dir_all(&flat).unwrap();
         std::fs::write(flat.join("nodesc.md"), "---\nname: nodesc\n---\nbody\n").unwrap();

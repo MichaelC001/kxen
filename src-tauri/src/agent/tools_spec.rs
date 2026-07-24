@@ -23,10 +23,14 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "read",
-            "Read a file with LINE#HASH anchors for later anchored edits.",
+            "Read a file with LINE#HASH anchors for later anchored edits. Returns at most 2000 lines per call; for larger files page with offset (1-based) and limit - the output notes the shown range and total line count.",
             json!({
                 "type": "object",
-                "properties": { "path": { "type": "string" } },
+                "properties": {
+                    "path": { "type": "string" },
+                    "offset": { "type": "integer", "description": "1-based first line to return, defaults to 1" },
+                    "limit": { "type": "integer", "description": "Max lines to return, defaults to 2000 (hard cap)" }
+                },
                 "required": ["path"]
             }),
         ),
@@ -93,7 +97,7 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "goal",
-            "Manage durable goals with a completion contract. Actions: create (requires BOTH objective and completion_criteria strings; constraints/budget optional; the response contains the new goal id), activate/pause/resume/cancel/get (require id - always take it from a create or list response, never invent one), complete (requires id AND evidence), list (no params). Goals persist across turns; same block reason 3 turns in a row escalates to blocked.",
+            "Manage durable goals with a completion contract. Actions: create (requires BOTH objective and completion_criteria strings; constraints/budget optional; the response contains the new goal id), activate/pause/resume/cancel/get (require id - always take it from a create or list response, never invent one), complete (requires id AND concrete verification evidence, min 20 chars, not a placeholder like 'done'), list (no params). Goals persist across turns; same block reason 3 turns in a row escalates to blocked.",
             json!({
                 "type": "object",
                 "properties": {
@@ -134,12 +138,15 @@ pub fn core_tools() -> Vec<ToolDefinition> {
             }),
         ),
         ToolDefinition::function(
-            "diagnostics",
-            "Get compiler-level diagnostics (errors/warnings with line:col) from rust-analyzer for Rust files. Pass `path` for one file, omit for all session-touched .rs files. Starts the language server lazily on first call; returns a friendly fallback message if rust-analyzer is not installed.",
+            "lsp",
+            "Language-server intelligence for rust, ts/tsx, js/jsx, python and go files (per-language servers start lazily on first use; a language whose server is not installed degrades to a hint message while other languages keep working). Actions: diagnostics (default; pass `path` for one file, omit for all session-touched supported files), hover/definition/references (require `path`, `line`, `character`, 1-based), symbols (document outline, requires `path`).",
             json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Optional file path (relative to working directory)" }
+                    "action": { "type": "string", "enum": ["diagnostics", "hover", "definition", "references", "symbols"], "description": "Defaults to diagnostics" },
+                    "path": { "type": "string", "description": "File path (relative to working directory); required for hover/definition/references/symbols" },
+                    "line": { "type": "integer", "description": "1-based line, required for hover/definition/references" },
+                    "character": { "type": "integer", "description": "1-based column, required for hover/definition/references" }
                 }
             }),
         ),
@@ -207,11 +214,11 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "team",
-            "Lead an agent team. spawn (name, role, prompt, model? as provider/model, plan_approval?) creates a teammate with its own context and model; message (name, text) sends to its inbox; approve/reject (name, feedback?) answers a plan approval request; shutdown (name); task_create (title, depends_on?); list shows members and tasks. Teammates report back automatically - do not poll. Example: {\"action\":\"spawn\",\"name\":\"a\",\"role\":\"execution\",\"model\":\"anthropic/claude-sonnet-4-5-20250929\",\"prompt\":\"task brief\"}.",
+            "Lead an agent team. spawn (name, role, prompt, model? as provider/model, plan_approval?) creates a teammate with its own context and model; message (name, text) sends to its inbox; approve/reject (name, feedback?) answers a plan approval request; shutdown (name); task_create (title, depends_on?); task_cancel (id) cancels a non-completed task; task_reassign (id, to?) returns a task to the pool and optionally notifies a new owner; list shows members and tasks. Teammates report back automatically - do not poll. Example: {\"action\":\"spawn\",\"name\":\"a\",\"role\":\"execution\",\"model\":\"anthropic/claude-sonnet-4-5-20250929\",\"prompt\":\"task brief\"}.",
             json!({
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["spawn", "message", "approve", "reject", "shutdown", "list", "task_create"] },
+                    "action": { "type": "string", "enum": ["spawn", "message", "approve", "reject", "shutdown", "list", "task_create", "task_cancel", "task_reassign"] },
                     "name": { "type": "string" },
                     "role": { "type": "string", "enum": ["thinking", "planning", "execution", "review", "research", "observer"], "description": "observer = receives copies of all team traffic" },
                     "prompt": { "type": "string", "description": "REQUIRED for spawn: the teammate's standing task brief (never 'text')" },
@@ -220,7 +227,9 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                     "text": { "type": "string", "description": "REQUIRED for message: the message body to deliver" },
                     "feedback": { "type": "string" },
                     "title": { "type": "string" },
-                    "depends_on": { "type": "array", "items": { "type": "integer" } }
+                    "depends_on": { "type": "array", "items": { "type": "integer" } },
+                    "id": { "type": "integer", "description": "task id for task_cancel/task_reassign" },
+                    "to": { "type": "string", "description": "optional teammate to notify on task_reassign" }
                 },
                 "required": ["action"]
             }),
@@ -240,12 +249,13 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "team_task",
-            "(teammate only) Shared team task list: claim (next unblocked unassigned), complete (id), list.",
+            "(teammate only) Shared team task list: claim (next unblocked unassigned), complete (id), fail (id, reason?) marks your own in-progress task as failed, list.",
             json!({
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["claim", "complete", "list"] },
-                    "id": { "type": "integer" }
+                    "action": { "type": "string", "enum": ["claim", "complete", "fail", "list"] },
+                    "id": { "type": "integer" },
+                    "reason": { "type": "string", "description": "why the task failed (for fail)" }
                 },
                 "required": ["action"]
             }),

@@ -21,6 +21,7 @@ const METHODS: &[&str] = &[
     "mcp.restart",
     "schedule.add",
     "schedule.remove",
+    "schedule.set_enabled",
     "diagnostics.export",
     "notifications.list",
     "notifications.clear",
@@ -155,19 +156,44 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
             Ok(json!(kxen_app::core::schedule::remove(id)))
         }
+        "schedule.set_enabled" => {
+            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
+            let enabled = params.get("enabled").and_then(Value::as_bool).ok_or("missing enabled")?;
+            Ok(json!(kxen_app::core::schedule::set_enabled(id, enabled)))
+        }
         "diagnostics.export" => {
             let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
             let report = crate::doctor::doctor_report(&store);
             let config_text = std::fs::read_to_string(kxen_app::core::paths::config_dir().join("config.toml")).unwrap_or_default();
-            let mrm = state.mrm.read().expect("mrm").clone();
-            let describe = mrm.describe().await;
+            let health = crate::doctor::system_health(&state).await;
             let mut md = format!("# kxen diagnostics\n\n- version: {}\n- at: {:?}\n\n", env!("CARGO_PKG_VERSION"), std::time::SystemTime::now());
             md.push_str("## providers\n\n");
             for e in &report.entries {
                 md.push_str(&format!("- {} [{}]: {} ({})\n", e.display, e.provider, e.status, e.detail));
             }
-            md.push_str(&format!("\n## mrm\n\n```\n{describe}\n```\n\n## config.toml\n\n```toml\n{config_text}\n```\n"));
+            md.push_str("\n## mcp servers\n\n");
+            if health.mcp.is_empty() {
+                md.push_str("- (none configured)\n");
+            }
+            for s in &health.mcp {
+                md.push_str(&format!("- {} [{}]: {} tools, {} resources\n", s.name, s.status, s.tools, s.resources));
+            }
+            md.push_str(&format!("\n## lsp (root: {})\n\n", health.lsp_root));
+            if health.lsp.is_empty() {
+                md.push_str("- (no language server started yet)\n");
+            }
+            for l in &health.lsp {
+                md.push_str(&format!("- {}: {}\n", l.language, l.status));
+            }
+            md.push_str(&format!(
+                "\n## event bus\n\n- capacity: {}\n- receivers: {}\n",
+                health.bus_capacity, health.bus_receivers
+            ));
+            md.push_str(&format!(
+                "\n## mrm ({} dispatches)\n\n```\n{}\n```\n\n## config.toml\n\n```toml\n{config_text}\n```\n",
+                health.mrm_dispatches, health.mrm_describe
+            ));
             let path = dirs::home_dir()
                 .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
                 .join("Downloads")
@@ -182,7 +208,9 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
         }
         "notifications.clear" => {
             let state = app.state::<Arc<AppState>>();
-            state.notifications.lock().map_err(|e| e.to_string())?.clear();
+            let mut buf = state.notifications.lock().map_err(|e| e.to_string())?;
+            buf.clear();
+            kxen_app::core::notifications::persist(&buf);
             Ok(json!(true))
         }
         "voice.engines" => {
@@ -225,12 +253,7 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
                 .unwrap_or_default();
             let path = kxen_app::core::paths::config_dir().join("config.toml");
             let mut doc = read_toml(&path)?;
-            let mut voice = toml::map::Map::new();
-            voice.insert("engine".into(), toml::Value::String(engine.into()));
-            if !fallback.is_empty() {
-                voice.insert("fallback".into(), toml::Value::Array(fallback.into_iter().map(toml::Value::String).collect()));
-            }
-            doc.insert("voice".into(), toml::Value::Table(voice));
+            kxen_app::core::config::merge_voice_engine(&mut doc, engine, &fallback);
             write_toml(&path, &doc)?;
             Ok(json!({ "engine": engine }))
         }
@@ -249,20 +272,23 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             let config = load_config()?;
             let locale = params.get("locale").and_then(Value::as_str).unwrap_or(&config.voice.locale);
             let engine_override = params.get("engine").and_then(Value::as_str);
+            // chat session id：后端按它键控录音槽位（缺省 "" = 旧全局槽，向后兼容）
+            let session_id = params.get("session_id").and_then(Value::as_str).unwrap_or("");
             let mut voice = config.voice.clone();
             if let Some(e) = engine_override {
                 voice.engine = e.to_string();
             }
             let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
-            let started = kxen_app::voice::start(&voice, &store, locale, state.bus.clone())?;
+            let started = kxen_app::voice::start(&voice, &store, locale, state.bus.clone(), session_id)?;
             Ok(json!({ "engine": started, "recording": true }))
         }
         "voice.stop" => {
             let config = load_config()?;
+            let session_id = params.get("session_id").and_then(Value::as_str).unwrap_or("");
             let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
-            let text = kxen_app::voice::stop(&config, &store).await?;
+            let text = kxen_app::voice::stop(&config, &store, session_id).await?;
             Ok(json!({ "text": text }))
         }
         other => Err(format!("unknown method: {other}")),
@@ -302,6 +328,7 @@ async fn test_dispatch(app: &AppHandle, params: &Value) -> Result<Value, String>
         store,
         mrm,
         hooks: Some(state.hooks.clone()),
+        extras: None,
         cancel: None,
         agents: state.agents.clone(),
         session_id: None,

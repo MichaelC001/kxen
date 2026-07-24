@@ -50,6 +50,17 @@ pub fn generate_anchors(lines: &[&str]) -> Vec<Anchor> {
         .collect()
 }
 
+/// read 分页输出：锚点基于 anchor_src 全文计算（与 edit 侧 generate_anchors 一致），
+/// 仅渲染 display 的 [start, end) 窗口（0 基）。anchor_src 与 display 等长；
+/// 分页若按窗口局部算锚点，行号与 chunk 指纹全错位，锚点编辑会全废。
+pub fn render_anchored_window(anchor_src: &[&str], display: &[String], start: usize, end: usize) -> String {
+    let anchors = generate_anchors(anchor_src);
+    (start..end.min(display.len()))
+        .map(|i| format!("{:>5}#{}  {}", anchors[i].line, anchors[i].hash, display[i]))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// read 输出：锚点前缀行（`  42#a3f9  content`）。
 pub fn render_anchored(content: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();

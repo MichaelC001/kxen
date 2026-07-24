@@ -36,11 +36,17 @@ pub fn list(workdir: &Path) -> Vec<Entry> {
 }
 
 fn find_entry(scope: Scope, workdir: &Path, slug: &str) -> Result<Entry, String> {
-    let slug = slugify(slug);
-    scan(workdir)
-        .into_iter()
+    // 先精确匹配再回落 slugify 规范化：带哈希后缀的 CJK slug 二次 slugify 会追加新哈希而失真
+    // （哈希取的是原始描述），规范化只兜底手输描述定位
+    let entries = scan(workdir);
+    let found = entries
+        .iter()
         .find(|e| e.scope == scope && e.slug == slug)
-        .ok_or_else(|| format!("not found: {}/{slug}", scope.as_str()))
+        .or_else(|| {
+            let normalized = slugify(slug);
+            entries.iter().find(|e| e.scope == scope && e.slug == normalized)
+        });
+    found.cloned().ok_or_else(|| format!("not found: {}/{slug}", scope.as_str()))
 }
 
 /// 删除一条（进系统废纸篓可恢复；目录型 skill 整目录移走）。
@@ -130,6 +136,30 @@ mod tests {
         let path = add(Scope::Project, &dir, None, "note", "temp note", "x").unwrap();
         remove(Scope::Project, &dir, "temp-note").unwrap();
         assert!(!Path::new(&path).exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn chinese_description_unique_locatable_slug() {
+        let dir = ws("cjk");
+        add(Scope::Project, &dir, None, "note", "修复登录页样式崩溃", "v1").unwrap();
+        add(Scope::Project, &dir, None, "note", "修复登录页样式崩坏", "v2").unwrap();
+        let entries: Vec<Entry> = list(&dir)
+            .into_iter()
+            .filter(|e| e.scope == Scope::Project && e.kind == Kind::Note)
+            .collect();
+        assert_eq!(entries.len(), 2, "近义中文描述靠哈希后缀各自成条");
+        assert_ne!(entries[0].slug, entries[1].slug);
+        assert!(entries.iter().all(|e| e.slug.chars().any(crate::knowledge::is_cjk)), "slug 保留中文: {entries:?}");
+        // 带哈希后缀的 slug 原样回传（UI 启停/删除的场景）：二次 slugify 会失真，必须精确命中
+        let slug = entries[0].slug.clone();
+        set_enabled(Scope::Project, &dir, &slug, false).unwrap();
+        let after = list(&dir);
+        assert!(!after.iter().find(|e| e.slug == slug).unwrap().enabled, "带哈希 slug 必须能定位启停");
+        // 手输原始描述：回落 slugify 规范化（确定性哈希）同样定位
+        set_enabled(Scope::Project, &dir, &entries[0].description, true).unwrap();
+        let after2 = list(&dir);
+        assert!(after2.iter().find(|e| e.slug == slug).unwrap().enabled);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

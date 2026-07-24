@@ -134,12 +134,22 @@ pub fn scope_root(scope: Scope, workdir: &Path) -> PathBuf {
     }
 }
 
+/// CJK 表意文字：基本集 + 扩展 A + 兼容集（中文标点不在其内，走折叠分支）。
+fn is_cjk(c: char) -> bool {
+    matches!(c, '\u{3400}'..='\u{4DBF}' | '\u{4E00}'..='\u{9FFF}' | '\u{F900}'..='\u{FAFF}')
+}
+
 pub fn slugify(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut dash = true;
+    let mut has_cjk = false;
     for c in text.chars() {
         if c.is_ascii_alphanumeric() {
             out.push(c.to_ascii_lowercase());
+            dash = false;
+        } else if is_cjk(c) {
+            has_cjk = true;
+            out.push(c);
             dash = false;
         } else if !dash {
             out.push('-');
@@ -149,7 +159,17 @@ pub fn slugify(text: &str) -> String {
     let trimmed = out.trim_matches('-');
     let capped: String = trimmed.chars().take(48).collect();
     let capped = capped.trim_end_matches('-');
-    if capped.is_empty() { "note".to_string() } else { capped.to_string() }
+    if capped.is_empty() {
+        return "note".to_string();
+    }
+    if !has_cjk {
+        return capped.to_string();
+    }
+    // CJK slug 追加哈希后缀（取未截断原文的 sha256 前 4 字节）：同文同 slug（覆盖写可定位），
+    // 截断后同前缀的长标题不撞名；纯 ASCII 路径保持逐字符不变，无后缀
+    use sha2::Digest;
+    let digest = sha2::Sha256::digest(text.as_bytes());
+    format!("{capped}-{:02x}{:02x}{:02x}{:02x}", digest[0], digest[1], digest[2], digest[3])
 }
 
 pub fn today() -> String {
@@ -167,12 +187,14 @@ fn resolve_needs_inner(workdir: &Path, home: &Path, needs: &[String]) -> String 
     if needs.is_empty() {
         return String::new();
     }
+    let trusted = crate::core::trust::is_trusted(workdir);
     let entries = scan::scan_with_home(workdir, home);
     let mut out = String::from("\n<knowledge-deps>\n");
     let mut hit = 0;
     for need in needs {
         let slug = slugify(need);
-        if let Some(e) = entries.iter().find(|e| e.enabled && e.slug == slug) {
+        // 信任门：needs 正文随加载注入提示词，未信任项目 scope 的依赖条目跳过（personal 不受影响）
+        if let Some(e) = entries.iter().find(|e| e.enabled && e.slug == slug && (trusted || e.scope != Scope::Project)) {
             hit += 1;
             out.push_str(&format!("## [{}] {}\n{}\n\n", e.kind.dir_name(), e.description, e.content.trim()));
         }
@@ -188,18 +210,79 @@ fn resolve_needs_inner(workdir: &Path, home: &Path, needs: &[String]) -> String 
 mod tests {
     use super::*;
 
-    #[test]
-    fn needs_resolve_injects_dep_bodies() {
-        let dir = std::env::temp_dir().join(format!("kxen-kn-needs-{}", std::process::id()));
+    /// 进程级隔离信任 store：与 render 测试同值（Once 写序防并行 env 竞态）。
+    fn setup() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            unsafe {
+                std::env::set_var(
+                    "KXEN_TRUST_FILE",
+                    std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())),
+                );
+            }
+        });
+    }
+
+    fn needs_fixture(tag: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("kxen-kn-needs-{tag}-{}", std::process::id()));
         let home = dir.join("fake-home");
         let rules = dir.join(".agents/rules");
         std::fs::create_dir_all(&rules).unwrap();
         std::fs::write(rules.join("style-guide.md"), "---\ndescription: 风格\n---\n用 trash 不用 rm。\n").unwrap();
+        (dir, home)
+    }
+
+    #[test]
+    fn needs_resolve_injects_dep_bodies() {
+        setup();
+        let (dir, home) = needs_fixture("basic");
+        crate::core::trust::trust(&dir); // 生产语义：未信任项目 scope 的依赖跳过，夹具显式信任
         let block = resolve_needs_inner(&dir, &home, &["style-guide".into(), "missing".into()]);
         assert!(block.contains("<knowledge-deps>"));
         assert!(block.contains("用 trash 不用 rm。"));
         assert!(resolve_needs_inner(&dir, &home, &["missing".into()]).is_empty());
         assert!(resolve_needs_inner(&dir, &home, &[]).is_empty());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn needs_skip_untrusted_project_scope() {
+        setup();
+        let (dir, home) = needs_fixture("gated");
+        assert!(resolve_needs_inner(&dir, &home, &["style-guide".into()]).is_empty(), "未信任项目 scope 的依赖条目不得注入");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn slugify_keeps_cjk_and_uniquifies() {
+        // 纯 ASCII 逐字符不变，无哈希后缀
+        assert_eq!(slugify("Hello World"), "hello-world");
+        assert_eq!(slugify("fix  login"), "fix-login");
+        // CJK 保留 + 中文标点折叠为 - + 8 位 hex 后缀
+        let a = slugify("修复登录页样式崩溃");
+        assert!(a.starts_with("修复登录页样式崩溃-"), "CJK 应保留: {a}");
+        assert_eq!(a.len(), "修复登录页样式崩溃-".len() + 8, "sha256 前 4 字节 hex: {a}");
+        let b = slugify("修复：登录问题");
+        assert!(b.starts_with("修复-登录问题-"), "中文标点折叠为 -: {b}");
+        // 确定性：同文同 slug；异题不同名
+        assert_eq!(a, slugify("修复登录页样式崩溃"));
+        assert_ne!(a, slugify("修复登录页样式崩坏"));
+        // 全标点回落不变
+        assert_eq!(slugify("！！！"), "note");
+    }
+
+    #[test]
+    fn slugify_long_chinese_truncation_still_unique() {
+        // 两个长中文题共享 >48 字符前缀：截断撞前缀，哈希后缀（取未截断原文）保证唯一
+        let prefix = "项目记忆蒸馏的中文长标题需要超过四十八个字符才能触发截断逻辑甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉";
+        let a = slugify(&format!("{prefix}结尾一"));
+        let b = slugify(&format!("{prefix}结尾二"));
+        assert_ne!(a, b, "截断后同前缀的长标题必须靠哈希区分");
+        for s in [&a, &b] {
+            // 48 截断上限不变：slug 体 <= 48 字符 + '-' + 8 hex
+            let body = s.rsplit_once('-').map(|(b, _)| b).unwrap();
+            assert!(body.chars().count() <= 48, "slug 体截断上限: {s}");
+            assert!(!body.ends_with('-'), "截断残尾不收 -: {s}");
+        }
     }
 }

@@ -9,7 +9,6 @@ use super::settings::{set_role, statusline_report};
 use crate::doctor::doctor_report;
 use crate::AppState;
 
-
 pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value, String> {
     // 领域分组先走 ops.rs（voice/knowledge/provider/mrm/test_dispatch）
     if let Some(result) = super::ops::try_handle(method, &params, app).await {
@@ -18,12 +17,16 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
     match method {
         "doctor" => {
             let state = app.state::<Arc<AppState>>();
-            let store = state.auth_store.lock().map_err(|e| e.to_string())?;
-            Ok(serde_json::to_value(doctor_report(&store)).map_err(|e| e.to_string())?)
+            let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
+            let mut report = doctor_report(&store);
+            report.system = Some(crate::doctor::system_health(&state).await);
+            Ok(serde_json::to_value(report).map_err(|e| e.to_string())?)
         }
         "current_model" => {
+            // 带 session_id 返回该会话生效模型（覆盖 > 全局默认）；不传同旧行为
             let state = app.state::<Arc<AppState>>();
-            let model = state.model.lock().map_err(|e| e.to_string())?.clone();
+            let sid = params.get("session_id").and_then(Value::as_str);
+            let model = super::session_ops::effective_session_model(sid, &state);
             Ok(json!({ "provider": model.provider, "model": model.model }))
         }
         "task.list" => {
@@ -85,6 +88,14 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             // LSP per-workspace 重建：杀旧 server，新根首个 diagnostics 请求再懒启动
             let old_lsp = std::mem::replace(&mut *state.lsp.write().expect("lsp"), kxen_app::lsp::LspManager::new(dir.clone()));
             old_lsp.shutdown().await;
+            // MCP 随 workspace 换批：server 冷启动可至 60s，后台 spawn 不卡 RPC
+            {
+                let mcp = state.mcp.clone();
+                let dir2 = dir.clone();
+                tokio::spawn(async move {
+                    kxen_app::mcp::reload_for_workspace(&dir2, &mcp).await;
+                });
+            }
             Ok(json!(path))
         }
         "session.create" => {
@@ -92,54 +103,17 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let directory = params.get("directory").and_then(Value::as_str).map(String::from)
                 .unwrap_or_else(|| state.active_workspace.read().expect("workspace").to_string_lossy().into_owned());
             let session = kxen_app::core::session::create(&kxen_app::core::paths::sessions_dir(), &directory).map_err(|e| e.to_string())?;
-            // session_start hook（fire-and-log）
-            let _ = state.hooks.run_named("session_start", &session.id, &json!({ "id": session.id, "directory": directory })).await.inspect_err(|e| tracing::warn!(error = %e, "session_start hook failed"));
+            // session_start hook（fire-and-log；Ask 档走审批通道，临时值活到语句结束可安全借用）
+            let _ = state.hooks.run_named_with_approval("session_start", &session.id, &json!({ "id": session.id, "directory": directory }), kxen_app::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), None, Some(session.id.as_str())).as_ref()).await.inspect_err(|e| tracing::warn!(error = %e, "session_start hook failed"));
             Ok(json!(session))
         }
         "session.messages" => {
             let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
             Ok(json!(kxen_app::core::session::load_messages(&kxen_app::core::paths::sessions_dir(), id)))
         }
-        "session.delete" => {
-            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
-            // 删除前兜底蒸馏：持久知识落 notes/，任何失败静默照删（OKF：纯 md 可审计，非 silent auto-write）
-            let sessions_dir = kxen_app::core::paths::sessions_dir();
-            let transcript: Vec<String> = kxen_app::core::session::load_messages(&sessions_dir, id)
-                .into_iter()
-                .map(|m| {
-                    m.parts
-                        .iter()
-                        .filter_map(|p| match p {
-                            kxen_app::core::session::Part::Text { text }
-                            | kxen_app::core::session::Part::Context { text } => Some(text.as_str()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-                .filter(|t| !t.is_empty())
-                .collect();
-            {
-                let state = app.state::<Arc<AppState>>();
-                let model = state.model.lock().map(|m| m.clone()).unwrap_or_default();
-                let store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
-                let dir = state.active_workspace.read().expect("workspace").clone();
-                let written = kxen_app::knowledge::distill::distill_on_delete(&model, &store, &dir, transcript).await;
-                if written > 0 {
-                    tracing::info!(written, "session distilled before delete");
-                }
-            }
-            kxen_app::core::session::remove(&kxen_app::core::paths::sessions_dir(), id);
-            Ok(Value::Null)
-        }
-        "session.update_meta" => {
-            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
-            let title = params.get("title").and_then(Value::as_str);
-            let pinned = params.get("pinned").and_then(Value::as_bool);
-            let sort_order = params.get("sort_order").map(|v| v.as_u64());
-            let session = kxen_app::core::session::update_meta(&kxen_app::core::paths::sessions_dir(), id, title, pinned, sort_order).map_err(|e| e.to_string())?;
-            Ok(json!(session))
-        }
+        "session.delete" => super::session_ops::session_delete(&params, &app.state::<Arc<AppState>>()).await,
+        "session.update_meta" => super::session_ops::session_update_meta(&params),
+        "session.set_model" => super::session_ops::session_set_model(&params),
         "session.foreground" => {
             let id = params.get("id").and_then(Value::as_str).unwrap_or("");
             *app.state::<Arc<AppState>>().foreground_session.write().expect("foreground") = id.to_string();
@@ -151,29 +125,22 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let session = kxen_app::core::session::fork(&kxen_app::core::paths::sessions_dir(), session_id, message_id).map_err(|e| e.to_string())?;
             Ok(json!(session))
         }
-        "session.rewind" => super::session_ops::session_rewind(&params),
+        "session.rewind" => super::session_ops::session_rewind(&params, &app.state::<Arc<AppState>>()),
         "session.pending_list" => {
             let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
             let state = app.state::<Arc<AppState>>();
-            let texts: Vec<String> = kxen_app::core::shared::lock(&state.pending_messages)
-                .get(id)
-                .map(|q| q.iter().map(|(t, _, _)| t.clone()).collect())
-                .unwrap_or_default();
-            Ok(json!(texts))
+            Ok(json!(state.pending_messages.texts(id)))
         }
         "session.pending_clear" => {
             let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
             let state = app.state::<Arc<AppState>>();
-            let n = kxen_app::core::shared::lock(&state.pending_messages)
-                .remove(id)
-                .map(|q| q.len())
-                .unwrap_or(0);
+            let n = state.pending_messages.clear(id);
             Ok(json!({ "cleared": n }))
         }
         "session.export" => {
             let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let out = params.get("path").and_then(Value::as_str).map(std::path::PathBuf::from);
-            let path = kxen_app::core::session::export_to_file(&kxen_app::core::paths::sessions_dir(), session_id, out.as_deref()).map_err(|e| e.to_string())?;
+            let path = kxen_app::core::session_export::export_to_file(&kxen_app::core::paths::sessions_dir(), session_id, out.as_deref()).map_err(|e| e.to_string())?;
             Ok(json!({ "path": path.to_string_lossy() }))
         }
         "worktree.list" => {
@@ -194,7 +161,8 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let delete_branch = params.get("delete_branch").and_then(Value::as_bool).unwrap_or(false);
             let state = app.state::<Arc<AppState>>();
             let dir = state.active_workspace.read().expect("workspace").clone();
-            kxen_app::tools::worktree::remove(&dir, name, delete_branch).await?;
+            let appr = kxen_app::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), None, None);
+            kxen_app::tools::worktree::remove_with_approval(&dir, name, delete_branch, appr.as_ref()).await?;
             Ok(json!(true))
         }
         "worktree.status" => {
@@ -246,11 +214,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
                 .unwrap_or_default();
                 let policy = if cfg.send_when_running.is_empty() { "queue" } else { cfg.send_when_running.as_str() };
                 if policy != "interrupt" {
-                    let mut map = kxen_app::core::shared::lock(&state.pending_messages);
-                    let q = map.entry(p.session_id.clone()).or_default();
-                    q.push_back((p.text, p.context, p.images));
-                    let n = q.len();
-                    drop(map);
+                    let n = state.pending_messages.enqueue(&p.session_id, p.text, p.context, p.images);
                     state.bus.publish(kxen_app::core::event::Event::Notification(format!("运行中，消息已排队（第 {n} 条）")));
                     return Ok(json!({ "queued": true }));
                 }
@@ -268,7 +232,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let state = app.state::<Arc<AppState>>();
             // abort = 停当前 + 清队列（否则 abort 完队列立刻续跑，等于没停）
-            kxen_app::core::shared::lock(&state.pending_messages).remove(id);
+            state.pending_messages.clear(id);
             let token = kxen_app::core::shared::lock(&state.active_runs).get(id).cloned();
             Ok(json!(token.map(|t| t.cancel()).is_some()))
         }
@@ -328,6 +292,12 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let state = app.state::<Arc<AppState>>();
             let dir = state.active_workspace.read().expect("workspace").clone();
             Ok(json!(kxen_app::tools::search::complete(query, &dir, limit)))
+        }
+        "fs.resolve_name" => {
+            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
+            let state = app.state::<Arc<AppState>>();
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            Ok(json!(kxen_app::tools::search::find_by_name(name, &dir)))
         }
         "command.list" => {
             let state = app.state::<Arc<AppState>>();

@@ -44,7 +44,7 @@ pub fn call(method: &str, params: Value, bus: &kxen_app::core::event::EventBus) 
                     wall_clock_ms: params.pointer("/budget/wall_clock_ms").and_then(Value::as_u64),
                 },
             };
-            let id = format!("goal_{}_{:06x}", now_ms(), std::process::id());
+            let id = kxen_app::core::ids::new_id("goal");
             let mut goal = Goal::create(contract, id).map_err(|e| e.to_string())?;
             goal.session_id = params.get("session_id").and_then(Value::as_str).map(String::from);
             goal.save(&dir()).map_err(|e| e.to_string())?;
@@ -105,11 +105,4 @@ fn transit(
     goal.save(&dir()).map_err(|e| e.to_string())?;
     publish(bus, &goal);
     Ok(to_json(&goal))
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }

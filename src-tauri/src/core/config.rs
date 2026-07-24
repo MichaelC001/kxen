@@ -147,3 +147,47 @@ impl Config {
         self.custom_providers.extend(other.custom_providers);
     }
 }
+
+/// voice.set_engine 的局部更新：在既有 [voice] 表上只覆盖 engine/fallback，
+/// locale/transcribe_model 等其他键保留；空 fallback 维持旧语义（不动既有链）。
+pub fn merge_voice_engine(doc: &mut toml::Table, engine: &str, fallback: &[String]) {
+    let entry = doc.entry("voice").or_insert_with(|| toml::Value::Table(toml::Table::new()));
+    if !entry.is_table() {
+        *entry = toml::Value::Table(toml::Table::new());
+    }
+    let voice = entry.as_table_mut().expect("voice table");
+    voice.insert("engine".into(), toml::Value::String(engine.into()));
+    if !fallback.is_empty() {
+        voice.insert("fallback".into(), toml::Value::Array(fallback.iter().map(|f| toml::Value::String(f.clone())).collect()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_voice_engine_keeps_other_voice_keys() {
+        let mut doc: toml::Table = toml::from_str(
+            "[voice]\nengine = \"apple\"\nfallback = [\"openai\"]\nlocale = \"en-US\"\ntranscribe_model = \"whisper-1\"\n",
+        )
+        .expect("fixture toml");
+        merge_voice_engine(&mut doc, "openai", &["xai".to_string()]);
+        let voice = doc["voice"].as_table().expect("voice table");
+        assert_eq!(voice["engine"].as_str(), Some("openai"));
+        assert_eq!(voice["fallback"].as_array().map(Vec::len), Some(1));
+        assert_eq!(voice["locale"].as_str(), Some("en-US"), "locale 不得丢");
+        assert_eq!(voice["transcribe_model"].as_str(), Some("whisper-1"), "transcribe_model 不得丢");
+
+        // 空 fallback 维持旧语义：不动既有链
+        merge_voice_engine(&mut doc, "apple", &[]);
+        let voice = doc["voice"].as_table().expect("voice table");
+        assert_eq!(voice["engine"].as_str(), Some("apple"));
+        assert_eq!(voice["fallback"].as_array().map(Vec::len), Some(1), "空 fallback 不得清掉既有链");
+
+        // 无 [voice] 表时新建
+        let mut empty = toml::Table::new();
+        merge_voice_engine(&mut empty, "apple", &[]);
+        assert_eq!(empty["voice"]["engine"].as_str(), Some("apple"));
+    }
+}

@@ -3,10 +3,11 @@ import { ChevronRight } from "lucide-solid";
 import { statusDot } from "../lib/variants";
 
 /** 工具活动卡（Cursor/Cline 单卡形态）：头部行（状态点 + 名称 + 参数摘要 + 展开箭头），
- *  输出收在同一张卡的折叠体内——调用和结果是一个整体，不是两行孤立的文本。 */
+ *  精确 arguments 与完整输出收在同一张卡的折叠体内——调用和结果是一个整体，不是两行孤立的文本。 */
 export default function ToolCard(props: {
   name: string;
   call: string;
+  args?: string | undefined;
   result?: string | undefined;
 }) {
   const failed = () => props.result?.startsWith("ERROR") || props.result === "interrupted";
@@ -26,6 +27,12 @@ export default function ToolCard(props: {
           class="text-[var(--text-faint)] group-open:rotate-90 transition-transform duration-150 shrink-0"
         />
       </summary>
+      {/* 持久化的精确 arguments（流式态没有，对账后由存储快照补上） */}
+      <Show when={props.args}>
+        <pre class="selectable px-3 py-2 border-t border-[var(--border)] bg-[var(--code-bg)] text-[var(--text-dim)] whitespace-pre-wrap break-all max-h-64 overflow-auto">
+          {props.args}
+        </pre>
+      </Show>
       <Show when={props.result !== undefined}>
         <pre class="selectable px-3 py-2 border-t border-[var(--border)] bg-[var(--code-bg)] text-[var(--text-dim)] whitespace-pre-wrap break-all max-h-64 overflow-auto">
           {props.result}

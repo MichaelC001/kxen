@@ -12,7 +12,7 @@ mod types;
 use std::sync::Arc;
 
 pub use manager::TeamManager;
-pub use types::{Member, MemberStatus, SpawnDeps, TeamTask, TeamTaskStatus};
+pub use types::{LspPool, Member, MemberStatus, SpawnDeps, TeamTask, TeamTaskStatus};
 pub(crate) use types::TeamState;
 
 // ---------------- 测试（存储与任务逻辑，不触网） ----------------
@@ -32,21 +32,21 @@ mod tests {
         let config = crate::core::config::Config::default();
         SpawnDeps {
             registry: Arc::new(crate::tools::task::TaskRegistry::new()),
-            workdir: Arc::from(Path::new("/tmp")),
-            store: crate::auth::credential::AuthStore::default(),
+            fallback_workdir: Arc::from(Path::new("/tmp")),
+            store: Arc::new(std::sync::Mutex::new(crate::auth::credential::AuthStore::default())),
             mrm: Arc::new(std::sync::RwLock::new(Arc::new(ModelResourceManager::new(config)))),
             hooks: None,
-            extras: Arc::new(crate::agent::agent_loop::SessionExtras::default()),
+            extras: Arc::new(crate::agent::agent_loop::SessionExtrasRegistry::default()),
             agents: Arc::new(crate::agent::activity::AgentRegistry::default()),
             approvals: None,
             mcp: None,
-            lsp: None,
+            lsp: Arc::new(LspPool::default()),
         }
     }
 
     fn manager(tag: &str) -> (Arc<TeamManager>, PathBuf) {
         let dir = std::env::temp_dir().join(format!("kxen-team-{tag}-{}", std::process::id()));
-        let mgr = TeamManager::new(dir.clone(), deps(), EventBus::default());
+        let mgr = TeamManager::new(dir.clone(), deps(), EventBus::default(), dir.join("sessions"));
         (mgr, dir)
     }
 
@@ -97,6 +97,8 @@ mod tests {
             model: crate::llm::ModelRef::new("p", "m"),
             status: MemberStatus::Idle,
             plan_approval: false,
+            prompt: String::new(),
+            approved: true,
         });
     }
 
@@ -131,6 +133,35 @@ mod tests {
         assert!(sys.contains("- a (role: execution"));
         let obs = super::member_loop::teammate_system(&state, "c", "observer", true);
         assert!(obs.contains("OBSERVER"), "observer 角色应有专属指引");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// restore：崩前活跃且 prompt 非空的成员重启 loop（重建取消/唤醒通道）；
+    /// 旧版落盘无 prompt 的成员降级 Shutdown（无任务上下文，重启等于失忆空跑）。
+    #[tokio::test]
+    async fn restore_restarts_prompted_members_only() {
+        let dir = std::env::temp_dir().join(format!("kxen-team-restore-{}", std::process::id()));
+        let session_dir = dir.join("s1");
+        std::fs::create_dir_all(session_dir.join("inboxes")).unwrap();
+        let config = serde_json::json!({
+            "session_id": "s1",
+            "members": [
+                { "name": "live", "role": "execution", "model": { "provider": "p", "model": "m" },
+                  "status": "working", "plan_approval": false, "prompt": "do X", "approved": true },
+                { "name": "legacy", "role": "execution", "model": { "provider": "p", "model": "m" },
+                  "status": "working", "plan_approval": false }
+            ]
+        });
+        std::fs::write(session_dir.join("config.json"), serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        let mgr = TeamManager::new(dir.clone(), deps(), EventBus::default(), dir.join("sessions"));
+        let state = mgr.state_for("s1");
+        // live：loop 重启（通道重建是 deterministic 信号；状态随后由 loop 自管）
+        assert!(lock(&state.cancels).contains_key("live"), "崩前活跃成员必须重建取消通道");
+        assert!(lock(&state.notifies).contains_key("live"), "崩前活跃成员必须重建唤醒通道");
+        // legacy：无 prompt 降级 Shutdown，不起 loop
+        let legacy = lock(&state.members).iter().find(|m| m.name == "legacy").unwrap().clone();
+        assert_eq!(legacy.status, MemberStatus::Shutdown);
+        assert!(!lock(&state.cancels).contains_key("legacy"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

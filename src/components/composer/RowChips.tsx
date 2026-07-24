@@ -7,6 +7,8 @@ export interface RowChip {
   kind: "image" | "knowledge" | "file" | "dir" | "web" | "docs";
   ref: string;
   label: string;
+  /** tooltip 展示完整路径/URL（label 只显示 basename，路径长在 chip 上放不下）。 */
+  title?: string;
   preview?: string;
 }
 
@@ -16,7 +18,10 @@ export default function RowChips(props: { chips: RowChip[]; onRemove: (id: strin
       <div class="flex flex-wrap gap-1.5 px-3 pt-2.5">
         <For each={props.chips}>
           {(chip) => (
-            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[var(--border)] bg-[var(--bg-overlay)] text-2xs">
+            <span
+              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[var(--border)] bg-[var(--bg-overlay)] text-2xs"
+              title={chip.title}
+            >
               <Show
                 when={chip.preview}
                 fallback={chip.kind === "image" ? <ImageIcon size={11} /> : null}

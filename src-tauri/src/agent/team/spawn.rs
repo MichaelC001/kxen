@@ -16,20 +16,38 @@ impl TeamManager {
         if lock(&state.members).iter().any(|m| m.name == name) {
             return Err(format!("teammate already exists: {name}"));
         }
+        let model_name = model_ref.model.clone();
+        lock(&state.members).push(Member {
+            name: name.clone(),
+            role: role.clone(),
+            model: model_ref.clone(),
+            status: MemberStatus::Working,
+            plan_approval,
+            prompt: prompt.clone(),
+            approved: !plan_approval,
+        });
+        self.persist_config(state);
+        Self::start_member_loop(state, name, role, prompt, model_ref, !plan_approval);
+        Ok(format!("teammate spawned (model {model_name})"))
+    }
+
+    /// 成员 loop 启动（spawn 与 restore 共用）：注册活动表 + 重建取消/唤醒通道 + spawn task。
+    /// 崩溃重启后 cancels/notifies 是空表，不重建则 shutdown/唤醒对新 loop 全哑。
+    pub(super) fn start_member_loop(state: &Arc<TeamState>, name: String, role: String, prompt: String, model_ref: ModelRef, approved: bool) {
         state.deps.agents.register(&state.session_id, &name, crate::agent::activity::AgentKind::Teammate, &model_ref);
         let cancel = CancelToken::new();
         let notify = Arc::new(Notify::new());
         lock(&state.cancels).insert(name.clone(), cancel.clone());
         lock(&state.notifies).insert(name.clone(), notify.clone());
-        lock(&state.members).push(Member { name: name.clone(), role: role.clone(), model: model_ref.clone(), status: MemberStatus::Working, plan_approval });
-        self.persist_config(state);
-
+        // 同步上下文（无 runtime）只能注册通道：spawn 会 panic，restore 场景下次启动再补
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            tracing::warn!(member = name, "no tokio runtime, member loop deferred");
+            return;
+        };
         let st = state.clone();
-        let (n, r, m, p, pa, c, nt) = (name, role, model_ref.clone(), prompt, plan_approval, cancel, notify);
-        tokio::spawn(async move {
-            teammate_loop(st, n, r, m, p, pa, c, nt).await;
+        handle.spawn(async move {
+            teammate_loop(st, name, role, model_ref, prompt, approved, cancel, notify).await;
         });
-        Ok(format!("teammate spawned (model {})", model_ref.model))
     }
 
     pub(super) fn plan_verdict(&self, state: &Arc<TeamState>, name: &str, approve: bool, feedback: &str) -> Result<String, String> {
@@ -42,6 +60,8 @@ impl TeamManager {
                 return Err(format!("{name} is not awaiting plan approval (status: {:?})", member.status));
             }
             member.status = MemberStatus::Working;
+            // 审批结果落盘：崩溃重启后 restore 按 approved 初值续跑，不要求重批
+            member.approved = approve;
         }
         self.persist_config(state);
         let text = if approve {

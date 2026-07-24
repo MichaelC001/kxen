@@ -57,6 +57,12 @@ pub struct Goal {
     /// 归属会话（None = 全局 goal，多会话并发的误伤修复：record_turn 只推进同 session 的 goal）
     #[serde(default)]
     pub session_id: Option<String>,
+    /// 暂停累计 ms：wall 预算只计活跃时长，Paused 区间不烧预算（P2-06）
+    #[serde(default)]
+    pub paused_ms: u64,
+    /// 进入 Paused 的时刻（ms epoch）：resume 时结算进 paused_ms
+    #[serde(default)]
+    pub paused_at: Option<u64>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -105,6 +111,8 @@ impl Goal {
             block_reason: None,
             verification_evidence: None,
             session_id: None,
+            paused_ms: 0,
+            paused_at: None,
         })
     }
 
@@ -125,10 +133,17 @@ impl Goal {
     }
 
     pub fn pause(&mut self) -> Result<(), GoalError> {
-        self.transit(GoalStatus::Paused)
+        self.transit(GoalStatus::Paused)?;
+        self.paused_at = Some(now_ms());
+        Ok(())
     }
 
     pub fn resume(&mut self) -> Result<(), GoalError> {
+        // 结算本段暂停时长；Blocked/BudgetLimited resume 本无进行中的暂停
+        if self.status == GoalStatus::Paused {
+            self.paused_ms += now_ms().saturating_sub(self.paused_at.unwrap_or_else(now_ms));
+            self.paused_at = None;
+        }
         self.transit(GoalStatus::Active)
     }
 
@@ -137,8 +152,8 @@ impl Goal {
     }
 
     pub fn complete(&mut self, evidence: &str) -> Result<(), GoalError> {
-        if evidence.trim().is_empty() {
-            return Err(GoalError::ContractIncomplete("completion requires verification evidence"));
+        if !evidence_sufficient(evidence) {
+            return Err(GoalError::ContractIncomplete("completion requires concrete verification evidence (min 20 chars, not a placeholder)"));
         }
         self.verification_evidence = Some(evidence.to_string());
         self.transit(GoalStatus::Complete)
@@ -156,8 +171,7 @@ impl Goal {
         let b = &self.contract.budget;
         if b.turns.is_some_and(|t| self.turns_used >= t)
             || b.tokens.is_some_and(|t| self.tokens_used >= t)
-            || (b.wall_clock_ms.is_some()
-                && self.activated_at.is_some_and(|a| now_ms() - a >= b.wall_clock_ms.unwrap_or(u64::MAX)))
+            || self.wall_exceeded()
         {
             return self.transit(GoalStatus::BudgetLimited);
         }
@@ -175,6 +189,22 @@ impl Goal {
             self.last_block_reason = None;
         }
         Ok(())
+    }
+
+    /// 有效 wall 耗时（ms）：Paused 区间不计入预算（P2-06），进行中的暂停即时扣除。
+    pub fn wall_elapsed_ms(&self, now: u64) -> Option<u64> {
+        let activated = self.activated_at?;
+        let open = if self.status == GoalStatus::Paused { now.saturating_sub(self.paused_at.unwrap_or(now)) } else { 0 };
+        Some(now.saturating_sub(activated).saturating_sub(self.paused_ms + open))
+    }
+
+    pub fn wall_over_budget(&self, now: u64) -> bool {
+        matches!((self.contract.budget.wall_clock_ms, self.wall_elapsed_ms(now)), (Some(limit), Some(elapsed)) if elapsed >= limit)
+    }
+
+    /// 当前时刻的 wall 超限判定（record_turn 与 P2-07 轮内检查点共用）。
+    pub fn wall_exceeded(&self) -> bool {
+        self.wall_over_budget(now_ms())
     }
 
     // --- 持久化 ---
@@ -220,6 +250,35 @@ impl Goal {
             .or_else(|| goals.iter().find(|g| live(g) && g.session_id.is_none()))
             .cloned()
     }
+
+    /// 会话删除连带：该 session 的活态 goal 标 Canceled（终态保留审计痕迹，不物理删除；
+    /// Complete/Canceled 等终态不动）。返回标记条数。
+    pub fn cancel_for_session(dir: &std::path::Path, session_id: &str) -> usize {
+        let mut n = 0;
+        for mut g in Self::list(dir) {
+            if g.session_id.as_deref() != Some(session_id) {
+                continue;
+            }
+            if g.cancel().is_ok() && g.save(dir).is_ok() {
+                n += 1;
+            }
+        }
+        n
+    }
+}
+
+/// complete 证据最小校验（P2-05）：trim 后 >= 20 字符，且不能只是 done/ok 类占位词
+/// （判定前剥两端标点："done!!!" 凑长、纯标点串都不算数）。
+pub fn evidence_sufficient(evidence: &str) -> bool {
+    const PLACEHOLDERS: &[&str] = &[
+        "done", "ok", "okay", "yes", "finished", "complete", "completed", "fixed", "pass", "passed", "完成", "好了",
+    ];
+    let t = evidence.trim();
+    if t.chars().count() < 20 {
+        return false;
+    }
+    let core = t.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+    !core.is_empty() && !PLACEHOLDERS.contains(&core.as_str())
 }
 
 fn now_ms() -> u64 {
@@ -227,84 +286,4 @@ fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn contract() -> GoalContract {
-        GoalContract {
-            objective: "迁移完成".into(),
-            completion_criteria: "测试全绿".into(),
-            constraints: None,
-            budget: GoalBudget { tokens: Some(1000), turns: Some(5), wall_clock_ms: None },
-        }
-    }
-
-    #[test]
-    fn lifecycle() {
-        let mut g = Goal::create(contract(), "g1".into()).unwrap();
-        assert_eq!(g.status, GoalStatus::Draft);
-        g.activate().unwrap();
-        g.pause().unwrap();
-        g.resume().unwrap();
-        g.complete("1074 pass").unwrap();
-        assert_eq!(g.status, GoalStatus::Complete);
-    }
-
-    #[test]
-    fn blocked_after_three_same_reasons() {
-        let mut g = Goal::create(contract(), "g2".into()).unwrap();
-        g.activate().unwrap();
-        for _ in 0..2 {
-            g.record_turn(0, Some("网络不可达"), false).unwrap();
-            assert_eq!(g.status, GoalStatus::Active);
-        }
-        g.record_turn(0, Some("网络不可达"), false).unwrap();
-        assert_eq!(g.status, GoalStatus::Blocked);
-    }
-
-    #[test]
-    fn budget_limited() {
-        let mut g = Goal::create(contract(), "g3".into()).unwrap();
-        g.activate().unwrap();
-        for _ in 0..5 {
-            g.record_turn(0, None, false).unwrap();
-        }
-        assert_eq!(g.status, GoalStatus::BudgetLimited);
-    }
-
-    #[test]
-    fn persist_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("kxen-goal-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mut g = Goal::create(contract(), "gx".into()).unwrap();
-        g.activate().unwrap();
-        g.save(&dir).unwrap();
-        let loaded = Goal::load(&dir, "gx").unwrap();
-        assert_eq!(loaded.status, GoalStatus::Active);
-        assert!(Goal::list(&dir).iter().any(|x| x.id == "gx"));
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn focus_prefers_session_goal_over_global() {
-        let dir = std::env::temp_dir().join(format!("kxen-goal-sess-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mut g1 = Goal::create(contract(), "g_global".into()).unwrap();
-        g1.status = GoalStatus::Active;
-        g1.updated_at = 200;
-        g1.save(&dir).unwrap();
-        let mut g2 = Goal::create(contract(), "g_s1".into()).unwrap();
-        g2.status = GoalStatus::Active;
-        g2.session_id = Some("s1".into());
-        g2.updated_at = 100;
-        g2.save(&dir).unwrap();
-        // session 视角：拿到自己的 goal 而不是全局的（多会话并发误伤修复）
-        assert_eq!(Goal::focus_for(&dir, Some("s1")).unwrap().id, "g_s1");
-        // 无归属/其它 session：回落全局
-        assert_eq!(Goal::focus_for(&dir, Some("s2")).unwrap().id, "g_global");
-        std::fs::remove_dir_all(&dir).ok();
-    }
 }

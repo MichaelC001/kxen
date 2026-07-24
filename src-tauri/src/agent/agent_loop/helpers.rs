@@ -53,6 +53,23 @@ pub fn first_line(s: &str, max: usize) -> String {
     if line.len() <= max { line.to_string() } else { format!("{}…", &line[..line.floor_char_boundary(max)]) }
 }
 
+/// 内置只读工具集（P2-04 并行判定）：read/glob/grep/search 类，无文件与状态写。
+pub fn is_read_only_builtin(name: &str) -> bool {
+    const READ_ONLY: &[&str] = &["read", "glob", "grep", "lsp", "webfetch", "websearch"];
+    READ_ONLY.contains(&name)
+}
+
+/// 只读判定 = 内置只读集 ∪ MCP 显式 read_only 标注；未标注一律视为写（宁严勿宽，同 mcp restricted 口径）。
+pub fn is_read_only_tool(name: &str, ctx: &super::context::AgentContext) -> bool {
+    if is_read_only_builtin(name) {
+        return true;
+    }
+    if let Some((server, tool)) = crate::mcp::tools::split_prefixed(name) {
+        return ctx.mcp.as_ref().is_some_and(|m| m.all_tools().iter().any(|t| t.server == server && t.name == tool && t.read_only));
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

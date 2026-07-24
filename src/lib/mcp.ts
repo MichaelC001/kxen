@@ -4,7 +4,11 @@ import { client } from "./client";
 export interface McpServerStatus {
   name: string;
   status: string; // "running" | "down"
+  transport: string; // "stdio" | "http" | "sse"
+  url: string | null; // remote server 的 URL；stdio 为 null
   tools: number;
+  resources: number;
+  prompts: string[]; // prompt 名称列表
 }
 
 export function mcpStatus(): Promise<McpServerStatus[]> {

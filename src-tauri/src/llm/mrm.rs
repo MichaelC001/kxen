@@ -1,4 +1,4 @@
-//! mrm（全局模型资源管理）：角色路由 + per-provider 并发 semaphore + RPM 滑窗 + 降级链。
+//! mrm（全局模型资源管理）：角色路由 + per-provider 并发总池 + 账号 RPM 滑窗 + 降级链。
 //! 一切 LLM 调用与 subagent 派发经 acquire/release（RAII guard 自然释放）。
 
 use crate::core::config::{Config, RoleBinding};
@@ -29,6 +29,12 @@ pub struct Slot {
     _permit_provider: OwnedSemaphorePermit,
 }
 
+/// acquire_role 的产出：解析证据与并发槽绑定（Drop 即释放槽位，杜绝解析到占槽之间的超发窗口）。
+pub struct Grant {
+    pub resolved: Resolved,
+    _slot: Slot,
+}
+
 #[derive(Debug, Clone)]
 pub struct Resolved {
     pub provider: String,
@@ -54,41 +60,43 @@ impl ModelResourceManager {
         self.config.roles.get(role)
     }
 
-    /// 角色 -> 可执行 provider/model/account（钉账号优先；否则账号链轮转找第一个有槽的）。
+    /// 角色 -> 可执行 provider/model/account（只查不占；占槽走 acquire_role/acquire）。
     pub async fn resolve(&self, role: &str, store: &crate::auth::credential::AuthStore) -> Option<Resolved> {
         let chain = self.role_chain(role);
         let mut first = true;
         for r in chain {
             let binding = self.config.roles.get(&r)?;
             let degraded_from = if first { None } else { Some(role.to_string()) };
-            // 钉账号：只看该账号（不可用则走链下一环）
-            if let Some(acc) = &binding.account {
-                let key = crate::auth::credential::account_id(&binding.provider, acc);
-                if store.contains_key(&key) && self.available(&key).await {
-                    let resolved = Resolved { provider: binding.provider.clone(), model: binding.model.clone(), account: Some(acc.clone()), degraded_from };
+            for (key, account) in self.candidates(binding, store) {
+                if self.candidate_open(&binding.provider, &key).await {
+                    let resolved = Resolved { provider: binding.provider.clone(), model: binding.model.clone(), account, degraded_from };
                     self.record(role, &resolved).await;
                     return Some(resolved);
                 }
-                first = false;
-                continue;
             }
-            // 账号链轮转：默认 -> 命名字典序，首个有凭证且有槽
-            let mut hit: Option<(String, Option<String>)> = None;
-            for key in crate::auth::credential::accounts_of(store, &binding.provider) {
-                if self.available(&key).await {
-                    let account = key.strip_prefix(&format!("{}:", binding.provider)).map(String::from);
-                    hit = Some((key, account));
-                    break;
+            first = false;
+        }
+        None
+    }
+
+    /// 原子 resolve+acquire：候选序列与 resolve 同序，先查 RPM 窗（只查不记账），
+    /// 再 try 占 provider 槽，选定即占槽并记 RPM。全部候选占满返回 None。
+    pub async fn acquire_role(&self, role: &str, store: &crate::auth::credential::AuthStore) -> Option<Grant> {
+        let chain = self.role_chain(role);
+        let mut first = true;
+        for r in chain {
+            let binding = self.config.roles.get(&r)?;
+            let degraded_from = if first { None } else { Some(role.to_string()) };
+            for (key, account) in self.candidates(binding, store) {
+                if self.rpm_blocked(&key).await {
+                    continue;
                 }
-            }
-            // 无账号线索时退回默认键（保留原始行为：限流不看凭证在否）
-            if hit.is_none() && self.available(&binding.provider).await {
-                hit = Some((binding.provider.clone(), None));
-            }
-            if let Some((_key, account)) = hit {
-                let resolved = Resolved { provider: binding.provider.clone(), model: binding.model.clone(), account, degraded_from };
-                self.record(role, &resolved).await;
-                return Some(resolved);
+                if let Some(slot) = self.try_slot(&binding.provider).await {
+                    let resolved = Resolved { provider: binding.provider.clone(), model: binding.model.clone(), account, degraded_from };
+                    self.note_rpm(&key).await;
+                    self.record(role, &resolved).await;
+                    return Some(Grant { resolved, _slot: slot });
+                }
             }
             first = false;
         }
@@ -110,13 +118,13 @@ impl ModelResourceManager {
         }
     }
 
-    /// 同 provider 换账号（带槽位判断，与 resolve 同一调度面；run.rs 重试换账号专用）。
+    /// 同 provider 换账号（与 resolve 同一可用性判断；run.rs 重试换账号专用）。
     /// 与 resolve 不同：不记录派发历史、不走角色链，只在同 provider 账号池内找下一个可用的。
     pub async fn rotate_account(&self, provider: &str, store: &crate::auth::credential::AuthStore, current: Option<&str>) -> Option<String> {
         let effective = current.unwrap_or("default");
         for key in crate::auth::credential::accounts_of(store, provider) {
             let name = key.strip_prefix(&format!("{provider}:")).map(String::from).unwrap_or_else(|| "default".into());
-            if name != effective && self.available(&key).await {
+            if name != effective && self.candidate_open(provider, &key).await {
                 return Some(name);
             }
         }
@@ -164,7 +172,33 @@ impl ModelResourceManager {
         chain
     }
 
-    async fn semaphore_for(&self, provider: &str) -> Arc<Semaphore> {
+    /// 候选序列（resolve/acquire_role 共用同序）：钉账号单候选（缺凭证则无候选，走链下一环）；
+    /// 否则账号链（默认 -> 命名字典序），无账号线索时退回默认键（限流不看凭证在否）。
+    fn candidates(&self, binding: &RoleBinding, store: &crate::auth::credential::AuthStore) -> Vec<(String, Option<String>)> {
+        if let Some(acc) = &binding.account {
+            let key = crate::auth::credential::account_id(&binding.provider, acc);
+            return if store.contains_key(&key) { vec![(key, Some(acc.clone()))] } else { Vec::new() };
+        }
+        let keys = crate::auth::credential::accounts_of(store, &binding.provider);
+        if keys.is_empty() {
+            return vec![(binding.provider.clone(), None)];
+        }
+        keys.into_iter()
+            .map(|key| {
+                let account = key.strip_prefix(&format!("{}:", binding.provider)).map(String::from);
+                (key, account)
+            })
+            .collect()
+    }
+
+    /// 候选可用性：provider 并发有余量 + 该账号 RPM 窗未满（账号维度限流只剩 RPM）。
+    async fn candidate_open(&self, provider: &str, key: &str) -> bool {
+        self.available(provider).await && !self.rpm_blocked(key).await
+    }
+
+    /// 并发池按 provider 段归一：同 provider 多账号共享一个池（"" 为全局池，不进此归一以外的拆分）。
+    async fn semaphore_for(&self, key: &str) -> Arc<Semaphore> {
+        let provider = key.split(':').next().unwrap_or(key);
         let limit = self.limit_of(provider) as usize;
         let mut map = self.semaphores.lock().await;
         map.entry(provider.to_string()).or_insert_with(|| Arc::new(Semaphore::new(limit.max(1)))).clone()
@@ -186,9 +220,11 @@ impl ModelResourceManager {
         sem.available_permits() > 0
     }
 
-    /// 占槽（并发 semaphore + RPM 滑窗等待），返回 RAII guard。
-    pub async fn acquire(&self, provider: &str) -> Slot {
-        self.wait_rpm(provider).await;
+    /// 占槽（RPM 滑窗等待 + provider 并发总池 + 全局并发池），返回 RAII guard。
+    /// account 只决定 RPM 记账键；并发槽认 provider 段，不按账号拆。
+    pub async fn acquire(&self, provider: &str, account: Option<&str>) -> Slot {
+        let key = crate::auth::credential::account_id(provider, account.unwrap_or("default"));
+        self.wait_rpm(&key).await;
         let sem = self.semaphore_for(provider).await;
         let permit_provider = sem
             .acquire_owned()
@@ -198,6 +234,42 @@ impl ModelResourceManager {
         let global = self.semaphore_for("").await;
         let permit_global = global.acquire_owned().await.expect("semaphore closed");
         Slot { _permit_global: permit_global, _permit_provider: permit_provider }
+    }
+
+    /// 非阻塞占槽：provider 池 try 成功才选定；全局池失败时 provider permit 随 drop 回吐，不留半占状态。
+    async fn try_slot(&self, provider: &str) -> Option<Slot> {
+        let sem = self.semaphore_for(provider).await;
+        let permit_provider = sem.try_acquire_owned().ok()?;
+        let global = self.semaphore_for("").await;
+        let permit_global = global.try_acquire_owned().ok()?;
+        Some(Slot { _permit_global: permit_global, _permit_provider: permit_provider })
+    }
+
+    /// RPM 窗是否已满（只查不记账；key 为账号限流键）。
+    pub async fn rpm_blocked(&self, key: &str) -> bool {
+        let provider = key.split(':').next().unwrap_or(key);
+        let rpm = match self.config.limits.providers.get(provider).and_then(|l| l.rpm) {
+            Some(r) if r > 0 => r,
+            _ => return false,
+        };
+        let mut windows = self.rpm_windows.lock().await;
+        let window = windows.entry(key.to_string()).or_default();
+        let cutoff = Instant::now() - Duration::from_secs(60);
+        window.retain(|t| *t > cutoff);
+        (window.len() as u32) >= rpm
+    }
+
+    /// RPM 记账（acquire_role 选定候选时补记，与 wait_rpm 的记账点对齐）。
+    async fn note_rpm(&self, key: &str) {
+        let provider = key.split(':').next().unwrap_or(key);
+        if !self.config.limits.providers.get(provider).and_then(|l| l.rpm).is_some_and(|r| r > 0) {
+            return;
+        }
+        let mut windows = self.rpm_windows.lock().await;
+        let window = windows.entry(key.to_string()).or_default();
+        let cutoff = Instant::now() - Duration::from_secs(60);
+        window.retain(|t| *t > cutoff);
+        window.push(Instant::now());
     }
 
     async fn wait_rpm(&self, key: &str) {
@@ -234,104 +306,5 @@ impl ModelResourceManager {
             lines.push(format!("{provider}: {}/{} available", sem.available_permits(), self.limit_of(provider)));
         }
         lines.join("\n")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::config::{Limits, ProviderLimit, RoleBinding};
-    use std::collections::HashMap;
-
-    fn config() -> Config {
-        let mut roles = HashMap::new();
-        roles.insert("thinking".into(), RoleBinding { provider: "anthropic".into(), model: "claude".into(), fallback: None, account: None });
-        roles.insert("execution".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None, account: None });
-        roles.insert("planning".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None, account: None });
-        Config {
-            roles,
-            limits: Limits {
-                global_concurrent: 2,
-                providers: [("anthropic".into(), ProviderLimit { concurrent: Some(1), rpm: None })].into_iter().collect(),
-            },
-            hooks: HashMap::new(),
-            statusline: Default::default(),
-            voice: Default::default(),
-            custom_providers: Default::default(),
-            send_when_running: String::new(),
-        }
-    }
-
-    fn store() -> crate::auth::credential::AuthStore {
-        crate::auth::credential::AuthStore::new()
-    }
-
-    #[tokio::test]
-    async fn resolve_and_degrade() {
-        let mrm = ModelResourceManager::new(config());
-        let r = mrm.resolve("thinking", &store()).await.unwrap();
-        assert_eq!(r.provider, "anthropic");
-        assert!(r.degraded_from.is_none());
-
-        let slot = mrm.acquire("anthropic").await;
-        let r2 = mrm.resolve("thinking", &store()).await.unwrap();
-        assert_eq!(r2.provider, "xai");
-        assert_eq!(r2.degraded_from.as_deref(), Some("thinking"));
-        drop(slot);
-    }
-
-    #[tokio::test]
-    async fn unbound_role_falls_back_to_execution() {
-        let mrm = ModelResourceManager::new(config());
-        let r = mrm.resolve("observer", &store()).await.expect("observer 应回落 execution");
-        assert_eq!(r.provider, "xai");
-    }
-
-    #[tokio::test]
-    async fn multi_account_rotation_and_pin() {
-        use crate::auth::credential::CredentialKind;
-        let mut roles = HashMap::new();
-        roles.insert("execution".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None, account: None });
-        roles.insert("pinned".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None, account: Some("b".into()) });
-        let config = Config {
-            roles,
-            limits: Limits { global_concurrent: 8, providers: [("xai".into(), ProviderLimit { concurrent: Some(1), rpm: None })].into_iter().collect() },
-            hooks: HashMap::new(),
-            statusline: Default::default(),
-            voice: Default::default(),
-            custom_providers: Default::default(),
-            send_when_running: String::new(),
-        };
-        let mrm = ModelResourceManager::new(config);
-        let mut store = store();
-        store.insert("xai".into(), CredentialKind::Api { key: "k0".into() });
-        store.insert("xai:b".into(), CredentialKind::Api { key: "k1".into() });
-
-        // 轮转：默认账号占满后命中 xai:b
-        let slot = mrm.acquire("xai").await;
-        let r = mrm.resolve("execution", &store).await.unwrap();
-        assert_eq!(r.account.as_deref(), Some("b"));
-        assert_eq!(r.slot_key(), "xai:b");
-        drop(slot);
-
-        // 钉账号：始终 xai:b
-        let r2 = mrm.resolve("pinned", &store).await.unwrap();
-        assert_eq!(r2.account.as_deref(), Some("b"));
-        // 钉的账号缺凭证：不落它，走 fallback（这里无 fallback -> None）
-        store.remove("xai:b");
-        assert!(mrm.resolve("pinned", &store).await.is_none());
-    }
-
-    #[tokio::test]
-    async fn acquire_blocks_at_limit() {
-        let mrm = Arc::new(ModelResourceManager::new(config()));
-        let s1 = mrm.acquire("anthropic").await;
-        assert!(!mrm.available("anthropic").await);
-        let mrm2 = mrm.clone();
-        let handle = tokio::spawn(async move { mrm2.acquire("anthropic").await });
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(!handle.is_finished());
-        drop(s1);
-        let _s2 = handle.await.unwrap();
     }
 }

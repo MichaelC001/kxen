@@ -40,8 +40,9 @@ async fn main() {
         on_event: Arc::new(|event| match event {
             AgentEvent::Text { text } => print!("{text}"),
             AgentEvent::Reasoning { text } => eprint!("[r:{}]", first_chars(&text, 40)),
-            AgentEvent::ToolCall { name, summary } => println!("\n>>> TOOL CALL {name}: {}", first_chars(&summary, 100)),
-            AgentEvent::ToolResult { name, summary } => println!("<<< TOOL RESULT {name}: {}", first_chars(&summary, 100)),
+            AgentEvent::ToolCall { name, summary, .. } => println!("\n>>> TOOL CALL {name}: {}", first_chars(&summary, 100)),
+            AgentEvent::ToolResult { name, summary, .. } => println!("<<< TOOL RESULT {name}: {}", first_chars(&summary, 100)),
+            AgentEvent::Compacted { summary } => println!("\n=== COMPACTED: {} ===", first_chars(&summary, 80)),
             AgentEvent::Phase { name } => println!("\n--- PHASE: {name} ---"),
             AgentEvent::Done { turns, .. } => println!("\n=== DONE in {turns} turns ==="),
             AgentEvent::Aborted => println!("\n=== ABORTED ==="),

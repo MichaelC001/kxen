@@ -15,12 +15,19 @@ fn canon(repo: &Path) -> PathBuf {
     repo.canonicalize().unwrap_or_else(|_| repo.to_path_buf())
 }
 
+/// worktree 名白名单校验（与 file-backed id 同规则：杜绝路径穿越进 .kxen/worktrees/<name>）。
+pub fn validate_name(name: &str) -> Result<(), String> {
+    if crate::core::ids::is_valid_id(name) {
+        Ok(())
+    } else {
+        Err(format!("invalid worktree name: {name:?}"))
+    }
+}
+
 /// 创建 worktree（已存在则直接复用）。
 pub async fn create(repo: &Path, name: &str) -> Result<WorktreeInfo, String> {
     let repo = &canon(repo);
-    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-        return Err("worktree name must be alphanumeric or dash".into());
-    }
+    validate_name(name)?;
     ensure_gitignore(repo)?;
     let path = repo.join(".kxen").join("worktrees").join(name);
     let branch = format!("kxen/{name}");
@@ -35,9 +42,55 @@ pub async fn create(repo: &Path, name: &str) -> Result<WorktreeInfo, String> {
 }
 
 /// 移除 worktree（分支默认保留，用户自行 merge/diff 后处理）。
+/// 无审批通道的旧入口：dirty 或 delete_branch 一律拒绝，clean 且保留分支才放行。
 pub async fn remove(repo: &Path, name: &str, delete_branch: bool) -> Result<(), String> {
+    remove_with_approval(repo, name, delete_branch, None).await
+}
+
+/// 移除 worktree（审批门变体）：dirty（有改动可丢）或 delete_branch（删分支不可逆）时，
+/// 有审批通道则挂起等用户决定；无通道拒绝。
+pub async fn remove_with_approval(
+    repo: &Path,
+    name: &str,
+    delete_branch: bool,
+    approval: Option<&crate::tools::exec::ApprovalCtx<'_>>,
+) -> Result<(), String> {
     let repo = &canon(repo);
+    validate_name(name)?;
     let path = repo.join(".kxen").join("worktrees").join(name);
+
+    // dirty 判定：worktree 内的 git status（未跟踪文件也算有改动可丢）
+    let dirty = if path.exists() {
+        !git(&path, &["status", "--porcelain"]).await?.trim().is_empty()
+    } else {
+        false
+    };
+
+    if dirty || delete_branch {
+        let mut command = format!("git worktree remove {name}");
+        let mut reasons: Vec<String> = Vec::new();
+        if dirty {
+            reasons.push(format!("worktree {name} 有未提交改动，删除将丢失"));
+        }
+        if delete_branch {
+            command.push_str(&format!(" && git branch -D kxen/{name}"));
+            reasons.push(format!("删除分支 kxen/{name}（不可恢复）"));
+        }
+        let reason = reasons.join("；");
+        let Some(appr) = approval else {
+            return Err(format!("{reason}（当前上下文无审批通道，按拒绝处理）"));
+        };
+        match crate::agent::approval::request_approval(appr, &command, &reason).await {
+            crate::agent::approval::ApprovalOutcome::Allow => {}
+            crate::agent::approval::ApprovalOutcome::Timeout => {
+                return Err(format!("{reason}（用户超时未响应）"));
+            }
+            crate::agent::approval::ApprovalOutcome::Deny => {
+                return Err(format!("{reason}（用户拒绝或已中断）"));
+            }
+        }
+    }
+
     if path.exists() {
         git(repo, &["worktree", "remove", "--force", &path.to_string_lossy()]).await?;
     }
@@ -78,6 +131,7 @@ pub async fn list(repo: &Path) -> Result<Vec<WorktreeInfo>, String> {
 
 /// 当前树相对 worktree 分支的 diff --stat（完成回主树的预览）。
 pub async fn diff_stat(repo: &Path, name: &str) -> Result<String, String> {
+    validate_name(name)?;
     git(repo, &["diff", "--stat", &format!("kxen/{name}")]).await
 }
 
@@ -154,48 +208,5 @@ async fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
         Err(format!("git {} failed: {}", args.first().unwrap_or(&""), String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>()))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// 用临时 git 仓库真实跑 create/list/remove。
-    #[tokio::test]
-    async fn lifecycle() {
-        let repo = std::env::temp_dir().join(format!("kxen-wt-{}", std::process::id()));
-        std::fs::create_dir_all(&repo).unwrap();
-        let init = std::process::Command::new("git")
-            .args(["init", "-b", "main"])
-            .current_dir(&repo)
-            .output()
-            .unwrap();
-        assert!(init.status.success());
-        std::fs::write(repo.join("a.txt"), "hello").unwrap();
-        let add = std::process::Command::new("git").args(["add", "."]).current_dir(&repo).output().unwrap();
-        assert!(add.status.success());
-        let commit = std::process::Command::new("git")
-            .args(["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-m", "init"])
-            .current_dir(&repo)
-            .output()
-            .unwrap();
-        assert!(commit.status.success());
-
-        let info = create(&repo, "wt1").await.unwrap();
-        assert!(info.path.join("a.txt").exists());
-        assert_eq!(info.branch, "kxen/wt1");
-        // .gitignore 幂等
-        let gi = std::fs::read_to_string(repo.join(".gitignore")).unwrap();
-        assert_eq!(gi.matches(".kxen/").count(), 1);
-
-        let trees = list(&repo).await.unwrap();
-        assert_eq!(trees.len(), 1);
-        assert_eq!(trees[0].name, "wt1");
-
-        remove(&repo, "wt1", true).await.unwrap();
-        assert!(list(&repo).await.unwrap().is_empty());
-
-        std::fs::remove_dir_all(&repo).ok();
     }
 }

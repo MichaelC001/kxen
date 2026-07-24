@@ -1,5 +1,5 @@
 // MCP 端到端：本地 bash echo server（行分隔 JSON-RPC）跑通 start/status/tools/call/restart 全链路。
-use kxen_app::mcp::config::ServerConfig;
+use kxen_app::mcp::config::{ServerConfig, StdioConfig};
 use kxen_app::mcp::McpManager;
 use std::collections::HashMap;
 
@@ -27,12 +27,12 @@ async fn mcp_echo_end_to_end() {
     std::fs::create_dir_all(&dir).unwrap();
     let script = dir.join("echo.sh");
     std::fs::write(&script, ECHO_SERVER).unwrap();
-    let cfg = ServerConfig {
+    let cfg = ServerConfig::Stdio(StdioConfig {
         name: "echo".into(),
         command: "/bin/bash".into(),
         args: vec![script.to_string_lossy().into_owned()],
         env: HashMap::new(),
-    };
+    });
     let mgr = McpManager::new();
     mgr.start(vec![cfg]).await;
 

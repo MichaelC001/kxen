@@ -34,7 +34,7 @@ pub async fn execute_goal_tool(args: &Value, session_id: Option<&str>) -> Result
                     wall_clock_ms: args.pointer("/budget/wall_clock_ms").and_then(Value::as_u64),
                 },
             };
-            let id = format!("goal_{}_{:06x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0), std::process::id());
+            let id = crate::core::ids::new_id("goal");
             let mut goal = crate::core::goal::Goal::create(contract, id).map_err(|e| e.to_string())?;
             goal.session_id = session_id.map(String::from);
             goal.save(&dir).map_err(|e| e.to_string())?;

@@ -1,3 +1,4 @@
+mod cron_dispatch;
 mod doctor;
 mod goal_rpc;
 mod ws;
@@ -7,15 +8,18 @@ use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 pub struct AppState {
-    pub auth_store: Mutex<kxen_app::auth::credential::AuthStore>,
+    /// 共享句柄（Arc 内层不变）：TeamManager SpawnDeps 持同一把锁，凭证探测/刷新后操作点可见
+    pub auth_store: Arc<Mutex<kxen_app::auth::credential::AuthStore>>,
     /// ws 服务端口（serve 成功后写入，ws_port command 用）
     ws_port: Mutex<u16>,
+    /// ws 握手 token（启动时 /dev/urandom 生成，ws_port command 一并发给前端）
+    pub ws_token: String,
     model: Mutex<ModelRef>,
     pub bus: kxen_app::core::event::EventBus,
     pub registry: std::sync::Arc<kxen_app::tools::task::TaskRegistry>,
     /// 角色路由可热更新（设置页改角色 -> 重建换 Arc）；与 SpawnDeps 共享同一 RwLock 句柄
     pub mrm: std::sync::Arc<std::sync::RwLock<std::sync::Arc<kxen_app::llm::mrm::ModelResourceManager>>>,
-    pub extras: std::sync::Arc<kxen_app::agent::agent_loop::SessionExtras>,
+    pub extras: std::sync::Arc<kxen_app::agent::agent_loop::SessionExtrasRegistry>,
     /// Ask 档审批 broker（exec 高危命令的用户决定路由）
     pub approvals: std::sync::Arc<kxen_app::agent::approval::ApprovalBroker>,
     /// MCP server 管理器（mcp__server__tool 工具桥）
@@ -27,13 +31,8 @@ pub struct AppState {
     pub agents: std::sync::Arc<kxen_app::agent::activity::AgentRegistry>,
     /// session_id -> 进行中 run 的取消令牌（session.abort 用；run 结束自行移除）
     pub active_runs: std::sync::Mutex<std::collections::HashMap<String, kxen_app::agent::cancel::CancelToken>>,
-    /// session_id -> 排队消息（run 进行中收到的发送；run 结束按序接续，防并发 run 交叉写历史）
-    pub pending_messages: std::sync::Mutex<
-        std::collections::HashMap<
-            String,
-            std::collections::VecDeque<(String, Vec<kxen_app::agent::context::ContextItem>, Vec<kxen_app::llm::types::ImagePart>)>,
-        >,
-    >,
+    /// session 排队消息（落盘持久化：崩溃重启可恢复续跑；run 结束按序接续，防并发 run 交叉写历史）
+    pub pending_messages: kxen_app::core::pending_queue::PendingQueues,
     /// stream_id -> session_id（rpc.cancelStream 路由用）
     pub run_streams: std::sync::Mutex<std::collections::HashMap<String, String>>,
     /// session_id -> (input, output) tokens 累计（状态栏用量段）
@@ -61,7 +60,8 @@ impl AppState {
     #[allow(dead_code)]
     fn new() -> Self {
         let path = kxen_app::core::paths::auth_file();
-        let store = kxen_app::auth::credential::read_auth_file(&path);
+        // 共享句柄：与 TeamManager SpawnDeps 同一把锁，后台探测写入的凭证两边即时可见
+        let store = Arc::new(Mutex::new(kxen_app::auth::credential::read_auth_file(&path)));
         let config = kxen_app::core::config::Config::load(
             &kxen_app::core::paths::config_dir().join("config.toml"),
             None,
@@ -69,7 +69,7 @@ impl AppState {
         .unwrap_or_default();
         let statusline_items = config.statusline.items.clone();
         let registry = std::sync::Arc::new(kxen_app::tools::task::TaskRegistry::new());
-        let extras = std::sync::Arc::new(kxen_app::agent::agent_loop::SessionExtras::default());
+        let extras = std::sync::Arc::new(kxen_app::agent::agent_loop::SessionExtrasRegistry::default());
         let hooks = std::sync::Arc::new(kxen_app::tools::hooks::HookRunner::from_config(&config));
         let mrm = std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(
             kxen_app::llm::mrm::ModelResourceManager::new(config),
@@ -85,7 +85,7 @@ impl AppState {
             kxen_app::core::paths::data_dir().join("teams"),
             kxen_app::agent::team::SpawnDeps {
                 registry: registry.clone(),
-                workdir: workdir.clone(),
+                fallback_workdir: workdir.clone(),
                 store: store.clone(),
                 mrm: mrm.clone(),
                 hooks: Some(hooks.clone()),
@@ -93,13 +93,16 @@ impl AppState {
                 agents: agents.clone(),
                 approvals: Some(approvals.clone()),
                 mcp: Some(mcp.clone()),
-                lsp: Some(lsp.read().expect("lsp").clone()),
+                // team 自持 LSP 池：AppState.lsp 随 workspace switch 重建，member 绑 session 目录不漂移
+                lsp: std::sync::Arc::new(kxen_app::agent::team::LspPool::default()),
             },
             bus.clone(),
+            kxen_app::core::paths::sessions_dir(),
         );
         Self {
-            auth_store: Mutex::new(store),
+            auth_store: store,
             ws_port: Mutex::new(0),
+            ws_token: ws::gen_ws_token(),
             model: Mutex::new(ModelRef::new("xai", "grok-build-0.1")),
             bus,
             registry,
@@ -111,20 +114,31 @@ impl AppState {
             team,
             agents,
             active_runs: std::sync::Mutex::new(std::collections::HashMap::new()),
-            pending_messages: std::sync::Mutex::new(std::collections::HashMap::new()),
+            pending_messages: kxen_app::core::pending_queue::PendingQueues::new(kxen_app::core::paths::sessions_dir()),
             run_streams: std::sync::Mutex::new(std::collections::HashMap::new()),
             mrm,
-            session_tokens: std::sync::Mutex::new(std::collections::HashMap::new()),
+            session_tokens: std::sync::Mutex::new(kxen_app::core::usage::load()),
             session_last_input: std::sync::Mutex::new(std::collections::HashMap::new()),
             statusline_items: std::sync::Mutex::new(statusline_items),
             git_cache: std::sync::Mutex::new((std::time::Instant::now() - std::time::Duration::from_secs(60), String::new())),
             active_workspace: std::sync::RwLock::new(workdir.to_path_buf()),
             session_snapshots: std::sync::Mutex::new(std::collections::HashMap::new()),
             session_involved: std::sync::Mutex::new(std::collections::HashMap::new()),
-            notifications: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            notifications: std::sync::Mutex::new(kxen_app::core::notifications::load()),
             foreground_session: std::sync::RwLock::new(String::new()),
             workdir,
         }
+    }
+
+    /// 主会话 extras 取口：按 session 隔离，跨 send_message 存续。
+    pub fn extras_for(&self, session_id: &str) -> std::sync::Arc<kxen_app::agent::agent_loop::SessionExtras> {
+        self.extras.extras_for(session_id)
+    }
+
+    /// 会话销毁时清 extras（删除会话路径尚未接线，暂无人调）。
+    #[allow(dead_code)]
+    pub fn drop_extras(&self, session_id: &str) {
+        self.extras.drop_extras(session_id);
     }
 }
 
@@ -170,11 +184,20 @@ pub fn run() {
                         Err(e) => tracing::error!(error = %e, "ws server failed"),
                     }
                 });
+                // 崩溃前排队的消息恢复续跑（队列落盘是承诺，重启不该变无限搁置）
+                ws::pending::restore_queues(app.handle().clone());
                 // 通知落盘：bus 订阅一条，Notification 事件进环形缓冲（通知中心数据源）
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
+                    use kxen_app::core::event::{RecvVerdict, recv_verdict};
                     let mut rx = handle.state::<Arc<AppState>>().bus.subscribe();
-                    while let Ok(event) = rx.recv().await {
+                    // Lagged 跳过继续收（静默退出 = 通知中心永久停更），Closed（app 退出）才停
+                    loop {
+                        let event = match recv_verdict(rx.recv().await) {
+                            RecvVerdict::Event(e) => e,
+                            RecvVerdict::Skip => continue,
+                            RecvVerdict::Stop => break,
+                        };
                         // 非前台会话的 run 完成：OS 桌面通知（前台会话用户在看，不打扰）
                         if let kxen_app::core::event::Event::LlmDelta(payload) = &event {
                             if payload.get("kind").and_then(|k| k.as_str()) == Some("done") {
@@ -191,12 +214,16 @@ pub fn run() {
                             }
                         }
                         if let kxen_app::core::event::Event::Notification(text) = event {
-                            // notification hook（全部 Notification 事件的单一收口点）
+                            // notification hook（全部 Notification 事件的单一收口点；Ask 档走审批）
                             let state = handle.state::<Arc<AppState>>();
                             let hooks = state.hooks.clone();
+                            // broker/bus 克隆进任务（借用无法跨 spawn 的 'static 边界）
+                            let broker = state.approvals.clone();
+                            let bus = state.bus.clone();
                             let text2 = text.clone();
                             tauri::async_runtime::spawn(async move {
-                                if let Err(e) = hooks.run_named("notification", &text2, &serde_json::json!({ "text": text2 })).await {
+                                let appr = kxen_app::tools::exec::ApprovalCtx::new(Some(broker.as_ref()), Some(&bus), None, None);
+                                if let Err(e) = hooks.run_named_with_approval("notification", &text2, &serde_json::json!({ "text": text2 }), appr.as_ref()).await {
                                     tracing::warn!(error = %e, "notification hook failed");
                                 }
                             });
@@ -206,8 +233,8 @@ pub fn run() {
                                 .unwrap_or(0);
                             let state = handle.state::<Arc<AppState>>();
                             let mut buf = state.notifications.lock().expect("notifications");
-                            buf.push_front((now, text));
-                            buf.truncate(50);
+                            kxen_app::core::notifications::push(&mut buf, now, text);
+                            kxen_app::core::notifications::persist(&buf);
                         }
                     }
                 });
@@ -232,24 +259,36 @@ pub fn run() {
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.as_millis() as u64)
                             .unwrap_or(0);
+                        // 同批已派发的 session：首个 spawn 后 token 尚未注册进 active_runs，靠本集合判重
+                        let mut dispatched: std::collections::HashSet<String> = std::collections::HashSet::new();
                         for job in kxen_app::core::schedule::drain_due(now) {
-                            let stream_id = ws::protocol::stream_id("run");
                             let state = handle.state::<Arc<AppState>>();
-                            kxen_app::core::shared::lock(&state.run_streams).insert(stream_id.clone(), job.session_id.clone());
+                            let has_active = kxen_app::core::shared::lock(&state.active_runs).contains_key(&job.session_id);
+                            let has_queued = state.pending_messages.has_queued(&job.session_id);
                             let text = format!("[cron {}] {}", job.id, job.prompt);
-                            tokio::spawn(ws::llm_task::run_llm(stream_id, job.session_id, text, vec![], vec![], handle.clone()));
+                            match cron_dispatch::cron_dispatch(has_active, has_queued, dispatched.contains(&job.session_id)) {
+                                cron_dispatch::CronDispatch::Spawn => {
+                                    dispatched.insert(job.session_id.clone());
+                                    let stream_id = ws::protocol::stream_id("run");
+                                    kxen_app::core::shared::lock(&state.run_streams).insert(stream_id.clone(), job.session_id.clone());
+                                    tokio::spawn(ws::llm_task::run_llm(stream_id, job.session_id, text, vec![], vec![], handle.clone()));
+                                }
+                                // 并发 run 会交叉写 JSONL 历史：投入队列由 run 结束续跑消化
+                                cron_dispatch::CronDispatch::Enqueue => {
+                                    let n = state.pending_messages.enqueue(&job.session_id, text, vec![], vec![]);
+                                    state.bus.publish(kxen_app::core::event::Event::Notification(format!("cron 触发时会话运行中，已排队（第 {n} 条）")));
+                                }
+                            }
                         }
                     }
                 });
-                // MCP servers：按信任门加载配置后台启动（失败记 down 不阻塞启动路径）
+                // MCP servers：信任门 + 双 scope 加载后台启动（server 冷启动可至 60s，绝不阻塞启动路径）
                 {
                     let handle = app.handle().clone();
                     tauri::async_runtime::spawn(async move {
                         let state = handle.state::<Arc<AppState>>();
                         let workdir = state.active_workspace.read().expect("workspace").clone();
-                        let trusted = kxen_app::core::trust::is_trusted(&workdir);
-                        let configs = kxen_app::mcp::config::load(&workdir, trusted);
-                        state.mcp.start(configs).await;
+                        kxen_app::mcp::reload_for_workspace(&workdir, &state.mcp).await;
                     });
                 }
                 // 凭证探测走后台：keychain 读取可被 ACL 弹窗无限阻塞，绝不能卡启动路径
@@ -286,8 +325,9 @@ fn main() {
 }
 
 
-/// 前端拿 ws 端口（替代 window.eval 注入：页面重载后注入丢失的竞态根治）。
+/// 前端拿 ws 端口 + 握手 token（替代 window.eval 注入：页面重载后注入丢失的竞态根治）。
 #[tauri::command]
-fn ws_port(state: tauri::State<'_, Arc<AppState>>) -> u16 {
-    *state.ws_port.lock().expect("ws_port")
+fn ws_port(state: tauri::State<'_, Arc<AppState>>) -> serde_json::Value {
+    let port = *state.ws_port.lock().expect("ws_port");
+    serde_json::json!({ "port": port, "token": state.ws_token })
 }

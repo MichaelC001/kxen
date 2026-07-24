@@ -62,7 +62,7 @@ interface Pending {
 
 let socket: WebSocket | null = null;
 let connecting: Promise<WebSocket> | null = null;
-let portPromise: Promise<number> | null = null;
+let endpointPromise: Promise<WsEndpoint> | null = null;
 const pending = new Map<string, Pending>();
 let seq = 0;
 
@@ -70,20 +70,32 @@ let seq = 0;
 const subscriptions = new Map<string, string[]>();
 const chunkHandlers = new Set<(chunk: StreamChunk) => void>();
 
-function getPort(): Promise<number> {
+/** 服务端 bus lag 丢事件后下发的对账控制帧 stream id（P1-14：不再杀连接，前端收此帧重拉快照）。 */
+const RESYNC_STREAM_ID = "sys.resync";
+const resyncHandlers = new Set<() => void>();
+
+/** ws 连接端点：端口 + capability token（后端握手强制校验，本机随机端口不能裸奔）。 */
+interface WsEndpoint {
+  port: number;
+  token: string;
+}
+
+function getEndpoint(): Promise<WsEndpoint> {
   // 失败必须清空缓存：否则一次失败（如测试环境无 Tauri internals）永久毒化后续全部 RPC
-  portPromise ??= invoke<number>("ws_port").catch((e) => {
-    portPromise = null;
+  endpointPromise ??= invoke<WsEndpoint>("ws_port").catch((e) => {
+    endpointPromise = null;
     throw e;
   });
-  return portPromise;
+  return endpointPromise;
 }
 
 async function ensureConn(): Promise<WebSocket> {
   if (socket) return socket;
   connecting ??= (async () => {
-    const port = await getPort();
-    const ws = await WebSocket.connect(`ws://127.0.0.1:${port}/`);
+    const { port, token } = await getEndpoint();
+    const ws = await WebSocket.connect(
+      `ws://127.0.0.1:${port}/?token=${encodeURIComponent(token)}`,
+    );
     ws.addListener((arg) => {
       if (typeof arg.data !== "string") return;
       let msg: RpcResponse & StreamChunk;
@@ -93,6 +105,11 @@ async function ensureConn(): Promise<WebSocket> {
         return;
       }
       if (msg.stream?.id) {
+        // resync 控制帧走独立通道：不是业务 chunk，chunkHandlers 按 sub-*/run-* id 过滤会丢弃它
+        if (msg.stream.id === RESYNC_STREAM_ID) {
+          resyncHandlers.forEach((h) => h());
+          return;
+        }
         chunkHandlers.forEach((h) => h(msg));
         return;
       }
@@ -139,14 +156,25 @@ function drop() {
   // 1s 后重连并恢复全部订阅
   setTimeout(() => {
     void ensureConn()
-      .then(async () => {
-        for (const [streamId, topics] of subscriptions) {
-          subscriptions.delete(streamId);
-          await openSubscription(topics).catch(() => {});
-        }
-      })
+      .then(() => restoreSubscriptions(subscriptions, openSubscription))
       .catch(() => {}); // 重连失败由下一轮 heartbeat 兜底，不浮 unhandled rejection
   }, 1000);
+}
+
+/**
+ * 重连后恢复订阅：先 Array.from 快照再逐个重开。
+ * 迭代中 openSubscription 会 set 新 key，JS Map 迭代会访问新插入 entry（P1-15 持续 reopen 的根因）；
+ * 单个重开失败不中断其余订阅恢复。
+ */
+export async function restoreSubscriptions(
+  subs: Map<string, string[]>,
+  open: (topics: string[]) => Promise<unknown>,
+): Promise<void> {
+  const stale = Array.from(subs.values());
+  subs.clear();
+  for (const topics of stale) {
+    await open(topics).catch(() => {});
+  }
 }
 
 async function call<T>(method: string, params?: unknown): Promise<T> {
@@ -216,5 +244,13 @@ export const client = {
         chunkHandlers.delete(onChunk);
       };
     });
+  },
+
+  /** bus lag 对账信号：服务端丢帧后下发 resync 控制帧，调用方应重拉会话快照（P1-14）。返回注销函数。 */
+  onResync(cb: () => void): Unsub {
+    resyncHandlers.add(cb);
+    return () => {
+      resyncHandlers.delete(cb);
+    };
   },
 };

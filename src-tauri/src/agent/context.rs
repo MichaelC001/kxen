@@ -1,7 +1,7 @@
 //! @ 引用的内容注入：chip -> <file_content>/<url_content> 上下文块。
 //! 数值依据 docs/research/2026-07-21-agent-ux.md §1：16KB 大纲降级、64KB 单文件 cap、200KB 总量 cap。
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 const OUTLINE_THRESHOLD: usize = 16 * 1024;
@@ -9,7 +9,7 @@ const FILE_CAP: usize = 64 * 1024;
 const TOTAL_CAP: usize = 200 * 1024;
 const DIR_LIST_CAP: usize = 200;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContextItem {
     File { path: String },
@@ -49,9 +49,69 @@ fn resolve(input: &str, workdir: &Path) -> PathBuf {
     if p.is_absolute() { p } else { workdir.join(p) }
 }
 
+/// @ 引用的 workspace 边界守卫：canonicalize 后必须仍在 workdir 内（symlink 跳出拦截），
+/// 再叠 safety 的保护路径规则（.git/系统目录/凭证不进模型上下文）。
+fn guard_context_path(full: &Path, workdir: &Path) -> Result<PathBuf, String> {
+    let canon_work = workdir.canonicalize().unwrap_or_else(|_| workdir.to_path_buf());
+    let canon = canon_lenient(full);
+    if !canon.starts_with(&canon_work) {
+        return Err(format!("path escapes workspace: {}", full.display()));
+    }
+    if let crate::tools::safety::Verdict::Deny { rule_id, reason, .. } =
+        crate::tools::safety::guard_path(&canon.to_string_lossy(), &canon_work.to_string_lossy())
+    {
+        return Err(format!("{rule_id}: {reason}"));
+    }
+    Ok(canon)
+}
+
+/// 不存在的目标也能做边界判定：canonicalize 失败时向上找存在的祖先拼接，再 lexical 归一 `..`。
+fn canon_lenient(p: &Path) -> PathBuf {
+    let resolved = if let Ok(c) = p.canonicalize() {
+        c
+    } else {
+        let mut missing = Vec::new();
+        let mut cur = p;
+        while !cur.exists() {
+            missing.push(cur);
+            match cur.parent() {
+                Some(parent) => cur = parent,
+                None => break,
+            }
+        }
+        let mut base = cur.canonicalize().unwrap_or_else(|_| cur.to_path_buf());
+        for m in missing.iter().rev() {
+            if let Some(name) = m.file_name() {
+                base.push(name);
+            }
+        }
+        base
+    };
+    let mut out = PathBuf::new();
+    for c in resolved.components() {
+        match c {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
 fn file_block(path: &str, workdir: &Path) -> (String, Option<String>) {
     let full = resolve(path, workdir);
     let rel = full.strip_prefix(workdir).unwrap_or(&full).to_string_lossy().into_owned();
+    let full = match guard_context_path(&full, workdir) {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                format!("\n<file_content path=\"{rel}\">(blocked: {e})</file_content>\n"),
+                Some(format!("{rel}（{e}）")),
+            )
+        }
+    };
     match std::fs::read(&full) {
         Err(e) => (
             format!("\n<file_content path=\"{rel}\">(read failed: {e})</file_content>\n"),
@@ -83,6 +143,15 @@ fn file_block(path: &str, workdir: &Path) -> (String, Option<String>) {
 fn dir_block(path: &str, workdir: &Path) -> (String, Option<String>) {
     let full = resolve(path, workdir);
     let rel = full.strip_prefix(workdir).unwrap_or(&full).to_string_lossy().into_owned();
+    let full = match guard_context_path(&full, workdir) {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                format!("\n<dir_listing path=\"{rel}\">(blocked: {e})</dir_listing>\n"),
+                Some(format!("{rel}（{e}）")),
+            )
+        }
+    };
     let Ok(entries) = std::fs::read_dir(&full) else {
         return (
             format!("\n<dir_listing path=\"{rel}\">(not a directory)</dir_listing>\n"),
@@ -117,12 +186,8 @@ pub async fn fetch_image_url(url: &str) -> Option<crate::llm::types::ImagePart> 
     if !looks_image {
         return None;
     }
-    let resp = crate::llm::client::shared_http()
-        .get(url)
-        .timeout(std::time::Duration::from_secs(20))
-        .send()
-        .await
-        .ok()?;
+    // SSRF 守卫：与 webfetch 同一通道（逐跳 DNS 检查 + 重定向收口）
+    let resp = crate::tools::net_guard::get_guarded(&crate::tools::webfetch::guarded_client(), url).await.ok()?;
     let mime = resp
         .headers()
         .get(reqwest::header::CONTENT_TYPE)

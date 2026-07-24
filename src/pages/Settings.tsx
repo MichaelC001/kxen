@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-solid";
 import KnowledgeSection from "../components/settings/KnowledgeSection";
 import ProvidersSection from "../components/settings/ProvidersSection";
 import RoutingSection from "../components/settings/RoutingSection";
+import ScheduleSection from "../components/settings/ScheduleSection";
 import UsageSection from "../components/settings/UsageSection";
 import VoiceSection from "../components/settings/VoiceSection";
 import { client } from "../lib/client";
@@ -19,6 +20,7 @@ const SECTIONS = [
   "模型路由",
   "用量与统计",
   "知识库 OKF",
+  "定时任务",
   "高级",
 ] as const;
 
@@ -155,6 +157,10 @@ export default function Settings() {
             <KnowledgeSection />
           </Show>
 
+          <Show when={section() === "定时任务"}>
+            <ScheduleSection />
+          </Show>
+
           <Show when={section() === "高级"}>
             <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-4 space-y-3 text-sm text-[var(--text-dim)]">
               <div>
@@ -180,7 +186,14 @@ export default function Settings() {
                           }}
                         />
                         <span class="text-[var(--text)]">{s.name}</span>
+                        <span class="text-[var(--text-dim)]">{s.transport}</span>
+                        <Show when={s.url}>
+                          {(u) => <span class="truncate text-[var(--text-dim)]">{u()}</span>}
+                        </Show>
                         <span class="text-[var(--text-dim)]">{s.tools} tools</span>
+                        <Show when={s.resources > 0}>
+                          <span class="text-[var(--text-dim)]">{s.resources} resources</span>
+                        </Show>
                         <button
                           class="pressable ml-auto px-2 py-0.5 rounded border border-[var(--border)] text-[var(--text)]"
                           onClick={() => void mcpRestart(s.name).then(refreshMcp)}

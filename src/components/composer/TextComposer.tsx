@@ -4,8 +4,10 @@ import { createEffect, createSignal, Show, onCleanup, onMount } from "solid-js";
 import { Send, Square } from "lucide-solid";
 import { commandList, type CommandInfo, type ContextItem } from "../../lib/chat";
 import { activeSessionId } from "../../lib/state";
+import { clearDraft, getDraft, setDraft } from "../../lib/drafts";
 import { COMPOSER_INSERT_EVENT } from "../../lib/composer-bus";
 import { buildItems, detectTrigger, type PopupState, type Trigger } from "./triggers";
+import { fsResolveName, resolveAttachPath } from "./attach";
 import { createVoicePtt } from "./voice-ptt";
 import { caretRect } from "./caret";
 import { createPasteStore, isLargePaste, normalizePaste } from "./paste";
@@ -42,7 +44,6 @@ export default function TextComposer(props: {
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   let imeLockUntil = 0; // Safari compositionend 先于 commit keydown（WebKit #165231），50ms 锁窗吞尾随 Enter
   const images = new Map<string, { media_type: string; data: string }>();
-  const draftMap = new Map<string, string>();
   const pastes = createPasteStore();
 
   const estimate = () => Math.ceil(text().length / 4);
@@ -100,7 +101,7 @@ export default function TextComposer(props: {
   createEffect(() => {
     props.focusTick();
     // 每会话草稿：切走前已持续落盘，切回恢复；row chip 不跨会话保留
-    const d = draftMap.get(activeSessionId()) ?? "";
+    const d = getDraft(activeSessionId());
     setRowChips([]);
     setPopup(null);
     setValue(d);
@@ -114,6 +115,7 @@ export default function TextComposer(props: {
     setRecording,
     setError: setVoiceError,
     engine: voiceEngine,
+    sessionId: () => activeSessionId(),
     onStarted: setActiveVoice,
   });
 
@@ -129,7 +131,10 @@ export default function TextComposer(props: {
       const items = await buildItems(trigger, commands(), {
         onChip: (kind, ref, label) => {
           removeTriggerText(trigger);
-          setRowChips((prev) => [...prev, { id: `chip_${chipSeq++}`, kind, ref, label }]);
+          setRowChips((prev) => [
+            ...prev,
+            { id: `chip_${chipSeq++}`, kind, ref, label, title: ref },
+          ]);
           setPopup(null);
           ta?.focus();
         },
@@ -180,12 +185,19 @@ export default function TextComposer(props: {
         };
         reader.readAsDataURL(file);
       } else {
-        setRowChips((prev) => [
-          ...prev,
-          { id: `chip_${chipSeq++}`, kind: "file", ref: file.name, label: file.name },
-        ]);
+        void attachOneFile(file);
       }
     }
+  }
+
+  /** 普通文件附件：File 只有 basename，反查 workspace 索引存相对路径（子目录可读、同名不串）。 */
+  async function attachOneFile(file: File) {
+    const candidates = await fsResolveName(file.name).catch(() => []);
+    const rel = resolveAttachPath(file.name, file.size, candidates) ?? file.name;
+    setRowChips((prev) => [
+      ...prev,
+      { id: `chip_${chipSeq++}`, kind: "file", ref: rel, label: file.name, title: rel },
+    ]);
   }
 
   function onPaste(e: ClipboardEvent) {
@@ -253,7 +265,9 @@ export default function TextComposer(props: {
             }
           : c.kind === "web" || c.kind === "docs"
             ? { type: c.kind, url: c.ref }
-            : { type: "file", path: c.ref },
+            : c.kind === "dir"
+              ? { type: "dir", path: c.ref }
+              : { type: "file", path: c.ref },
       );
     const imageParts = rowChips()
       .filter((c) => c.kind === "image")
@@ -261,7 +275,7 @@ export default function TextComposer(props: {
       .filter((i): i is { media_type: string; data: string } => !!i);
     if (recording()) voiceCtl.stop();
     props.onSend(value, context, imageParts);
-    draftMap.delete(activeSessionId());
+    clearDraft(activeSessionId());
     pastes.clear();
     setValue("", 0);
     setRowChips([]);
@@ -285,7 +299,7 @@ export default function TextComposer(props: {
           placeholder="输入消息，@ 引用 · / 命令 · # 知识 · 长按空格语音"
           onInput={() => {
             if (ta) setText(ta.value);
-            draftMap.set(activeSessionId(), ta?.value ?? "");
+            setDraft(activeSessionId(), ta?.value ?? "");
             autogrow();
             checkTrigger();
           }}

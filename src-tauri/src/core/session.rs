@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+use crate::llm::ModelRef;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
@@ -18,6 +20,9 @@ pub struct Session {
     /// 手动排序序号（同组内升序；None = 按 updated_at 倒序）
     #[serde(default)]
     pub sort_order: Option<u64>,
+    /// 会话级模型覆盖（None = 跟随全局默认；旧 meta 文件无此字段，serde 缺省兼容）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,8 +32,19 @@ pub enum Part {
     /// 模型可见但 UI 隐藏的上下文（@chip 文件内容 / 知识沉淀注记）。
     /// 历史回放给模型时带上，时间线渲染时跳过。
     Context { text: String },
-    ToolCall { name: String, input: serde_json::Value, output: String },
+    ToolCall {
+        name: String,
+        /// 一行摘要（UI 头行）；精确参数在 args
+        input: serde_json::Value,
+        /// 完整结果（截断转录在写入侧做）
+        output: String,
+        /// 精确调用参数；存量 JSONL 无此字段，serde 缺省兼容
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        args: Option<serde_json::Value>,
+    },
     Reasoning { text: String },
+    /// base64 内联 JSONL：会话目录自包含，fork/导出/rewind/删除零额外文件管理
+    Image { media_type: String, data: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,30 +66,25 @@ pub enum Role {
 
 // ---------------- 持久化（<sessions_dir>/<id>.json meta + <id>.jsonl 消息行） ----------------
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+pub(crate) fn now_ms() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0) }
+
+// per-session 写锁：cron/队列续跑可能并发 touch 同一会话 JSONL，append 与 rewrite（tmp+rename）必须串行，否则丢并发行
+static WRITE_LOCKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<()>>>>> = std::sync::OnceLock::new();
+
+fn write_lock(id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
+    let registry = WRITE_LOCKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    crate::core::shared::lock(registry).entry(id.to_string()).or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(()))).clone()
 }
 
-fn new_id(prefix: &str) -> String {
-    format!("{prefix}_{}_{:04x}", now_ms(), std::process::id() & 0xffff)
-}
-
-fn meta_path(dir: &Path, id: &str) -> PathBuf {
-    dir.join(format!("{id}.json"))
-}
-
-fn messages_path(dir: &Path, id: &str) -> PathBuf {
-    dir.join(format!("{id}.jsonl"))
-}
+fn meta_path(dir: &Path, id: &str) -> PathBuf { dir.join(format!("{id}.json")) }
+fn messages_path(dir: &Path, id: &str) -> PathBuf { dir.join(format!("{id}.jsonl")) }
+fn compaction_path(dir: &Path, id: &str) -> PathBuf { dir.join(format!("{id}.compact.json")) }
 
 pub fn create(dir: &Path, directory: &str) -> std::io::Result<Session> {
     std::fs::create_dir_all(dir)?;
     let now = now_ms();
     let session = Session {
-        id: new_id("ses"),
+        id: crate::core::ids::new_id("ses"),
         title: "新会话".into(),
         directory: directory.into(),
         parent_id: None,
@@ -81,6 +92,7 @@ pub fn create(dir: &Path, directory: &str) -> std::io::Result<Session> {
         updated_at: now,
         pinned: false,
         sort_order: None,
+        model: None,
     };
     save_meta(dir, &session)?;
     Ok(session)
@@ -103,13 +115,28 @@ pub fn update_meta(dir: &Path, id: &str, title: Option<&str>, pinned: Option<boo
     Ok(session)
 }
 
+/// 写会话级模型覆盖（None = 清除，跟随全局默认）。不 bump updated_at：切模型不算会话活动。
+pub fn set_model(dir: &Path, id: &str, model: Option<ModelRef>) -> std::io::Result<Session> {
+    let mut session = load_meta(dir, id)?;
+    session.model = model;
+    save_meta(dir, &session)?;
+    Ok(session)
+}
+
+/// 生效模型唯一判定口：session 覆盖 > 全局默认。
+pub fn effective_model<'a>(session_override: Option<&'a ModelRef>, global_default: &'a ModelRef) -> &'a ModelRef {
+    session_override.unwrap_or(global_default)
+}
+
 pub fn save_meta(dir: &Path, session: &Session) -> std::io::Result<()> {
+    crate::core::ids::validate_id_io(&session.id)?;
     let tmp = meta_path(dir, &session.id).with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_string_pretty(session)?)?;
     std::fs::rename(&tmp, meta_path(dir, &session.id))
 }
 
 pub fn load_meta(dir: &Path, id: &str) -> std::io::Result<Session> {
+    crate::core::ids::validate_id_io(id)?;
     let text = std::fs::read_to_string(meta_path(dir, id))?;
     serde_json::from_str(&text).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
@@ -128,21 +155,35 @@ pub fn list(dir: &Path) -> Vec<Session> {
 }
 
 /// 删除会话：移入系统废纸篓（Finder 可恢复）。测试走硬删，避免 cargo test 污染用户废纸篓。
-#[cfg(not(test))]
 pub fn remove(dir: &Path, id: &str) {
-    let _ = trash::delete(meta_path(dir, id));
-    let _ = trash::delete(messages_path(dir, id));
-}
-
-#[cfg(test)]
-pub fn remove(dir: &Path, id: &str) {
-    let _ = std::fs::remove_file(meta_path(dir, id));
-    let _ = std::fs::remove_file(messages_path(dir, id));
+    // 非法 id 按 not-found 处理（无操作），绝不拼路径
+    if crate::core::ids::validate_id(id).is_err() {
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = trash::delete(meta_path(dir, id));
+        let _ = trash::delete(messages_path(dir, id));
+        let _ = trash::delete(compaction_path(dir, id));
+    }
+    #[cfg(test)]
+    {
+        let _ = std::fs::remove_file(meta_path(dir, id));
+        let _ = std::fs::remove_file(messages_path(dir, id));
+        let _ = std::fs::remove_file(compaction_path(dir, id));
+    }
 }
 
 /// 追加一条消息（JSONL 行）并维护 meta（updated_at + 首条用户消息生成标题）。
 pub fn append_message(dir: &Path, message: &Message) -> std::io::Result<Session> {
     use std::io::Write;
+    crate::core::ids::validate_id_io(&message.session_id)?;
+    let lock = write_lock(&message.session_id);
+    let _guard = lock.lock().expect("session write lock");
+    // 已删会话拒绝写入：meta 不在即拒，防孤儿 JSONL 重建
+    if !meta_path(dir, &message.session_id).exists() {
+        return Err(std::io::Error::new(std::io::ErrorKind::NotFound, format!("session not found: {}", message.session_id)));
+    }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -161,15 +202,73 @@ pub fn append_message(dir: &Path, message: &Message) -> std::io::Result<Session>
 }
 
 pub fn load_messages(dir: &Path, id: &str) -> Vec<Message> {
+    // 不返回 Result 的读取口：非法 id 按 not-found 处理（空历史），绝不拼路径
+    if crate::core::ids::validate_id(id).is_err() {
+        return Vec::new();
+    }
     let Ok(text) = std::fs::read_to_string(messages_path(dir, id)) else {
         return Vec::new();
     };
     text.lines().filter_map(|line| serde_json::from_str(line).ok()).collect()
 }
 
+/// 摘要消息的用户可见标记（测试与 UI 识别压缩态用同一常量）。
+pub const COMPACT_MARK: &str = "[earlier summary]";
+
+/// 压缩检查点：upto（含）之前的历史已被蒸馏为 summary；原始 JSONL 不动，rewind 锚点不破坏。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Compaction {
+    pub upto_message_id: String,
+    pub summary: String,
+    pub created_at: u64,
+}
+
+impl Compaction {
+    pub fn new(upto_message_id: String, summary: String) -> Self {
+        Self { upto_message_id, summary, created_at: now_ms() }
+    }
+}
+
+/// 落检查点（tmp + rename 原子写，与 meta 同口径）。
+pub fn save_compaction(dir: &Path, id: &str, compaction: &Compaction) -> std::io::Result<()> {
+    crate::core::ids::validate_id_io(id)?;
+    let tmp = compaction_path(dir, id).with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_string_pretty(compaction)?)?;
+    std::fs::rename(&tmp, compaction_path(dir, id))
+}
+
+pub fn load_compaction(dir: &Path, id: &str) -> Option<Compaction> {
+    if crate::core::ids::validate_id(id).is_err() {
+        return None;
+    }
+    let text = std::fs::read_to_string(compaction_path(dir, id)).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// 模型视角历史：应用检查点后的视图（user 摘要消息 + upto 之后的原始消息，parts 全结构保留）。
+/// rewind 到 upto 之前时检查点 id 失配，自动失效回退全量原始历史。
+pub fn load_history(dir: &Path, id: &str) -> Vec<Message> {
+    let messages = load_messages(dir, id);
+    let Some(compaction) = load_compaction(dir, id) else {
+        return messages;
+    };
+    let Some(pos) = messages.iter().position(|m| m.id == compaction.upto_message_id) else {
+        return messages;
+    };
+    let mut view = Vec::with_capacity(messages.len() - pos);
+    // 摘要角色用 user：system 会让 run loop 的 system_owned 判假吞掉真正系统提示，
+    // assistant 会与 recent 首条连排（provider 要求首条非 system 消息必须 user）
+    view.push(new_message(id, Role::User, vec![Part::Text { text: format!("{COMPACT_MARK}\n{}", compaction.summary) }]));
+    view.extend(messages[pos + 1..].iter().cloned());
+    view
+}
+
 /// 全量重写消息流（compaction 回写用）：原子替换 JSONL（tmp + rename）。
 pub fn rewrite_messages(dir: &Path, id: &str, messages: &[Message]) -> std::io::Result<()> {
     use std::io::Write;
+    crate::core::ids::validate_id_io(id)?;
+    let lock = write_lock(id);
+    let _guard = lock.lock().expect("session write lock");
     let target = messages_path(dir, id);
     let tmp = target.with_extension("jsonl.tmp");
     let mut file = std::fs::File::create(&tmp)?;
@@ -180,7 +279,7 @@ pub fn rewrite_messages(dir: &Path, id: &str, messages: &[Message]) -> std::io::
 }
 
 pub fn new_message(session_id: &str, role: Role, parts: Vec<Part>) -> Message {
-    Message { id: new_id("msg"), session_id: session_id.into(), role, parts, created_at: now_ms() }
+    Message { id: crate::core::ids::new_id("msg"), session_id: session_id.into(), role, parts, created_at: now_ms() }
 }
 
 /// 从指定消息分叉：新会话携带 [..=message_id] 前缀历史（parent_id 指向源会话）。
@@ -192,123 +291,16 @@ pub fn fork(dir: &Path, id: &str, message_id: &str) -> std::io::Result<Session> 
     };
     let mut session = create(dir, &parent.directory)?;
     session.parent_id = Some(id.to_string());
+    session.model = parent.model.clone();
     session.title = format!("分叉: {}", parent.title.chars().take(24).collect::<String>());
     save_meta(dir, &session)?;
     for m in &messages[..=idx] {
         let mut cloned = m.clone();
+        // id 重新生成：checkpoint label 与 UI identity 都以消息 id 为键，同 id 分叉会撞
+        cloned.id = crate::core::ids::new_id("msg");
         cloned.session_id = session.id.clone();
         append_message(dir, &cloned)?;
     }
     Ok(session)
-}
-
-/// 导出 markdown：user/assistant 正文 + 工具调用摘要（reasoning 略）。
-pub fn export_markdown(dir: &Path, id: &str) -> std::io::Result<String> {
-    let session = load_meta(dir, id)?;
-    let messages = load_messages(dir, id);
-    let mut out = format!(
-        "# {}\n\n- session: {}\n- directory: {}\n\n",
-        session.title, session.id, session.directory
-    );
-    for m in &messages {
-        let role = match m.role {
-            Role::User => "user",
-            Role::Assistant => "assistant",
-            Role::System => continue,
-        };
-        let mut body = String::new();
-        for p in &m.parts {
-            match p {
-                Part::Text { text } => {
-                    body.push_str(text);
-                    body.push('\n');
-                }
-                Part::ToolCall { name, input, output } => {
-                    let summary: String = output.chars().take(120).collect();
-                    body.push_str(&format!("\n> tool `{name}`: {input} -> {summary}\n"));
-                }
-                Part::Reasoning { .. } | Part::Context { .. } => {}
-            }
-        }
-        if !body.trim().is_empty() {
-            out.push_str(&format!("\n## {role}\n\n{body}\n"));
-        }
-    }
-    Ok(out)
-}
-
-/// 导出到指定路径（空则 ~/Downloads/kxen-<title>-<ts>.md），返回落盘路径。
-pub fn export_to_file(dir: &Path, id: &str, out: Option<&Path>) -> std::io::Result<PathBuf> {
-    let md = export_markdown(dir, id)?;
-    let path = match out {
-        Some(p) => p.to_path_buf(),
-        None => {
-            let session = load_meta(dir, id)?;
-            let slug: String = session
-                .title
-                .chars()
-                .map(|c| if c.is_alphanumeric() { c } else { '-' })
-                .take(40)
-                .collect();
-            dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("/tmp"))
-                .join("Downloads")
-                .join(format!("kxen-{slug}-{}.md", now_ms()))
-        }
-    };
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, md)?;
-    Ok(path)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn session_lifecycle() {
-        let dir = std::env::temp_dir().join(format!("kxen-ses-{}", std::process::id()));
-        let s = create(&dir, "/tmp/work").unwrap();
-        assert_eq!(list(&dir).len(), 1);
-
-        let m1 = new_message(&s.id, Role::User, vec![Part::Text { text: "帮我改一下 README 的开头".into() }]);
-        let meta = append_message(&dir, &m1).unwrap();
-        assert_eq!(meta.title, "帮我改一下 README 的开头");
-
-        let m2 = new_message(&s.id, Role::Assistant, vec![Part::Text { text: "好的".into() }, Part::ToolCall { name: "exec".into(), input: serde_json::json!({"command": "ls"}), output: "a.txt b.txt".into() }]);
-        append_message(&dir, &m2).unwrap();
-
-        let messages = load_messages(&dir, &s.id);
-        assert_eq!(messages.len(), 2);
-        assert_eq!(messages[0].role, Role::User);
-
-        // fork 到第一条消息：前缀历史只有 user 一条，parent_id 指源
-        let forked = fork(&dir, &s.id, &m1.id).unwrap();
-        assert_eq!(forked.parent_id.as_deref(), Some(s.id.as_str()));
-        let forked_msgs = load_messages(&dir, &forked.id);
-        assert_eq!(forked_msgs.len(), 1);
-        assert_eq!(forked_msgs[0].role, Role::User);
-
-        // 元信息更新：重命名/置顶/排序
-        let s2 = update_meta(&dir, &s.id, Some("改名后"), Some(true), Some(Some(7))).unwrap();
-        assert_eq!(s2.title, "改名后");
-        assert!(s2.pinned);
-        assert_eq!(s2.sort_order, Some(7));
-
-        // 导出 markdown：标题 + user 正文 + tool 摘要
-        let md = export_markdown(&dir, &s.id).unwrap();
-        assert!(md.contains("帮我改一下 README 的开头"));
-        assert!(md.contains("tool `exec`"));
-        assert!(md.contains("a.txt b.txt"));
-        let out = export_to_file(&dir, &s.id, None).unwrap();
-        assert!(out.exists());
-
-        remove(&dir, &s.id);
-        remove(&dir, &forked.id);
-        assert!(list(&dir).is_empty());
-        std::fs::remove_dir_all(&dir).ok();
-    }
 }
 

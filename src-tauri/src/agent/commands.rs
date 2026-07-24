@@ -55,6 +55,10 @@ pub fn expand(workdir: &Path, name: &str, args: &str) -> Option<String> {
     let entry = knowledge::scan(workdir)
         .into_iter()
         .find(|e| e.kind == Kind::Command && e.enabled && e.slug == name)?;
+    // 信任门：未信任项目 command 只索引（list 可见）不展开，与 render 的 untrusted downgrade 同模式
+    if entry.scope == knowledge::Scope::Project && !crate::core::trust::is_trusted(workdir) {
+        return None;
+    }
     let content = crate::agent::skills::expand_args(&entry.content, args, &[]);
     let deps = knowledge::resolve_needs(workdir, &entry.needs);
     Some(format!("{content}\n{deps}"))
@@ -63,6 +67,19 @@ pub fn expand(workdir: &Path, name: &str, args: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 进程级隔离信任 store：与 render 测试同值（Once 写序防并行 env 竞态）。
+    fn setup() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            unsafe {
+                std::env::set_var(
+                    "KXEN_TRUST_FILE",
+                    std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())),
+                );
+            }
+        });
+    }
 
     fn fixture(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("kxen-cmd-{tag}-{}", std::process::id()));
@@ -74,7 +91,9 @@ mod tests {
 
     #[test]
     fn builtin_and_custom() {
+        setup();
         let dir = fixture("list");
+        crate::core::trust::trust(&dir); // 生产语义：夹具显式信任（未信任只索引）
         let list = list(&dir);
         assert!(list.iter().any(|c| c.name == "write-goal" && c.kind == "builtin"));
         let custom = list.iter().find(|c| c.name == "review").unwrap();
@@ -86,10 +105,21 @@ mod tests {
 
     #[test]
     fn expand_template_with_args() {
+        setup();
         let dir = fixture("expand");
+        crate::core::trust::trust(&dir);
         let out = expand(&dir, "review", "src/auth").unwrap();
         assert!(out.contains("审查 src/auth"));
         assert!(expand(&dir, "nonexistent", "").is_none());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn untrusted_command_indexed_but_not_expanded() {
+        setup();
+        let dir = fixture("untrusted");
+        assert!(list(&dir).iter().any(|c| c.name == "review"), "未信任项目 command 仍索引可见");
+        assert!(expand(&dir, "review", "src/auth").is_none(), "未信任项目 command 不展开");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

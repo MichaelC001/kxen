@@ -15,10 +15,7 @@ pub fn status() -> EngineStatus {
 /// 整文件识别 -> 最终文本（E2E 与排障共用；90s 超时）。
 pub fn recognize_file(path: &str, locale: &str) -> Result<String, String> {
     ensure_authorized()?;
-    let recognizer = objc::new_recognizer(locale).ok_or_else(|| format!("无法创建识别器（locale {locale}）"))?;
-    if !objc::is_available(&recognizer) {
-        return Err("识别服务当前不可用".into());
-    }
+    let recognizer = on_device_recognizer(locale)?;
     let request = objc::url_request(path).ok_or("无法创建识别请求")?;
     let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
     let handler = objc::ResultHandler::new(move |result, error| {
@@ -49,6 +46,19 @@ fn ensure_authorized() -> Result<(), String> {
         }
         _ => Err("语音识别权限被拒绝/受限".into()),
     }
+}
+
+/// 创建识别器并确认可用 + 支持 on-device；不支持则报错，由 voice::start 的 fallback 链降级到云转写。
+fn on_device_recognizer(locale: &str) -> Result<Retained<AnyObject>, String> {
+    let recognizer = objc::new_recognizer(locale).ok_or_else(|| format!("无法创建识别器（locale {locale}）"))?;
+    if !objc::is_available(&recognizer) {
+        return Err("识别服务当前不可用".into());
+    }
+    if !objc::supports_on_device(&recognizer) {
+        tracing::warn!(locale, "Apple 识别器不支持 on-device 识别，降级到云转写链");
+        return Err(format!("识别器不支持 on-device 识别（locale {locale}）"));
+    }
+    Ok(recognizer)
 }
 
 #[cfg(test)]
@@ -85,10 +95,7 @@ pub struct MicSession {
 /// 启动麦克风识别（PTT 按下）。tap 同时喂 Speech（本地流式）与 PCM 缓冲（云转写终稿用）。
 pub fn start_mic(locale: &str) -> Result<MicSession, String> {
     ensure_authorized()?;
-    let recognizer = objc::new_recognizer(locale).ok_or_else(|| format!("无法创建识别器（locale {locale}）"))?;
-    if !objc::is_available(&recognizer) {
-        return Err("识别服务当前不可用".into());
-    }
+    let recognizer = on_device_recognizer(locale)?;
     let request = objc::buffer_request().ok_or("无法创建缓冲识别请求")?;
     let (tx, rx) = std::sync::mpsc::channel::<SessionEvent>();
     let handler = objc::ResultHandler::new(move |result, error| {

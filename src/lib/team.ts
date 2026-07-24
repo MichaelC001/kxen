@@ -13,7 +13,7 @@ export interface TeamMember {
 export interface TeamTask {
   id: number;
   title: string;
-  status: "pending" | "in_progress" | "completed";
+  status: "pending" | "in_progress" | "completed" | "failed" | "canceled";
   assignee?: string | null;
   depends_on: number[];
 }

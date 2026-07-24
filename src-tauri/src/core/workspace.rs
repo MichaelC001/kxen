@@ -112,6 +112,7 @@ mod tests {
             updated_at: updated,
             pinned: false,
             sort_order: None,
+            model: None,
         };
         let sessions = vec![session("s1", "/a", 500), session("s2", "/a", 900), session("s3", "/b", 300)];
         let running: std::collections::HashSet<String> = ["s2".to_string()].into_iter().collect();

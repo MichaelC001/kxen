@@ -72,7 +72,14 @@ pub fn is_available(recognizer: &AnyObject) -> bool {
     v.as_bool()
 }
 
-/// 整文件识别请求（开启部分结果回报）。
+/// 识别器是否支持纯本地识别（SFSpeechRecognizer.supportsOnDeviceRecognition）。
+/// 不支持时必须走降级链：请求已强制 setRequiresOnDeviceRecognition:YES，硬跑只会报错。
+pub fn supports_on_device(recognizer: &AnyObject) -> bool {
+    let v: Bool = unsafe { msg_send![recognizer, supportsOnDeviceRecognition] };
+    v.as_bool()
+}
+
+/// 整文件识别请求（开启部分结果回报 + 强制本地识别）。
 pub fn url_request(path: &str) -> Option<Retained<AnyObject>> {
     unsafe {
         let url = NSURL::fileURLWithPath(&NSString::from_str(path));
@@ -80,19 +87,21 @@ pub fn url_request(path: &str) -> Option<Retained<AnyObject>> {
         let req: *mut AnyObject = msg_send![req, initWithURL: &*url];
         let req = Retained::from_raw(req)?;
         let _: () = msg_send![&*req, setShouldReportPartialResults: Bool::YES];
+        let _: () = msg_send![&*req, setRequiresOnDeviceRecognition: Bool::YES];
         Some(req)
     }
 }
 
 pub type ResultHandler = RcBlock<dyn Fn(*mut AnyObject, *mut AnyObject)>;
 
-/// 流式缓冲识别请求（麦克风/文件灌流共用）。
+/// 流式缓冲识别请求（麦克风/文件灌流共用；强制本地识别）。
 pub fn buffer_request() -> Option<Retained<AnyObject>> {
     unsafe {
         let req: *mut AnyObject = msg_send![class(c"SFSpeechAudioBufferRecognitionRequest"), alloc];
         let req: *mut AnyObject = msg_send![req, init];
         let req = Retained::from_raw(req)?;
         let _: () = msg_send![&*req, setShouldReportPartialResults: Bool::YES];
+        let _: () = msg_send![&*req, setRequiresOnDeviceRecognition: Bool::YES];
         Some(req)
     }
 }

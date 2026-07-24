@@ -36,26 +36,41 @@ impl HookRunner {
 
     /// pre_tool_use：任一匹配 hook 失败（非零退出 / 被 safety 拦 / 超时）即阻断。
     pub async fn run_pre(&self, tool: &str, payload: &Value) -> Result<(), String> {
-        for hook in self.matching("pre_tool_use", tool) {
-            self.execute(&hook, "pre_tool_use", tool, payload).await?;
-        }
-        Ok(())
+        self.run_pre_with_approval(tool, payload, None).await
     }
 
     /// post_tool_use：失败只记日志，不影响工具结果。
     pub async fn run_post(&self, tool: &str, payload: &Value) {
-        for hook in self.matching("post_tool_use", tool) {
-            if let Err(reason) = self.execute(&hook, "post_tool_use", tool, payload).await {
-                tracing::warn!(tool, reason, "post_tool_use hook failed");
-            }
-        }
+        self.run_post_with_approval(tool, payload, None).await;
     }
 
     /// 命名事件通用入口（teammate_idle / task_completed 等 team 挂点）：
     /// matcher 正则匹配 subject（agent 名 / task 标题），非零退出即打回。
     pub async fn run_named(&self, event: &str, subject: &str, payload: &Value) -> Result<(), String> {
+        self.run_named_with_approval(event, subject, payload, None).await
+    }
+
+    /// run_pre 的审批通道变体：Ask 档 hook 命令挂起等用户决定。
+    pub async fn run_pre_with_approval(&self, tool: &str, payload: &Value, approval: Option<&crate::tools::exec::ApprovalCtx<'_>>) -> Result<(), String> {
+        for hook in self.matching("pre_tool_use", tool) {
+            self.execute(&hook, "pre_tool_use", tool, payload, approval).await?;
+        }
+        Ok(())
+    }
+
+    /// run_post 的审批通道变体。
+    pub async fn run_post_with_approval(&self, tool: &str, payload: &Value, approval: Option<&crate::tools::exec::ApprovalCtx<'_>>) {
+        for hook in self.matching("post_tool_use", tool) {
+            if let Err(reason) = self.execute(&hook, "post_tool_use", tool, payload, approval).await {
+                tracing::warn!(tool, reason, "post_tool_use hook failed");
+            }
+        }
+    }
+
+    /// run_named 的审批通道变体。
+    pub async fn run_named_with_approval(&self, event: &str, subject: &str, payload: &Value, approval: Option<&crate::tools::exec::ApprovalCtx<'_>>) -> Result<(), String> {
         for hook in self.matching(event, subject) {
-            self.execute(&hook, event, subject, payload).await?;
+            self.execute(&hook, event, subject, payload, approval).await?;
         }
         Ok(())
     }
@@ -69,9 +84,25 @@ impl HookRunner {
             .unwrap_or_default()
     }
 
-    async fn execute(&self, hook: &CompiledHook, event: &str, tool: &str, payload: &Value) -> Result<(), String> {
-        if let Verdict::Deny { rule_id, reason, .. } = evaluate_shell_command(&hook.command, "/") {
-            return Err(format!("hook blocked by safety rule {rule_id}: {reason}"));
+    async fn execute(&self, hook: &CompiledHook, event: &str, tool: &str, payload: &Value, approval: Option<&crate::tools::exec::ApprovalCtx<'_>>) -> Result<(), String> {
+        match evaluate_shell_command(&hook.command, "/") {
+            Verdict::Deny { rule_id, reason, .. } => {
+                return Err(format!("hook blocked by safety rule {rule_id}: {reason}"));
+            }
+            // Ask 档：有审批通道挂起等用户决定；无通道/拒绝/中断一律按 Deny
+            Verdict::Ask { reason } => {
+                let approved = match approval {
+                    Some(appr) => matches!(
+                        crate::agent::approval::request_approval(appr, &hook.command, &reason).await,
+                        crate::agent::approval::ApprovalOutcome::Allow
+                    ),
+                    None => false,
+                };
+                if !approved {
+                    return Err(format!("hook blocked (需审批但未放行): {reason}"));
+                }
+            }
+            _ => {}
         }
         let payload_str = serde_json::to_string(payload).unwrap_or_default();
         let result = tokio::time::timeout(

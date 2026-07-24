@@ -5,6 +5,7 @@
 //! 端口启动时随机分配，前端经 ws_port command 获取。
 
 pub mod llm_task;
+pub mod pending;
 pub mod session_ops;
 mod ops;
 mod ops_provider;
@@ -20,10 +21,38 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::tungstenite::http;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use crate::AppState;
 use protocol::{Request, Response};
+
+/// WS 握手 token：/dev/urandom 32 字节 hex（零新依赖）。每次启动重生成，前端经 ws_port command 获取。
+/// 本机随机端口不能裸奔：同机恶意进程可连端口发 RPC，token 是唯一防线。
+pub(crate) fn gen_ws_token() -> String {
+    use std::io::Read;
+    let mut buf = [0u8; 32];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut buf))
+        .expect("read /dev/urandom for ws token");
+    buf.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Origin 白名单：无 Origin（非浏览器客户端）与 Tauri webview / 本地 dev 前端放行。
+fn origin_allowed(origin: Option<&str>) -> bool {
+    match origin {
+        None => true,
+        Some(o) => matches!(o, "tauri://localhost" | "http://tauri.localhost" | "http://localhost:7823"),
+    }
+}
+
+/// 握手 URI query 里的 ?token= 提取（token 是 hex，无需 URL decode）。
+fn token_from_query(uri: &str) -> Option<String> {
+    let query = uri.split('?').nth(1)?;
+    query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("token=").map(String::from))
+}
 
 /// 全局流序号表（stream_id -> 已用 seq，跨连接共享保证单调）。
 static STREAM_SEQ: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
@@ -58,7 +87,22 @@ pub async fn serve(app: AppHandle) -> std::io::Result<u16> {
 
 /// 单连接多路复用（JSON-RPC 3.0）。
 async fn handle_mux(stream: TcpStream, app: AppHandle) {
-    let Ok(ws) = tokio_tungstenite::accept_async(stream).await else {
+    // 握手门：Origin 白名单 + ?token= 与 AppState.ws_token 相等，任一不过拒连
+    let expected = app.state::<Arc<AppState>>().ws_token.clone();
+    let Ok(ws) = tokio_tungstenite::accept_hdr_async(stream, move |req: &http::Request<()>, resp: http::Response<()>| {
+        let origin = req.headers().get("origin").and_then(|v| v.to_str().ok());
+        let token_ok = token_from_query(&req.uri().to_string()).is_some_and(|t| t == expected);
+        if origin_allowed(origin) && token_ok {
+            Ok(resp)
+        } else {
+            Err(http::Response::builder()
+                .status(http::StatusCode::FORBIDDEN)
+                .body(Some("ws handshake rejected: bad origin or token".to_string()))
+                .expect("403 response"))
+        }
+    })
+    .await
+    else {
         return;
     };
     let (mut tx, mut rx) = ws.split();
@@ -80,12 +124,25 @@ async fn handle_mux(stream: TcpStream, app: AppHandle) {
                 }
             }
             event = bus_rx.recv() => {
-                let Ok(event) = event else { break };
-                for chunk in stream::event_to_chunks(event, &subs) {
-                    let Ok(text) = serde_json::to_string(&chunk) else { continue };
-                    if tx.send(WsMessage::Text(text.into())).await.is_err() {
-                        return;
+                use tokio::sync::broadcast::error::RecvError;
+                match event {
+                    Ok(event) => {
+                        for chunk in stream::event_to_chunks(event, &subs) {
+                            let Ok(text) = serde_json::to_string(&chunk) else { continue };
+                            if tx.send(WsMessage::Text(text.into())).await.is_err() {
+                                return;
+                            }
+                        }
                     }
+                    // bus 溢出：连接不断，发 resync 控制帧让前端全量重拉（丢增量不可自愈）
+                    Err(RecvError::Lagged(n)) => {
+                        let chunk = resync_chunk(n);
+                        let Ok(text) = serde_json::to_string(&chunk) else { continue };
+                        if tx.send(WsMessage::Text(text.into())).await.is_err() {
+                            return;
+                        }
+                    }
+                    Err(RecvError::Closed) => break,
                 }
             }
         }
@@ -154,4 +211,86 @@ fn cancel_stream(stream_id: &str, subs: &mut Vec<SubBinding>, app: &AppHandle) -
         }
     }
     false
+}
+
+/// resync 控制帧的固定 stream id：前端按此识别「丢增量，需全量重拉」。
+const RESYNC_STREAM_ID: &str = "sys.resync";
+
+/// bus Lagged 时下发给该连接的控制帧（复用 StreamChunk 结构，前端按 topic 分流）。
+fn resync_chunk(dropped: u64) -> protocol::StreamChunk {
+    protocol::StreamChunk::new(
+        RESYNC_STREAM_ID,
+        next_seq(RESYNC_STREAM_ID),
+        json!({ "topic": "sys.resync", "payload": { "dropped": dropped } }),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn origin_whitelist() {
+        // 无 Origin（非浏览器客户端）放行
+        assert!(origin_allowed(None));
+        for ok in ["tauri://localhost", "http://tauri.localhost", "http://localhost:7823"] {
+            assert!(origin_allowed(Some(ok)), "{ok} 应放行");
+        }
+        for bad in ["http://evil.com", "https://localhost:7823", "http://localhost:1", "null"] {
+            assert!(!origin_allowed(Some(bad)), "{bad} 应拒绝");
+        }
+    }
+
+    #[test]
+    fn token_from_query_extracts() {
+        assert_eq!(token_from_query("/?token=abc123"), Some("abc123".to_string()));
+        assert_eq!(token_from_query("/?x=1&token=zz&y=2"), Some("zz".to_string()));
+        assert_eq!(token_from_query("/"), None);
+        assert_eq!(token_from_query("/?x=1"), None);
+    }
+
+    #[test]
+    fn ws_token_is_random_hex() {
+        let a = gen_ws_token();
+        let b = gen_ws_token();
+        assert_eq!(a.len(), 64, "32 字节 hex = 64 字符");
+        assert!(a.bytes().all(|c| c.is_ascii_hexdigit()), "必须全 hex");
+        assert_ne!(a, b, "两次生成不得相同");
+    }
+
+    /// bus 溢出 -> resync 控制帧结构 + 订阅存活（连接不得因 Lagged 断开）。
+    #[tokio::test]
+    async fn lagged_yields_resync_frame_and_stream_survives() {
+        use kxen_app::core::event::{Event, EventBus};
+        let bus = EventBus::new(4);
+        let mut rx = bus.subscribe();
+        for i in 0..6 {
+            bus.publish(Event::Notification(format!("n{i}")));
+        }
+        let lagged = rx.recv().await;
+        let Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) = lagged else {
+            panic!("small capacity bus must lag, got: {lagged:?}");
+        };
+        assert!(n >= 2, "6 条进 capacity 4：至少丢 2 条");
+        let chunk = resync_chunk(n);
+        let v = serde_json::to_value(&chunk).unwrap();
+        assert_eq!(v["jsonrpc"], "3.0");
+        assert_eq!(v["stream"]["id"], "sys.resync");
+        assert_eq!(v["stream"]["mode"], "server");
+        assert!(v["stream"]["seq"].is_number(), "seq 必须单调");
+        assert_eq!(v["result"]["topic"], "sys.resync");
+        assert_eq!(v["result"]["payload"]["dropped"], n);
+        // lag 后订阅仍活：后续事件照常到达（连接不需要重开）
+        bus.publish(Event::Notification("after".into()));
+        let mut survived = false;
+        for _ in 0..8 {
+            if let Ok(Event::Notification(t)) = rx.recv().await {
+                if t == "after" {
+                    survived = true;
+                    break;
+                }
+            }
+        }
+        assert!(survived, "lag 后必须能继续收到新事件");
+    }
 }

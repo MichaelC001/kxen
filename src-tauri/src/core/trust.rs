@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 fn store_file() -> PathBuf {
-    // 测试隔离：环境变量覆盖（仅 render 测试模块用 Once 设置一次，勿删）
+    // 测试隔离：环境变量覆盖（各测试模块用 Once 设同一值，写序防并行 env 竞态，勿删）
     if let Ok(p) = std::env::var("KXEN_TRUST_FILE") {
         return PathBuf::from(p);
     }
@@ -40,7 +40,15 @@ pub fn load() -> Vec<String> {
 
 pub fn is_trusted(workdir: &Path) -> bool {
     let w = workdir.to_string_lossy();
-    load().iter().any(|p| p == &w)
+    load().iter().any(|p| {
+        if p == &w {
+            return true;
+        }
+        // 子路径继承仅限 <repo>/.kxen/worktrees/<name>：worktree 是同一项目副本，
+        // 精确匹配会让 worktree 会话退回未信任（custom role/skill/command 全失效）；
+        // 不收宽到任意子目录——子目录可能是拖进项目的不可信第三方代码
+        workdir.starts_with(Path::new(p).join(".kxen/worktrees"))
+    })
 }
 
 pub fn trust(workdir: &Path) {
@@ -76,14 +84,16 @@ pub fn gate_async(workdir: &Path, broker: &std::sync::Arc<crate::agent::approval
     let bus = bus.clone();
     let dir = workdir.to_path_buf();
     tokio::spawn(async move {
-        let (id, rx) = broker.register();
+        // 无会话归属（workspace 级审批）：register("") 记空归属，cancel_session 不误伤
+        let (id, rx) = broker.register("");
         bus.publish(crate::core::event::Event::LlmDelta(serde_json::json!({
             "kind": "approval",
             "approval_id": id,
             "command": dir.display().to_string(),
             "reason": "信任此项目？（.agents 知识与项目配置将注入模型上下文）",
         })));
-        if broker.wait(rx, None).await {
+        let outcome = broker.wait(&id, rx, None).await;
+        if matches!(outcome, crate::agent::approval::ApprovalOutcome::Allow) {
             trust(&dir);
             bus.publish(crate::core::event::Event::Notification(format!("已信任项目 {}", dir.display())));
         }
@@ -94,6 +104,19 @@ pub fn gate_async(workdir: &Path, broker: &std::sync::Arc<crate::agent::approval
 mod tests {
     use super::*;
 
+    /// 进程级隔离 store：与 render 测试同值（谁先谁设，同值无竞态）。
+    fn setup() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            unsafe {
+                std::env::set_var(
+                    "KXEN_TRUST_FILE",
+                    std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())),
+                );
+            }
+        });
+    }
+
     #[test]
     fn trust_roundtrip() {
         let dir = std::env::temp_dir().join(format!("kxen-trust-{}", std::process::id()));
@@ -102,6 +125,20 @@ mod tests {
         assert!(load_from(&file).is_empty());
         trust_into(&file, &dir);
         assert!(load_from(&file).iter().any(|p| p == &dir.to_string_lossy()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn worktree_inherits_project_trust() {
+        setup();
+        let dir = std::env::temp_dir().join(format!("kxen-trust-wt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        trust(&dir);
+        assert!(is_trusted(&dir.join(".kxen/worktrees/feat-x")), "worktree 副本继承项目信任");
+        assert!(is_trusted(&dir.join(".kxen/worktrees/feat-x/src")), "worktree 内更深层同样继承");
+        assert!(!is_trusted(&dir.join("src")), "普通子目录不继承");
+        let other = std::env::temp_dir().join(format!("kxen-trust-wt-other-{}", std::process::id()));
+        assert!(!is_trusted(&other), "无关目录不信任");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

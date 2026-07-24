@@ -1,6 +1,5 @@
-//! 工具执行入口与路由（goal 工具单独在 goal_tool.rs）。
+//! 工具执行入口与路由（goal 工具单独在 goal_tool.rs，task 工具在 task_tool.rs）。
 
-use crate::tools::dev_server::{dev_server, restart_task, DevServerParams, ReadySpec};
 use crate::tools::exec::{exec, ExecOutcome, ExecParams};
 use crate::tools::fs_tool::{delete, edit, read, write, EditSpec};
 use serde_json::{json, Value};
@@ -9,14 +8,26 @@ use std::sync::Arc;
 use super::context::AgentContext;
 use super::goal_tool::execute_goal_tool;
 use super::helpers::{parse_shell, resolve_path};
+use super::task_tool::execute_task_tool;
 
-pub async fn execute_tool(name: &str, arguments: &str, ctx: &mut AgentContext) -> Result<String, String> {
+/// Ask 档审批通道（broker+bus 齐备才为 Some；hooks 与 exec 共用）。
+fn approval_ctx<'a>(ctx: &'a AgentContext) -> Option<crate::tools::exec::ApprovalCtx<'a>> {
+    crate::tools::exec::ApprovalCtx::new(
+        ctx.approvals.as_deref(),
+        ctx.bus.as_ref(),
+        ctx.cancel.as_ref(),
+        ctx.session_id.as_deref(),
+    )
+}
+
+pub async fn execute_tool(name: &str, arguments: &str, ctx: &AgentContext) -> Result<String, String> {
     let args: Value = serde_json::from_str(arguments).unwrap_or_else(|_| json!({}));
     let cwd = ctx.workdir.to_string_lossy().to_string();
 
-    // hooks：pre_tool_use 任一失败即阻断；post_tool_use 仅记录
+    // hooks：pre_tool_use 任一失败即阻断；post_tool_use 仅记录（Ask 档 hook 命令走审批）。
+    // approval_ctx 每语句内临时构造：批并行执行（P2-04）同一 ctx 有多个并发借用，不持长借用。
     if let Some(hooks) = &ctx.hooks {
-        hooks.run_pre(name, &json!({ "tool": name, "arguments": args })).await?;
+        hooks.run_pre_with_approval(name, &json!({ "tool": name, "arguments": args }), approval_ctx(ctx).as_ref()).await?;
     }
     let result = dispatch_tool(name, &args, &cwd, ctx).await;
     if let Some(hooks) = &ctx.hooks {
@@ -24,12 +35,12 @@ pub async fn execute_tool(name: &str, arguments: &str, ctx: &mut AgentContext) -
             Ok(text) => text.chars().take(400).collect::<String>(),
             Err(e) => format!("ERROR: {}", e.chars().take(400).collect::<String>()),
         };
-        hooks.run_post(name, &json!({ "tool": name, "arguments": args, "result_preview": preview })).await;
+        hooks.run_post_with_approval(name, &json!({ "tool": name, "arguments": args, "result_preview": preview }), approval_ctx(ctx).as_ref()).await;
     }
     result
 }
 
-pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a mut AgentContext) -> impl std::future::Future<Output = Result<String, String>> + 'a {
+pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a AgentContext) -> impl std::future::Future<Output = Result<String, String>> + 'a {
     async move {
     match name {
         "exec" => {
@@ -40,9 +51,7 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
                 timeout_ms: args.get("timeout_ms").and_then(Value::as_u64),
                 background: args.get("background").and_then(Value::as_bool).unwrap_or(false),
             };
-            let approval = ctx.approvals.as_ref().zip(ctx.bus.as_ref()).map(|(broker, bus)| crate::tools::exec::ApprovalCtx {
-                broker, bus, cancel: ctx.cancel.as_ref(), session_id: ctx.session_id.as_deref().unwrap_or(""),
-            });
+            let approval = approval_ctx(ctx);
             match exec(params, &ctx.registry, &cwd, approval.as_ref()).await {
                 Ok(ExecOutcome::Foreground { output, exit_code, truncated }) => {
                     Ok(format!("exit {exit_code}{}\n{output}", if truncated { " (truncated)" } else { "" }))
@@ -53,8 +62,20 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
         }
         "read" => {
             let path = resolve_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, &ctx.workdir);
-            read(&path, &ctx.tracker, &cwd)
-                .map(|r| if r.truncated { format!("{}\n... ({} total lines, truncated)", r.content, r.total_lines) } else { r.content })
+            let offset = args.get("offset").and_then(Value::as_u64).map(|n| n as usize);
+            let limit = args.get("limit").and_then(Value::as_u64).map(|n| n as usize);
+            read(&path, &ctx.tracker, &cwd, offset, limit)
+                .map(|r| {
+                    if r.total_lines == 0 || (r.start_line == 1 && !r.truncated) {
+                        r.content
+                    } else if r.end_line < r.start_line {
+                        format!("(offset {} beyond end of file: {} total lines)", r.start_line, r.total_lines)
+                    } else if r.truncated {
+                        format!("{}\n(lines {}-{} of {}; more below - call read again with offset={} to continue)", r.content, r.start_line, r.end_line, r.total_lines, r.end_line + 1)
+                    } else {
+                        format!("{}\n(lines {}-{} of {})", r.content, r.start_line, r.end_line, r.total_lines)
+                    }
+                })
                 .map_err(|e| e.to_string())
         }
         "edit" => {
@@ -80,7 +101,7 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
             let path = resolve_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, &ctx.workdir);
             delete(&path, &ctx.tracker, &cwd).map(|_| "moved to Trash".to_string()).map_err(|e| e.to_string())
         }
-        "diagnostics" => crate::lsp::diagnostics_tool(ctx.lsp.as_ref(), args.get("path").and_then(Value::as_str), &ctx.workdir, ctx.tracker.files()).await,
+        "lsp" => crate::lsp::lsp_tool(ctx.lsp.as_ref(), args, &ctx.workdir, ctx.tracker.files()).await,
         "knowledge" => {
             match args.get("action").and_then(Value::as_str).ok_or("missing action")? {
                 "add" => {
@@ -125,16 +146,28 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
         "glob" => {
             let base = resolve_path(args.get("path").and_then(Value::as_str).unwrap_or(&cwd), &ctx.workdir);
             let pattern = args.get("pattern").and_then(Value::as_str).ok_or("missing pattern")?;
-            crate::tools::search::glob_files(pattern, &base).map(|hits| {
-                if hits.is_empty() { "no matches".into() } else { hits.join("\n") }
+            crate::tools::search::glob_files(pattern, &base).map(|r| {
+                if r.hits.is_empty() {
+                    "no matches".into()
+                } else if r.truncated() {
+                    format!("{}\n(showing {} of {} matches; truncated - use a more specific pattern or narrower path to see the rest)", r.hits.join("\n"), r.hits.len(), r.total)
+                } else {
+                    r.hits.join("\n")
+                }
             }).map_err(|e| e.to_string())
         }
         "grep" => {
             let base = resolve_path(args.get("path").and_then(Value::as_str).unwrap_or(&cwd), &ctx.workdir);
             let pattern = args.get("pattern").and_then(Value::as_str).ok_or("missing pattern")?;
             let filter = args.get("glob").and_then(Value::as_str);
-            crate::tools::search::grep_files(pattern, &base, filter).map(|hits| {
-                if hits.is_empty() { "no matches".into() } else { hits.join("\n") }
+            crate::tools::search::grep_files(pattern, &base, filter).map(|r| {
+                if r.hits.is_empty() {
+                    "no matches".into()
+                } else if r.truncated() {
+                    format!("{}\n(showing {} of {} matches; truncated - add a glob filter or narrow the path to see the rest)", r.hits.join("\n"), r.hits.len(), r.total)
+                } else {
+                    r.hits.join("\n")
+                }
             }).map_err(|e| e.to_string())
         }
         "tool_search" => {
@@ -192,8 +225,14 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
             Ok(crate::tools::websearch::format_hits(&crate::tools::websearch::search(query).await?))
         }
         "team" => {
-            let Some(team) = &ctx.team else {
-                return Err("team tool unavailable in this context".into());
+            // team 全部动作 lead-only：teammate 调用一律权限错误（防自我复制与审批绕过）
+            let is_teammate = ctx.team_identity.is_some();
+            let (Some(team), None) = (&ctx.team, &ctx.team_identity) else {
+                return Err(if is_teammate {
+                    "team tool is lead-only (teammate 无权限)".into()
+                } else {
+                    "team tool unavailable in this context".into()
+                });
             };
             let Some(sid) = &ctx.session_id else {
                 return Err("team tool needs a session".into());
@@ -265,7 +304,7 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
                 "remove" => {
                     let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?;
                     let delete_branch = args.get("delete_branch").and_then(Value::as_bool).unwrap_or(false);
-                    crate::tools::worktree::remove(&repo, name, delete_branch).await?;
+                    crate::tools::worktree::remove_with_approval(&repo, name, delete_branch, approval_ctx(ctx).as_ref()).await?;
                     Ok(format!("removed worktree {name}{}", if delete_branch { " (branch deleted)" } else { " (branch kept)" }))
                 }
                 "list" => {
@@ -293,54 +332,15 @@ pub fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a 
             Box::pin(crate::agent::workflow::run_tool(script, deps, ctx, run_id)).await
         }
         other if other.starts_with("mcp__") => {
-            let (server, tool) = crate::mcp::tools::split_prefixed(other).ok_or(format!("invalid mcp tool name: {other}"))?;
-            ctx.mcp.as_ref().ok_or("mcp not configured")?.call(server, tool, &args).await
+            let appr = crate::tools::exec::ApprovalCtx::new(
+                ctx.approvals.as_deref(),
+                ctx.bus.as_ref(),
+                ctx.cancel.as_ref(),
+                ctx.session_id.as_deref(),
+            );
+            ctx.mcp.as_ref().ok_or("mcp not configured")?.call_gated(other, &args, appr.as_ref()).await
         }
         other => Err(format!("unknown tool: {other}")),
     }
-    }
-}
-
-/// task 工具：后台任务统一管理（dev server 是带 ready 门的 start）。
-pub async fn execute_task_tool(args: &Value, ctx: &mut AgentContext) -> Result<String, String> {
-    let action = args.get("action").and_then(Value::as_str).ok_or("missing action")?;
-    let cwd = ctx.workdir.to_string_lossy().to_string();
-    match action {
-        "start" => {
-            let params = DevServerParams {
-                command: args.get("command").and_then(Value::as_str).ok_or("missing command")?.to_string(),
-                workdir: resolve_path(args.get("workdir").and_then(Value::as_str).unwrap_or(&cwd), &ctx.workdir).to_string_lossy().into_owned(),
-                ready: args.get("ready").map(|r| ReadySpec {
-                    pattern: r.get("pattern").and_then(Value::as_str).map(String::from),
-                    port: r.get("port").and_then(Value::as_u64).map(|p| p as u16),
-                    timeout_ms: r.get("timeout_ms").and_then(Value::as_u64),
-                }),
-                shell: args.get("shell").and_then(Value::as_str).map(parse_shell).transpose()?,
-            };
-            dev_server(params, &ctx.registry)
-                .await
-                .map(|s| format!("ready: {} (task {})", s.url.unwrap_or_else(|| "(no url)".into()), s.task_id))
-                .map_err(|e| e.to_string())
-        }
-        "output" => {
-            let id = args.get("task_id").and_then(Value::as_str).ok_or("missing task_id")?;
-            ctx.registry
-                .output(id)
-                .map(|(output, truncated, status)| format!("status: {status:?}{}\n{output}", if truncated { " (truncated)" } else { "" }))
-                .ok_or_else(|| format!("task not found: {id}"))
-        }
-        "kill" => {
-            let id = args.get("task_id").and_then(Value::as_str).ok_or("missing task_id")?;
-            Ok(if ctx.registry.kill(id).await { format!("killed {id}") } else { format!("task not found: {id}") })
-        }
-        "list" => {
-            let list = ctx.registry.list();
-            Ok(if list.is_empty() { "no tasks".into() } else { serde_json::to_string_pretty(&list).unwrap_or_default() })
-        }
-        "restart" => {
-            let id = args.get("task_id").and_then(Value::as_str).ok_or("missing task_id")?;
-            restart_task(id, &ctx.registry).await.map(|new_id| format!("restarted as {new_id}")).map_err(|e| e.to_string())
-        }
-        other => Err(format!("unknown task action: {other}")),
     }
 }

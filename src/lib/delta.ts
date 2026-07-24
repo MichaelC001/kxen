@@ -1,4 +1,5 @@
 // llm.delta 事件流订阅与分发（从 chat.ts 拆出，时间线增量唯一入口）。
+import { createEffect, onCleanup } from "solid-js";
 import { client } from "./client";
 
 export interface RunStats {
@@ -13,6 +14,7 @@ export interface ToolEvent {
   kind: "tool_call" | "tool_result" | "phase" | "approval";
   name: string;
   summary?: string | undefined;
+  args?: string | undefined;
   approvalId?: string | undefined;
   command?: string | undefined;
   reason?: string | undefined;
@@ -25,9 +27,30 @@ export function onLlmDelta(
   onDone: (stats?: RunStats, error?: string) => void,
   onTool?: (event: ToolEvent) => void,
 ): () => void {
-  return client.stream("llm.delta").on((payload) => {
-    handle(payload as DeltaPayload);
+  let off: (() => void) | undefined;
+  let current: string | undefined;
+  // bus lag 丢帧后服务端下发 resync：本地时间线已有缺口（done 丢失会卡死 streaming 态），
+  // 复用 done 对账通道（flush + 快照重载 + 队列真源）收口；run 仍在跑时后续 delta 自然续上
+  const offResync = client.onResync(() => onDone());
+  // 后端 stream ACL：带 session_id 的帧只发给订阅了 session:<id> topic 的连接，
+  // 订阅必须跟随活跃会话（旧订阅退掉，否则切走后仍占着别会话的帧通道）
+  createEffect(() => {
+    const sid = activeSession();
+    if (sid === current) return;
+    current = sid;
+    off?.();
+    off = client.stream(sid ? ["llm.delta", `session:${sid}`] : ["llm.delta"]).on((payload) => {
+      handle(payload as DeltaPayload);
+    });
   });
+  onCleanup(() => {
+    off?.();
+    offResync();
+  });
+  return () => {
+    off?.();
+    offResync();
+  };
 
   interface DeltaPayload {
     kind?: string;
@@ -36,6 +59,7 @@ export function onLlmDelta(
     message?: string;
     name?: string;
     summary?: string;
+    arguments?: string;
     stats?: RunStats;
     agent?: string;
     approval_id?: string;
@@ -62,6 +86,14 @@ export function onLlmDelta(
         onDone(undefined, event.message ?? "unknown error");
         break;
       case "tool_call":
+        if (event.name)
+          onTool?.({
+            kind: event.kind,
+            name: event.name,
+            summary: event.summary,
+            args: event.arguments,
+          });
+        break;
       case "tool_result":
       case "phase":
         if (event.name) onTool?.({ kind: event.kind, name: event.name, summary: event.summary });

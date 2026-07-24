@@ -24,8 +24,8 @@ const STACK_LIMIT: usize = 1024 * 1024;
 /// workflow 工具入口：QuickJS 在专属线程 + current_thread runtime 跑（rquickjs !Send 全隔离），
 /// 本任务侧只做 phase 转发 / 结果等待 / 超时取消（全部 Send）。
 /// run_id 给了就开 journal resume：同 run_id 重跑时已完成 agent 派发直接回缓存（崩溃/取消可续）。
-pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &mut AgentContext, run_id: Option<&str>) -> Result<String, String> {
-    let journal = run_id.map(crate::agent::workflow_journal::Journal::open);
+pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_id: Option<&str>) -> Result<String, String> {
+    let journal = run_id.and_then(|id| crate::agent::workflow_journal::Journal::open(id, script));
     let (phase_tx, mut phase_rx) = mpsc::unbounded_channel::<String>();
     let (result_tx, result_rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
     let cancel = Arc::new(AtomicBool::new(false));
@@ -206,6 +206,7 @@ mod tests {
             store: crate::auth::credential::AuthStore::default(),
             mrm: Arc::new(ModelResourceManager::new(config)),
             hooks: None,
+            extras: None,
             cancel: None,
             agents: Arc::new(crate::agent::activity::AgentRegistry::default()),
             session_id: None,

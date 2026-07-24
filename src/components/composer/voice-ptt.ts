@@ -13,6 +13,7 @@ type StartSession = (
   engine: string | undefined,
   onPartial: (text: string) => void,
   onError: (msg: string) => void,
+  sessionId: string,
 ) => Promise<VoiceSession>;
 
 export function createVoicePtt(opts: {
@@ -23,6 +24,8 @@ export function createVoicePtt(opts: {
   setError: (v: string) => void;
   engine: () => string;
   startSession?: StartSession;
+  /** 当前 chat session id：后端按它键控录音槽位，多会话并发 PTT 互不打断。 */
+  sessionId?: () => string;
   /** 启动成功回调：回传实际引擎（降级链可能落到非主引擎）。 */
   onStarted?: (engine: string) => void;
 }): VoiceController {
@@ -52,6 +55,7 @@ export function createVoicePtt(opts: {
           opts.setError(msg);
           void stop();
         },
+        opts.sessionId?.() ?? "",
       );
       if (cancelled) {
         void s.stop();

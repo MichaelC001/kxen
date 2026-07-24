@@ -24,6 +24,14 @@ fn load_state() -> State {
         .unwrap_or_default()
 }
 
+/// 水位推进：仅蒸馏成功（Ok）才写新水位，Err 留旧水位、下轮自动重试同批消息；
+/// Ok(0)（成功零沉淀）同样推进——否则同会话每轮白跑一次 LLM。
+fn advance_watermark(state: &mut State, session_id: &str, result: &Result<usize, String>, updated_at: u64) {
+    if result.is_ok() {
+        state.distilled.insert(session_id.to_string(), updated_at);
+    }
+}
+
 /// 一轮整理：返回蒸馏写入条数（任何单会话失败跳过，不阻断后续）。
 pub async fn run_once(model: &ModelRef, store: &crate::auth::credential::AuthStore) -> usize {
     let now = std::time::SystemTime::now()
@@ -62,9 +70,32 @@ pub async fn run_once(model: &ModelRef, store: &crate::auth::credential::AuthSto
             continue;
         }
         let workdir = std::path::PathBuf::from(&meta.directory);
-        written += crate::knowledge::distill::distill_on_delete(model, store, &workdir, transcript).await;
-        state.distilled.insert(meta.id, meta.updated_at);
+        let result = crate::knowledge::distill::distill_on_delete(model, store, &workdir, transcript).await;
+        advance_watermark(&mut state, &meta.id, &result, meta.updated_at);
+        written += result.unwrap_or(0);
     }
     let _ = std::fs::write(state_file(), serde_json::to_string_pretty(&state).unwrap_or_default());
     written
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failure_keeps_watermark_then_retry_advances() {
+        let mut state = State::default();
+        state.distilled.insert("s1".into(), 100);
+        advance_watermark(&mut state, "s1", &Err("boom".into()), 200);
+        assert_eq!(state.distilled.get("s1"), Some(&100), "失败留旧水位");
+        advance_watermark(&mut state, "s1", &Ok(2), 200);
+        assert_eq!(state.distilled.get("s1"), Some(&200), "重试成功后推进");
+    }
+
+    #[test]
+    fn success_zero_notes_still_advances() {
+        let mut state = State::default();
+        advance_watermark(&mut state, "s1", &Ok(0), 300);
+        assert_eq!(state.distilled.get("s1"), Some(&300), "零沉淀也推进，防同会话每轮白跑 LLM");
+    }
 }

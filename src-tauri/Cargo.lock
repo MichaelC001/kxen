@@ -2138,6 +2138,7 @@ dependencies = [
  "rquickjs",
  "serde",
  "serde_json",
+ "sha2",
  "similar",
  "tauri",
  "tauri-build",
@@ -2151,6 +2152,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "trash",
+ "uuid",
 ]
 
 [[package]]

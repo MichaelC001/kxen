@@ -1,7 +1,9 @@
 // ModelPicker：catalog 驱动（models.dev 快照）——显示名 + id + ctx + 能力徽章 + 搜索 + 角色分配。
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, onMount, Show } from "solid-js";
 import { Check, ChevronDown, Search } from "lucide-solid";
-import { configSetRole, currentModel, setModel } from "../../lib/chat";
+import { configSetRole, currentModel } from "../../lib/chat";
+import { sessionSetModel } from "../../lib/session-model";
+import { activeSessionId } from "../../lib/state";
 import { onClickOutside } from "../../lib/dismiss";
 import {
   fmtCtx,
@@ -38,10 +40,12 @@ export default function ModelPicker() {
     () => setOpen(false),
   );
 
-  onMount(async () => {
-    const [m, c] = await Promise.all([currentModel(), modelsCatalog()]);
-    setCur({ provider: m.provider, model: m.model });
-    setCat(c);
+  onMount(() => void modelsCatalog().then(setCat));
+  // 生效模型随活跃会话重取（session 覆盖 > 全局默认）
+  createEffect(() => {
+    void currentModel(activeSessionId() || undefined).then((m) =>
+      setCur({ provider: m.provider, model: m.model }),
+    );
   });
 
   const rows = (): Row[] =>
@@ -60,8 +64,9 @@ export default function ModelPicker() {
   const curLabel = () =>
     curInfo()?.name ?? (cur().model ? `${cur().provider}/${cur().model}` : "模型");
 
+  // 切模型只写当前 session 的 metadata（草稿态暂存，落库后回写）；全局默认在设置页改
   const pick = (r: Row) => {
-    void setModel(r.provider, r.model.id);
+    void sessionSetModel(activeSessionId(), r.provider, r.model.id);
     setCur({ provider: r.provider, model: r.model.id });
     setOpen(false);
   };

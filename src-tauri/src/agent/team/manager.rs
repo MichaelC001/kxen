@@ -18,16 +18,37 @@ pub struct TeamManager {
     sessions: std::sync::Mutex<HashMap<String, Arc<TeamState>>>,
     deps: SpawnDeps,
     bus: EventBus,
+    /// session metadata 目录：session_workdir 的真相源（session.create 记录的 directory）
+    sessions_dir: PathBuf,
 }
 
 impl TeamManager {
-    pub fn new(root: PathBuf, deps: SpawnDeps, bus: EventBus) -> Arc<Self> {
-        let mgr = Arc::new(Self { root, sessions: std::sync::Mutex::new(HashMap::new()), deps, bus });
+    pub fn new(root: PathBuf, deps: SpawnDeps, bus: EventBus, sessions_dir: PathBuf) -> Arc<Self> {
+        let mgr = Arc::new(Self { root, sessions: std::sync::Mutex::new(HashMap::new()), deps, bus, sessions_dir });
         mgr.restore();
         mgr
     }
 
-    /// 重启恢复：扫描各 session 目录的 config/tasks，成员原活态一律降级 Shutdown（loop 不跨进程），任务按原状恢复。
+    /// member 工作目录唯一解析口：session metadata 的 directory 是真相源
+    ///（workspace switch 只改活跃目录，已建 session 的归属目录不漂移），缺失回退启动目录。
+    pub fn session_workdir(&self, session_id: &str) -> Arc<std::path::Path> {
+        crate::core::session::load_meta(&self.sessions_dir, session_id)
+            .map(|m| Arc::from(std::path::PathBuf::from(m.directory)))
+            .unwrap_or_else(|_| self.deps.fallback_workdir.clone())
+    }
+
+    /// 会话删除连带：内存状态与 team 目录一起清（幂等；非法 id 拒在拼路径之前，防目录穿越误删）。
+    pub fn drop_session(&self, session_id: &str) {
+        if crate::core::ids::validate_id(session_id).is_err() {
+            return;
+        }
+        lock(&self.sessions).remove(session_id);
+        let _ = std::fs::remove_dir_all(self.root.join(session_id));
+    }
+
+    /// 重启恢复：扫描各 session 目录的 config/tasks。
+    /// 崩前活跃且 prompt 非空的成员重启 loop（approved 初值从落盘记录推导，重批豁免）；
+    /// 旧版落盘无 prompt 的成员降级 Shutdown（无法重建任务上下文，硬重启等于失忆空跑）。
     fn restore(self: &Arc<Self>) {
         let Ok(entries) = std::fs::read_dir(&self.root) else { return };
         for entry in entries.flatten() {
@@ -42,9 +63,22 @@ impl TeamManager {
                 .get("members")
                 .and_then(|m| serde_json::from_value(m.clone()).ok())
                 .unwrap_or_default();
+            // 重启名单先算好：落盘状态 Working/Idle/AwaitingPlanApproval 都算崩前活跃
+            let restart: Vec<super::types::Member> = members
+                .iter()
+                .filter(|m| {
+                    !m.prompt.is_empty()
+                        && !matches!(m.status, super::types::MemberStatus::Shutdown | super::types::MemberStatus::Failed)
+                })
+                .cloned()
+                .collect();
             for m in &mut members {
                 if m.status != super::types::MemberStatus::Shutdown && m.status != super::types::MemberStatus::Failed {
-                    m.status = super::types::MemberStatus::Shutdown;
+                    m.status = if restart.iter().any(|r| r.name == m.name) {
+                        super::types::MemberStatus::Idle
+                    } else {
+                        super::types::MemberStatus::Shutdown
+                    };
                 }
             }
             let tasks: Vec<super::types::TeamTask> = std::fs::read_to_string(dir.join("tasks.json"))
@@ -53,21 +87,24 @@ impl TeamManager {
                 .unwrap_or_default();
             let next_id = tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1;
             let _ = std::fs::create_dir_all(dir.join("inboxes"));
-            lock(&self.sessions).insert(
-                session_id.clone(),
-                Arc::new(TeamState {
-                    session_id,
-                    dir,
-                    manager: Arc::downgrade(self),
-                    members: std::sync::Mutex::new(members),
-                    cancels: std::sync::Mutex::new(HashMap::new()),
-                    notifies: std::sync::Mutex::new(HashMap::new()),
-                    tasks: std::sync::Mutex::new(tasks),
-                    next_task_id: std::sync::atomic::AtomicU64::new(next_id),
-                    deps: self.deps.clone(),
-                    bus: self.bus.clone(),
-                }),
-            );
+            let workdir = self.session_workdir(&session_id);
+            let state = Arc::new(TeamState {
+                session_id,
+                dir,
+                workdir,
+                manager: Arc::downgrade(self),
+                members: std::sync::Mutex::new(members),
+                cancels: std::sync::Mutex::new(HashMap::new()),
+                notifies: std::sync::Mutex::new(HashMap::new()),
+                tasks: std::sync::Mutex::new(tasks),
+                next_task_id: std::sync::atomic::AtomicU64::new(next_id),
+                deps: self.deps.clone(),
+                bus: self.bus.clone(),
+            });
+            for m in restart {
+                Self::start_member_loop(&state, m.name, m.role, m.prompt, m.model, m.approved);
+            }
+            lock(&self.sessions).insert(state.session_id.clone(), state);
         }
     }
 
@@ -76,9 +113,11 @@ impl TeamManager {
         map.entry(session_id.to_string()).or_insert_with(|| {
             let dir = self.root.join(session_id);
             let _ = std::fs::create_dir_all(dir.join("inboxes"));
+            let workdir = self.session_workdir(session_id);
             Arc::new(TeamState {
                 session_id: session_id.to_string(),
                 dir,
+                workdir,
                 manager: Arc::downgrade(self),
                 members: std::sync::Mutex::new(Vec::new()),
                 cancels: std::sync::Mutex::new(HashMap::new()),
@@ -93,10 +132,13 @@ impl TeamManager {
 
     /// lead 工具入口。
     pub async fn lead_action(self: &Arc<Self>, session_id: &str, args: &Value) -> Result<String, String> {
+        // session_id/member name 都会拼进 team 目录与 inbox 文件路径，先过白名单
+        crate::core::ids::validate_id(session_id)?;
         let state = self.state_for(session_id);
         match args.get("action").and_then(Value::as_str).ok_or("missing action")? {
             "spawn" => {
                 let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?.to_string();
+                crate::core::ids::validate_id(&name)?;
                 let role = args.get("role").and_then(Value::as_str).unwrap_or("execution").to_string();
                 // 部分模型（grok-build）固定把简报写进 text：别名兜底，二者取一
                 let prompt = args.get("prompt").and_then(Value::as_str)
@@ -114,7 +156,9 @@ impl TeamManager {
                     None => {
                         // 共享句柄读当前 MRM：set_role 热换后 teammate 派发也走新路由
                         let mrm = state.deps.mrm.read().expect("mrm").clone();
-                        let resolved = mrm.resolve(&role, &state.deps.store).await.ok_or_else(|| format!("no available model for role {role}"))?;
+                        // 凭证取操作点实时快照（先克隆再 await）：冻结副本看不到探测/刷新后的新凭证
+                        let store = lock(&state.deps.store).clone();
+                        let resolved = mrm.resolve(&role, &store).await.ok_or_else(|| format!("no available model for role {role}"))?;
                         match resolved.account {
                             Some(acc) => ModelRef::with_account(resolved.provider, resolved.model, acc),
                             None => ModelRef::new(resolved.provider, resolved.model),
@@ -125,18 +169,21 @@ impl TeamManager {
             }
             "message" => {
                 let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?;
+                crate::core::ids::validate_id(name)?;
                 let text = args.get("text").and_then(Value::as_str).ok_or("missing text")?;
                 self.send(&state, "lead", name, text)?;
                 Ok(format!("sent to {name}"))
             }
             "approve" | "reject" => {
                 let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?;
+                crate::core::ids::validate_id(name)?;
                 let approve = args.get("action").and_then(Value::as_str) == Some("approve");
                 let feedback = args.get("feedback").and_then(Value::as_str).unwrap_or("");
                 self.plan_verdict(&state, name, approve, feedback)
             }
             "shutdown" => {
                 let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?;
+                crate::core::ids::validate_id(name)?;
                 self.shutdown(&state, name)
             }
             "list" => Ok(self.render_list(&state)),
@@ -145,6 +192,19 @@ impl TeamManager {
                 let depends_on: Vec<u64> = args.get("depends_on").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
                 let task = create_task(&state, title, depends_on);
                 Ok(format!("task #{} created: {}", task.id, task.title))
+            }
+            "task_cancel" => {
+                let id = args.get("id").and_then(Value::as_u64).ok_or("missing id")?;
+                super::tasks::cancel_task(&state, id)
+            }
+            "task_reassign" => {
+                let id = args.get("id").and_then(Value::as_u64).ok_or("missing id")?;
+                // to 可空：空串视同未传（模型给可选项填空串的习性）
+                let to = args.get("to").and_then(Value::as_str).filter(|s| !s.is_empty());
+                if let Some(name) = to {
+                    crate::core::ids::validate_id(name)?;
+                }
+                super::tasks::reassign_task(&state, id, to)
             }
             other => Err(format!("unknown team action: {other}")),
         }
@@ -193,10 +253,13 @@ impl TeamManager {
 
     /// teammate 工具入口（send_message / team_task）。
     pub async fn teammate_action(self: &Arc<Self>, session_id: &str, from: &str, args: &Value) -> Result<String, String> {
+        crate::core::ids::validate_id(session_id)?;
+        crate::core::ids::validate_id(from)?;
         let state = self.state_for(session_id);
         match args.get("action").and_then(Value::as_str).ok_or("missing action")? {
             "send" => {
                 let to = args.get("to").and_then(Value::as_str).ok_or("missing to")?;
+                crate::core::ids::validate_id(to)?;
                 let text = args.get("text").and_then(Value::as_str).ok_or("missing text")?;
                 self.send(&state, from, to, text)?;
                 Ok(format!("sent to {to}"))
@@ -205,6 +268,11 @@ impl TeamManager {
             "complete" => {
                 let id = args.get("id").and_then(Value::as_u64).ok_or("missing id")?;
                 complete_task(&state, from, id).await
+            }
+            "fail" => {
+                let id = args.get("id").and_then(Value::as_u64).ok_or("missing id")?;
+                let reason = args.get("reason").and_then(Value::as_str).unwrap_or("no reason given");
+                super::tasks::fail_task(&state, from, id, reason)
             }
             "list" => Ok(self.render_list(&state)),
             other => Err(format!("unknown teammate action: {other}")),

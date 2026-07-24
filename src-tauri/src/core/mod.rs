@@ -5,11 +5,16 @@ pub mod config;
 pub mod error;
 pub mod event;
 pub mod goal;
+pub mod ids;
+pub mod notifications;
 pub mod paths;
+pub mod pending_queue;
 pub mod schedule;
 pub mod session;
+pub mod session_export;
 pub mod shared;
 pub mod trust;
+pub mod usage;
 pub mod workspace;
 
 pub use error::{Error, Result};
