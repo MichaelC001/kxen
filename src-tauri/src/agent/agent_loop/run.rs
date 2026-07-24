@@ -108,6 +108,8 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
         let mut attempt = 0usize;
         let mut produced = false;
         let mut wall_stop = false;
+        // 401/403 自愈一次性开关：见 Delta::Error 分支
+        let mut auth_refreshed = false;
         'attempt: loop {
             // 占槽：每次 attempt（含 retry）前 acquire，guard 只活本次 LLM 请求——工具执行阶段不占槽。
             // subagent 路径 ctx.mrm 为 None（槽由 dispatch 的 grant 持整轮），跳过。
@@ -169,6 +171,16 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
                     Delta::Usage { input, output } => usage_acc.push(input, output),
                     Delta::Done => break,
                     Delta::Error(e) => {
+                        // 401/403 反应式自愈：token 被服务端吊销时本地 expires 未到，上方 ensure_fresh
+                        // 预防窗口不触发；强刷成功则以同一账号重试一次（只一次），刷新失败走原错误路径。
+                        // retry.rs 语义不动（401/403 仍不可重试），自愈在本层一次性闸门内完成
+                        if crate::auth::refresh::should_auth_retry(&e, produced, auth_refreshed) {
+                            auth_refreshed = true;
+                            if crate::auth::refresh::force_refresh(&mut ctx.store, &ctx.model.provider, ctx.model.account.as_deref()).await
+                            {
+                                continue 'attempt;
+                            }
+                        }
                         if produced || !crate::llm::retry::retryable(&e) || attempt + 1 >= crate::llm::retry::MAX_ATTEMPTS {
                             (ctx.on_event)(AgentEvent::Error { message: e.clone() });
                             // 流错误（凭证缺失/不可重试/已尽）同样落终态，避免会话只剩用户消息

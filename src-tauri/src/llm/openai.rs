@@ -172,7 +172,7 @@ impl OpenAiProvider {
                 Ok(resp) => futures::stream::once(async move {
                     let status = resp.status();
                     let body = resp.text().await.unwrap_or_default();
-                    Delta::Error(format!("openai HTTP {status}: {}", truncate(&body, 300)))
+                    Delta::Error(crate::llm::client::format_http_error("openai", status, &body))
                 })
                 .boxed(),
                 Err(e) => futures::stream::once(async move { Delta::Error(format!("openai request failed: {e}")) }).boxed(),
@@ -218,10 +218,6 @@ fn delta_of(frame: SseFrame) -> Option<Delta> {
             .map(|u| Delta::Usage { input: u.input_tokens.unwrap_or(0), output: u.output_tokens.unwrap_or(0) }),
         _ => None,
     }
-}
-
-fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max { s } else { &s[..s.floor_char_boundary(max)] }
 }
 
 #[cfg(test)]

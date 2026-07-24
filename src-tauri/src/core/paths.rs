@@ -21,6 +21,10 @@ pub fn cache_dir() -> PathBuf {
 
 /// auth.json 路径（0600）
 pub fn auth_file() -> PathBuf {
+    // 测试隔离：环境变量覆盖（与 trust.rs 同规约，Once 写序防并行 env 竞态，勿删）
+    if let Ok(p) = std::env::var("KXEN_AUTH_FILE") {
+        return PathBuf::from(p);
+    }
     data_dir().join("auth.json")
 }
 

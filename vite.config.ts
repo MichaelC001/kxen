@@ -17,6 +17,8 @@ export default defineConfig({
   // browser mode 下页面中途 reload 直接 flaky（vitest 报 "unexpectedly reloaded a test"）
   optimizeDeps: {
     include: [
+      // TopAgentBar 经 lib/drag 引入：懒优化会中途 reload 测试页
+      "@tauri-apps/api/window",
       "shiki/core",
       "shiki/engine/oniguruma",
       "shiki/wasm",

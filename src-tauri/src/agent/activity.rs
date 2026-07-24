@@ -40,6 +40,9 @@ pub struct AgentActivity {
 #[derive(Default)]
 pub struct AgentRegistry {
     sessions: Mutex<HashMap<String, Vec<AgentActivity>>>,
+    /// 子代理独立取消句柄 (session_id, name)：subagent/workflow 派发时挂载，agents.stop 按名停单个
+    ///（teammate 不走这里，它的 token 在 TeamState.cancels，由 team shutdown 通道取消）。
+    cancels: Mutex<HashMap<(String, String), crate::agent::cancel::CancelToken>>,
 }
 
 impl AgentRegistry {
@@ -61,6 +64,27 @@ impl AgentRegistry {
         });
     }
 
+    /// 前缀定名注册（subagent/workflow 派发口）：「查重名 -> 生成唯一名 -> 插入」同一把锁内完成，
+    /// 返回定名。拆成 unique_name + register 两次取锁时，真并发下同 role 两个派发拿到同名，
+    /// register 去重把它们并成一条、两路转录交错写同一 agent。
+    pub fn register_unique(&self, session_id: &str, prefix: &str, kind: AgentKind, model: &ModelRef) -> String {
+        let mut map = crate::core::shared::lock(&self.sessions);
+        let list = map.entry(session_id.to_string()).or_default();
+        let name = (1..1000)
+            .map(|i| format!("{prefix}-{i}"))
+            .find(|candidate| !list.iter().any(|a| &a.name == candidate))
+            .unwrap_or_else(|| format!("{prefix}-{}", now_ms() % 10_000));
+        list.push(AgentActivity {
+            name: name.clone(),
+            kind,
+            model: model.clone(),
+            status: ActivityStatus::Working,
+            started_at: now_ms(),
+            transcript: VecDeque::new(),
+        });
+        name
+    }
+
     pub fn set_status(&self, session_id: &str, name: &str, status: ActivityStatus) {
         let mut map = crate::core::shared::lock(&self.sessions);
         if let Some(agent) = map.get_mut(session_id).and_then(|list| list.iter_mut().find(|a| a.name == name)) {
@@ -79,6 +103,20 @@ impl AgentRegistry {
         }
     }
 
+    /// 登记子代理取消句柄：dispatch 定名后立即挂，agents.stop 才能停到运行早期的实例。
+    pub fn register_cancel(&self, session_id: &str, name: &str, token: crate::agent::cancel::CancelToken) {
+        crate::core::shared::lock(&self.cancels).insert((session_id.to_string(), name.to_string()), token);
+    }
+
+    /// 按名取消子代理；无句柄（未注册或 teammate）返回 false。
+    pub fn cancel(&self, session_id: &str, name: &str) -> bool {
+        let token = crate::core::shared::lock(&self.cancels).get(&(session_id.to_string(), name.to_string())).cloned();
+        token.is_some_and(|t| {
+            t.cancel();
+            true
+        })
+    }
+
     pub fn list(&self, session_id: &str) -> Vec<AgentActivity> {
         crate::core::shared::lock(&self.sessions).get(session_id).cloned().unwrap_or_default()
     }
@@ -89,19 +127,6 @@ impl AgentRegistry {
             .and_then(|list| list.iter().find(|a| a.name == name))
             .map(|a| a.transcript.iter().cloned().collect())
             .unwrap_or_default()
-    }
-
-    /// 生成唯一代理名（role-序号）。
-    pub fn unique_name(&self, session_id: &str, prefix: &str) -> String {
-        let map = crate::core::shared::lock(&self.sessions);
-        let list = map.get(session_id);
-        for i in 1..1000 {
-            let candidate = format!("{prefix}-{i}");
-            if !list.is_some_and(|l| l.iter().any(|a| a.name == candidate)) {
-                return candidate;
-            }
-        }
-        format!("{prefix}-{}", now_ms() % 10_000)
     }
 }
 
@@ -130,9 +155,38 @@ mod tests {
         assert_eq!(t.len(), TRANSCRIPT_CAP);
         assert_eq!(t[0]["i"], 50, "最旧 50 条应被淘汰");
 
-        let name = reg.unique_name("s1", "review");
+        let name = reg.register_unique("s1", "review", AgentKind::Subagent, &model);
         assert_eq!(name, "review-1");
-        reg.register("s1", &name, AgentKind::Subagent, &model);
-        assert_eq!(reg.unique_name("s1", "review"), "review-2");
+        assert_eq!(reg.register_unique("s1", "review", AgentKind::Subagent, &model), "review-2");
+        assert_eq!(reg.list("s1").len(), 3);
+    }
+
+    #[test]
+    fn cancel_by_name_only_with_registered_handle() {
+        let reg = AgentRegistry::default();
+        let token = crate::agent::cancel::CancelToken::new();
+        reg.register_cancel("s1", "review-1", token.clone());
+        assert!(!reg.cancel("s1", "ghost"), "未注册的 name 必须返回 false");
+        assert!(!reg.cancel("s2", "review-1"), "跨 session 同名不得命中");
+        assert!(reg.cancel("s1", "review-1"));
+        assert!(token.is_cancelled(), "cancel 必须触发令牌");
+    }
+
+    #[test]
+    fn concurrent_register_same_prefix_gets_distinct_names() {
+        // 真并发下同 role 两次派发：拆锁实现会同名并条，单锁 register_unique 必须各自定名
+        let reg = std::sync::Arc::new(AgentRegistry::default());
+        let model = ModelRef::new("xai", "grok");
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let reg = reg.clone();
+            let model = model.clone();
+            handles.push(std::thread::spawn(move || reg.register_unique("s1", "review", AgentKind::Subagent, &model)));
+        }
+        let mut names: Vec<String> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), 8, "并发注册不得重名: {names:?}");
+        assert_eq!(reg.list("s1").len(), 8, "全部代理都在列表中");
     }
 }

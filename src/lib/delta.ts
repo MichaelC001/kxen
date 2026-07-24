@@ -69,6 +69,10 @@ export function onLlmDelta(
   function handle(event: DeltaPayload) {
     // 只渲染活跃会话的增量（后台运行的其他会话事件忽略）
     if (event.session_id && event.session_id !== activeSession()) return;
+    // 子代理帧（subagent/workflow/teammate 注入 agent 标记、与主会话同 session_id）整帧丢弃：
+    // 混入主时间线 appendRaw 会多流交错成乱码，其 done/error 还会提前触发 converge 对账；
+    // per-agent 视图由 RightColumn 自己的 topic 订阅按 agent 过滤，不经过这里
+    if (event.agent) return;
     switch (event.kind) {
       case "text":
         if (event.text) onText(event.text);

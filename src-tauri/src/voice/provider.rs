@@ -97,7 +97,7 @@ pub async fn transcribe_file(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("{label} HTTP {status}: {}", &body[..body.floor_char_boundary(300)]));
+        return Err(crate::llm::client::format_http_error(&label, status, &body));
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| format!("转写响应解析失败: {e}"))?;
     v.get("text").and_then(|t| t.as_str()).map(String::from).ok_or_else(|| "转写响应缺少 text 字段".to_string())

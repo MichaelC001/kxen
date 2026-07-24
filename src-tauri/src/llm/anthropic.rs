@@ -237,17 +237,13 @@ impl AnthropicProvider {
                 Ok(resp) => futures::stream::once(async move {
                     let status = resp.status();
                     let body = resp.text().await.unwrap_or_default();
-                    Delta::Error(format!("anthropic HTTP {status}: {}", truncate(&body, 300)))
+                    Delta::Error(crate::llm::client::format_http_error("anthropic", status, &body))
                 })
                 .boxed(),
                 Err(e) => futures::stream::once(async move { Delta::Error(format!("anthropic request failed: {e}")) }).boxed(),
             }
         }))
     }
-}
-
-fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max { s } else { &s[..s.floor_char_boundary(max)] }
 }
 
 #[cfg(test)]

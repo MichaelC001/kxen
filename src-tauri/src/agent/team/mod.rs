@@ -164,6 +164,24 @@ mod tests {
         assert!(!lock(&state.cancels).contains_key("legacy"));
         let _ = std::fs::remove_dir_all(&dir);
     }
+    /// shutdown：取消令牌触发 + 成员状态落盘；无取消通道的 name 报错（agents.stop 据此收敛 false）。
+    #[tokio::test]
+    async fn shutdown_cancels_token_and_persists_status() {
+        let (mgr, dir) = manager("shutdown");
+        let state = mgr.state_for("s1");
+        push_member(&state, "w", "execution");
+        // 复刻 start_member_loop 的通道注册，不起真 loop（loop 退出才写注册表，这里只验 manager 语义）
+        let token = crate::agent::cancel::CancelToken::new();
+        lock(&state.cancels).insert("w".into(), token.clone());
+        assert!(mgr.lead_action("s1", &serde_json::json!({ "action": "shutdown", "name": "w" })).await.is_ok());
+        assert!(token.is_cancelled(), "shutdown 必须触发取消令牌");
+        let m = lock(&state.members).iter().find(|m| m.name == "w").unwrap().clone();
+        assert_eq!(m.status, MemberStatus::Shutdown);
+        let text = std::fs::read_to_string(dir.join("s1/config.json")).unwrap();
+        assert!(text.contains("shutdown"), "成员状态必须落盘: {text}");
+        assert!(mgr.lead_action("s1", &serde_json::json!({ "action": "shutdown", "name": "ghost" })).await.is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[allow(dead_code)]

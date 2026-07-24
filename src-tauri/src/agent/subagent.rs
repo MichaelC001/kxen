@@ -155,8 +155,23 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: cra
     };
     let allowed = agent.permission.allowed_tools();
     let session_id = deps.session_id.clone().unwrap_or_else(|| "default".into());
-    let name = deps.agents.unique_name(&session_id, role);
-    deps.agents.register(&session_id, &name, kind, &model);
+    // 定名 + 注册同一把锁内完成：并发派发同 role 不得同名并条（转录交错根因）
+    let name = deps.agents.register_unique(&session_id, role, kind, &model);
+    // 子代理独立取消句柄：agents.stop 按名停单个；父 run abort 经 watcher 级联（cancel.rs 的级联共识）。
+    // watcher 随 dispatch 结束回收（done_tx drop 即唤醒退出分支），不留驻进程。
+    let cancel = crate::agent::cancel::CancelToken::new();
+    deps.agents.register_cancel(&session_id, &name, cancel.clone());
+    let _cascade = deps.cancel.clone().map(|parent| {
+        let child = cancel.clone();
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = parent.wait() => child.cancel(),
+                _ = done_rx => {}
+            }
+        });
+        done_tx
+    });
 
     let mut child = AgentContext {
         registry: deps.registry.clone(),
@@ -171,7 +186,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: cra
         // deps.extras 为 None 的调用方（test_dispatch 等无 session 上下文）给一次性临时实例
         extras: Some(deps.extras.clone().unwrap_or_default()),
         hooks: deps.hooks.clone(),
-        cancel: deps.cancel.clone(),
+        cancel: Some(cancel),
         team: None,
         team_identity: None,
         session_id: Some(session_id.clone()),

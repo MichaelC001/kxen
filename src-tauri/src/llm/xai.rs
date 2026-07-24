@@ -139,7 +139,7 @@ impl XaiProvider {
                 Ok(resp) => futures::stream::once(async move {
                     let status = resp.status();
                     let body = resp.text().await.unwrap_or_default();
-                    Delta::Error(format!("xai HTTP {status}: {}", truncate(&body, 300)))
+                    Delta::Error(crate::llm::client::format_http_error("xai", status, &body))
                 })
                 .boxed(),
                 Err(e) => futures::stream::once(async move { Delta::Error(format!("xai request failed: {e}")) }).boxed(),
@@ -179,10 +179,6 @@ fn delta_of(frame: SseFrame) -> Option<Delta> {
             delta.content.map(Delta::Text)
         }
     }
-}
-
-fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max { s } else { &s[..s.floor_char_boundary(max)] }
 }
 
 #[cfg(test)]

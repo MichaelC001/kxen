@@ -3,6 +3,7 @@ import { Show } from "solid-js";
 import Markdown from "./Markdown";
 import MessageActions from "./MessageActions";
 import { openMenu } from "../lib/context-menu";
+import { formatError } from "../lib/error-text";
 import type { MsgItem } from "../lib/items";
 import type { RunStats } from "../lib/chat";
 
@@ -78,7 +79,7 @@ export default function AssistantItem(props: {
         )}
       </Show>
       <Show when={props.item.error}>
-        <div class="text-xs text-[var(--err)] mt-1.5">{props.item.error}</div>
+        {(err) => <div class="text-xs text-[var(--err)] mt-1.5">{formatError(err())}</div>}
       </Show>
       {/* 终态（中断/最大轮次/流错误/异常）都给「继续」——run 结束不许是死路 */}
       <Show when={isTerminal(props.item) && !props.streaming()}>

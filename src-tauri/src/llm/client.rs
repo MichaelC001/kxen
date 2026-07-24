@@ -107,3 +107,58 @@ pub(crate) fn shared_http() -> reqwest::Client {
         })
         .clone()
 }
+
+/// 非 2xx 响应体 -> 单行错误：提取 {"error":{"type","message"}}（anthropic/openai 同形契约），
+/// 解析失败保留原文截断兜底（网关/HTML 错误页不是 JSON）。
+pub(crate) fn format_http_error(provider: &str, status: reqwest::StatusCode, body: &str) -> String {
+    let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
+    let error = parsed.as_ref().and_then(|v| v.get("error"));
+    let kind = error.and_then(|e| e.get("type")).and_then(|t| t.as_str());
+    let message = error.and_then(|e| e.get("message")).and_then(|m| m.as_str());
+    let detail = match (kind, message) {
+        (Some(k), Some(m)) => format!("{} - {}", one_line(k), one_line(m)),
+        (None, Some(m)) => one_line(m),
+        (Some(k), None) => one_line(k),
+        (None, None) => truncate(body, 300).to_string(),
+    };
+    format!("{provider} HTTP {}: {detail}", status.as_u16())
+}
+
+/// 单行化：换行折成空格，错误串保持一行可落日志/状态栏。
+fn one_line(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn truncate(s: &str, max: usize) -> &str {
+    if s.len() <= max { s } else { &s[..s.floor_char_boundary(max)] }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn http_error_extracts_type_and_message() {
+        let body = r#"{"type":"error","error":{"type":"authentication_error","message":"OAuth access token has been revoked"}}"#;
+        assert_eq!(
+            super::format_http_error("anthropic", reqwest::StatusCode::UNAUTHORIZED, body),
+            "anthropic HTTP 401: authentication_error - OAuth access token has been revoked"
+        );
+    }
+
+    #[test]
+    fn http_error_non_json_falls_back_to_truncated_body() {
+        assert_eq!(
+            super::format_http_error("xai", reqwest::StatusCode::BAD_GATEWAY, "<html>gateway error</html>"),
+            "xai HTTP 502: <html>gateway error</html>"
+        );
+        let long = "x".repeat(400);
+        let out = super::format_http_error("xai", reqwest::StatusCode::BAD_GATEWAY, &long);
+        assert_eq!(out.len(), "xai HTTP 502: ".len() + 300);
+    }
+
+    #[test]
+    fn http_error_multiline_message_collapsed() {
+        let body = "{\"error\":{\"type\":\"rate_limit_error\",\"message\":\"line1\\nline2\"}}";
+        let out = super::format_http_error("openai", reqwest::StatusCode::TOO_MANY_REQUESTS, body);
+        assert_eq!(out, "openai HTTP 429: rate_limit_error - line1 line2");
+    }
+}

@@ -4,28 +4,56 @@ import RightColumn from "./components/RightColumn";
 import StatusBar from "./components/StatusBar";
 import CommandPalette from "./components/CommandPalette";
 import ContextMenu from "./components/ContextMenu";
+import TopAgentBar from "./components/TopAgentBar";
+import AgentFocusView from "./components/AgentFocusView";
 import Session from "./pages/Session";
 import Settings from "./pages/Settings";
 import Workspaces from "./pages/Workspaces";
-import { hasConversation, setNavigator } from "./lib/state";
+import {
+  activeAgentFocus,
+  agents,
+  hasConversation,
+  isMainFocus,
+  refreshAgents,
+  setNavigator,
+} from "./lib/state";
 import { mountShortcuts } from "./lib/shortcuts";
 import { openMenu } from "./lib/context-menu";
 import { useNavigate } from "@solidjs/router";
-import { onCleanup, onMount } from "solid-js";
+import { onCleanup, onMount, Show } from "solid-js";
 
 function Home() {
+  // agents 名单同时驱动 TopAgentBar 与 RightColumn，轮询上提到共同父级（原先 RightColumn 独占）
+  let timer: ReturnType<typeof setInterval> | undefined;
+  onMount(async () => {
+    await refreshAgents();
+    timer = setInterval(() => void refreshAgents(), 3000);
+  });
+  onCleanup(() => timer && clearInterval(timer));
+
   return (
-    <>
-      <div class="flex-1 min-w-0 flex flex-col">
-        <div class="flex-1 min-h-0 flex">
+    <div class="flex-1 min-w-0 flex flex-col">
+      {/* 空会话首屏（EmptyHero）不出只有 Main 的占位 bar；有对话或 agent run 后常驻，Main tab 不丢上下文 */}
+      <Show when={hasConversation() || agents().length > 0}>
+        <TopAgentBar />
+      </Show>
+      <div class="flex-1 min-h-0 flex">
+        {/* Session 常驻只切显隐：卸载会断流监听、丢滚动/草稿态（选中 agent 时主流仍在跑） */}
+        <div
+          class="flex-1 min-w-0 flex-col"
+          classList={{ flex: isMainFocus(), hidden: !isMainFocus() }}
+        >
           <Session />
-          <div class="dock-wrap" classList={{ "dock-hidden": !hasConversation() }}>
-            <RightColumn />
-          </div>
         </div>
-        <StatusBar />
+        <Show when={!isMainFocus()}>
+          <AgentFocusView name={activeAgentFocus()} />
+        </Show>
+        <div class="dock-wrap" classList={{ "dock-hidden": !hasConversation() }}>
+          <RightColumn />
+        </div>
       </div>
-    </>
+      <StatusBar />
+    </div>
   );
 }
 

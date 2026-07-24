@@ -54,3 +54,8 @@ export async function agentsTranscript(
 ): Promise<TranscriptEntry[]> {
   return client.rpc<TranscriptEntry[]>("agents.transcript", { session_id: sessionId, name });
 }
+
+/** 按名停止 agent run：teammate 走 team shutdown，subagent/workflow 走取消句柄；不存在返回 false。 */
+export async function agentsStop(sessionId: string, name: string): Promise<boolean> {
+  return client.rpc<boolean>("agents.stop", { session_id: sessionId, name });
+}

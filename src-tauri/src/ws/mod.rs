@@ -6,6 +6,7 @@
 
 pub mod llm_task;
 mod ops;
+mod ops_agents;
 mod ops_mcp;
 mod ops_provider;
 mod ops_workspace;

@@ -12,8 +12,14 @@ export const [activeSessionId, setActiveSessionId] = createSignal<string>("");
 export const [hasConversation, setHasConversation] = createSignal(false);
 /** 子代理名单（teammate/subagent/workflow 统一视图）。 */
 export const [agents, setAgents] = createSignal<AgentActivity[]>([]);
-/** 当前 focus 的子代理名（null = 显示主会话上下文）。 */
-export const [focusAgent, setFocusAgent] = createSignal<string | null>(null);
+/** PrimaryContent 选中项："" / "main" = 主会话，否则为 agent run 名（TopAgentBar chip 与右栏窗格共用）。 */
+export const [activeAgentFocus, setActiveAgentFocus] = createSignal<string>("");
+
+/** 当前选中是否为主会话。 */
+export function isMainFocus(): boolean {
+  const f = activeAgentFocus();
+  return f === "" || f === "main";
+}
 
 /** 启动时加载：无会话则创建一个，激活最新。 */
 export async function initSessions(): Promise<void> {
@@ -46,7 +52,7 @@ export function navigate(path: string): void {
 export async function newSession(): Promise<void> {
   // 草稿态：不立即落库；首次发送消息时才创建会话（对齐 Cursor/Claude/ChatGPT）
   setActiveSessionId("");
-  setFocusAgent(null);
+  setActiveAgentFocus("");
   navigate?.("/");
 }
 
@@ -66,7 +72,7 @@ export async function ensureActiveSession(): Promise<string> {
 
 export function switchSession(id: string): void {
   setActiveSessionId(id);
-  setFocusAgent(null);
+  setActiveAgentFocus("");
   client.rpc("session.foreground", { id }).catch(() => {});
   navigate?.("/");
 }

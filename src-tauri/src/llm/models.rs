@@ -72,11 +72,7 @@ pub async fn fetch_models(store: &AuthStore, provider: &str, account: Option<&st
         Ok(resp) => {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            ModelsOutcome {
-                models: vec![],
-                source: "error".into(),
-                detail: format!("HTTP {status}: {}", &body[..body.floor_char_boundary(200)]),
-            }
+            ModelsOutcome { models: vec![], source: "error".into(), detail: crate::llm::client::format_http_error(provider, status, &body) }
         }
         Err(e) => ModelsOutcome { models: vec![], source: "error".into(), detail: format!("请求失败: {e}") },
     }
