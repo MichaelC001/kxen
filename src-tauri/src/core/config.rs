@@ -15,6 +15,21 @@ pub struct Config {
     pub custom_providers: HashMap<String, CustomProviderDef>,
     /// 运行中再发消息的策略：queue（默认，排队接续）| interrupt（打断当前立即发送）
     pub send_when_running: String,
+    /// 记忆检索的 embedding 语义召回（缺省关闭，纯 BM25）
+    pub embedding: EmbeddingConfig,
+}
+
+/// embedding 语义召回：三档 provider（openai / openrouter / ollama），缺省 provider 为空 = 关闭。
+/// api key 不落 config，复用 auth.json 的同 provider 凭证（ollama 无鉴权）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EmbeddingConfig {
+    /// ""（关闭）| "openai" | "openrouter" | "ollama"
+    pub provider: String,
+    /// 模型覆盖：缺省 openai/openrouter = text-embedding-3-small，ollama = nomic-embed-text
+    pub model: String,
+    /// base URL 覆盖（ollama 非默认端口、自建 OpenAI 兼容网关）；缺省按 provider 给官方端点
+    pub base_url: String,
 }
 
 /// 自定义类型提供商：base_url + 模型清单 + 协议（openai|anthropic）+ 能力标记（text/vision/audio）。
@@ -145,6 +160,9 @@ impl Config {
             self.voice = other.voice;
         }
         self.custom_providers.extend(other.custom_providers);
+        if other.embedding != EmbeddingConfig::default() {
+            self.embedding = other.embedding;
+        }
     }
 }
 

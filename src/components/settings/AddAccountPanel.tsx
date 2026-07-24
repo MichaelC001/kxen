@@ -1,6 +1,12 @@
 // 添加账号面板：三类入口（订阅 OAuth / API Key / 自定义类型提供商），先选型再填字段。
-import { createSignal, For, Show } from "solid-js";
-import { addCustomProvider, importAccount } from "../../lib/provider";
+// provider 与区域下拉来自后端 provider.list（registry 是唯一真相源，前端不硬编码）。
+import { createSignal, For, onMount, Show } from "solid-js";
+import {
+  addCustomProvider,
+  importAccount,
+  providerList,
+  type ProviderInfo,
+} from "../../lib/provider";
 
 type Kind = "oauth" | "apikey" | "custom";
 
@@ -13,28 +19,18 @@ const KINDS: { id: Kind; label: string; detail: string }[] = [
   {
     id: "apikey",
     label: "API Key",
-    detail: "官方平台 key（OpenAI / xAI / DeepSeek / Mistral / Groq / Gemini / Together）",
+    detail: "官方平台 key（DeepSeek / 月之暗面 / 智谱 / 通义 / Mistral / Groq / Gemini 等）",
   },
   { id: "custom", label: "自定义提供商", detail: "OpenAI / Anthropic 兼容端点（中转、自部署）" },
 ];
 
-const OAUTH_PROVIDERS = [
-  "anthropic",
-  "openai",
-  "xai",
-  "kimi-for-coding",
-  "openrouter",
-  "deepseek",
-  "mistral",
-  "groq",
-  "google",
-  "together",
-];
 const CAPS = ["text", "vision", "audio"];
 
 export default function AddAccountPanel(props: { onDone: (msg: string) => void }) {
   const [kind, setKind] = createSignal<Kind>("oauth");
+  const [providers, setProviders] = createSignal<ProviderInfo[]>([]);
   const [provider, setProvider] = createSignal("anthropic");
+  const [region, setRegion] = createSignal("");
   const [name, setName] = createSignal("");
   const [token, setToken] = createSignal("");
   const [baseUrl, setBaseUrl] = createSignal("");
@@ -43,6 +39,17 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
   const [caps, setCaps] = createSignal<string[]>(["text"]);
   const [error, setError] = createSignal("");
   const [busy, setBusy] = createSignal(false);
+
+  onMount(async () => {
+    const list = await providerList().catch(() => [] as ProviderInfo[]);
+    setProviders(list);
+    if (list.length > 0 && !list.some((p) => p.key === provider())) {
+      setProvider(list[0]!.key);
+    }
+  });
+
+  const spec = () => providers().find((p) => p.key === provider());
+  const regions = () => spec()?.regions ?? [];
 
   const toggleCap = (c: string) =>
     setCaps((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
@@ -98,6 +105,8 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
         kind() === "apikey" ? "api" : "oauth",
         refresh,
         expires,
+        // 多区域厂商才带 region；单区域/空选择交给后端缺省
+        regions().length > 1 && region() ? region() : undefined,
       );
       props.onDone(`账号 ${provider()}:${name()} 已添加`);
     } catch (e) {
@@ -135,12 +144,25 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
           <select
             class="bg-transparent border border-[var(--border)] rounded px-1.5 py-1 text-xs text-[var(--text-dim)]"
             value={provider()}
-            onChange={(e) => setProvider(e.currentTarget.value)}
+            onChange={(e) => {
+              setProvider(e.currentTarget.value);
+              setRegion("");
+            }}
           >
-            {OAUTH_PROVIDERS.map((p) => (
-              <option value={p}>{p}</option>
-            ))}
+            <For each={providers()}>{(p) => <option value={p.key}>{p.display}</option>}</For>
           </select>
+          <Show when={regions().length > 1}>
+            <select
+              class="bg-transparent border border-[var(--border)] rounded px-1.5 py-1 text-xs text-[var(--text-dim)]"
+              title="运营区域（账号凭证只对该区域端点有效）"
+              value={region() || regions()[0]?.key}
+              onChange={(e) => setRegion(e.currentTarget.value)}
+            >
+              <For each={regions()}>
+                {(r) => <option value={r.key}>{`${spec()?.display} ${r.display}`}</option>}
+              </For>
+            </select>
+          </Show>
           <input
             class="flex-1 bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs"
             placeholder="账号名（如 work / personal）"

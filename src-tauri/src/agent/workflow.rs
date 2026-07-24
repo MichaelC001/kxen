@@ -199,6 +199,7 @@ mod tests {
             voice: Default::default(),
             custom_providers: Default::default(),
             send_when_running: String::new(),
+            embedding: Default::default(),
         };
         SubagentDeps {
             registry: Arc::new(crate::tools::task::TaskRegistry::new()),

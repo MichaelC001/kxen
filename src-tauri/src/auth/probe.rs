@@ -285,19 +285,19 @@ mod tests {
     fn account_resolution() {
         use crate::auth::credential::{account_id, accounts_of, credential_for};
         let mut store = AuthStore::new();
-        store.insert("xai".into(), CredentialKind::Api { key: "default".into() });
-        store.insert("xai:b".into(), CredentialKind::Api { key: "b".into() });
-        store.insert("xai:a".into(), CredentialKind::Api { key: "a".into() });
+        store.insert("xai".into(), CredentialKind::Api { key: "default".into(), region: None });
+        store.insert("xai:b".into(), CredentialKind::Api { key: "b".into(), region: None });
+        store.insert("xai:a".into(), CredentialKind::Api { key: "a".into(), region: None });
         // 默认账号键体系
         assert_eq!(account_id("xai", "work"), "xai:work");
         assert_eq!(account_id("xai", "default"), "xai");
         assert_eq!(accounts_of(&store, "xai"), vec!["xai", "xai:a", "xai:b"]);
         // 显式钉账号
-        assert!(matches!(credential_for(&store, "xai", Some("b")), Some(CredentialKind::Api { key }) if key == "b"));
+        assert!(matches!(credential_for(&store, "xai", Some("b")), Some(CredentialKind::Api { key, .. }) if key == "b"));
         // 未指定：默认账号优先；无默认则字典序首个
-        assert!(matches!(credential_for(&store, "xai", None), Some(CredentialKind::Api { key }) if key == "default"));
+        assert!(matches!(credential_for(&store, "xai", None), Some(CredentialKind::Api { key, .. }) if key == "default"));
         store.remove("xai");
-        assert!(matches!(credential_for(&store, "xai", None), Some(CredentialKind::Api { key }) if key == "a"));
+        assert!(matches!(credential_for(&store, "xai", None), Some(CredentialKind::Api { key, .. }) if key == "a"));
     }
 
     #[test]

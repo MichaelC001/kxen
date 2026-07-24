@@ -17,8 +17,6 @@ const METHODS: &[&str] = &[
     "knowledge.injection_preview",
     "schedule.list",
     "usage.overview",
-    "mcp.status",
-    "mcp.restart",
     "schedule.add",
     "schedule.remove",
     "schedule.set_enabled",
@@ -41,6 +39,9 @@ pub(super) async fn try_handle(method: &str, params: &Value, app: &AppHandle) ->
     }
     if super::ops_workspace::METHODS.contains(&method) {
         return Some(super::ops_workspace::handle(method, params, app).await);
+    }
+    if super::ops_mcp::METHODS.contains(&method) {
+        return Some(super::ops_mcp::handle(method, params, app).await);
     }
     if !METHODS.contains(&method) {
         return None;
@@ -133,16 +134,6 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
                 "dispatches": history.len(),
                 "by_model": by_model,
             }))
-        }
-        "mcp.status" => {
-            let state = app.state::<Arc<AppState>>();
-            Ok(serde_json::to_value(state.mcp.status()).map_err(|e| e.to_string())?)
-        }
-        "mcp.restart" => {
-            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
-            let state = app.state::<Arc<AppState>>();
-            state.mcp.restart(name).await?;
-            Ok(json!({ "restarted": true }))
         }
         "schedule.add" => {
             let cron = params.get("cron").and_then(Value::as_str).ok_or("missing cron")?;

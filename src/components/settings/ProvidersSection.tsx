@@ -1,14 +1,17 @@
 // 订阅状态台（多账号）：默认账号官方导入 + 命名账号手动添加；逐账号实测与修复指引。
+// provider 标签与区域来自后端 provider.list（registry），前端不维护硬编码清单。
 import { createSignal, For, onMount, Show } from "solid-js";
 import { Plus, RefreshCw, Trash2, Wrench } from "lucide-solid";
 import { configGet } from "../../lib/chat";
 import {
   providerAccounts,
+  providerList,
   providerModels,
   providerReprobe,
   providerVerify,
   removeAccount,
   type AccountInfo,
+  type ProviderInfo,
   type VerifyOutcome,
 } from "../../lib/provider";
 import AddAccountPanel from "./AddAccountPanel";
@@ -19,20 +22,6 @@ interface Row extends AccountInfo {
   usedBy: string[];
   modelCount?: number;
 }
-
-const PROVIDER_LABELS: Record<string, string> = {
-  anthropic: "Claude Pro/Max",
-  openai: "ChatGPT Plus/Pro",
-  xai: "SuperGrok",
-  "kimi-for-coding": "Kimi Code",
-  openrouter: "OpenRouter",
-  ollama: "Ollama (本地)",
-  deepseek: "DeepSeek",
-  mistral: "Mistral",
-  groq: "Groq",
-  google: "Google Gemini",
-  together: "Together AI",
-};
 
 const GUIDES: Record<string, string[]> = {
   anthropic: [
@@ -76,16 +65,27 @@ const GUIDES: Record<string, string[]> = {
 
 export default function ProvidersSection() {
   const [rows, setRows] = createSignal<Row[]>([]);
+  const [providers, setProviders] = createSignal<ProviderInfo[]>([]);
   const [reprobing, setReprobing] = createSignal(false);
   const [note, setNote] = createSignal("");
   const [adding, setAdding] = createSignal(false);
   const [guideFor, setGuideFor] = createSignal("");
 
+  const specOf = (key: string) => providers().find((p) => p.key === key);
+  /** 行标签：display + 区域后缀（如「Kimi 中国版」）；存量无 region 账号只有 display。 */
+  const labelOf = (r: Row) => {
+    const spec = specOf(r.provider);
+    const region = r.region ? spec?.regions.find((x) => x.key === r.region) : undefined;
+    return `${spec?.display ?? r.provider}${region ? ` ${region.display}` : ""}`;
+  };
+
   const load = async () => {
-    const [accounts, cfg] = await Promise.all([
+    const [accounts, cfg, list] = await Promise.all([
       providerAccounts().catch(() => []),
       configGet().catch(() => null),
+      providerList().catch(() => [] as ProviderInfo[]),
     ]);
+    setProviders(list);
     const usedBy = new Map<string, string[]>();
     for (const [role, b] of Object.entries(cfg?.roles ?? {})) {
       const key = b.account ? `${b.provider}:${b.account}` : b.provider;
@@ -205,7 +205,7 @@ export default function ProvidersSection() {
                 <div class="flex items-center justify-between">
                   <div>
                     <div class="text-sm font-medium">
-                      {PROVIDER_LABELS[r.provider] ?? r.provider}
+                      {labelOf(r)}
                       <Show when={r.account !== "default"}>
                         <span class="text-[var(--text-faint)]"> · {r.account}</span>
                       </Show>

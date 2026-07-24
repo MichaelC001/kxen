@@ -9,7 +9,7 @@ import UsageSection from "../components/settings/UsageSection";
 import VoiceSection from "../components/settings/VoiceSection";
 import { client } from "../lib/client";
 import { configGet } from "../lib/chat";
-import { mcpRestart, mcpStatus, type McpServerStatus } from "../lib/mcp";
+import { mcpAuth, mcpRestart, mcpStatus, type McpServerStatus } from "../lib/mcp";
 import { onDragStart } from "../lib/drag";
 import { mode, setMode } from "../lib/theme";
 
@@ -30,10 +30,46 @@ export default function Settings() {
   const [diagNote, setDiagNote] = createSignal("");
   const [sendPolicy, setSendPolicy] = createSignal("queue");
   const [mcpServers, setMcpServers] = createSignal<McpServerStatus[]>([]);
+  // OAuth 授权中（等待浏览器回调）与待手动复制的授权 URL（后端没能拉起浏览器时）
+  const [authPending, setAuthPending] = createSignal<Record<string, boolean>>({});
+  const [authUrls, setAuthUrls] = createSignal<Record<string, string>>({});
 
   const refreshMcp = async () => {
     const list = await mcpStatus().catch(() => null);
     if (list) setMcpServers(list);
+  };
+
+  const startMcpAuth = async (name: string) => {
+    setAuthPending((p) => ({ ...p, [name]: true }));
+    const r = await mcpAuth(name).catch(() => null);
+    if (!r) {
+      setAuthPending((p) => ({ ...p, [name]: false }));
+      return;
+    }
+    // 浏览器没拉起来：URL 展示出来供手动复制（授权流在后端照常等回调）
+    if (!r.opened) setAuthUrls((p) => ({ ...p, [name]: r.authorize_url }));
+    const clear = () => {
+      setAuthPending((p) => ({ ...p, [name]: false }));
+      setAuthUrls((p) => {
+        const next = { ...p };
+        delete next[name];
+        return next;
+      });
+    };
+    // 后端完成换 token 会自动重连：轮询直到脱离 needs_auth（上限与后端回调超时一致）
+    const timer = setInterval(() => {
+      void refreshMcp().then(() => {
+        const cur = mcpServers().find((s) => s.name === name);
+        if (cur && cur.status !== "needs_auth") {
+          clearInterval(timer);
+          clear();
+        }
+      });
+    }, 2000);
+    setTimeout(() => {
+      clearInterval(timer);
+      clear();
+    }, 300_000);
   };
 
   onMount(async () => {
@@ -177,29 +213,59 @@ export default function Settings() {
                 >
                   <For each={mcpServers()}>
                     {(s) => (
-                      <div class="flex items-center gap-2 py-1 text-xs">
-                        <span
-                          class="inline-block w-2 h-2 rounded-full"
-                          style={{
-                            "background-color":
-                              s.status === "running" ? "var(--ok)" : "var(--err, #e5534b)",
-                          }}
-                        />
-                        <span class="text-[var(--text)]">{s.name}</span>
-                        <span class="text-[var(--text-dim)]">{s.transport}</span>
-                        <Show when={s.url}>
-                          {(u) => <span class="truncate text-[var(--text-dim)]">{u()}</span>}
+                      <div class="py-1 text-xs">
+                        <div class="flex items-center gap-2">
+                          <span
+                            class="inline-block w-2 h-2 rounded-full"
+                            style={{
+                              "background-color":
+                                s.status === "running"
+                                  ? "var(--ok)"
+                                  : s.status === "needs_auth"
+                                    ? "var(--warn)"
+                                    : "var(--err)",
+                            }}
+                          />
+                          <span class="text-[var(--text)]">{s.name}</span>
+                          <span class="text-[var(--text-dim)]">{s.transport}</span>
+                          <Show when={s.url}>
+                            {(u) => <span class="truncate text-[var(--text-dim)]">{u()}</span>}
+                          </Show>
+                          <span class="text-[var(--text-dim)]">{s.tools} tools</span>
+                          <Show when={s.resources > 0}>
+                            <span class="text-[var(--text-dim)]">{s.resources} resources</span>
+                          </Show>
+                          <Show when={s.status === "needs_auth"}>
+                            <button
+                              class="pressable ml-auto px-2 py-0.5 rounded border border-[var(--warn)] text-[var(--warn)] disabled:opacity-50"
+                              disabled={!!authPending()[s.name]}
+                              onClick={() => void startMcpAuth(s.name)}
+                            >
+                              {authPending()[s.name] ? "等待授权…" : "认证"}
+                            </button>
+                          </Show>
+                          <button
+                            class="pressable px-2 py-0.5 rounded border border-[var(--border)] text-[var(--text)]"
+                            classList={{ "ml-auto": s.status !== "needs_auth" }}
+                            onClick={() => void mcpRestart(s.name).then(refreshMcp)}
+                          >
+                            重启
+                          </button>
+                        </div>
+                        <Show when={authUrls()[s.name]}>
+                          {(u) => (
+                            <div class="mt-1 flex items-center gap-2 pl-4">
+                              <span class="text-[var(--text-dim)]">浏览器未打开，请手动访问：</span>
+                              <code class="flex-1 truncate text-[var(--text)] select-all">{u()}</code>
+                              <button
+                                class="pressable px-2 py-0.5 rounded border border-[var(--border)] text-[var(--text)]"
+                                onClick={() => void navigator.clipboard.writeText(u())}
+                              >
+                                复制
+                              </button>
+                            </div>
+                          )}
                         </Show>
-                        <span class="text-[var(--text-dim)]">{s.tools} tools</span>
-                        <Show when={s.resources > 0}>
-                          <span class="text-[var(--text-dim)]">{s.resources} resources</span>
-                        </Show>
-                        <button
-                          class="pressable ml-auto px-2 py-0.5 rounded border border-[var(--border)] text-[var(--text)]"
-                          onClick={() => void mcpRestart(s.name).then(refreshMcp)}
-                        >
-                          重启
-                        </button>
                       </div>
                     )}
                   </For>

@@ -1,9 +1,13 @@
 //! McpManager：server 生命周期（start/status/call/reload/restart）+ 工具缓存 + per-tool 策略门。
 //! 崩溃 lazy 重启：call 失败标记 down，下次调用前重连（简单重试，无后台 watchdog）。
-//! TODO(oauth): remote server 的 OAuth 授权流未实现（静态 headers 已可用，见 config.rs RemoteConfig）。
+//! remote server 的 OAuth 授权流：401/403 标 needs_auth（设置页发起 mcp.auth 交互授权，
+//! 实现见 oauth.rs / oauth_flow.rs / oauth_store.rs；静态 headers 仍优先，显式 Authorization 被拒不回落）。
 
 pub mod client;
 pub mod config;
+pub mod oauth;
+pub mod oauth_flow;
+pub mod oauth_store;
 mod remote;
 mod remote_sse;
 mod sse;
@@ -29,10 +33,18 @@ fn cap_output(s: &str) -> String {
     format!("{kept}\n... (truncated, {total} chars total)")
 }
 
+/// SSRF 守卫开关：生产一律 Enforced；Bypassed 仅供集成测试——mock server 监听 127.0.0.1，
+/// 而守卫的职责就是拦 loopback，守卫逻辑本身由 net_guard 单测与 remote 的拦截测试覆盖。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Guard {
+    Enforced,
+    Bypassed,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ServerStatus {
     pub name: String,
-    /// "running" | "down"
+    /// "running" | "down" | "needs_auth"（401/403 且 refresh 被拒，待用户走 mcp.auth 交互授权）
     pub status: String,
     /// "stdio" | "http" | "sse"
     pub transport: String,
@@ -47,6 +59,8 @@ pub struct ServerStatus {
 struct Entry {
     config: ServerConfig,
     client: Option<Arc<McpClient>>,
+    /// 授权缺失标记：连接或调用吃到 AUTH_REQUIRED 时置位，成功建连清除
+    needs_auth: bool,
 }
 
 pub struct McpManager {
@@ -77,6 +91,23 @@ impl McpManager {
     /// 整批换：drain 旧 server 先 shutdown（进程/连接不泄漏），再按新配置重建。
     /// 永不返回错误：单台失败记 down，状态面板可见，不拖垮整批。
     pub async fn reload(&self, configs: Vec<ServerConfig>, policies: PolicySet, roots: Vec<String>) {
+        self.reload_inner(configs, policies, roots, remote::Guard::Enforced).await;
+    }
+
+    /// 测试钩子：mock server 监听 127.0.0.1 必被生产守卫拦（同 McpClient 的 bypass 设计）。
+    #[doc(hidden)]
+    pub async fn start_bypassing_guard_for_test(&self, configs: Vec<ServerConfig>) {
+        self.reload_inner(configs, PolicySet::default(), Vec::new(), remote::Guard::Bypassed)
+            .await;
+    }
+
+    async fn reload_inner(
+        &self,
+        configs: Vec<ServerConfig>,
+        policies: PolicySet,
+        roots: Vec<String>,
+        guard: remote::Guard,
+    ) {
         let _guard = self.reload_lock.lock().await;
         *self.policies.lock().expect("mcp") = policies;
         *self.roots.lock().expect("mcp") = roots;
@@ -90,19 +121,52 @@ impl McpManager {
         }
         for config in configs {
             let name = config.name().to_string();
-            self.servers
-                .lock()
-                .expect("mcp")
-                .insert(name.clone(), Entry { config: config.clone(), client: None });
+            self.servers.lock().expect("mcp").insert(
+                name.clone(),
+                Entry { config: config.clone(), client: None, needs_auth: false },
+            );
             let roots = self.roots.lock().expect("mcp").clone();
-            match McpClient::connect(&name, &config, &roots).await {
+            let connect = match guard {
+                remote::Guard::Enforced => McpClient::connect(&name, &config, &roots).await,
+                remote::Guard::Bypassed => {
+                    McpClient::connect_bypassing_guard_for_test(&name, &config, &roots).await
+                }
+            };
+            match connect {
                 Ok(client) => {
                     tracing::info!(server = name, tools = client.tools.len(), "mcp server connected");
                     self.servers.lock().expect("mcp").get_mut(&name).map(|e| e.client = Some(Arc::new(client)));
                 }
-                Err(e) => tracing::warn!(server = name, error = %e, "mcp server connect failed"),
+                Err(e) => {
+                    if oauth::is_auth_required(&e) {
+                        self.mark_needs_auth(&name, true);
+                    }
+                    tracing::warn!(server = name, error = %e, "mcp server connect failed");
+                }
             }
         }
+    }
+
+    fn mark_needs_auth(&self, server: &str, on: bool) {
+        if let Some(e) = self.servers.lock().expect("mcp").get_mut(server) {
+            e.needs_auth = on;
+        }
+    }
+
+    /// 交互授权第一段：discovery + (DCR) + 起回调端口，返回含授权 URL 的会话。
+    /// 第二段 finish_auth 由调用方 spawn（等待上限 CALLBACK_TIMEOUT，不能堵 RPC）。
+    pub async fn begin_auth(&self, server: &str) -> Result<oauth_flow::LoginSession, String> {
+        let config = self.servers.lock().expect("mcp").get(server).map(|e| e.config.clone());
+        let Some(ServerConfig::Remote(rc)) = config else {
+            return Err(format!("mcp server 不是 remote 或不存在: {server}"));
+        };
+        oauth_flow::prepare_login(&rc, remote::Guard::Enforced).await
+    }
+
+    /// 交互授权第二段：等回调换 token 落盘；成功后调用方负责 restart 重连生效。
+    pub async fn finish_auth(&self, session: &oauth_flow::LoginSession) -> Result<(), String> {
+        let store = oauth_store::TokenStore::new(oauth_store::store_path());
+        oauth_flow::finish_login(session, &store).await.map(|_| ())
     }
 
     pub fn status(&self) -> Vec<ServerStatus> {
@@ -112,7 +176,14 @@ impl McpManager {
             .values()
             .map(|e| ServerStatus {
                 name: e.config.name().to_string(),
-                status: if e.client.is_some() { "running" } else { "down" }.into(),
+                status: if e.needs_auth {
+                    "needs_auth"
+                } else if e.client.is_some() {
+                    "running"
+                } else {
+                    "down"
+                }
+                .into(),
                 transport: e.config.transport_kind().to_string(),
                 url: e.config.url().map(str::to_string),
                 tools: e.client.as_ref().map(|c| c.tools.len()).unwrap_or(0),
@@ -141,9 +212,28 @@ impl McpManager {
     }
 
     /// 工具调用：down 的先 lazy 重启一次；仍失败原样报错。返回路径过 50K cap。
+    /// AUTH_REQUIRED（refresh 也被拒）：标 needs_auth 并丢连接——连接已无授权意义，
+    /// 用户在设置页完成授权后 restart/lazy 重建即可用。
     pub async fn call(&self, server: &str, tool: &str, args: &Value) -> Result<String, String> {
         let client = self.client_or_restart(server).await?;
-        client.call(tool, args).await.map(|out| cap_output(&out))
+        match client.call(tool, args).await {
+            Ok(out) => Ok(cap_output(&out)),
+            Err(e) => {
+                if oauth::is_auth_required(&e) {
+                    self.mark_needs_auth(server, true);
+                    let dead = self
+                        .servers
+                        .lock()
+                        .expect("mcp")
+                        .get_mut(server)
+                        .and_then(|e| e.client.take());
+                    if let Some(c) = dead {
+                        c.shutdown().await;
+                    }
+                }
+                Err(e)
+            }
+        }
     }
 
     /// 策略门调用：prefixed = mcp__server__tool。
@@ -189,9 +279,20 @@ impl McpManager {
             return Ok(c);
         }
         let roots = self.roots.lock().expect("mcp").clone();
-        let client = McpClient::connect(server, &config, &roots).await?;
+        let client = match McpClient::connect(server, &config, &roots).await {
+            Ok(c) => c,
+            Err(e) => {
+                if oauth::is_auth_required(&e) {
+                    self.mark_needs_auth(server, true);
+                }
+                return Err(e);
+            }
+        };
         let client = Arc::new(client);
-        self.servers.lock().expect("mcp").get_mut(server).map(|e| e.client = Some(client.clone()));
+        self.servers.lock().expect("mcp").get_mut(server).map(|e| {
+            e.client = Some(client.clone());
+            e.needs_auth = false;
+        });
         Ok(client)
     }
 

@@ -1,4 +1,4 @@
-//! xAI provider（grok-build 订阅：api.x.ai Bearer）。
+//! xAI provider（OpenAI 兼容薄实现：registry 全部 OpenAI 兼容厂商共用的 wire 层）。
 
 use crate::llm::sse::{SseFrame, SseParser};
 use crate::llm::types::{Delta, Message};
@@ -7,9 +7,6 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use crate::core::shared::SharedStr;
 use std::pin::Pin;
-
-const API_URL: &str = "https://api.x.ai/v1/chat/completions";
-const KIMI_URL: &str = "https://api.kimi.com/coding/v1/chat/completions";
 
 pub struct XaiProvider {
     url: std::borrow::Cow<'static, str>,
@@ -100,15 +97,7 @@ struct Usage {
 }
 
 impl XaiProvider {
-    pub fn new(bearer: impl Into<String>) -> Self {
-        Self { url: API_URL.into(), http: crate::llm::client::shared_http(), bearer: SharedStr::from(bearer.into()) }
-    }
-
-    pub fn kimi(bearer: impl Into<String>) -> Self {
-        Self { url: KIMI_URL.into(), http: crate::llm::client::shared_http(), bearer: SharedStr::from(bearer.into()) }
-    }
-
-    /// 自定义 OpenAI 兼容端点（自定义类型提供商：base_url + api key）。
+    /// OpenAI 兼容端点（providers registry / 自定义类型提供商：完整 chat URL + bearer）。
     pub fn custom(base_url: String, bearer: impl Into<String>) -> Self {
         Self { url: base_url.into(), http: crate::llm::client::shared_http(), bearer: SharedStr::from(bearer.into()) }
     }

@@ -142,6 +142,7 @@ fn remote_config(url: &str) -> ServerConfig {
         url: url.into(),
         transport: RemoteKind::Http,
         headers,
+        oauth: None,
     })
 }
 

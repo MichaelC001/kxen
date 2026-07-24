@@ -17,7 +17,7 @@ pub fn set_key(store: &mut AuthStore, provider: &str, key: &str, path: &std::pat
     if !PROVIDERS.iter().any(|(id, _, _)| *id == provider) {
         return Err(format!("未知转写 provider: {provider}"));
     }
-    store.insert(store_key(provider), CredentialKind::Api { key: key.to_string() });
+    store.insert(store_key(provider), CredentialKind::Api { key: key.to_string(), region: None });
     crate::auth::credential::write_auth_file(path, store).map_err(|e| e.to_string())
 }
 
@@ -66,13 +66,13 @@ pub async fn transcribe_file(config: &crate::core::config::Config, store: &AuthS
         if !def.capabilities.iter().any(|c| c == "audio") {
             return Err(format!("自定义提供商 {name} 未标记 audio 能力"));
         }
-        let Some(CredentialKind::Api { key }) = store.get(provider) else {
+        let Some(CredentialKind::Api { key, .. }) = store.get(provider) else {
             return Err(format!("{name} 未配置 API key"));
         };
         (name.to_string(), format!("{}/audio/transcriptions", def.base_url.trim_end_matches('/')), key.clone())
     } else {
         let (_, label, url) = PROVIDERS.iter().find(|(id, _, _)| *id == provider).ok_or_else(|| format!("未知转写 provider: {provider}"))?;
-        let Some(CredentialKind::Api { key }) = store.get(&store_key(provider)) else {
+        let Some(CredentialKind::Api { key, .. }) = store.get(&store_key(provider)) else {
             return Err(format!("{label}未配置 API key"));
         };
         (label.to_string(), url.to_string(), key.clone())
@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn configured_is_ready() {
         let mut store = AuthStore::new();
-        store.insert(store_key("xai"), CredentialKind::Api { key: "k".into() });
+        store.insert(store_key("xai"), CredentialKind::Api { key: "k".into(), region: None });
         let statuses = statuses(&crate::core::config::Config::default(), &store);
         let xai = statuses.iter().find(|s| s.id == "xai").unwrap();
         assert_eq!(xai.status, "ready");

@@ -100,7 +100,7 @@ fn store_handle_is_shared_not_frozen() {
     store
         .lock()
         .expect("store")
-        .insert("xai".into(), CredentialKind::Api { key: "k".into() });
+        .insert("xai".into(), CredentialKind::Api { key: "k".into(), region: None });
     let snapshot = d.store.lock().expect("store").clone();
     assert!(
         snapshot.contains_key("xai"),

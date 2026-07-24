@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use super::oauth;
+use super::oauth_store::BearerAuth;
 use super::remote::Guard;
 use super::transport::Transport;
 
@@ -19,6 +21,9 @@ pub struct SseTransport {
     client: reqwest::Client,
     post_url: reqwest::Url,
     headers: Vec<(String, String)>,
+    /// 同 streamable http：显式 Authorization 被拒不回落；否则 401/403 先 refresh 再重试一次
+    auth: Option<Arc<BearerAuth>>,
+    explicit_auth: bool,
     pending: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Value>>>>,
     reader: tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     next_id: AtomicU64,
@@ -31,26 +36,59 @@ impl SseTransport {
         headers: &HashMap<String, String>,
         roots: Value,
         guard: Guard,
+        auth: Option<Arc<BearerAuth>>,
     ) -> Result<Arc<Self>, String> {
         if guard == Guard::Enforced {
             crate::tools::net_guard::check_url(url).await?;
         }
         let base = reqwest::Url::parse(url).map_err(|e| format!("invalid mcp sse url: {e}"))?;
         let pairs = super::remote::validate_headers(headers)?;
+        let explicit_auth = headers.keys().any(|k| k.eq_ignore_ascii_case("authorization"));
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| e.to_string())?;
-        let mut req = client
-            .get(url)
-            .header(reqwest::header::ACCEPT, "text/event-stream");
-        for (k, v) in &pairs {
-            req = req.header(k, v);
-        }
-        let resp = req
-            .send()
+        let send_get = || {
+            let mut req = client
+                .get(url)
+                .header(reqwest::header::ACCEPT, "text/event-stream");
+            for (k, v) in &pairs {
+                req = req.header(k, v);
+            }
+            if let Some(a) = &auth {
+                req = req.header(reqwest::header::AUTHORIZATION, a.header_value());
+            }
+            req.send()
+        };
+        let resp = send_get()
             .await
             .map_err(|e| format!("mcp sse connect {url}: {e}"))?;
+        let resp = match resp.status() {
+            s @ (reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN) => {
+                if explicit_auth {
+                    return Err(format!(
+                        "mcp sse connect http {s}: configured Authorization header rejected"
+                    ));
+                }
+                let Some(a) = &auth else {
+                    return Err(oauth::err_auth_required(&format!("mcp sse connect http {s}")));
+                };
+                a.refresh()
+                    .await
+                    .map_err(|e| oauth::err_auth_required(&format!("token refresh failed: {e}")))?;
+                let retry = send_get()
+                    .await
+                    .map_err(|e| format!("mcp sse connect {url}: {e}"))?;
+                let st = retry.status();
+                if st == reqwest::StatusCode::UNAUTHORIZED || st == reqwest::StatusCode::FORBIDDEN {
+                    return Err(oauth::err_auth_required(&format!(
+                        "mcp sse connect http {st} after token refresh"
+                    )));
+                }
+                retry
+            }
+            _ => resp,
+        };
         if !resp.status().is_success() {
             return Err(format!("mcp sse connect http {}", resp.status()));
         }
@@ -81,6 +119,8 @@ impl SseTransport {
             client,
             post_url,
             headers: pairs,
+            auth,
+            explicit_auth,
             pending,
             reader: tokio::sync::Mutex::new(Some(reader)),
             next_id: AtomicU64::new(1),
@@ -92,10 +132,14 @@ impl SseTransport {
         for (k, v) in &self.headers {
             req = req.header(k, v);
         }
+        if let Some(a) = &self.auth {
+            req = req.header(reqwest::header::AUTHORIZATION, a.header_value());
+        }
         req
     }
 
     /// POST 一帧到 endpoint；2xx（规范为 202）即视为送达，响应经 SSE 流回来。
+    /// 401/403：与 streamable http 同一自愈链（refresh -> 重试一次 -> 拒则 AUTH_REQUIRED）。
     async fn post(&self, frame: Value) -> Result<(), String> {
         let resp = self
             .decorate(self.client.post(self.post_url.clone()))
@@ -103,8 +147,38 @@ impl SseTransport {
             .send()
             .await
             .map_err(|e| format!("mcp sse post: {e}"))?;
-        if !resp.status().is_success() {
-            return Err(format!("mcp sse post http {}", resp.status()));
+        let status = resp.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            if self.explicit_auth {
+                return Err(format!(
+                    "mcp sse post http {status}: configured Authorization header rejected"
+                ));
+            }
+            let Some(auth) = &self.auth else {
+                return Err(oauth::err_auth_required(&format!("mcp sse post http {status}")));
+            };
+            auth.refresh()
+                .await
+                .map_err(|e| oauth::err_auth_required(&format!("token refresh failed: {e}")))?;
+            let resp = self
+                .decorate(self.client.post(self.post_url.clone()))
+                .json(&frame)
+                .send()
+                .await
+                .map_err(|e| format!("mcp sse post: {e}"))?;
+            let status = resp.status();
+            if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+                return Err(oauth::err_auth_required(&format!(
+                    "mcp sse post http {status} after token refresh"
+                )));
+            }
+            if !status.is_success() {
+                return Err(format!("mcp sse post http {status}"));
+            }
+            return Ok(());
+        }
+        if !status.is_success() {
+            return Err(format!("mcp sse post http {status}"));
         }
         Ok(())
     }

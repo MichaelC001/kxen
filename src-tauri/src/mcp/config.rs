@@ -67,13 +67,27 @@ pub struct StdioConfig {
     pub env: HashMap<String, String>,
 }
 
-/// TODO(oauth): remote server 的 OAuth 授权流未实现，当前仅支持静态 headers（如 Bearer token）。
+/// remote server 的 OAuth 2.0 授权配置（全可选；授权流实现见 mcp/oauth.rs）。
+/// 无 client_id 时走 RFC 7591 动态注册；有 client_id 跳过注册。
+#[derive(Debug, Clone, Default)]
+pub struct OAuthConfig {
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+    /// 回调端口；缺省 :0 随机（固定端口被占时回退随机）
+    pub callback_port: Option<u16>,
+    /// scope 串（空格分隔），缺省不带 scope 参数
+    pub scopes: Option<String>,
+    /// 跳过 discovery 直指的 AS 元数据 URL
+    pub auth_server_metadata_url: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct RemoteConfig {
     pub name: String,
     pub url: String,
     pub transport: RemoteKind,
     pub headers: HashMap<String, String>,
+    pub oauth: Option<OAuthConfig>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,6 +151,19 @@ struct ServerDef {
     url: Option<String>,
     #[serde(default)]
     headers: HashMap<String, String>,
+    #[serde(default)]
+    oauth: Option<OAuthDef>,
+}
+
+/// .mcp.json 的 oauth 对象：键名 camelCase（clientId/clientSecret/callbackPort/scopes/authServerMetadataUrl）。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OAuthDef {
+    client_id: Option<String>,
+    client_secret: Option<String>,
+    callback_port: Option<u16>,
+    scopes: Option<String>,
+    auth_server_metadata_url: Option<String>,
 }
 
 fn parse_server(name: String, def: ServerDef) -> Option<ServerConfig> {
@@ -164,6 +191,13 @@ fn parse_server(name: String, def: ServerDef) -> Option<ServerConfig> {
             url,
             transport,
             headers: def.headers,
+            oauth: def.oauth.map(|o| OAuthConfig {
+                client_id: o.client_id,
+                client_secret: o.client_secret,
+                callback_port: o.callback_port,
+                scopes: o.scopes,
+                auth_server_metadata_url: o.auth_server_metadata_url,
+            }),
         }));
     }
     if let Some(command) = def.command {
@@ -261,6 +295,32 @@ mod tests {
         assert_eq!(policies.for_tool("fs", "write_file"), ToolPolicy::Ask);
         assert_eq!(policies.for_tool("web", "anything"), ToolPolicy::Deny);
         assert_eq!(policies.for_tool("unknown", "x"), ToolPolicy::Allow, "缺省 Allow（WHY 见 for_tool）");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parses_remote_oauth_object() {
+        let dir = std::env::temp_dir().join(format!("kxen-mcp-oauth-cfg-{}", std::process::id()));
+        let path = write(&dir, r#"{"mcpServers": {
+            "full": {"url": "https://x.example/mcp", "oauth": {
+                "clientId": "cid", "clientSecret": "sec", "callbackPort": 19876,
+                "scopes": "mcp read", "authServerMetadataUrl": "https://as.example/meta"
+            }},
+            "bare": {"url": "https://y.example/mcp"}
+        }}"#);
+        let (cfgs, _) = load_file(&path);
+        assert_eq!(cfgs.len(), 2);
+        let full = cfgs.iter().find(|c| c.name() == "full").unwrap();
+        let ServerConfig::Remote(rc) = full else { panic!("full 必须是 remote") };
+        let oauth = rc.oauth.as_ref().expect("oauth 对象必须解析");
+        assert_eq!(oauth.client_id.as_deref(), Some("cid"));
+        assert_eq!(oauth.client_secret.as_deref(), Some("sec"));
+        assert_eq!(oauth.callback_port, Some(19876));
+        assert_eq!(oauth.scopes.as_deref(), Some("mcp read"));
+        assert_eq!(oauth.auth_server_metadata_url.as_deref(), Some("https://as.example/meta"));
+        let bare = cfgs.iter().find(|c| c.name() == "bare").unwrap();
+        let ServerConfig::Remote(rc) = bare else { panic!("bare 必须是 remote") };
+        assert!(rc.oauth.is_none(), "无 oauth 键必须为 None");
         std::fs::remove_dir_all(&dir).ok();
     }
 

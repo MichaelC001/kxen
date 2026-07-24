@@ -1,7 +1,7 @@
 //! 端点模型清单拉取：自定义双协议 + openai/xAI（api-key 或 OAuth Bearer）。
 //! 订阅型官方端点不保证支持，失败由调用方静默回退手填。
 
-use crate::auth::credential::{AuthStore, CredentialKind};
+use crate::auth::credential::AuthStore;
 
 pub struct ModelsOutcome {
     pub models: Vec<String>,
@@ -10,11 +10,7 @@ pub struct ModelsOutcome {
 }
 
 fn bearer_of(store: &AuthStore, provider: &str, account: Option<&str>) -> Option<String> {
-    match crate::auth::credential::credential_for(store, provider, account) {
-        Some(CredentialKind::Oauth { access, .. }) => Some(access.clone()),
-        Some(CredentialKind::Api { key }) => Some(key.clone()),
-        _ => None,
-    }
+    crate::auth::credential::credential_for(store, provider, account).map(|c| c.bearer().to_string())
 }
 
 /// GET {base}/models（openai 形态）或 {base}/v1/models（anthropic 形态），解析 data[].id。
@@ -31,26 +27,21 @@ pub async fn fetch_models(store: &AuthStore, provider: &str, account: Option<&st
             (format!("{root}/models"), false)
         }
     } else {
-        match provider {
-            "openai" => ("https://api.openai.com/v1/models".to_string(), false),
-            "xai" => ("https://api.x.ai/v1/models".to_string(), false),
-            "anthropic" => ("https://api.anthropic.com/v1/models".to_string(), true),
-            "openrouter" => ("https://openrouter.ai/api/v1/models".to_string(), false),
-            "ollama" => ("http://localhost:11434/v1/models".to_string(), false),
-            p if crate::llm::compat::preset(p).is_some() => match crate::llm::compat::models_url(p) {
-                Some(url) => (url, false),
-                None => {
-                    return ModelsOutcome { models: vec![], source: "unsupported".into(), detail: format!("{p} 端点未暴露 /models（用内置目录）") };
-                }
-            },
-            other => {
-                return ModelsOutcome { models: vec![], source: "unsupported".into(), detail: format!("{other} 订阅端点不支持 /models") };
+        let Some(spec) = crate::providers::find(provider) else {
+            return ModelsOutcome { models: vec![], source: "unsupported".into(), detail: format!("{provider} 订阅端点不支持 /models") };
+        };
+        let region = crate::auth::credential::credential_for(store, provider, account).and_then(|c| c.region());
+        match spec.models_url(region) {
+            Some(url) => (url, matches!(spec.protocol, crate::providers::Protocol::Anthropic)),
+            None => {
+                return ModelsOutcome { models: vec![], source: "unsupported".into(), detail: format!("{provider} 端点未暴露 /models（用内置目录）") };
             }
         }
     };
-    // ollama 本地端点无鉴权，其余必须有凭证
+    // 本地免鉴权端点（ollama）无凭证要求，其余必须有凭证
+    let local_free = crate::providers::find(provider).is_some_and(|s| s.auth == crate::providers::AuthKind::LocalFree);
     let bearer = bearer_of(store, provider, account);
-    if provider != "ollama" && bearer.is_none() {
+    if !local_free && bearer.is_none() {
         return ModelsOutcome { models: vec![], source: "error".into(), detail: "无凭证".into() };
     }
     let mut req = crate::llm::client::shared_http()
@@ -111,7 +102,7 @@ mod tests {
     async fn parses_openai_shape() {
         let base = mock_server(r#"{"data":[{"id":"m1"},{"id":"m2"},{"no_id":true}]}"#);
         let mut store = AuthStore::new();
-        store.insert("custom:t".into(), CredentialKind::Api { key: "k".into() });
+        store.insert("custom:t".into(), crate::auth::credential::CredentialKind::Api { key: "k".into(), region: None });
         // 直接测内部路径：手工构造同形状请求
         let resp = crate::llm::client::shared_http().get(format!("{base}/models")).bearer_auth("k").send().await.unwrap();
         let v: serde_json::Value = resp.json().await.unwrap();

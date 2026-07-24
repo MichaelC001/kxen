@@ -78,15 +78,28 @@ impl McpClient {
         let roots = roots_value(roots);
         let transport: Arc<dyn Transport> = match config {
             ServerConfig::Stdio(c) => StdioTransport::spawn(&c.command, &c.args, &c.env, roots)?,
-            ServerConfig::Remote(c) => match c.transport {
-                RemoteKind::Http => {
-                    super::remote::StreamableHttpTransport::connect(&c.url, &c.headers, roots, guard)
-                        .await?
+            ServerConfig::Remote(c) => {
+                // config 显式配了 Authorization 就不挂 OAuth（显式配置优先，被拒只报失败）
+                let explicit_auth = c.headers.keys().any(|k| k.eq_ignore_ascii_case("authorization"));
+                let auth = if explicit_auth {
+                    None
+                } else {
+                    super::oauth_store::BearerAuth::from_store(
+                        &c.name,
+                        &super::oauth_store::store_path(),
+                        guard,
+                    )
+                };
+                match c.transport {
+                    RemoteKind::Http => {
+                        super::remote::StreamableHttpTransport::connect(&c.url, &c.headers, roots, guard, auth)
+                            .await?
+                    }
+                    RemoteKind::Sse => {
+                        super::remote_sse::SseTransport::connect(&c.url, &c.headers, roots, guard, auth).await?
+                    }
                 }
-                RemoteKind::Sse => {
-                    super::remote_sse::SseTransport::connect(&c.url, &c.headers, roots, guard).await?
-                }
-            },
+            }
         };
         // 子进程启动需要时间（npx 冷启动尤其长），initialize 独立放宽到 60s
         let init = transport

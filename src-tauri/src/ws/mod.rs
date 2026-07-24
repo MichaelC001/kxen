@@ -8,6 +8,7 @@ pub mod llm_task;
 pub mod pending;
 pub mod session_ops;
 mod ops;
+mod ops_mcp;
 mod ops_provider;
 mod ops_workspace;
 pub mod protocol;

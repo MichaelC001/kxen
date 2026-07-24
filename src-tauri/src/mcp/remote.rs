@@ -4,6 +4,8 @@
 //! 不做 GET 流（server 主动推送通道）：roots/list 等反向请求只在 POST 响应流内应答，
 //! 仅依赖 GET 流推送的 server 暂不支持（当前罕见）。
 
+use super::oauth;
+use super::oauth_store::BearerAuth;
 use super::transport::Transport;
 use futures::StreamExt;
 use futures::future::BoxFuture;
@@ -13,13 +15,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// SSRF 守卫开关：生产一律 Enforced；Bypassed 仅供集成测试——mock server 监听 127.0.0.1，
-/// 而守卫的职责就是拦 loopback，守卫逻辑本身由 net_guard 单测与本模块的拦截测试覆盖。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Guard {
-    Enforced,
-    Bypassed,
-}
+// Guard 定义上移到 mcp 根（oauth 等 pub 接口要暴露它）；此处 re-export 保持既有路径可用。
+pub use super::Guard;
 
 enum PostOutcome {
     /// 202 Accepted：通知/应答帧无 body
@@ -28,10 +25,20 @@ enum PostOutcome {
     Messages(Vec<Value>),
 }
 
+/// post_once 的拒绝形态：Auth 是 401/403（可 refresh 后重试一次），Other 不可自愈。
+enum PostReject {
+    Auth(u16),
+    Other(String),
+}
+
 pub struct StreamableHttpTransport {
     client: reqwest::Client,
     url: String,
     headers: Vec<(String, String)>,
+    /// OAuth Bearer 供应（config 显式配了 Authorization 时为 None：显式配置被拒只报失败，不回落）
+    auth: Option<Arc<BearerAuth>>,
+    /// config headers 显式带 Authorization（大小写不敏感）：401/403 不回落 OAuth
+    explicit_auth: bool,
     session: Mutex<Option<String>>,
     roots: Value,
     next_id: AtomicU64,
@@ -43,11 +50,13 @@ impl StreamableHttpTransport {
         headers: &HashMap<String, String>,
         roots: Value,
         guard: Guard,
+        auth: Option<Arc<BearerAuth>>,
     ) -> Result<Arc<Self>, String> {
         if guard == Guard::Enforced {
             crate::tools::net_guard::check_url(url).await?;
         }
         let pairs = validate_headers(headers)?;
+        let explicit_auth = headers.keys().any(|k| k.eq_ignore_ascii_case("authorization"));
         let client = reqwest::Client::builder()
             // 自动跟随重定向发生在 net_guard 之外；POST 307/308 语义复杂，统一报错让用户的配置指到最终地址
             .redirect(reqwest::redirect::Policy::none())
@@ -57,6 +66,8 @@ impl StreamableHttpTransport {
             client,
             url: url.to_string(),
             headers: pairs,
+            auth,
+            explicit_auth,
             session: Mutex::new(None),
             roots,
             next_id: AtomicU64::new(1),
@@ -71,65 +82,98 @@ impl StreamableHttpTransport {
         for (k, v) in &self.headers {
             req = req.header(k, v);
         }
+        // Bearer 每请求现取：refresh 换 token 后下一帧立即生效
+        if let Some(auth) = &self.auth {
+            req = req.header(reqwest::header::AUTHORIZATION, auth.header_value());
+        }
         if let Some(s) = self.session.lock().expect("mcp session").clone() {
             req = req.header("mcp-session-id", s);
         }
         req
     }
 
-    /// POST 一帧并按 content-type 读尽响应；全程包 timeout（SSE 流读取也算在内）。
+    /// 单发一帧并按 content-type 读尽响应；401/403 单独成 Auth 交给 post 决定 refresh 重试。
+    async fn post_once(&self, frame: &Value) -> Result<PostOutcome, PostReject> {
+        let resp = self
+            .decorate(self.client.post(&self.url))
+            .json(frame)
+            .send()
+            .await
+            .map_err(|e| PostReject::Other(format!("mcp http post {}: {e}", self.url)))?;
+        if let Some(sid) = resp
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+        {
+            *self.session.lock().expect("mcp session") = Some(sid.to_string());
+        }
+        let status = resp.status();
+        if status == reqwest::StatusCode::ACCEPTED {
+            return Ok(PostOutcome::Accepted);
+        }
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(PostReject::Auth(status.as_u16()));
+        }
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            let body: String = body.chars().take(200).collect();
+            return Err(PostReject::Other(format!("mcp http {status}: {body}")));
+        }
+        let is_sse = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|ct| ct.contains("text/event-stream"));
+        if !is_sse {
+            let v = resp
+                .json::<Value>()
+                .await
+                .map_err(|e| PostReject::Other(format!("mcp http bad json: {e}")))?;
+            return Ok(PostOutcome::Messages(vec![v]));
+        }
+        let mut parser = super::sse::SseParser::new();
+        let mut messages = Vec::new();
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| PostReject::Other(format!("mcp http stream: {e}")))?;
+            for ev in parser.feed(&chunk) {
+                if let Ok(v) = serde_json::from_str::<Value>(&ev.data) {
+                    messages.push(v);
+                }
+            }
+        }
+        Ok(PostOutcome::Messages(messages))
+    }
+
+    /// 401/403 自愈链：显式 Authorization 被拒 -> 直接报失败不回落；有 OAuth token ->
+    /// refresh 后整帧重试一次，refresh 被拒或重试仍 401/403 才抛 AUTH_REQUIRED 让上层标 needs_auth。
     async fn post(
         &self,
         frame: Value,
         timeout: std::time::Duration,
     ) -> Result<PostOutcome, String> {
         let work = async {
-            let resp = self
-                .decorate(self.client.post(&self.url))
-                .json(&frame)
-                .send()
-                .await
-                .map_err(|e| format!("mcp http post {}: {e}", self.url))?;
-            if let Some(sid) = resp
-                .headers()
-                .get("mcp-session-id")
-                .and_then(|v| v.to_str().ok())
-            {
-                *self.session.lock().expect("mcp session") = Some(sid.to_string());
+            let reject = match self.post_once(&frame).await {
+                Ok(out) => return Ok(out),
+                Err(PostReject::Other(e)) => return Err(e),
+                Err(PostReject::Auth(code)) => code,
+            };
+            if self.explicit_auth {
+                return Err(format!("mcp http {reject}: configured Authorization header rejected"));
             }
-            let status = resp.status();
-            if status == reqwest::StatusCode::ACCEPTED {
-                return Ok(PostOutcome::Accepted);
+            let Some(auth) = &self.auth else {
+                return Err(oauth::err_auth_required(&format!("mcp http {reject}")));
+            };
+            match auth.refresh().await {
+                Ok(()) => match self.post_once(&frame).await {
+                    Ok(out) => Ok(out),
+                    Err(PostReject::Auth(code)) => Err(oauth::err_auth_required(&format!(
+                        "mcp http {code} after token refresh"
+                    ))),
+                    Err(PostReject::Other(e)) => Err(e),
+                },
+                Err(e) => Err(oauth::err_auth_required(&format!("token refresh failed: {e}"))),
             }
-            if !status.is_success() {
-                let body = resp.text().await.unwrap_or_default();
-                let body: String = body.chars().take(200).collect();
-                return Err(format!("mcp http {status}: {body}"));
-            }
-            let is_sse = resp
-                .headers()
-                .get(reqwest::header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|ct| ct.contains("text/event-stream"));
-            if !is_sse {
-                let v = resp
-                    .json::<Value>()
-                    .await
-                    .map_err(|e| format!("mcp http bad json: {e}"))?;
-                return Ok(PostOutcome::Messages(vec![v]));
-            }
-            let mut parser = super::sse::SseParser::new();
-            let mut messages = Vec::new();
-            let mut stream = resp.bytes_stream();
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|e| format!("mcp http stream: {e}"))?;
-                for ev in parser.feed(&chunk) {
-                    if let Ok(v) = serde_json::from_str::<Value>(&ev.data) {
-                        messages.push(v);
-                    }
-                }
-            }
-            Ok(PostOutcome::Messages(messages))
         };
         match tokio::time::timeout(timeout, work).await {
             Ok(r) => r,

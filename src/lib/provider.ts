@@ -1,5 +1,27 @@
 import { client } from "./client";
 
+export interface RegionInfo {
+  key: string;
+  display: string;
+  base_url: string;
+}
+
+/** 后端 providers registry 的投影（provider.list RPC）：前端 provider 下拉的唯一数据源。 */
+export interface ProviderInfo {
+  key: string;
+  display: string;
+  protocol: "anthropic" | "openai_compat";
+  auth: "api_key" | "oauth" | "local_free";
+  regions: RegionInfo[];
+  models_endpoint: boolean;
+  default_model: string;
+  doc_url: string;
+}
+
+export function providerList(): Promise<ProviderInfo[]> {
+  return client.rpc("provider.list");
+}
+
 export interface VerifyOutcome {
   ok: boolean;
   latency_ms: number;
@@ -25,6 +47,7 @@ export interface AccountInfo {
   account: string;
   id: string;
   expired: boolean;
+  region?: string | null;
   custom?: boolean;
   base_url?: string;
   models?: string[];
@@ -43,6 +66,7 @@ export function importAccount(
   kind: "oauth" | "api" = "oauth",
   refresh = "",
   expires = 0,
+  region?: string,
 ): Promise<void> {
   return client.rpc("provider.import_account", {
     provider,
@@ -51,6 +75,7 @@ export function importAccount(
     kind,
     refresh,
     expires,
+    ...(region ? { region } : {}),
   });
 }
 

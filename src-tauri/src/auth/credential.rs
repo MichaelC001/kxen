@@ -16,6 +16,11 @@ pub enum CredentialKind {
     },
     Api {
         key: String,
+        /// 运营区域（providers registry 的 region key，如 kimi 的 cn/intl；None = spec 缺省区域）。
+        /// 挂在凭证上而非并入账号键：账号键（provider[:account]）是存量路由/限流/轮转的锚点，
+        /// 动键会撕裂 mrm 与存量 auth.json；region 跟随凭证才能保证换账号自动换对端点。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        region: Option<String>,
     },
 }
 
@@ -36,6 +41,22 @@ impl CredentialKind {
         match self {
             CredentialKind::Oauth { expires, .. } => *expires > 0 && *expires < now_ms() + buffer_ms,
             CredentialKind::Api { .. } => false,
+        }
+    }
+
+    /// 运营区域（仅 Api 凭证可带；Oauth 订阅厂商全是单区域）。
+    pub fn region(&self) -> Option<&str> {
+        match self {
+            CredentialKind::Api { region, .. } => region.as_deref(),
+            CredentialKind::Oauth { .. } => None,
+        }
+    }
+
+    /// 请求 bearer（Api key 或 OAuth access 统一出口，client/models 共用）。
+    pub fn bearer(&self) -> &str {
+        match self {
+            CredentialKind::Oauth { access, .. } => access,
+            CredentialKind::Api { key, .. } => key,
         }
     }
 }

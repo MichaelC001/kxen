@@ -129,6 +129,7 @@ fn sse_config(url: &str) -> ServerConfig {
         url: url.into(),
         transport: RemoteKind::Sse,
         headers: HashMap::new(),
+        oauth: None,
     })
 }
 

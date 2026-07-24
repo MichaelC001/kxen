@@ -7,26 +7,6 @@ use std::path::{Path, PathBuf};
 const NOTE_BODY_CAP: usize = 500;
 const SKILL_DESC_CAP: usize = 250;
 
-/// 记忆相关性检索：notes/memory 不再一律全文注入——按 involved 文件路径词命中排序取 top 8，
-/// involved 为空时回落日期序 top 3（新沉淀仍可见）。确定性打分，无向量库。
-const NOTE_TOP_K: usize = 8;
-
-fn relevance(e: &Entry, involved_rel: &[String]) -> u32 {
-    if involved_rel.is_empty() {
-        return 0;
-    }
-    let text = format!("{} {}", e.description, e.content).to_lowercase();
-    let mut score = 0u32;
-    for f in involved_rel {
-        for seg in f.split(['/', '.', '_', '-']) {
-            if seg.len() >= 3 && text.contains(&seg.to_lowercase()) {
-                score += 1;
-            }
-        }
-    }
-    score
-}
-
 pub fn render(workdir: &Path, involved: &[PathBuf]) -> Option<String> {
     let trusted = crate::core::trust::is_trusted(workdir);
     let mut entries: Vec<Entry> = scan(workdir).into_iter().filter(|e| e.enabled).collect();
@@ -75,18 +55,11 @@ pub fn render(workdir: &Path, involved: &[PathBuf]) -> Option<String> {
         }
     }
 
-    // 动态检索：相关性排序取 top K；involved 为空回落日期序 top 3
-    let mut scored: Vec<(u32, &Entry)> = notes_entries.iter().map(|e| (relevance(e, &involved_rel), *e)).collect();
-    if involved_rel.is_empty() {
-        scored.sort_by(|a, b| b.1.date.cmp(&a.1.date));
-        scored.truncate(3);
-    } else {
-        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.date.cmp(&a.1.date)));
-        scored.retain(|(s, _)| *s > 0);
-        scored.truncate(NOTE_TOP_K);
-    }
+    // 动态检索：BM25 + 可选语义融合（retrieval 内做冲突降权、同 slug 去重与截断）；
+    // involved 为空回落日期序 top 3（新沉淀仍可见）
+    let scored = super::retrieval::select_notes(&notes_entries, &involved_rel);
     let mut notes = String::new();
-    for (_, e) in &scored {
+    for e in &scored {
         let body: String = e.content.chars().take(NOTE_BODY_CAP).collect();
         let sub = e.note_type.as_deref().unwrap_or("note");
         notes.push_str(&format!("\n#### [{}] {} ({})\n{}\n", sub, e.description, e.scope.as_str(), body));

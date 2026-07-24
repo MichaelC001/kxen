@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn api_key_never_refreshes() {
         let mut store = AuthStore::default();
-        store.insert("openai".into(), CredentialKind::Api { key: "k".into() });
+        store.insert("openai".into(), CredentialKind::Api { key: "k".into(), region: None });
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         assert!(!rt.block_on(ensure_fresh(&mut store, "openai", None)));
     }

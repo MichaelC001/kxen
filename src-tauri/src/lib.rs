@@ -8,5 +8,6 @@ pub mod knowledge;
 pub mod llm;
 pub mod lsp;
 pub mod mcp;
+pub mod providers;
 pub mod tools;
 pub mod voice;

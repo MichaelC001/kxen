@@ -8,6 +8,9 @@ mod render;
 mod store;
 pub mod consolidate;
 pub mod distill;
+pub mod embedding;
+pub mod embedding_cache;
+pub mod retrieval;
 
 pub use render::render;
 pub use scan::scan;

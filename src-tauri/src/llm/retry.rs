@@ -75,11 +75,11 @@ mod tests {
         let mut store = AuthStore::default();
         store.insert(
             "xai".into(),
-            crate::auth::credential::CredentialKind::Api { key: "k1".into() },
+            crate::auth::credential::CredentialKind::Api { key: "k1".into(), region: None },
         );
         store.insert(
             "xai:work".into(),
-            crate::auth::credential::CredentialKind::Api { key: "k2".into() },
+            crate::auth::credential::CredentialKind::Api { key: "k2".into(), region: None },
         );
         assert_eq!(next_account(&store, "xai", None).as_deref(), Some("work"));
         assert_eq!(next_account(&store, "xai", Some("work")).as_deref(), Some("default"));
@@ -88,7 +88,7 @@ mod tests {
         let mut single = AuthStore::default();
         single.insert(
             "xai".into(),
-            crate::auth::credential::CredentialKind::Api { key: "k".into() },
+            crate::auth::credential::CredentialKind::Api { key: "k".into(), region: None },
         );
         assert_eq!(next_account(&single, "xai", None), None);
     }

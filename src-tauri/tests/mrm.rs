@@ -47,6 +47,7 @@ fn config_with(
         voice: Default::default(),
         custom_providers: Default::default(),
         send_when_running: String::new(),
+        embedding: Default::default(),
     }
 }
 
@@ -106,8 +107,8 @@ async fn multi_account_rotation_and_pin() {
         8,
     ));
     let mut store = store();
-    store.insert("xai".into(), CredentialKind::Api { key: "k0".into() });
-    store.insert("xai:b".into(), CredentialKind::Api { key: "k1".into() });
+    store.insert("xai".into(), CredentialKind::Api { key: "k0".into(), region: None });
+    store.insert("xai:b".into(), CredentialKind::Api { key: "k1".into(), region: None });
 
     let slot = mrm.acquire("xai", None).await; // 默认账号 RPM 窗记满（rpm=1）
     let r = mrm.resolve("execution", &store).await.unwrap();
@@ -227,8 +228,8 @@ async fn retry_rotation_releases_old_slot() {
 async fn rotate_account_skips_rpm_full_windows() {
     let mrm = ModelResourceManager::new(config_with(&[], &[("xai", None, Some(1))], 8));
     let mut store = store();
-    store.insert("xai".into(), CredentialKind::Api { key: "k0".into() });
-    store.insert("xai:b".into(), CredentialKind::Api { key: "k1".into() });
+    store.insert("xai".into(), CredentialKind::Api { key: "k0".into(), region: None });
+    store.insert("xai:b".into(), CredentialKind::Api { key: "k1".into(), region: None });
     let s1 = mrm.acquire("xai", None).await; // 默认账号 RPM 窗记满
     assert_eq!(
         mrm.rotate_account("xai", &store, None).await.as_deref(),

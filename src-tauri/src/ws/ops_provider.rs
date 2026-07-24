@@ -16,12 +16,32 @@ pub(super) const METHODS: &[&str] = &[
     "provider.remove_custom",
     "provider.accounts",
     "provider.models",
+    "provider.list",
     "models.catalog",
     "models.refresh",
 ];
 
 pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, String> {
     match method {
+        "provider.list" => {
+            // 设置页 provider 下拉/区域选择的唯一数据源（前端不再硬编码清单）
+            let out: Vec<Value> = kxen_app::providers::all()
+                .iter()
+                .map(|s| {
+                    json!({
+                        "key": s.key,
+                        "display": s.display,
+                        "protocol": s.protocol,
+                        "auth": s.auth,
+                        "regions": s.regions.iter().map(|r| json!({ "key": r.key, "display": r.display, "base_url": r.base_url })).collect::<Vec<_>>(),
+                        "models_endpoint": s.models_endpoint,
+                        "default_model": s.default_model,
+                        "doc_url": s.doc_url,
+                    })
+                })
+                .collect();
+            Ok(json!(out))
+        }
         "provider.verify" => {
             let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
             let account = params.get("account").and_then(Value::as_str);
@@ -49,12 +69,16 @@ pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Res
         "provider.accounts" => {
             let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
-            let mut out: Vec<Value> = ["anthropic", "openai", "xai", "kimi-for-coding", "openrouter", "deepseek", "mistral", "groq", "google", "together"]
+            // registry 驱动（本地免鉴权的 ollama 无凭证概念，不进账号列表）；region 从凭证读出
+            let mut out: Vec<Value> = kxen_app::providers::all()
                 .iter()
-                .flat_map(|p| {
-                    kxen_app::auth::credential::accounts_of(&store, p).into_iter().map(|key| {
-                        let expired = store.get(&key).is_some_and(|c| c.is_expired());
-                        json!({ "provider": p, "account": key.strip_prefix(&format!("{p}:")).map(String::from).unwrap_or_else(|| "default".to_string()), "id": key, "expired": expired })
+                .filter(|s| s.auth != kxen_app::providers::AuthKind::LocalFree)
+                .flat_map(|s| {
+                    kxen_app::auth::credential::accounts_of(&store, s.key).into_iter().map(|key| {
+                        let cred = store.get(&key);
+                        let expired = cred.is_some_and(|c| c.is_expired());
+                        let region = cred.and_then(|c| c.region());
+                        json!({ "provider": s.key, "account": key.strip_prefix(&format!("{}:", s.key)).map(String::from).unwrap_or_else(|| "default".to_string()), "id": key, "expired": expired, "region": region })
                     }).collect::<Vec<_>>()
                 })
                 .collect();
@@ -70,11 +94,19 @@ pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Res
             let account = params.get("account").and_then(Value::as_str).ok_or("missing account")?;
             let kind = params.get("kind").and_then(Value::as_str).unwrap_or("oauth");
             let access = params.get("access").and_then(Value::as_str).ok_or("missing access token")?;
+            // region 可选（多区域厂商的账号变体，如 kimi 的 cn/intl）；必须是 registry 声明的合法区域
+            let region = params.get("region").and_then(Value::as_str);
+            if let Some(r) = region {
+                let valid = kxen_app::providers::find(provider).is_some_and(|s| s.regions.iter().any(|x| x.key == r));
+                if !valid {
+                    return Err(format!("provider {provider} 无区域 {r}"));
+                }
+            }
             let key = kxen_app::auth::credential::account_id(provider, account);
             let state = app.state::<Arc<AppState>>();
             let mut store = state.auth_store.lock().map_err(|e| e.to_string())?;
             let cred = if kind == "api" {
-                kxen_app::auth::credential::CredentialKind::Api { key: access.to_string() }
+                kxen_app::auth::credential::CredentialKind::Api { key: access.to_string(), region: region.map(String::from) }
             } else {
                 kxen_app::auth::credential::CredentialKind::Oauth {
                     access: access.to_string(),
@@ -139,7 +171,7 @@ pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Res
             super::ops::write_toml(&path, &doc)?;
             let state = app.state::<Arc<AppState>>();
             let mut store = state.auth_store.lock().map_err(|e| e.to_string())?;
-            store.insert(format!("custom:{name}"), kxen_app::auth::credential::CredentialKind::Api { key: api_key.to_string() });
+            store.insert(format!("custom:{name}"), kxen_app::auth::credential::CredentialKind::Api { key: api_key.to_string(), region: None });
             kxen_app::auth::credential::write_auth_file(&kxen_app::core::paths::auth_file(), &store).map_err(|e| e.to_string())?;
             Ok(json!({ "id": format!("custom:{name}") }))
         }

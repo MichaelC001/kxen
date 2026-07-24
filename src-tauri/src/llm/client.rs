@@ -1,4 +1,5 @@
 //! 统一 client：auth 凭证 -> provider 实例；HTTP client 全局单例。
+//! 路由 = 两个订阅特例（anthropic/openai 的 OAuth 形态）+ custom: 用户端点 + providers registry（其余全部）。
 
 use crate::llm::types::{Delta, Message, ModelRef};
 use futures::Stream;
@@ -36,51 +37,11 @@ impl LlmClient {
                     Some(crate::auth::credential::CredentialKind::Oauth { access, account_id, .. }) => {
                         crate::llm::openai::OpenAiProvider::new(access.clone(), account_id.clone(), true).stream_chat(&model.model, messages, tools)
                     }
-                    Some(crate::auth::credential::CredentialKind::Api { key }) => {
+                    Some(crate::auth::credential::CredentialKind::Api { key, .. }) => {
                         crate::llm::openai::OpenAiProvider::new(key.clone(), None, false).stream_chat(&model.model, messages, tools)
                     }
                     _ => Box::pin(futures::stream::once(async { Delta::Error("openai credential missing (run doctor)".into()) })),
                 }
-            }
-            "kimi-for-coding" => {
-                let key = match crate::auth::credential::credential_for(&store, "kimi-for-coding", model.account.as_deref()) {
-                    Some(crate::auth::credential::CredentialKind::Api { key }) => key.clone(),
-                    Some(crate::auth::credential::CredentialKind::Oauth { access, .. }) => access.clone(),
-                    _ => {
-                        return Box::pin(futures::stream::once(async { Delta::Error("kimi credential missing (run doctor)".into()) }));
-                    }
-                };
-                crate::llm::xai::XaiProvider::kimi(key).stream_chat_with_tools(&model.model, messages, tools)
-            }
-            "xai" => {
-                match crate::auth::credential::credential_for(&store, "xai", model.account.as_deref()) {
-                    Some(crate::auth::credential::CredentialKind::Oauth { access, .. }) => {
-                        crate::llm::xai::XaiProvider::new(access.clone()).stream_chat_with_tools(&model.model, messages, tools)
-                    }
-                    Some(crate::auth::credential::CredentialKind::Api { key }) => {
-                        crate::llm::xai::XaiProvider::new(key.clone()).stream_chat_with_tools(&model.model, messages, tools)
-                    }
-                    _ => Box::pin(futures::stream::once(async { Delta::Error("xai credential is not oauth".into()) })),
-                }
-            }
-            "openrouter" => {
-                let Some(crate::auth::credential::CredentialKind::Api { key }) = crate::auth::credential::credential_for(&store, "openrouter", model.account.as_deref()) else {
-                    return Box::pin(futures::stream::once(async { Delta::Error("openrouter credential missing (import API key in settings)".into()) }));
-                };
-                crate::llm::xai::XaiProvider::custom("https://openrouter.ai/api/v1/chat/completions".into(), key.clone()).stream_chat_with_tools(&model.model, messages, tools)
-            }
-            "ollama" => {
-                // 本地 Ollama 无鉴权，OpenAI 兼容端点的 bearer 仅为占位
-                crate::llm::xai::XaiProvider::custom("http://localhost:11434/v1/chat/completions".to_string(), "ollama".to_string()).stream_chat_with_tools(&model.model, messages, tools)
-            }
-            p if crate::llm::compat::preset(p).is_some() => {
-                // 内置 OpenAI 兼容预设：与自定义提供商同路径，仅端点来自预设表
-                let provider = p.to_string();
-                let Some(crate::auth::credential::CredentialKind::Api { key }) = crate::auth::credential::credential_for(&store, p, model.account.as_deref()) else {
-                    return Box::pin(futures::stream::once(async move { Delta::Error(format!("{provider} credential missing (import API key in settings)")) }));
-                };
-                let url = crate::llm::compat::chat_url(p).expect("preset checked");
-                crate::llm::xai::XaiProvider::custom(url, key.clone()).stream_chat_with_tools(&model.model, messages, tools)
             }
             other if other.starts_with("custom:") => {
                 // 自定义类型提供商：config.toml 给端点+协议，auth.json 给 key（custom:<name>）
@@ -89,7 +50,7 @@ impl LlmClient {
                 let Some(def) = cfg.custom_providers.get(&name).cloned() else {
                     return Box::pin(futures::stream::once(async move { Delta::Error(format!("custom provider not configured: {name}")) }));
                 };
-                let Some(crate::auth::credential::CredentialKind::Api { key }) = store.get(other) else {
+                let Some(crate::auth::credential::CredentialKind::Api { key, .. }) = store.get(other) else {
                     return Box::pin(futures::stream::once(async move { Delta::Error(format!("custom provider {name} missing api key")) }));
                 };
                 if def.protocol == "anthropic" {
@@ -98,11 +59,27 @@ impl LlmClient {
                     crate::llm::xai::XaiProvider::custom(format!("{}/chat/completions", def.base_url.trim_end_matches('/')), key.clone()).stream_chat_with_tools(&model.model, messages, tools)
                 }
             }
-            other => {
-                let provider = other.to_string();
-                Box::pin(futures::stream::once(async move {
-                    Delta::Error(format!("provider not implemented yet: {provider} (M1 is xai-only)"))
-                }))
+            p => {
+                // registry 驱动的统一路径：端点来自 spec（region 跟随凭证），wire 复用 OpenAI 兼容薄实现
+                let Some(spec) = crate::providers::find(p) else {
+                    let provider = p.to_string();
+                    return Box::pin(futures::stream::once(async move { Delta::Error(format!("unknown provider: {provider}")) }));
+                };
+                let cred = crate::auth::credential::credential_for(&store, p, model.account.as_deref());
+                let bearer = match (spec.auth, cred) {
+                    // 本地免鉴权端点的 bearer 仅为占位（ollama 不校验）
+                    (crate::providers::AuthKind::LocalFree, _) => p.to_string(),
+                    (_, Some(c)) => c.bearer().to_string(),
+                    _ => {
+                        let (provider, hint) = match spec.auth {
+                            crate::providers::AuthKind::Oauth => (p.to_string(), "run doctor"),
+                            _ => (p.to_string(), "import API key in settings"),
+                        };
+                        return Box::pin(futures::stream::once(async move { Delta::Error(format!("{provider} credential missing ({hint})")) }));
+                    }
+                };
+                let url = spec.chat_url(cred.and_then(|c| c.region()));
+                crate::llm::xai::XaiProvider::custom(url, bearer).stream_chat_with_tools(&model.model, messages, tools)
             }
         }
     }

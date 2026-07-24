@@ -1,13 +1,16 @@
 // 调度实况台：provider 槽位 / 角色绑定与降级链 / 试派发验证 / 最近派发历史。
+// provider 下拉与默认模型来自后端 provider.list（registry），前端不维护硬编码清单。
 import { createSignal, For, onMount, Show } from "solid-js";
 import { Play } from "lucide-solid";
 import { configGet, configSetRole, type RoleBindingView } from "../../lib/chat";
 import {
   mrmStats,
   providerAccounts,
+  providerList,
   testDispatch,
   type AccountInfo,
   type DispatchRecord,
+  type ProviderInfo,
   type TestDispatchResult,
 } from "../../lib/provider";
 import { fmtCtx, modelsCatalog, type ProviderCatalog } from "../../lib/models";
@@ -20,18 +23,6 @@ const ROLE_LABELS: Record<string, string> = {
   review: "审查验证",
   research: "调研搜索",
 };
-
-const PROVIDERS = [
-  { id: "anthropic", label: "Claude" },
-  { id: "openai", label: "GPT/Codex" },
-  { id: "xai", label: "Grok Build" },
-  { id: "kimi-for-coding", label: "Kimi Code" },
-  { id: "deepseek", label: "DeepSeek" },
-  { id: "mistral", label: "Mistral" },
-  { id: "groq", label: "Groq" },
-  { id: "google", label: "Gemini" },
-  { id: "together", label: "Together" },
-];
 
 interface Slot {
   provider: string;
@@ -53,17 +44,19 @@ export default function RoutingSection() {
   const [slots, setSlots] = createSignal<Slot[]>([]);
   const [history, setHistory] = createSignal<DispatchRecord[]>([]);
   const [accounts, setAccounts] = createSignal<AccountInfo[]>([]);
+  const [providers, setProviders] = createSignal<ProviderInfo[]>([]);
   const [cat, setCat] = createSignal<ProviderCatalog[]>([]);
   const [testing, setTesting] = createSignal("");
   const [testResult, setTestResult] = createSignal<Record<string, TestDispatchResult>>({});
   const [saved, setSaved] = createSignal("");
 
   const reload = async () => {
-    const [cfg, stats, accs, catalog] = await Promise.all([
+    const [cfg, stats, accs, catalog, list] = await Promise.all([
       configGet().catch(() => null),
       mrmStats().catch(() => null),
       providerAccounts().catch(() => []),
       modelsCatalog().catch(() => []),
+      providerList().catch(() => [] as ProviderInfo[]),
     ]);
     if (cfg?.roles) setRoles(cfg.roles);
     if (stats) {
@@ -72,6 +65,7 @@ export default function RoutingSection() {
     }
     setAccounts(accs);
     setCat(catalog);
+    setProviders(list);
   };
   onMount(() => void reload());
 
@@ -109,17 +103,7 @@ export default function RoutingSection() {
   };
 
   const defaultModelOf = (provider: string) =>
-    ({
-      anthropic: "claude-sonnet-4-5-20250929",
-      openai: "gpt-5.4",
-      xai: "grok-build-0.1",
-      "kimi-for-coding": "kimi-for-coding",
-      deepseek: "deepseek-chat",
-      mistral: "mistral-large-latest",
-      groq: "llama-3.3-70b-versatile",
-      google: "gemini-2.5-flash",
-      together: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-    })[provider] ?? "";
+    providers().find((p) => p.key === provider)?.default_model ?? "";
 
   return (
     <>
@@ -175,9 +159,9 @@ export default function RoutingSection() {
                       )
                     }
                   >
-                    {PROVIDERS.map((p) => (
-                      <option value={p.id}>{p.label}</option>
-                    ))}
+                    <For each={providers()}>
+                      {(p) => <option value={p.key}>{p.display}</option>}
+                    </For>
                   </select>
                   <select
                     class="bg-transparent border border-[var(--border)] rounded px-1.5 py-1 text-xs text-[var(--text-dim)]"
