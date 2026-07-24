@@ -72,26 +72,52 @@ work out to subagents in parallel; you only synthesize what comes back.
 
 Script shape (adapt phases to the mode):
 
+    const meta = {
+      name: 'short-kebab-name',
+      description: 'one line',
+      whenToUse: 'one line',
+      phases: [{ title: 'decompose', detail: '...' }, { title: 'integrate', detail: '...' }],
+    };
     phase('decompose');
     const question = '<user request>';
-    const [a, b, c] = await Promise.all([
-      agent('execution', 'Self-contained brief with absolute paths, part 1 of ' + question),
-      agent('execution', 'Self-contained brief with absolute paths, part 2 of ' + question),
-      agent('review', 'Verify the combined findings for ' + question),
+    const [a, b, c] = await parallel([
+      () => agent('execution', 'Self-contained brief with absolute paths, part 1 of ' + question),
+      () => agent('execution', 'Self-contained brief with absolute paths, part 2 of ' + question),
+      () => agent('review', 'Verify the combined findings for ' + question),
     ]);
     phase('integrate');
-    return a + '\n\n' + b + '\n\n' + c;
+    return [a, b, c].map((r) => (r && r.__failed ? '(agent failed: ' + r.error + ')' : r)).join('\\n\\n');
+
+Script rules (violating these is the top failure mode):
+
+- FLAT top-level statements only, ending with a top-level return. NEVER wrap the body in a function \
+(`async function main() { ... }` without calling it returns nothing and the workflow errors).
+- meta is OPTIONAL (`export const meta` also works) but recommended: it turns phase() into \
+structured `phase 2/10` progress and names the completion envelope. Keep phases titles exactly \
+matching your phase('...') calls.
+- Fan out with the built-in `parallel(thunks, { concurrency })` (default 8), NOT bare Promise.all: \
+parallel never rejects - a failed item comes back as `{ __failed: true, error }`. Check every \
+result for `__failed`; retry that item ONCE inline, otherwise report it. One dead agent must not \
+sink the whole workflow.
+- agent() accepts agent(role, prompt) or agent(prompt, { agentType, label }); use label to name \
+branches - it shows up in the failure list of the completion envelope.
+- Return ONE concatenated markdown string; do NOT return objects or arrays. They are auto-formatted \
+into `##` sections with empty results flagged, but only a string lets you control the structure. \
+The engine appends a compact envelope (agent counts, failures, phase progress, wall time) after \
+your text - never fake one yourself.
+- If any agent result is empty or the workflow errors, retry ONCE with a corrected, simpler script; \
+NEVER silently fall back to one-by-one exec/read calls - report the failure instead.
 
 /ultracode <task> - large implementation: <=6 INDEPENDENT slices of agent(execution), then \
 phase('integrate'): merge and run the project's real checks (cargo test / tsc / vp check), \
 fix failures before reporting.
 
-/ultraplan <question> - planning: Promise.all agent(planning) for architecture, agent(research) \
+/ultraplan <question> - planning: parallel agent(planning) for architecture, agent(research) \
 for codebase grounding (it must read real files), agent(thinking) for risks. Synthesize ONE plan \
 with verification command per phase and explicit non-goals. Present and stop - no implementation \
 until the user says go.
 
-/ultrareview <path|scope> - review: Promise.all four agent(review) lenses over the same target: \
+/ultrareview <path|scope> - review: parallel four agent(review) lenses over the same target: \
 correctness, security, performance, convention (check against real files, not taste). Findings \
 only: severity P0/P1/P2, file:line, one-line fix, deduped. No style nits, no praise, no fixes.";
 

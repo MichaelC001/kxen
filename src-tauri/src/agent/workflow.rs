@@ -1,11 +1,13 @@
 //! Workflow engine: model-authored JavaScript orchestration on rquickjs (sandboxed, no OS access).
 //!
 //! Globals available to scripts:
-//! - `agent(role, prompt)` -> Promise<string>   dispatch a subagent by role (routed + gated by MRM)
+//! - `agent(role, prompt)` / `agent(prompt, { agentType, label })` -> Promise<string>   dispatch a subagent by role (routed + gated by MRM)
+//! - `parallel(thunks, { concurrency })` -> Promise<array>   fan-out with worker pool (default 8); failed items come back as `{ __failed: true, error }`
 //! - `CONSTRAINTS`                              role bindings + provider availability snapshot
-//! - `phase(name)`                              progress marker, streamed to the frontend live
+//! - `phase(name)`                              progress marker, streamed live; carries index/total when `meta.phases` matches
 //! - `log(msg)`                                 tracing
-//! Everything else is plain JS: `Promise.all` for fan-out, for-loops for pipelines.
+//! Optional `export const meta = { name, description, whenToUse, phases: [{ title, detail }] }` drives structured phase
+//! progress and the completion envelope appended to the script's return text.
 
 use crate::agent::agent_loop::{AgentContext, AgentEvent};
 use crate::agent::subagent::{SubagentDeps, dispatch};
@@ -16,17 +18,36 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+mod js;
+
 const WORKFLOW_TIMEOUT_MS: u64 = 10 * 60 * 1000;
 const MAX_AGENTS_PER_WORKFLOW: u32 = 32;
 const MEMORY_LIMIT: usize = 64 * 1024 * 1024;
 const STACK_LIMIT: usize = 1024 * 1024;
+
+/// phase 事件：index/total/workflow_name 由脚本侧按 meta.phases 的 title 匹配
+/// （无 meta 或匹配不到为 None——字段全 None 时序列化结果与旧版 { name } 完全一致，老消费者不受影响）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhaseMsg {
+    pub name: String,
+    pub index: Option<u32>,
+    pub total: Option<u32>,
+    pub workflow_name: Option<String>,
+}
+
+/// agent 派发统计：完成信封的数据源（成功按 role 计数；失败记 label + 截断 error）。
+#[derive(Default)]
+struct WfStats {
+    ok_by_role: std::collections::HashMap<String, u32>,
+    failures: Vec<(String, String)>,
+}
 
 /// workflow 工具入口：QuickJS 在专属线程 + current_thread runtime 跑（rquickjs !Send 全隔离），
 /// 本任务侧只做 phase 转发 / 结果等待 / 超时取消（全部 Send）。
 /// run_id 给了就开 journal resume：同 run_id 重跑时已完成 agent 派发直接回缓存（崩溃/取消可续）。
 pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_id: Option<&str>) -> Result<String, String> {
     let journal = run_id.and_then(|id| crate::agent::workflow_journal::Journal::open(id, script));
-    let (phase_tx, mut phase_rx) = mpsc::unbounded_channel::<String>();
+    let (phase_tx, mut phase_rx) = mpsc::unbounded_channel::<PhaseMsg>();
     let (result_tx, result_rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
     let cancel = Arc::new(AtomicBool::new(false));
 
@@ -55,7 +76,7 @@ pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_
         loop {
             tokio::select! {
                 r = &mut result_rx => break r.unwrap_or_else(|_| Err("workflow thread died".into())),
-                Some(name) = phase_rx.recv() => on_event(AgentEvent::Phase { name }),
+                Some(msg) = phase_rx.recv() => on_event(AgentEvent::Phase { name: msg.name, index: msg.index, total: msg.total, workflow_name: msg.workflow_name }),
             }
         }
     };
@@ -66,8 +87,8 @@ pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_
     };
     drop(cancel_on_drop);
     // 结果先到时排空已发送但未接收的 phase（发送先于 result，通道里必有）
-    while let Ok(name) = phase_rx.try_recv() {
-        on_event(AgentEvent::Phase { name });
+    while let Ok(msg) = phase_rx.try_recv() {
+        on_event(AgentEvent::Phase { name: msg.name, index: msg.index, total: msg.total, workflow_name: msg.workflow_name });
     }
     out
 }
@@ -81,14 +102,16 @@ impl Drop for CancelGuard {
     }
 }
 
-async fn run_script(
+/// 直接跑一脚本（run_tool 的引擎部分拆出供测试）：无线程/超时包装，phase 走通道直出。
+pub async fn run_script(
     script: &str,
     deps: SubagentDeps,
-    phase_tx: mpsc::UnboundedSender<String>,
+    phase_tx: mpsc::UnboundedSender<PhaseMsg>,
     cancel: Arc<AtomicBool>,
     journal: Option<crate::agent::workflow_journal::Journal>,
 ) -> Result<String, String> {
     let constraints = build_constraints(&deps).await;
+    let started = std::time::Instant::now();
 
     let runtime = AsyncRuntime::new().map_err(|e| e.to_string())?;
     runtime.set_memory_limit(MEMORY_LIMIT).await;
@@ -96,7 +119,7 @@ async fn run_script(
     runtime.set_interrupt_handler(Some(Box::new(move || cancel.load(Ordering::Relaxed)))).await;
     let context = AsyncContext::full(&runtime).await.map_err(|e| e.to_string())?;
 
-    let script_owned = script.to_string();
+    let script_owned = js::wrap_script(&js::strip_meta_export(script));
     context
         .async_with(async move |ctx| {
             let globals = ctx.globals();
@@ -105,47 +128,93 @@ async fn run_script(
             let inject = format!("globalThis.CONSTRAINTS = {};", serde_json::to_string(&constraints).unwrap_or_else(|_| "{}".into()));
             ctx.eval::<Value, _>(inject).catch(&ctx).map_err(|e| e.to_string())?;
 
-            // agent(role, prompt)：每次调用克隆一份 deps；计数器硬性封顶。
-            // run_id journal：已完成的 (role+prompt) 直接回缓存（resume 不重跑）。
+            // FORMAT_RESULT / PARALLEL：与 CONSTRAINTS 同方式注入
+            ctx.eval::<Value, _>(js::FORMAT_RESULT_JS).catch(&ctx).map_err(|e| e.to_string())?;
+            ctx.eval::<Value, _>(js::PARALLEL_JS).catch(&ctx).map_err(|e| e.to_string())?;
+
+            // __kxen_agent(role, prompt, label?)：agent 双签名的 JS 判别层在 js::AGENT_JS。
+            // 每次调用克隆一份 deps；计数器硬性封顶；journal resume 回缓存；成败都记 WfStats（信封）。
             let counter = Arc::new(AtomicU32::new(0));
             let journal = std::sync::Arc::new(std::sync::Mutex::new(journal));
-            let agent_fn = Func::from(Async(move |role: String, prompt: String| {
+            let stats = Arc::new(std::sync::Mutex::new(WfStats::default()));
+            let stats_agent = stats.clone();
+            let agent_fn = Func::from(Async(move |role: String, prompt: String, label: Option<String>| {
                 let deps = deps.clone();
                 let counter = counter.clone();
                 let journal = journal.clone();
+                let stats = stats_agent.clone();
                 async move {
                     if let Some(cached) = journal.lock().expect("journal").as_ref().and_then(|j| j.cached(&role, &prompt).cloned()) {
+                        *stats.lock().expect("stats").ok_by_role.entry(role).or_insert(0) += 1;
                         return Ok(cached);
                     }
                     let n = counter.fetch_add(1, Ordering::Relaxed);
                     if n >= MAX_AGENTS_PER_WORKFLOW {
-                        return Err(workflow_err(format!("workflow agent budget exhausted ({MAX_AGENTS_PER_WORKFLOW})")));
+                        let msg = format!("workflow agent budget exhausted ({MAX_AGENTS_PER_WORKFLOW})");
+                        stats.lock().expect("stats").failures.push((label.unwrap_or(role), msg.clone()));
+                        return Err(workflow_err(msg));
                     }
-                    let result =
-                        dispatch(&role, prompt.clone(), &deps, crate::agent::activity::AgentKind::Workflow).await.map_err(workflow_err)?;
-                    if let Some(j) = journal.lock().expect("journal").as_mut() {
-                        j.record(&role, &prompt, &result);
+                    match dispatch(&role, prompt.clone(), &deps, crate::agent::activity::AgentKind::Workflow).await {
+                        Ok(result) => {
+                            *stats.lock().expect("stats").ok_by_role.entry(role.clone()).or_insert(0) += 1;
+                            if let Some(j) = journal.lock().expect("journal").as_mut() {
+                                j.record(&role, &prompt, &result);
+                            }
+                            Ok(result)
+                        }
+                        Err(e) => {
+                            // error 截断 120 字符：信封是单行摘要，完整错误在 agent 自身结果里
+                            let short: String = e.chars().take(120).collect();
+                            stats.lock().expect("stats").failures.push((label.unwrap_or_else(|| role.clone()), short));
+                            Err(workflow_err(e))
+                        }
                     }
-                    Ok(result)
                 }
             }));
-            globals.set("agent", agent_fn).catch(&ctx).map_err(|e| e.to_string())?;
+            globals.set("__kxen_agent", agent_fn).catch(&ctx).map_err(|e| e.to_string())?;
+            ctx.eval::<Value, _>(js::AGENT_JS).catch(&ctx).map_err(|e| e.to_string())?;
 
-            let phase_fn = Func::from(move |name: String| {
-                let _ = phase_tx.send(name);
-            });
-            globals.set("phase", phase_fn).catch(&ctx).map_err(|e| e.to_string())?;
+            // __kxen_phase：wrapped 脚本里的局部 phase 闭包按 meta 匹配好 index/total 后调这里
+            let phases_done = Arc::new(AtomicU32::new(0));
+            let phase_fn = {
+                let phases_done = phases_done.clone();
+                Func::from(move |name: String, index: Option<u32>, total: Option<u32>, workflow_name: Option<String>| {
+                    phases_done.fetch_add(1, Ordering::Relaxed);
+                    let _ = phase_tx.send(PhaseMsg { name, index, total, workflow_name });
+                })
+            };
+            globals.set("__kxen_phase", phase_fn).catch(&ctx).map_err(|e| e.to_string())?;
 
             globals
                 .set("log", Func::from(|msg: String| tracing::info!(target: "workflow", "{msg}")))
                 .catch(&ctx)
                 .map_err(|e| e.to_string())?;
 
-            // 脚本体包成 async 函数；返回值统一转字符串
-            let wrapped =
-                format!("(async () => {{\n{script_owned}\n}})().then(v => typeof v === 'string' ? v : JSON.stringify(v ?? null))");
-            let promise = ctx.eval::<Promise, _>(wrapped).catch(&ctx).map_err(|e| e.to_string())?;
+            let promise = ctx.eval::<Promise, _>(script_owned).catch(&ctx).map_err(|e| e.to_string())?;
             let text: String = promise.into_future().await.catch(&ctx).map_err(|e| e.to_string())?;
+
+            // 脚本跑完取 meta（捕获闭包与脚本同作用域）并清掉；结构缺字段一律容错为 None
+            let meta: Option<serde_json::Value> = ctx
+                .eval::<String, _>("JSON.stringify(globalThis.__kxen_meta ? (globalThis.__kxen_meta() ?? null) : null)")
+                .catch(&ctx)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .filter(|v: &serde_json::Value| v.is_object());
+            let _ = ctx.eval::<Value, _>("delete globalThis.__kxen_meta;");
+
+            let wf_name = meta.as_ref().and_then(|m| m.get("name")).and_then(|n| n.as_str()).unwrap_or("workflow");
+            let phases_total = meta.as_ref().and_then(|m| m.get("phases")).and_then(|p| p.as_array()).map(|a| a.len() as u32);
+            let stats = stats.lock().expect("stats");
+            let agents_ok: u32 = stats.ok_by_role.values().sum();
+            let mut text = text;
+            text.push_str(&js::envelope(
+                wf_name,
+                agents_ok,
+                &stats.failures,
+                phases_done.load(Ordering::Relaxed),
+                phases_total,
+                started.elapsed(),
+            ));
             Ok::<String, String>(text)
         })
         .await
@@ -176,100 +245,4 @@ async fn build_constraints(deps: &SubagentDeps) -> serde_json::Value {
         "mrm": deps.mrm.describe().await,
         "max_agents": MAX_AGENTS_PER_WORKFLOW,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::config::{Config, Limits, ProviderLimit, RoleBinding};
-    use crate::llm::mrm::ModelResourceManager;
-    use std::collections::HashMap;
-
-    /// 不触网的 deps：agent 闭包会真实走 dispatch -> mrm -> 凭证缺失报错，
-    /// 但纯 JS 能力（算数 / Promise.all / phase / CONSTRAINTS）不需要网络。
-    fn test_deps() -> SubagentDeps {
-        let mut roles = HashMap::new();
-        roles
-            .insert("thinking".into(), RoleBinding { provider: "anthropic".into(), model: "claude".into(), fallback: None, account: None });
-        roles.insert("execution".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None, account: None });
-        let config = Config {
-            roles,
-            limits: Limits { global_concurrent: 4, providers: HashMap::<String, ProviderLimit>::new() },
-            hooks: HashMap::new(),
-            statusline: Default::default(),
-            voice: Default::default(),
-            custom_providers: Default::default(),
-            send_when_running: String::new(),
-            embedding: Default::default(),
-        };
-        SubagentDeps {
-            registry: Arc::new(crate::tools::task::TaskRegistry::new()),
-            workdir: Arc::from(std::path::Path::new("/tmp")),
-            store: crate::auth::credential::AuthStore::default(),
-            mrm: Arc::new(ModelResourceManager::new(config)),
-            hooks: None,
-            extras: None,
-            cancel: None,
-            agents: Arc::new(crate::agent::activity::AgentRegistry::default()),
-            session_id: None,
-            bus: crate::core::event::EventBus::default(),
-            approvals: None,
-            mcp: None,
-            lsp: None,
-        }
-    }
-
-    async fn run_ok(script: &str) -> String {
-        let (tx, _rx) = mpsc::unbounded_channel();
-        run_script(script, test_deps(), tx, Arc::new(AtomicBool::new(false)), None).await.expect("script should succeed")
-    }
-
-    #[tokio::test]
-    async fn plain_js_arithmetic() {
-        assert_eq!(run_ok("return 1 + 2").await, "3");
-    }
-
-    #[tokio::test]
-    async fn promise_all_fanout() {
-        let out = run_ok("const r = await Promise.all([1,2,3].map(async x => x * 2)); return r.join(',')").await;
-        assert_eq!(out, "2,4,6");
-    }
-
-    #[tokio::test]
-    async fn constraints_are_visible() {
-        let out = run_ok("return CONSTRAINTS.roles.thinking.provider + '/' + CONSTRAINTS.roles.execution.model").await;
-        assert_eq!(out, "anthropic/grok");
-    }
-
-    #[tokio::test]
-    async fn phases_are_streamed() {
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let fut = run_script("phase('scan'); phase('fix'); return 'done'", test_deps(), tx, Arc::new(AtomicBool::new(false)), None);
-        tokio::pin!(fut);
-        let mut phases = Vec::new();
-        let result = loop {
-            tokio::select! {
-                r = &mut fut => break r,
-                Some(name) = rx.recv() => phases.push(name),
-            }
-        };
-        // 与 run_tool 相同的竞态处理：结果先到则排空残留 phase
-        while let Ok(name) = rx.try_recv() {
-            phases.push(name);
-        }
-        assert_eq!(result.unwrap(), "done");
-        assert_eq!(phases, ["scan", "fix"]);
-    }
-
-    #[tokio::test]
-    async fn js_exception_surfaces_message() {
-        let (tx, _rx) = mpsc::unbounded_channel();
-        let err = run_script("throw new Error('boom')", test_deps(), tx, Arc::new(AtomicBool::new(false)), None).await.unwrap_err();
-        assert!(err.contains("boom"), "unexpected: {err}");
-    }
-
-    #[tokio::test]
-    async fn object_result_is_json() {
-        assert_eq!(run_ok("return { a: 1 }").await, "{\"a\":1}");
-    }
 }

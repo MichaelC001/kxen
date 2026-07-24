@@ -189,11 +189,11 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "workflow",
-            "Run a JavaScript orchestration script (QuickJS, sandboxed) that fans work out to subagents in parallel. MANDATORY for /ultracode, /ultraplan, /ultrareview and any task needing 2+ subagents or named phases - never explore repos one-by-one when a workflow applies. Globals: `await agent(role, prompt)` -> string (subagent dispatch, MRM-routed); `CONSTRAINTS` (role bindings + provider availability); `phase(name)` (progress marker); `log(msg)`. Use plain JS for control flow: Promise.all for fan-out, for-loops for pipelines. The script return value is the workflow result. Cap: 32 agent dispatches, 10min wall clock. Optional run_id enables resume: re-run with the same run_id and completed agent dispatches return cached results instead of re-dispatching (crash/cancel recovery).",
+            "Run a JavaScript orchestration script (QuickJS, sandboxed) that fans work out to subagents in parallel. MANDATORY for /ultracode, /ultraplan, /ultrareview and any task needing 2+ subagents or named phases - never explore repos one-by-one when a workflow applies. Globals: `await agent(role, prompt)` or `agent(prompt, { agentType, label })` -> string (subagent dispatch, MRM-routed); `await parallel(thunks, { concurrency: 8 })` -> array in input order, failed items come back as `{ __failed: true, error }` instead of rejecting (check and retry/report them); `CONSTRAINTS` (role bindings + provider availability); `phase(name)` (progress marker); `log(msg)`. Optional `export const meta = { name, description, whenToUse, phases: [{ title, detail }] }` enables structured phase progress (index/total per phase call). The script return value is the workflow result; the engine appends a compact completion envelope (agent counts, failures list, phase progress, wall time). Cap: 32 agent dispatches, 10min wall clock. Optional run_id enables resume: re-run with the same run_id and completed agent dispatches return cached results instead of re-dispatching (crash/cancel recovery).",
             json!({
                 "type": "object",
                 "properties": {
-                    "script": { "type": "string", "description": "JavaScript body wrapped in an async function; use return for the result" },
+                    "script": { "type": "string", "description": "Flat top-level JavaScript statements (auto-wrapped in async - do NOT wrap in a function yourself); must end with a top-level return of ONE concatenated markdown string" },
                     "run_id": { "type": "string", "description": "optional: stable id to enable journal/resume across runs" }
                 },
                 "required": ["script"]

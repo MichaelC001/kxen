@@ -27,8 +27,15 @@ pub enum AgentEvent {
     Compacted {
         summary: String,
     },
+    /// workflow phase 进度；index/total/workflow_name 仅当脚本声明了 meta 时带上（None 时不上行，保持旧 payload 形状）
     Phase {
         name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        index: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        total: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        workflow_name: Option<String>,
     },
     Done {
         turns: u32,

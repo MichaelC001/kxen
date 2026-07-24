@@ -47,7 +47,7 @@ async fn main() {
                 println!("<<< TOOL RESULT {name}: {}", first_chars(&summary, 100))
             }
             AgentEvent::Compacted { summary } => println!("\n=== COMPACTED: {} ===", first_chars(&summary, 80)),
-            AgentEvent::Phase { name } => println!("\n--- PHASE: {name} ---"),
+            AgentEvent::Phase { name, .. } => println!("\n--- PHASE: {name} ---"),
             AgentEvent::Done { turns, .. } => println!("\n=== DONE in {turns} turns ==="),
             AgentEvent::Aborted => println!("\n=== ABORTED ==="),
             AgentEvent::Error { message } => println!("\n!!! ERROR: {message}"),

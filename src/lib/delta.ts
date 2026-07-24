@@ -18,6 +18,10 @@ export interface ToolEvent {
   approvalId?: string | undefined;
   command?: string | undefined;
   reason?: string | undefined;
+  // workflow phase 结构化进度（脚本声明 meta.phases 时才有）
+  index?: number | undefined;
+  total?: number | undefined;
+  workflowName?: string | undefined;
 }
 
 export function onLlmDelta(
@@ -64,6 +68,9 @@ export function onLlmDelta(
     agent?: string;
     approval_id?: string;
     command?: string;
+    index?: number;
+    total?: number;
+    workflow_name?: string;
   }
 
   function handle(event: DeltaPayload) {
@@ -99,8 +106,18 @@ export function onLlmDelta(
           });
         break;
       case "tool_result":
-      case "phase":
         if (event.name) onTool?.({ kind: event.kind, name: event.name, summary: event.summary });
+        break;
+      case "phase":
+        if (event.name)
+          onTool?.({
+            kind: event.kind,
+            name: event.name,
+            summary: event.summary,
+            index: event.index,
+            total: event.total,
+            workflowName: event.workflow_name,
+          });
         break;
       case "approval":
         onTool?.({
