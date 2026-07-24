@@ -1,9 +1,9 @@
 //! 角色化 subagent：角色预设（model 经 mrm 路由 + 权限预设 + brief）+ 派发。
 //! 角色 brief 全部英文（提示词规则），UI 文案不走这里。
 
-use crate::agent::agent_loop::{run_turn, AgentContext};
-use crate::llm::mrm::ModelResourceManager;
+use crate::agent::agent_loop::{AgentContext, run_turn};
 use crate::llm::Message;
+use crate::llm::mrm::ModelResourceManager;
 use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
@@ -202,10 +202,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: cra
         },
     };
 
-    let messages = vec![
-        Message::system(crate::agent::prompt::subagent_prompt(&agent.name, &agent.prompt)),
-        Message::user(prompt),
-    ];
+    let messages = vec![Message::system(crate::agent::prompt::subagent_prompt(&agent.name, &agent.prompt)), Message::user(prompt)];
     let outcome = run_turn(&mut child, messages).await;
     deps.agents.set_status(
         &session_id,
@@ -223,13 +220,8 @@ mod tests {
     /// 进程级隔离信任 store：与 render 测试同值（Once 写序防并行 env 竞态）。
     fn setup() {
         static ONCE: std::sync::Once = std::sync::Once::new();
-        ONCE.call_once(|| {
-            unsafe {
-                std::env::set_var(
-                    "KXEN_TRUST_FILE",
-                    std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())),
-                );
-            }
+        ONCE.call_once(|| unsafe {
+            std::env::set_var("KXEN_TRUST_FILE", std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())));
         });
     }
 

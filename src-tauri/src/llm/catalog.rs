@@ -40,10 +40,7 @@ pub struct ProviderCatalog {
 static CACHE: OnceLock<Mutex<Option<Vec<ProviderCatalog>>>> = OnceLock::new();
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 fn cache_file() -> std::path::PathBuf {
@@ -56,9 +53,7 @@ pub fn catalog() -> Vec<ProviderCatalog> {
     if let Some(c) = cache.lock().expect("catalog").as_ref() {
         return c.clone();
     }
-    let disk = std::fs::read_to_string(cache_file())
-        .ok()
-        .and_then(|text| serde_json::from_str::<Vec<ProviderCatalog>>(&text).ok());
+    let disk = std::fs::read_to_string(cache_file()).ok().and_then(|text| serde_json::from_str::<Vec<ProviderCatalog>>(&text).ok());
     let (out, stale) = match disk {
         Some(c) if !c.is_empty() => {
             let stale = now_ms().saturating_sub(c[0].fetched_at) > TTL_MS;
@@ -173,7 +168,13 @@ fn static_catalog() -> Vec<ProviderCatalog> {
                     output: 0,
                 })
                 .collect();
-            ProviderCatalog { provider: spec.key.into(), provider_name: spec.display.into(), models, fetched_at: ts, source: "static".into() }
+            ProviderCatalog {
+                provider: spec.key.into(),
+                provider_name: spec.display.into(),
+                models,
+                fetched_at: ts,
+                source: "static".into(),
+            }
         })
         .collect()
 }
@@ -235,7 +236,12 @@ mod tests {
         let c = static_catalog();
         for spec in crate::providers::all() {
             let entry = c.iter().find(|x| x.provider == spec.key).unwrap_or_else(|| panic!("{} 入静态兜底", spec.key));
-            assert!(entry.models.iter().any(|m| m.id == spec.default_model), "{} 静态兜底缺 verify 默认模型 {}", spec.key, spec.default_model);
+            assert!(
+                entry.models.iter().any(|m| m.id == spec.default_model),
+                "{} 静态兜底缺 verify 默认模型 {}",
+                spec.key,
+                spec.default_model
+            );
         }
     }
 }

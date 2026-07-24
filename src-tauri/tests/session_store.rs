@@ -14,13 +14,7 @@ fn session_lifecycle() {
     let s = ses::create(&dir, "/tmp/work").unwrap();
     assert_eq!(ses::list(&dir).len(), 1);
 
-    let m1 = ses::new_message(
-        &s.id,
-        Role::User,
-        vec![Part::Text {
-            text: "帮我改一下 README 的开头".into(),
-        }],
-    );
+    let m1 = ses::new_message(&s.id, Role::User, vec![Part::Text { text: "帮我改一下 README 的开头".into() }]);
     let meta = ses::append_message(&dir, &m1).unwrap();
     assert_eq!(meta.title, "帮我改一下 README 的开头");
 
@@ -28,9 +22,7 @@ fn session_lifecycle() {
         &s.id,
         Role::Assistant,
         vec![
-            Part::Text {
-                text: "好的".into(),
-            },
+            Part::Text { text: "好的".into() },
             Part::ToolCall {
                 name: "exec".into(),
                 input: serde_json::json!("ls"),
@@ -81,11 +73,7 @@ fn rejects_invalid_ids_before_touching_disk() {
     assert!(ses::load_meta(&dir, "../escape").is_err());
     assert!(ses::load_messages(&dir, "../escape").is_empty());
     assert!(ses::rewrite_messages(&dir, "../escape", &[]).is_err());
-    let bad = ses::new_message(
-        "../escape",
-        Role::User,
-        vec![Part::Text { text: "x".into() }],
-    );
+    let bad = ses::new_message("../escape", Role::User, vec![Part::Text { text: "x".into() }]);
     assert!(ses::append_message(&dir, &bad).is_err());
     // 拒绝发生在拼路径之前：dir 内不应多出任何文件
     assert!(std::fs::read_dir(&dir).unwrap().next().is_none());
@@ -108,13 +96,7 @@ fn concurrent_appends_stay_intact() {
         let sid = s.id.clone();
         handles.push(std::thread::spawn(move || {
             for i in 0..25 {
-                let m = ses::new_message(
-                    &sid,
-                    Role::Assistant,
-                    vec![Part::Text {
-                        text: format!("t{t}-{i}"),
-                    }],
-                );
+                let m = ses::new_message(&sid, Role::Assistant, vec![Part::Text { text: format!("t{t}-{i}") }]);
                 ses::append_message(&dir, &m).unwrap();
             }
         }));
@@ -134,33 +116,18 @@ fn image_part_persists_and_fork_copies_it() {
     let m = ses::new_message(
         &s.id,
         Role::User,
-        vec![
-            Part::Text {
-                text: "这张图里是什么".into(),
-            },
-            Part::Image {
-                media_type: "image/png".into(),
-                data: "aGVsbG8=".into(),
-            },
-        ],
+        vec![Part::Text { text: "这张图里是什么".into() }, Part::Image { media_type: "image/png".into(), data: "aGVsbG8=".into() }],
     );
     ses::append_message(&dir, &m).unwrap();
 
     // 重启等价路径（重新读盘）：图片块原样回来
     let loaded = ses::load_messages(&dir, &s.id);
-    assert!(
-        matches!(&loaded[0].parts[1], Part::Image { media_type, data } if media_type == "image/png" && data == "aGVsbG8=")
-    );
+    assert!(matches!(&loaded[0].parts[1], Part::Image { media_type, data } if media_type == "image/png" && data == "aGVsbG8="));
 
     // fork 克隆整条消息，图片随之复制
     let forked = ses::fork(&dir, &s.id, &m.id).unwrap();
     let forked_msgs = ses::load_messages(&dir, &forked.id);
-    assert!(
-        forked_msgs[0]
-            .parts
-            .iter()
-            .any(|p| matches!(p, Part::Image { data, .. } if data == "aGVsbG8="))
-    );
+    assert!(forked_msgs[0].parts.iter().any(|p| matches!(p, Part::Image { data, .. } if data == "aGVsbG8=")));
 
     // 导出：图片给占位呈现，不嵌 base64（数 MB 文本的 markdown 不可读）
     let md = export_markdown(&dir, &s.id).unwrap();
@@ -187,22 +154,10 @@ fn tool_call_stores_exact_args_and_full_output() {
     ses::append_message(&dir, &m).unwrap();
 
     let loaded = ses::load_messages(&dir, &s.id);
-    let Part::ToolCall {
-        input,
-        output,
-        args,
-        ..
-    } = &loaded[0].parts[0]
-    else {
-        panic!("expect tool_call")
-    };
+    let Part::ToolCall { input, output, args, .. } = &loaded[0].parts[0] else { panic!("expect tool_call") };
     assert_eq!(args.as_ref().unwrap()["content"], "hello");
     assert_eq!(output.len(), 5000, "output 存完整结果不是 120 字摘要");
-    assert_eq!(
-        input,
-        &serde_json::json!("/tmp/a.txt"),
-        "input 仍是一行摘要（UI 头行）"
-    );
+    assert_eq!(input, &serde_json::json!("/tmp/a.txt"), "input 仍是一行摘要（UI 头行）");
 
     // 存量数据（无 args 字段的 tool_call 行）反序列化兼容
     let legacy = format!(
@@ -211,10 +166,7 @@ fn tool_call_stores_exact_args_and_full_output() {
     );
     std::fs::write(dir.join(format!("{}.jsonl", s.id)), format!("{legacy}\n")).unwrap();
     let loaded = ses::load_messages(&dir, &s.id);
-    assert!(matches!(
-        &loaded[0].parts[0],
-        Part::ToolCall { args: None, .. }
-    ));
+    assert!(matches!(&loaded[0].parts[0], Part::ToolCall { args: None, .. }));
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -225,14 +177,7 @@ fn reasoning_part_roundtrip() {
     let m = ses::new_message(
         &s.id,
         Role::Assistant,
-        vec![
-            Part::Reasoning {
-                text: "先分析问题结构".into(),
-            },
-            Part::Text {
-                text: "结论如下".into(),
-            },
-        ],
+        vec![Part::Reasoning { text: "先分析问题结构".into() }, Part::Text { text: "结论如下".into() }],
     );
     ses::append_message(&dir, &m).unwrap();
     let loaded = ses::load_messages(&dir, &s.id);

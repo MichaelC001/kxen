@@ -1,13 +1,15 @@
 //! providers registry 集成测试：查找 / 区域解析 / URL 推导 / 存量兼容 / 区域账号共存。
 //! 禁真实网络：只测纯函数与 serde。
 
-use kxen_app::auth::credential::{account_id, credential_for, AuthStore, CredentialKind};
+use kxen_app::auth::credential::{AuthStore, CredentialKind, account_id, credential_for};
 use kxen_app::providers::{self, AuthKind, Protocol};
 
 /// 高压线：存量 11 家 provider key 必须原样可解析（旧 config/auth.json/MRM 角色路由零迁移）。
 #[test]
 fn legacy_eleven_keys_resolve() {
-    for key in ["anthropic", "openai", "xai", "kimi-for-coding", "openrouter", "ollama", "deepseek", "mistral", "groq", "google", "together"] {
+    for key in
+        ["anthropic", "openai", "xai", "kimi-for-coding", "openrouter", "ollama", "deepseek", "mistral", "groq", "google", "together"]
+    {
         assert!(providers::find(key).is_some(), "存量 key 丢失: {key}");
     }
     assert!(providers::find("no-such-provider").is_none());
@@ -16,7 +18,25 @@ fn legacy_eleven_keys_resolve() {
 /// 新增厂商全部可解析（区域四家 + 国产/国际长尾）。
 #[test]
 fn new_providers_resolve() {
-    for key in ["kimi", "zhipu", "qwen", "minimax", "siliconflow", "stepfun", "doubao", "yi", "hunyuan", "qianfan", "fireworks", "cerebras", "sambanova", "perplexity", "cohere", "github_models", "novita"] {
+    for key in [
+        "kimi",
+        "zhipu",
+        "qwen",
+        "minimax",
+        "siliconflow",
+        "stepfun",
+        "doubao",
+        "yi",
+        "hunyuan",
+        "qianfan",
+        "fireworks",
+        "cerebras",
+        "sambanova",
+        "perplexity",
+        "cohere",
+        "github_models",
+        "novita",
+    ] {
         assert!(providers::find(key).is_some(), "新厂商缺失: {key}");
     }
 }
@@ -111,10 +131,9 @@ fn legacy_endpoint_urls_unchanged() {
 /// 向后兼容：旧 auth.json（无 region 字段）正常加载，行为 = 缺省区域。
 #[test]
 fn legacy_auth_json_without_region_loads() {
-    let store: AuthStore = serde_json::from_str(
-        r#"{"kimi": {"type": "api", "key": "sk-cn"}, "deepseek": {"type": "api", "key": "sk-ds"}}"#,
-    )
-    .expect("旧格式 auth.json 必须能加载");
+    let store: AuthStore =
+        serde_json::from_str(r#"{"kimi": {"type": "api", "key": "sk-cn"}, "deepseek": {"type": "api", "key": "sk-ds"}}"#)
+            .expect("旧格式 auth.json 必须能加载");
     let kimi_cred = credential_for(&store, "kimi", None).expect("kimi 凭证");
     assert_eq!(kimi_cred.region(), None, "旧条目无 region");
     let spec = providers::find("kimi").unwrap();

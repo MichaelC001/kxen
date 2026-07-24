@@ -12,10 +12,7 @@ fn store_file() -> PathBuf {
 }
 
 fn load_from(file: &Path) -> Vec<String> {
-    std::fs::read_to_string(file)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+    std::fs::read_to_string(file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
 
 fn trust_into(file: &Path, workdir: &Path) {
@@ -62,16 +59,9 @@ pub fn needs_gate(workdir: &Path) -> bool {
 
 /// 项目 hooks 死代码接线：已信任合并项目 .kxen/config.toml 重载，未信任回用户级。
 pub fn reload_hooks_for_workspace(workdir: &Path, hooks: &crate::tools::hooks::HookRunner) {
-    let project_cfg = if is_trusted(workdir) {
-        Some(workdir.join(".kxen/config.toml"))
-    } else {
-        None
-    };
-    let merged = crate::core::config::Config::load(
-        &crate::core::paths::config_dir().join("config.toml"),
-        project_cfg.as_deref(),
-    )
-    .unwrap_or_default();
+    let project_cfg = if is_trusted(workdir) { Some(workdir.join(".kxen/config.toml")) } else { None };
+    let merged = crate::core::config::Config::load(&crate::core::paths::config_dir().join("config.toml"), project_cfg.as_deref())
+        .unwrap_or_default();
     hooks.reload(&merged);
 }
 
@@ -107,13 +97,8 @@ mod tests {
     /// 进程级隔离 store：与 render 测试同值（谁先谁设，同值无竞态）。
     fn setup() {
         static ONCE: std::sync::Once = std::sync::Once::new();
-        ONCE.call_once(|| {
-            unsafe {
-                std::env::set_var(
-                    "KXEN_TRUST_FILE",
-                    std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())),
-                );
-            }
+        ONCE.call_once(|| unsafe {
+            std::env::set_var("KXEN_TRUST_FILE", std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())));
         });
     }
 

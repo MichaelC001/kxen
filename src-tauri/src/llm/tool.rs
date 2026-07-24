@@ -82,11 +82,7 @@ impl ToolCallAccumulator {
         std::mem::take(&mut self.slots)
             .into_iter()
             .filter_map(|p| {
-                Some(ToolCall {
-                    id: p.id?,
-                    name: p.name?,
-                    arguments: if p.arguments.is_empty() { "{}".into() } else { p.arguments },
-                })
+                Some(ToolCall { id: p.id?, name: p.name?, arguments: if p.arguments.is_empty() { "{}".into() } else { p.arguments } })
             })
             .collect()
     }
@@ -103,8 +99,16 @@ mod tests {
     #[test]
     fn accumulates_fragments() {
         let mut acc = ToolCallAccumulator::default();
-        acc.push(&[ChunkToolCall { index: Some(0), id: Some("call_1".into()), function: Some(ChunkFunction { name: Some("exec".into()), arguments: None }) }]);
-        acc.push(&[ChunkToolCall { index: Some(0), id: None, function: Some(ChunkFunction { name: None, arguments: Some("{\"command\":\"ls\"".into()) }) }]);
+        acc.push(&[ChunkToolCall {
+            index: Some(0),
+            id: Some("call_1".into()),
+            function: Some(ChunkFunction { name: Some("exec".into()), arguments: None }),
+        }]);
+        acc.push(&[ChunkToolCall {
+            index: Some(0),
+            id: None,
+            function: Some(ChunkFunction { name: None, arguments: Some("{\"command\":\"ls\"".into()) }),
+        }]);
         acc.push(&[ChunkToolCall { index: Some(0), id: None, function: Some(ChunkFunction { name: None, arguments: Some("}".into()) }) }]);
         let calls = acc.take();
         assert_eq!(calls.len(), 1);

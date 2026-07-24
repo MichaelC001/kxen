@@ -90,10 +90,12 @@ fn wire_content(m: &Message) -> serde_json::Value {
     let mut blocks: Vec<serde_json::Value> = m
         .images
         .iter()
-        .map(|img| serde_json::json!({
-            "type": "image",
-            "source": { "type": "base64", "media_type": img.media_type, "data": img.data }
-        }))
+        .map(|img| {
+            serde_json::json!({
+                "type": "image",
+                "source": { "type": "base64", "media_type": img.media_type, "data": img.data }
+            })
+        })
         .collect();
     if !m.content.is_empty() {
         blocks.push(serde_json::json!({ "type": "text", "text": m.content }));
@@ -111,8 +113,7 @@ fn assistant_content(m: &Message) -> serde_json::Value {
         blocks.push(serde_json::json!({ "type": "text", "text": m.content }));
     }
     for call in &m.tool_calls {
-        let input = serde_json::from_str::<serde_json::Value>(&call.function.arguments)
-            .unwrap_or_else(|_| serde_json::json!({}));
+        let input = serde_json::from_str::<serde_json::Value>(&call.function.arguments).unwrap_or_else(|_| serde_json::json!({}));
         blocks.push(serde_json::json!({
             "type": "tool_use",
             "id": call.id,
@@ -159,15 +160,30 @@ fn api_messages_of(messages: &[Message]) -> Vec<ApiMessage<'_>> {
 
 impl AnthropicProvider {
     pub fn new(bearer: impl Into<String>) -> Self {
-        Self { url: API_URL.into(), http: crate::llm::client::shared_http(), bearer: crate::core::shared::SharedStr::from(bearer.into()), oauth: true }
+        Self {
+            url: API_URL.into(),
+            http: crate::llm::client::shared_http(),
+            bearer: crate::core::shared::SharedStr::from(bearer.into()),
+            oauth: true,
+        }
     }
 
     /// 自定义 anthropic 兼容端点：x-api-key 直连，无 OAuth 契约要素。
     pub fn custom(base_url: String, api_key: impl Into<String>) -> Self {
-        Self { url: base_url.into(), http: crate::llm::client::shared_http(), bearer: crate::core::shared::SharedStr::from(api_key.into()), oauth: false }
+        Self {
+            url: base_url.into(),
+            http: crate::llm::client::shared_http(),
+            bearer: crate::core::shared::SharedStr::from(api_key.into()),
+            oauth: false,
+        }
     }
 
-    pub fn stream_chat(&self, model: &str, messages: &[Message], tools: &[crate::llm::tool::ToolDefinition]) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
+    pub fn stream_chat(
+        &self,
+        model: &str,
+        messages: &[Message],
+        tools: &[crate::llm::tool::ToolDefinition],
+    ) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
         let bearer = self.bearer.clone();
         let url = self.url.clone();
         let oauth = self.oauth;
@@ -212,23 +228,20 @@ impl AnthropicProvider {
             } else {
                 builder = builder.header("x-api-key", bearer.as_ref());
             }
-            builder
-                .header("anthropic-version", "2023-06-01")
-                .header("content-type", "application/json")
-                .json(&req)
-                .send()
-                .await
+            builder.header("anthropic-version", "2023-06-01").header("content-type", "application/json").json(&req).send().await
         };
 
-        Box::pin(futures::stream::once(start).flat_map(|result| match result {
-            Ok(resp) if resp.status().is_success() => super::anthropic_sse::stream_sse(resp),
-            Ok(resp) => futures::stream::once(async move {
-                let status = resp.status();
-                let body = resp.text().await.unwrap_or_default();
-                Delta::Error(format!("anthropic HTTP {status}: {}", truncate(&body, 300)))
-            })
-            .boxed(),
-            Err(e) => futures::stream::once(async move { Delta::Error(format!("anthropic request failed: {e}")) }).boxed(),
+        Box::pin(futures::stream::once(start).flat_map(|result| {
+            match result {
+                Ok(resp) if resp.status().is_success() => super::anthropic_sse::stream_sse(resp),
+                Ok(resp) => futures::stream::once(async move {
+                    let status = resp.status();
+                    let body = resp.text().await.unwrap_or_default();
+                    Delta::Error(format!("anthropic HTTP {status}: {}", truncate(&body, 300)))
+                })
+                .boxed(),
+                Err(e) => futures::stream::once(async move { Delta::Error(format!("anthropic request failed: {e}")) }).boxed(),
+            }
         }))
     }
 }
@@ -263,7 +276,10 @@ mod tests {
     #[test]
     fn consecutive_tool_results_merge_into_one_user() {
         let msgs = vec![
-            Message::assistant_with_tools("", vec![AssistantToolCall::function("toolu_1", "exec", "{}"), AssistantToolCall::function("toolu_2", "read", "{}")]),
+            Message::assistant_with_tools(
+                "",
+                vec![AssistantToolCall::function("toolu_1", "exec", "{}"), AssistantToolCall::function("toolu_2", "read", "{}")],
+            ),
             Message::tool_result("toolu_1", "exec", "out1"),
             Message::tool_result("toolu_2", "read", "out2"),
             Message::user("继续"),

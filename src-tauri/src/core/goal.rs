@@ -153,7 +153,9 @@ impl Goal {
 
     pub fn complete(&mut self, evidence: &str) -> Result<(), GoalError> {
         if !evidence_sufficient(evidence) {
-            return Err(GoalError::ContractIncomplete("completion requires concrete verification evidence (min 20 chars, not a placeholder)"));
+            return Err(GoalError::ContractIncomplete(
+                "completion requires concrete verification evidence (min 20 chars, not a placeholder)",
+            ));
         }
         self.verification_evidence = Some(evidence.to_string());
         self.transit(GoalStatus::Complete)
@@ -169,10 +171,7 @@ impl Goal {
         self.updated_at = now_ms();
 
         let b = &self.contract.budget;
-        if b.turns.is_some_and(|t| self.turns_used >= t)
-            || b.tokens.is_some_and(|t| self.tokens_used >= t)
-            || self.wall_exceeded()
-        {
+        if b.turns.is_some_and(|t| self.turns_used >= t) || b.tokens.is_some_and(|t| self.tokens_used >= t) || self.wall_exceeded() {
             return self.transit(GoalStatus::BudgetLimited);
         }
 
@@ -270,9 +269,8 @@ impl Goal {
 /// complete 证据最小校验（P2-05）：trim 后 >= 20 字符，且不能只是 done/ok 类占位词
 /// （判定前剥两端标点："done!!!" 凑长、纯标点串都不算数）。
 pub fn evidence_sufficient(evidence: &str) -> bool {
-    const PLACEHOLDERS: &[&str] = &[
-        "done", "ok", "okay", "yes", "finished", "complete", "completed", "fixed", "pass", "passed", "完成", "好了",
-    ];
+    const PLACEHOLDERS: &[&str] =
+        &["done", "ok", "okay", "yes", "finished", "complete", "completed", "fixed", "pass", "passed", "完成", "好了"];
     let t = evidence.trim();
     if t.chars().count() < 20 {
         return false;
@@ -282,8 +280,5 @@ pub fn evidence_sufficient(evidence: &str) -> bool {
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }

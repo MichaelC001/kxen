@@ -21,20 +21,22 @@ pub async fn fetch_models(store: &AuthStore, provider: &str, account: Option<&st
             return ModelsOutcome { models: vec![], source: "error".into(), detail: format!("custom provider not configured: {name}") };
         };
         let root = def.base_url.trim_end_matches('/');
-        if def.protocol == "anthropic" {
-            (format!("{root}/v1/models"), true)
-        } else {
-            (format!("{root}/models"), false)
-        }
+        if def.protocol == "anthropic" { (format!("{root}/v1/models"), true) } else { (format!("{root}/models"), false) }
     } else {
         let Some(spec) = crate::providers::find(provider) else {
-            return ModelsOutcome { models: vec![], source: "unsupported".into(), detail: format!("{provider} 订阅端点不支持 /models") };
+            return ModelsOutcome {
+                models: vec![], source: "unsupported".into(), detail: format!("{provider} 订阅端点不支持 /models")
+            };
         };
         let region = crate::auth::credential::credential_for(store, provider, account).and_then(|c| c.region());
         match spec.models_url(region) {
             Some(url) => (url, matches!(spec.protocol, crate::providers::Protocol::Anthropic)),
             None => {
-                return ModelsOutcome { models: vec![], source: "unsupported".into(), detail: format!("{provider} 端点未暴露 /models（用内置目录）") };
+                return ModelsOutcome {
+                    models: vec![],
+                    source: "unsupported".into(),
+                    detail: format!("{provider} 端点未暴露 /models（用内置目录）"),
+                };
             }
         }
     };
@@ -44,9 +46,7 @@ pub async fn fetch_models(store: &AuthStore, provider: &str, account: Option<&st
     if !local_free && bearer.is_none() {
         return ModelsOutcome { models: vec![], source: "error".into(), detail: "无凭证".into() };
     }
-    let mut req = crate::llm::client::shared_http()
-        .get(&url)
-        .timeout(std::time::Duration::from_secs(timeout_s));
+    let mut req = crate::llm::client::shared_http().get(&url).timeout(std::time::Duration::from_secs(timeout_s));
     req = match (api_key_header, &bearer) {
         (true, Some(b)) => req.header("x-api-key", b).header("anthropic-version", "2023-06-01"),
         (false, Some(b)) => req.bearer_auth(b),
@@ -72,7 +72,11 @@ pub async fn fetch_models(store: &AuthStore, provider: &str, account: Option<&st
         Ok(resp) => {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            ModelsOutcome { models: vec![], source: "error".into(), detail: format!("HTTP {status}: {}", &body[..body.floor_char_boundary(200)]) }
+            ModelsOutcome {
+                models: vec![],
+                source: "error".into(),
+                detail: format!("HTTP {status}: {}", &body[..body.floor_char_boundary(200)]),
+            }
         }
         Err(e) => ModelsOutcome { models: vec![], source: "error".into(), detail: format!("请求失败: {e}") },
     }
@@ -92,7 +96,11 @@ mod tests {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buf = [0u8; 2048];
             let _ = stream.read(&mut buf);
-            let resp = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}", body.len(), body);
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
             stream.write_all(resp.as_bytes()).unwrap();
         });
         format!("http://{addr}")

@@ -1,7 +1,7 @@
 //! 读写删工具：read（锚点输出 + offset/limit 分页）/ edit（锚点+兼容双模式 + 免强制先读 + find_shifted 自愈）/ write（trash 删除）。
 
-use crate::tools::hashline::{generate_anchors, render_anchored_window, Anchor};
-use crate::tools::safety::{guard_path, Verdict};
+use crate::tools::hashline::{Anchor, generate_anchors, render_anchored_window};
+use crate::tools::safety::{Verdict, guard_path};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -83,7 +83,13 @@ pub fn read(path: &Path, tracker: &FileTracker, cwd: &str, offset: Option<usize>
     // 展示行做字符截断，锚点 hash 用原始行：截断后的行也能被锚点编辑命中
     let display: Vec<String> = all
         .iter()
-        .map(|l| if l.chars().count() > READ_MAX_LINE_CHARS { l.chars().take(READ_MAX_LINE_CHARS).collect::<String>() + "…" } else { l.to_string() })
+        .map(|l| {
+            if l.chars().count() > READ_MAX_LINE_CHARS {
+                l.chars().take(READ_MAX_LINE_CHARS).collect::<String>() + "…"
+            } else {
+                l.to_string()
+            }
+        })
         .collect();
     let content = render_anchored_window(&all, &display, start_idx, end_idx);
 
@@ -216,10 +222,7 @@ fn fresh_around(lines: &[&str], line_no: usize, radius: usize) -> String {
     let anchors = generate_anchors(lines);
     let start = line_no.saturating_sub(radius + 1);
     let end = (line_no + radius).min(lines.len());
-    (start..end)
-        .map(|i| format!("{}#{}  {}", anchors[i].line, anchors[i].hash, lines[i]))
-        .collect::<Vec<_>>()
-        .join("\n")
+    (start..end).map(|i| format!("{}#{}  {}", anchors[i].line, anchors[i].hash, lines[i])).collect::<Vec<_>>().join("\n")
 }
 
 // ---------------- write / delete ----------------

@@ -2,10 +2,10 @@
 //! 二进制/args/languageId 全部来自 LanguageSpec；URI 一律 percent encoding（LSP 规范要求）。
 
 use super::languages::LanguageSpec;
-use super::protocol::{encode, FrameDecoder};
+use super::protocol::{FrameDecoder, encode};
 use super::store::Store;
 use super::uri;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -174,7 +174,10 @@ impl LspClient {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.pending.lock().expect("lsp pending").insert(id, tx);
-        let frame = encode(&serde_json::to_string(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).map_err(|e| e.to_string())?);
+        let frame = encode(
+            &serde_json::to_string(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
+                .map_err(|e| e.to_string())?,
+        );
         self.stdin.lock().await.write_all(&frame).await.map_err(|e| format!("lsp write: {e}"))?;
         match tokio::time::timeout(REQUEST_TIMEOUT, rx).await {
             Ok(Ok(v)) => Ok(v),
@@ -184,7 +187,8 @@ impl LspClient {
     }
 
     async fn notify(&self, method: &str, params: Value) -> Result<(), String> {
-        let frame = encode(&serde_json::to_string(&json!({ "jsonrpc": "2.0", "method": method, "params": params })).map_err(|e| e.to_string())?);
+        let frame =
+            encode(&serde_json::to_string(&json!({ "jsonrpc": "2.0", "method": method, "params": params })).map_err(|e| e.to_string())?);
         self.stdin.lock().await.write_all(&frame).await.map_err(|e| format!("lsp write: {e}"))
     }
 }

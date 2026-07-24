@@ -1,6 +1,6 @@
 //! 领域 RPC 分组：voice / knowledge / provider / mrm / test_dispatch（rpc.rs 的分流层）。
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
@@ -107,9 +107,8 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             let dir = state.active_workspace.read().expect("workspace").clone();
             // 真实 involved：最近一轮 run 的文件集（原来固定 [] = glob 动态命中永远看不到）
             let session_id = params.get("session_id").and_then(Value::as_str);
-            let involved = session_id
-                .and_then(|sid| kxen_app::core::shared::lock(&state.session_involved).get(sid).cloned())
-                .unwrap_or_default();
+            let involved =
+                session_id.and_then(|sid| kxen_app::core::shared::lock(&state.session_involved).get(sid).cloned()).unwrap_or_default();
             let block = kxen_app::knowledge::render(&dir, &involved);
             Ok(json!({ "block": block }))
         }
@@ -158,7 +157,8 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             let report = crate::doctor::doctor_report(&store);
             let config_text = std::fs::read_to_string(kxen_app::core::paths::config_dir().join("config.toml")).unwrap_or_default();
             let health = crate::doctor::system_health(&state).await;
-            let mut md = format!("# kxen diagnostics\n\n- version: {}\n- at: {:?}\n\n", env!("CARGO_PKG_VERSION"), std::time::SystemTime::now());
+            let mut md =
+                format!("# kxen diagnostics\n\n- version: {}\n- at: {:?}\n\n", env!("CARGO_PKG_VERSION"), std::time::SystemTime::now());
             md.push_str("## providers\n\n");
             for e in &report.entries {
                 md.push_str(&format!("- {} [{}]: {} ({})\n", e.display, e.provider, e.status, e.detail));
@@ -177,18 +177,15 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             for l in &health.lsp {
                 md.push_str(&format!("- {}: {}\n", l.language, l.status));
             }
-            md.push_str(&format!(
-                "\n## event bus\n\n- capacity: {}\n- receivers: {}\n",
-                health.bus_capacity, health.bus_receivers
-            ));
+            md.push_str(&format!("\n## event bus\n\n- capacity: {}\n- receivers: {}\n", health.bus_capacity, health.bus_receivers));
             md.push_str(&format!(
                 "\n## mrm ({} dispatches)\n\n```\n{}\n```\n\n## config.toml\n\n```toml\n{config_text}\n```\n",
                 health.mrm_dispatches, health.mrm_describe
             ));
-            let path = dirs::home_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-                .join("Downloads")
-                .join(format!("kxen-diagnostics-{}.md", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
+            let path = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp")).join("Downloads").join(format!(
+                "kxen-diagnostics-{}.md",
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+            ));
             std::fs::write(&path, md).map_err(|e| e.to_string())?;
             Ok(json!({ "path": path.to_string_lossy() }))
         }
@@ -328,7 +325,13 @@ async fn test_dispatch(app: &AppHandle, params: &Value) -> Result<Value, String>
         mcp: Some(state.mcp.clone()),
         lsp: Some(state.lsp.read().expect("lsp").clone()),
     };
-    let answer = kxen_app::agent::subagent::dispatch(role, "Reply with exactly: PONG".to_string(), &deps, kxen_app::agent::activity::AgentKind::Subagent).await?;
+    let answer = kxen_app::agent::subagent::dispatch(
+        role,
+        "Reply with exactly: PONG".to_string(),
+        &deps,
+        kxen_app::agent::activity::AgentKind::Subagent,
+    )
+    .await?;
     Ok(json!({
         "role": role,
         "provider": resolved.provider,

@@ -14,20 +14,12 @@ pub fn new_id(prefix: &str) -> String {
 /// 白名单校验 [A-Za-z0-9_-]：点和斜杠都不在白名单内，`..` 与路径分隔符被天然拒绝。
 /// 旧格式 id（前缀_毫秒_进程号）只含白名单字符，磁盘存量数据保持可读。
 pub fn is_valid_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= MAX_ID_LEN
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    !id.is_empty() && id.len() <= MAX_ID_LEN && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// 外部输入（RPC 参数 / 工具参数）拼进文件路径前必须先过这层。
 pub fn validate_id(id: &str) -> Result<(), String> {
-    if is_valid_id(id) {
-        Ok(())
-    } else {
-        Err(format!("invalid id: {id:?}"))
-    }
+    if is_valid_id(id) { Ok(()) } else { Err(format!("invalid id: {id:?}")) }
 }
 
 /// validate_id 的 io 变体：落盘前校验失败直接以 InvalidInput 传播，调用点免手写错误映射。
@@ -66,17 +58,7 @@ mod tests {
 
     #[test]
     fn rejects_traversal_and_malformed() {
-        for bad in [
-            "",
-            "..",
-            "../escape",
-            "a/b",
-            "a\\b",
-            "a b",
-            "a.b",
-            "a:b",
-            "中文字符",
-        ] {
+        for bad in ["", "..", "../escape", "a/b", "a\\b", "a b", "a.b", "a:b", "中文字符"] {
             assert!(!is_valid_id(bad), "应拒绝: {bad:?}");
             assert!(validate_id(bad).is_err());
         }

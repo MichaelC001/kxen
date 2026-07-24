@@ -6,8 +6,8 @@
 //! A trigger stops the turn with a written reason instead of burning budget.
 
 use crate::core::shared::SharedStr;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::VecDeque;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 const EXACT_REPEAT: usize = 3;
@@ -85,7 +85,10 @@ impl LoopDetector {
             if tail.iter().all(|r| r.name == last.name && r.semantic_sig == last.semantic_sig) {
                 return LoopVerdict::Stop(LoopStop {
                     layer: "semantic",
-                    reason: format!("`{}` called {SEMANTIC_REPEAT} times in a row with equivalent arguments (only formatting/numbers differ)", last.name),
+                    reason: format!(
+                        "`{}` called {SEMANTIC_REPEAT} times in a row with equivalent arguments (only formatting/numbers differ)",
+                        last.name
+                    ),
                 });
             }
         }

@@ -23,7 +23,13 @@ pub fn engines(config: &crate::core::config::Config, store: &crate::auth::creden
 }
 
 /// 文件识别统一入口（E2E 与排障共用）：按引擎 id 分发，空 id 走默认链。
-pub async fn transcribe_file(config: &crate::core::config::Config, store: &crate::auth::credential::AuthStore, engine: Option<&str>, path: &str, locale: &str) -> Result<String, String> {
+pub async fn transcribe_file(
+    config: &crate::core::config::Config,
+    store: &crate::auth::credential::AuthStore,
+    engine: Option<&str>,
+    path: &str,
+    locale: &str,
+) -> Result<String, String> {
     let id = engine.unwrap_or(&config.voice.engine);
     match id {
         "apple" => apple::recognize_file(path, locale),
@@ -41,8 +47,14 @@ unsafe impl<T> Sync for SendWrap<T> {}
 enum Active {
     /// token 是泵线程身份：槽位被替换/移除后旧泵 ptr_eq 不过立即退出
     /// （旧实现单槽无守卫：旧泵永不退出，会吸新会话事件造成串流）
-    Apple { session: SendWrap<apple::MicSession>, token: std::sync::Arc<()> },
-    Record { session: SendWrap<provider::RecordSession>, provider: String },
+    Apple {
+        session: SendWrap<apple::MicSession>,
+        token: std::sync::Arc<()>,
+    },
+    Record {
+        session: SendWrap<provider::RecordSession>,
+        provider: String,
+    },
     #[cfg(test)]
     Dummy(u32),
 }
@@ -52,7 +64,13 @@ static ACTIVE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<St
 
 /// PTT 按下：按 [主引擎, ...fallback] 顺序尝试启动（apple 流式 / provider 录音），partial 经 bus 泵给前端。
 /// 同 session 重复 start = 替换；不同 session 互不打断。
-pub fn start(config: &crate::core::config::VoiceConfig, store: &crate::auth::credential::AuthStore, locale: &str, bus: crate::core::event::EventBus, session_id: &str) -> Result<String, String> {
+pub fn start(
+    config: &crate::core::config::VoiceConfig,
+    store: &crate::auth::credential::AuthStore,
+    locale: &str,
+    bus: crate::core::event::EventBus,
+    session_id: &str,
+) -> Result<String, String> {
     let mut errors: Vec<String> = Vec::new();
     for engine in std::iter::once(config.engine.as_str()).chain(config.fallback.iter().map(String::as_str)) {
         match start_one(engine, store, locale, &bus, session_id) {
@@ -63,7 +81,13 @@ pub fn start(config: &crate::core::config::VoiceConfig, store: &crate::auth::cre
     Err(format!("全部语音引擎不可用（{}）", errors.join("; ")))
 }
 
-fn start_one(engine: &str, store: &crate::auth::credential::AuthStore, locale: &str, bus: &crate::core::event::EventBus, session_id: &str) -> Result<String, String> {
+fn start_one(
+    engine: &str,
+    store: &crate::auth::credential::AuthStore,
+    locale: &str,
+    bus: &crate::core::event::EventBus,
+    session_id: &str,
+) -> Result<String, String> {
     // 同 session 重复 start = 替换：旧槽先移出（旧泵 ptr_eq 不过随即退出）
     let _ = crate::core::shared::lock(&ACTIVE).remove(session_id);
     match engine {
@@ -104,7 +128,8 @@ fn start_one(engine: &str, store: &crate::auth::credential::AuthStore, locale: &
                 return Err(format!("{other} 未配置 API key"));
             }
             let session = provider::start_recording()?;
-            crate::core::shared::lock(&ACTIVE).insert(session_id.to_string(), Active::Record { session: SendWrap(session), provider: other.to_string() });
+            crate::core::shared::lock(&ACTIVE)
+                .insert(session_id.to_string(), Active::Record { session: SendWrap(session), provider: other.to_string() });
             Ok(other.to_string())
         }
     }
@@ -125,7 +150,11 @@ fn event_payload(e: apple::SessionEvent, session_id: &str) -> serde_json::Value 
 }
 
 /// PTT 松开：只停自己槽（别的 session 继续录）。apple 先出本地终稿，有就绪云引擎则云转写升级（Wispr 双轨）；失败回落本地。
-pub async fn stop(config: &crate::core::config::Config, store: &crate::auth::credential::AuthStore, session_id: &str) -> Result<Option<String>, String> {
+pub async fn stop(
+    config: &crate::core::config::Config,
+    store: &crate::auth::credential::AuthStore,
+    session_id: &str,
+) -> Result<Option<String>, String> {
     // 先取槽再 match：guard 临时量若写在 scrutinee 里会活过 arm 内的 await（非 Send）
     let slot = crate::core::shared::lock(&ACTIVE).remove(session_id);
     match slot {
@@ -165,15 +194,9 @@ fn first_ready_cloud(config: &crate::core::config::Config, store: &crate::auth::
     let mut candidates: Vec<String> = config.voice.fallback.clone();
     candidates.extend(["openai", "xai"].map(String::from));
     candidates.extend(
-        config
-            .custom_providers
-            .iter()
-            .filter(|(_, d)| d.capabilities.iter().any(|c| c == "audio"))
-            .map(|(n, _)| format!("custom:{n}")),
+        config.custom_providers.iter().filter(|(_, d)| d.capabilities.iter().any(|c| c == "audio")).map(|(n, _)| format!("custom:{n}")),
     );
-    candidates
-        .into_iter()
-        .find(|id| provider::configured(store, id))
+    candidates.into_iter().find(|id| provider::configured(store, id))
 }
 
 #[cfg(test)]

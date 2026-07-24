@@ -44,10 +44,7 @@ fn probe_with_timeout(rule: &ProbeRule) -> Option<CredentialKind> {
 const TEN_YEARS_MS: u64 = 10 * 365 * 24 * 3600 * 1000;
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 /// expires 单位归一（ms）。kimi 官方文件是秒级；历史代码无差别 *1000 会产生荒诞远期值。
@@ -78,14 +75,23 @@ pub fn probe_all(store: &mut AuthStore, allow_keychain: bool) -> Vec<(&'static s
             // env override（开发期暂存，最高优先）
             let imported = rule.env_override.and_then(|var| read_env_override(var)).or_else(|| {
                 if rule.provider == "anthropic" && !allow_keychain {
-                    probe_with_timeout(&ProbeRule { provider: rule.provider, display: rule.display, probe: probe_claude_file_only, env_override: None })
+                    probe_with_timeout(&ProbeRule {
+                        provider: rule.provider,
+                        display: rule.display,
+                        probe: probe_claude_file_only,
+                        env_override: None,
+                    })
                 } else {
                     probe_with_timeout(rule)
                 }
             });
             let outcome = match imported {
                 None => {
-                    if store.contains_key(rule.provider) { ProbeOutcome::Fresh } else { ProbeOutcome::Missing }
+                    if store.contains_key(rule.provider) {
+                        ProbeOutcome::Fresh
+                    } else {
+                        ProbeOutcome::Missing
+                    }
                 }
                 Some(new) => {
                     let existing_stale = store.get(rule.provider).is_some_and(poisoned);
@@ -158,12 +164,7 @@ fn probe_claude() -> Option<CredentialKind> {
 fn parse_claude(raw: &str) -> Option<CredentialKind> {
     let parsed: ClaudeCredentialsFile = serde_json::from_str(raw).ok()?;
     let oauth = parsed.claude_ai_oauth?;
-    Some(CredentialKind::Oauth {
-        access: oauth.access_token,
-        refresh: oauth.refresh_token,
-        expires: oauth.expires_at,
-        account_id: None,
-    })
+    Some(CredentialKind::Oauth { access: oauth.access_token, refresh: oauth.refresh_token, expires: oauth.expires_at, account_id: None })
 }
 
 // --- Codex（~/.codex/auth.json） ---
@@ -186,12 +187,7 @@ fn probe_codex() -> Option<CredentialKind> {
     let parsed: CodexAuthFile = serde_json::from_str(&raw).ok()?;
     let t = parsed.tokens?;
     let expires = jwt_exp(&t.access_token).unwrap_or(0);
-    Some(CredentialKind::Oauth {
-        access: t.access_token,
-        refresh: t.refresh_token,
-        expires,
-        account_id: t.account_id,
-    })
+    Some(CredentialKind::Oauth { access: t.access_token, refresh: t.refresh_token, expires, account_id: t.account_id })
 }
 
 // --- Grok（~/.grok/auth.json，issuer map 取 expires 最新） ---

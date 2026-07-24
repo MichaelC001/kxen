@@ -1,7 +1,7 @@
 //! 统一扫描：project 树在前 personal 树在后，同 (kind, slug) first-wins（项目覆盖个人）。
 //! skills/ 特殊：目录型只认 SKILL.md（目录内其余 .md 是资源），扁平 .md 直接收。
 
-use super::{parse::parse_entry, Entry, Kind, Scope};
+use super::{Entry, Kind, Scope, parse::parse_entry};
 use std::path::{Path, PathBuf};
 
 const MAX_DEPTH: usize = 8;
@@ -72,18 +72,11 @@ fn walk(root: &Path, scope: Scope, out: &mut Vec<Entry>) {
 
 /// kind 由 scope 根下第一级子目录推断；根散文件与未知子目录按 Reference（可被 frontmatter 覆盖）。
 fn kind_of(root: &Path, path: &Path) -> Kind {
-    let Some(first) = path
-        .strip_prefix(root)
-        .ok()
-        .and_then(|rel| rel.components().next())
-        .and_then(|c| c.as_os_str().to_str())
-    else {
+    let Some(first) = path.strip_prefix(root).ok().and_then(|rel| rel.components().next()).and_then(|c| c.as_os_str().to_str()) else {
         return Kind::Reference;
     };
     // 复数目录名优先按单数解析（rules->rule），失败再按原名（history 这类以 s 结尾的）
-    Kind::from_str(first.trim_end_matches('s'))
-        .or_else(|| Kind::from_str(first))
-        .unwrap_or(Kind::Reference)
+    Kind::from_str(first.trim_end_matches('s')).or_else(|| Kind::from_str(first)).unwrap_or(Kind::Reference)
 }
 
 fn push_unique(out: &mut Vec<Entry>, e: Entry) {

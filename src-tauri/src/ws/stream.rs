@@ -8,7 +8,7 @@
 use serde_json::Value;
 
 use super::protocol::StreamChunk;
-use super::{next_seq, SubBinding};
+use super::{SubBinding, next_seq};
 
 pub(super) fn event_to_chunks(event: kxen_app::core::event::Event, subs: &[SubBinding]) -> Vec<StreamChunk> {
     use kxen_app::core::event::Event;
@@ -35,11 +35,7 @@ pub(super) fn event_to_chunks(event: kxen_app::core::event::Event, subs: &[SubBi
             // 双写 llm.delta 订阅流（teammate/其他会话的被动监听也走这里）
             if let Some(binding) = subs.iter().find(|b| b.topics.contains("llm.delta")) {
                 let seq = next_seq(&binding.stream_id);
-                out.push(StreamChunk::new(
-                    &binding.stream_id,
-                    seq,
-                    serde_json::json!({ "topic": "llm.delta", "payload": payload }),
-                ));
+                out.push(StreamChunk::new(&binding.stream_id, seq, serde_json::json!({ "topic": "llm.delta", "payload": payload })));
             }
             out
         }
@@ -71,10 +67,7 @@ mod tests {
     use std::collections::HashSet;
 
     fn binding(topics: &[&str]) -> SubBinding {
-        SubBinding {
-            stream_id: format!("sub-test-{}", topics.len()),
-            topics: topics.iter().map(|t| t.to_string()).collect::<HashSet<_>>(),
-        }
+        SubBinding { stream_id: format!("sub-test-{}", topics.len()), topics: topics.iter().map(|t| t.to_string()).collect::<HashSet<_>>() }
     }
 
     fn delta(session_id: Option<&str>) -> kxen_app::core::event::Event {

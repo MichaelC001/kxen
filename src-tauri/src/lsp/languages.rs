@@ -41,13 +41,7 @@ pub const LANGUAGES: &[LanguageSpec] = &[
         args: &["--stdio"],
         install_hint: "npm i -g pyright",
     },
-    LanguageSpec {
-        id: "go",
-        extensions: &["go"],
-        command: "gopls",
-        args: &[],
-        install_hint: "go install golang.org/x/tools/gopls@latest",
-    },
+    LanguageSpec { id: "go", extensions: &["go"], command: "gopls", args: &[], install_hint: "go install golang.org/x/tools/gopls@latest" },
 ];
 
 /// 扩展名查语言；未注册扩展 -> None（该文件无 LSP，不视为错误）。
@@ -58,13 +52,8 @@ pub fn for_path(path: &Path) -> Option<&'static LanguageSpec> {
 
 /// 可用性探测：`--version` 5s 超时；mise shim 存在但不可执行同样判不可用（快速失败，不进握手）。
 pub async fn probe(spec: &LanguageSpec) -> bool {
-    let probe = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        tokio::process::Command::new(spec.command)
-            .arg("--version")
-            .output(),
-    )
-    .await;
+    let probe =
+        tokio::time::timeout(std::time::Duration::from_secs(5), tokio::process::Command::new(spec.command).arg("--version").output()).await;
     matches!(probe, Ok(Ok(out)) if out.status.success())
 }
 
@@ -83,11 +72,7 @@ mod tests {
             ("app/main.py", "python"),
         ];
         for (path, id) in cases {
-            assert_eq!(
-                for_path(Path::new(path)).map(|s| s.id),
-                Some(id),
-                "mapping for {path}"
-            );
+            assert_eq!(for_path(Path::new(path)).map(|s| s.id), Some(id), "mapping for {path}");
         }
     }
 
@@ -111,11 +96,7 @@ mod tests {
         // 注册表完整性：每种语言都必须能给出 spawn 所需的命令
         for spec in LANGUAGES {
             assert!(!spec.command.is_empty(), "{} missing command", spec.id);
-            assert!(
-                !spec.install_hint.is_empty(),
-                "{} missing install hint",
-                spec.id
-            );
+            assert!(!spec.install_hint.is_empty(), "{} missing install hint", spec.id);
         }
         let ids: Vec<_> = LANGUAGES.iter().map(|s| s.id).collect();
         for want in ["rust", "typescript", "javascript", "python", "go"] {

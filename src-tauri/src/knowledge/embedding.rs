@@ -5,7 +5,7 @@
 //! 后台 spawn 预热（本轮 BM25，下轮融合生效）。凭证复用 auth.json 的同 provider 账号。
 
 use super::embedding_cache::EmbeddingCache;
-use crate::auth::credential::{credential_for, AuthStore, CredentialKind};
+use crate::auth::credential::{AuthStore, CredentialKind, credential_for};
 use crate::core::config::EmbeddingConfig;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -214,10 +214,7 @@ async fn fetch_embeddings(ep: &Endpoint, texts: &[String]) -> Result<Vec<Vec<f32
         Protocol::OpenAi => build_openai_request(&ep.model, texts),
         Protocol::Ollama => build_ollama_request(&ep.model, texts),
     };
-    let mut req = crate::llm::client::shared_http()
-        .post(&ep.url)
-        .json(&body)
-        .timeout(std::time::Duration::from_secs(30));
+    let mut req = crate::llm::client::shared_http().post(&ep.url).json(&body).timeout(std::time::Duration::from_secs(30));
     if let Some(k) = &ep.key {
         req = req.bearer_auth(k);
     }

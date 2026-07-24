@@ -14,57 +14,27 @@ fn extras_isolated_between_sessions() {
 
     // 各写一项：a 写 todo/deferred tool/skill，b 反向各写一项，互查不可见
     a.todos.add("todo from A".into());
-    a.extra_tools
-        .lock()
-        .expect("a tools")
-        .insert("todo".to_string());
-    a.loaded_skills
-        .lock()
-        .expect("a skills")
-        .insert("skill-a\x1f".to_string());
+    a.extra_tools.lock().expect("a tools").insert("todo".to_string());
+    a.loaded_skills.lock().expect("a skills").insert("skill-a\x1f".to_string());
 
     b.todos.add("todo from B".into());
-    b.extra_tools
-        .lock()
-        .expect("b tools")
-        .insert("webfetch".to_string());
-    b.loaded_skills
-        .lock()
-        .expect("b skills")
-        .insert("skill-b\x1f".to_string());
+    b.extra_tools.lock().expect("b tools").insert("webfetch".to_string());
+    b.loaded_skills.lock().expect("b skills").insert("skill-b\x1f".to_string());
 
     let a_todos = a.todos.render();
-    assert!(
-        a_todos.contains("todo from A") && !a_todos.contains("todo from B"),
-        "A 不应看到 B 的 todo: {a_todos}"
-    );
+    assert!(a_todos.contains("todo from A") && !a_todos.contains("todo from B"), "A 不应看到 B 的 todo: {a_todos}");
     let b_todos = b.todos.render();
-    assert!(
-        b_todos.contains("todo from B") && !b_todos.contains("todo from A"),
-        "B 不应看到 A 的 todo: {b_todos}"
-    );
+    assert!(b_todos.contains("todo from B") && !b_todos.contains("todo from A"), "B 不应看到 A 的 todo: {b_todos}");
 
     let a_tools = a.extra_tools.lock().expect("a tools").clone();
-    assert!(
-        a_tools.contains("todo") && !a_tools.contains("webfetch"),
-        "A 不应看到 B 挂载的 deferred tool"
-    );
+    assert!(a_tools.contains("todo") && !a_tools.contains("webfetch"), "A 不应看到 B 挂载的 deferred tool");
     let b_tools = b.extra_tools.lock().expect("b tools").clone();
-    assert!(
-        b_tools.contains("webfetch") && !b_tools.contains("todo"),
-        "B 不应看到 A 挂载的 deferred tool"
-    );
+    assert!(b_tools.contains("webfetch") && !b_tools.contains("todo"), "B 不应看到 A 挂载的 deferred tool");
 
     let a_skills = a.loaded_skills.lock().expect("a skills").clone();
-    assert!(
-        a_skills.contains("skill-a\x1f") && !a_skills.contains("skill-b\x1f"),
-        "A 不应看到 B 装载的 skill"
-    );
+    assert!(a_skills.contains("skill-a\x1f") && !a_skills.contains("skill-b\x1f"), "A 不应看到 B 装载的 skill");
     let b_skills = b.loaded_skills.lock().expect("b skills").clone();
-    assert!(
-        b_skills.contains("skill-b\x1f") && !b_skills.contains("skill-a\x1f"),
-        "B 不应看到 A 装载的 skill"
-    );
+    assert!(b_skills.contains("skill-b\x1f") && !b_skills.contains("skill-a\x1f"), "B 不应看到 A 装载的 skill");
 }
 
 #[test]
@@ -100,9 +70,7 @@ fn subagent_shares_parent_session_extras() {
         model: kxen_app::llm::ModelRef::new("p", "m"),
         store: kxen_app::auth::credential::AuthStore::default(),
         max_turns: 1,
-        mrm: Some(Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(
-            kxen_app::core::config::Config::default(),
-        ))),
+        mrm: Some(Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(kxen_app::core::config::Config::default()))),
         allowed_tools: None,
         extras: Some(parent.clone()),
         hooks: None,
@@ -120,9 +88,6 @@ fn subagent_shares_parent_session_extras() {
     };
     let deps = SubagentDeps::from_context(&ctx).expect("from_context");
     let child: Arc<SessionExtras> = deps.extras.expect("subagent 应继承父 session 的 extras");
-    assert!(
-        Arc::ptr_eq(&parent, &child),
-        "subagent 与父 run 共享同一 extras 实例"
-    );
+    assert!(Arc::ptr_eq(&parent, &child), "subagent 与父 run 共享同一 extras 实例");
     // 无 session 的调用方（deps.extras = None）由 dispatch 给临时实例：语义见 subagent.rs
 }

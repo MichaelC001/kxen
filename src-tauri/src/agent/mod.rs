@@ -16,4 +16,4 @@ pub mod tools_spec;
 pub mod workflow;
 pub mod workflow_journal;
 
-pub use agent_loop::{run_turn, AgentEvent, AgentOutcome};
+pub use agent_loop::{AgentEvent, AgentOutcome, run_turn};

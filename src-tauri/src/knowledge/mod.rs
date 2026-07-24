@@ -2,15 +2,15 @@
 //! 一棵树两个镜像：project = <workdir>/.agents/（入 git 共享），personal = ~/.agents/（跟人走）。
 //! rules / references / skills / commands / notes / memory / history 都是 Entry，区别只在 kind 与激活方式。
 
-mod parse;
-mod scan;
-mod render;
-mod store;
 pub mod consolidate;
 pub mod distill;
 pub mod embedding;
 pub mod embedding_cache;
+mod parse;
+mod render;
 pub mod retrieval;
+mod scan;
+mod store;
 
 pub use render::render;
 pub use scan::scan;
@@ -216,13 +216,8 @@ mod tests {
     /// 进程级隔离信任 store：与 render 测试同值（Once 写序防并行 env 竞态）。
     fn setup() {
         static ONCE: std::sync::Once = std::sync::Once::new();
-        ONCE.call_once(|| {
-            unsafe {
-                std::env::set_var(
-                    "KXEN_TRUST_FILE",
-                    std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())),
-                );
-            }
+        ONCE.call_once(|| unsafe {
+            std::env::set_var("KXEN_TRUST_FILE", std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())));
         });
     }
 

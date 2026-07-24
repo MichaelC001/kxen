@@ -1,55 +1,20 @@
 //! 单轮 run loop：LLM 流式 -> tool_call 累积 -> 工具执行 -> 结果回传 -> 继续。
 
-use futures::StreamExt;
 use crate::llm::tool::ToolCallAccumulator;
 use crate::llm::{Delta, LlmClient, Message};
+use futures::StreamExt;
 
 use super::context::AgentContext;
 use super::events::{AgentEvent, AgentOutcome, RunStats};
 use super::execute::execute_tool;
 use super::helpers::{is_read_only_tool, result_display, result_text, summarize_args};
-use super::usage::UsageAcc;
-
-/// goal 记账：按 goal_delta 增量入账（累计值重复记会虚耗预算）。
-/// 返回终态消息（BudgetLimited/Blocked）时调用方必须落终态文本并停。
-fn record_goal_turn(ctx: &mut AgentContext, acc: &mut UsageAcc, blocked_reason: Option<String>) -> Option<String> {
-    // session 粒度：只推进本会话 goal，多会话并发不误伤
-    let mut goal = crate::core::goal::Goal::focus_for(&crate::core::paths::goals_dir(), ctx.session_id.as_deref())?;
-    let tokens = acc.goal_delta();
-    if goal.record_turn(tokens, blocked_reason.as_deref(), false).is_err() {
-        return None;
-    }
-    let _ = goal.save(&crate::core::paths::goals_dir());
-    match goal.status {
-        crate::core::goal::GoalStatus::BudgetLimited => {
-            if let Some(bus) = &ctx.bus {
-                bus.publish(crate::core::event::Event::GoalUpdate { id: goal.id.clone(), status: "budget_limited" });
-            }
-            Some("goal 预算耗尽（BudgetLimited），停止执行——调整预算后可 resume".to_string())
-        }
-        crate::core::goal::GoalStatus::Blocked => {
-            if let Some(bus) = &ctx.bus {
-                bus.publish(crate::core::event::Event::GoalUpdate { id: goal.id.clone(), status: "blocked" });
-            }
-            let reason = goal.block_reason.clone().unwrap_or_default();
-            Some(format!("goal 连续阻塞已标记 Blocked：{reason}"))
-        }
-        _ => None,
-    }
-}
-
-/// session 焦点 goal 的 wall 预算是否已超（P2-07 轮内检查点；仅 Active 才计费）。
-fn goal_wall_over(ctx: &AgentContext) -> bool {
-    crate::core::goal::Goal::focus_for(&crate::core::paths::goals_dir(), ctx.session_id.as_deref())
-        .is_some_and(|g| g.status == crate::core::goal::GoalStatus::Active && g.wall_exceeded())
-}
+use super::usage::{UsageAcc, goal_wall_over, record_goal_turn};
 
 pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> AgentOutcome {
     let base_tools = match ctx.allowed_tools {
-        Some(allowed) => crate::agent::tools_spec::core_tools()
-            .into_iter()
-            .filter(|t| allowed.contains(&t.function.name.as_str()))
-            .collect(),
+        Some(allowed) => {
+            crate::agent::tools_spec::core_tools().into_iter().filter(|t| allowed.contains(&t.function.name.as_str())).collect()
+        }
         None => crate::agent::tools_spec::core_tools(),
     };
     let mut turns = 0u32;
@@ -246,8 +211,7 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
 
         // wall 超限终止（P2-07）：本轮 tokens 照记，record_turn 复核后落 BudgetLimited；工具不再执行
         if wall_stop {
-            let msg = record_goal_turn(ctx, &mut usage_acc, None)
-                .unwrap_or_else(|| "goal wall 预算耗尽，停止执行".to_string());
+            let msg = record_goal_turn(ctx, &mut usage_acc, None).unwrap_or_else(|| "goal wall 预算耗尽，停止执行".to_string());
             (ctx.on_event)(AgentEvent::Error { message: msg.clone() });
             final_text = msg;
             break;
@@ -278,12 +242,18 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
                 idx + 1
             } else {
                 let mut e = idx + 1;
-                while e < calls.len() && is_read_only_tool(&calls[e].name, ctx) { e += 1; }
+                while e < calls.len() && is_read_only_tool(&calls[e].name, ctx) {
+                    e += 1;
+                }
                 e
             };
             let batch = &calls[idx..batch_end];
             for call in batch {
-                (ctx.on_event)(AgentEvent::ToolCall { name: call.name.clone(), summary: summarize_args(&call.name, &call.arguments), arguments: call.arguments.clone() });
+                (ctx.on_event)(AgentEvent::ToolCall {
+                    name: call.name.clone(),
+                    summary: summarize_args(&call.name, &call.arguments),
+                    arguments: call.arguments.clone(),
+                });
             }
             // 工具执行段：cancel 打断即落 interrupted 终态（不等待执行完成，后续任务由 registry 收尾）
             let cancel = ctx.cancel.clone();
@@ -298,20 +268,32 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
             };
             for (call, result) in batch.iter().zip(batch_results) {
                 if matches!(&result, Err(e) if e == "(interrupted)") {
-                    (ctx.on_event)(AgentEvent::ToolResult { name: call.name.clone(), summary: "interrupted".into(), output: "interrupted".into() });
+                    (ctx.on_event)(AgentEvent::ToolResult {
+                        name: call.name.clone(),
+                        summary: "interrupted".into(),
+                        output: "interrupted".into(),
+                    });
                     results.push(result);
                     aborted = true;
                     break;
                 }
-                (ctx.on_event)(AgentEvent::ToolResult { name: call.name.clone(), summary: result_display(&result), output: result_text(&result) });
-                if let crate::agent::loop_detect::LoopVerdict::Stop(stop) = ctx.loop_detector.record(&call.name, &call.arguments, &result_text(&result)) {
+                (ctx.on_event)(AgentEvent::ToolResult {
+                    name: call.name.clone(),
+                    summary: result_display(&result),
+                    output: result_text(&result),
+                });
+                if let crate::agent::loop_detect::LoopVerdict::Stop(stop) =
+                    ctx.loop_detector.record(&call.name, &call.arguments, &result_text(&result))
+                {
                     loop_stop = Some(stop);
                     results.push(result);
                     break;
                 }
                 results.push(result);
             }
-            if aborted || loop_stop.is_some() { break; }
+            if aborted || loop_stop.is_some() {
+                break;
+            }
             idx = batch_end;
         }
         let assistant_calls: Vec<crate::llm::types::AssistantToolCall> = calls

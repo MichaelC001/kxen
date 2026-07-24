@@ -4,7 +4,7 @@
 use kxen_app::auth::credential::{AuthStore, CredentialKind};
 use kxen_app::core::config::{Config, EmbeddingConfig};
 use kxen_app::knowledge::embedding::{self, Protocol};
-use kxen_app::knowledge::embedding_cache::{EmbeddingCache, CACHE_MAX};
+use kxen_app::knowledge::embedding_cache::{CACHE_MAX, EmbeddingCache};
 use kxen_app::knowledge::retrieval::{self, fuse};
 use kxen_app::knowledge::{Entry, Kind, Scope};
 use std::collections::HashSet;

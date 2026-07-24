@@ -12,9 +12,7 @@ pub(crate) fn restore_queues(app: AppHandle) {
         let state = app.state::<Arc<AppState>>();
         for sid in state.pending_messages.restore() {
             // 会话已删（队列文件残留）：清盘不续跑
-            if kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), &sid)
-                .is_err()
-            {
+            if kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), &sid).is_err() {
                 state.pending_messages.clear(&sid);
                 continue;
             }
@@ -23,14 +21,7 @@ pub(crate) fn restore_queues(app: AppHandle) {
             };
             let stream_id = super::protocol::stream_id("run");
             kxen_app::core::shared::lock(&state.run_streams).insert(stream_id.clone(), sid.clone());
-            tokio::spawn(super::llm_task::run_llm(
-                stream_id,
-                sid,
-                q.text,
-                q.context,
-                q.images,
-                app.clone(),
-            ));
+            tokio::spawn(super::llm_task::run_llm(stream_id, sid, q.text, q.context, q.images, app.clone()));
         }
     });
 }

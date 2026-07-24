@@ -1,6 +1,6 @@
 //! subagent 真实验证：主 agent 自主用 agent 工具派发 thinking/review 子代理。
 
-use kxen_app::agent::agent_loop::{run_turn, AgentContext, AgentEvent};
+use kxen_app::agent::agent_loop::{AgentContext, AgentEvent, run_turn};
 use kxen_app::llm::mrm::ModelResourceManager;
 use kxen_app::llm::{Message, ModelRef};
 use kxen_app::tools::fs_tool::FileTracker;
@@ -55,7 +55,9 @@ async fn main() {
     };
 
     let messages = vec![
-        Message::system("You are a coding agent with tools including `agent` (dispatch subagents by role). For code review tasks, dispatch the review role subagent instead of doing it yourself, then summarize its findings."),
+        Message::system(
+            "You are a coding agent with tools including `agent` (dispatch subagents by role). For code review tasks, dispatch the review role subagent instead of doing it yourself, then summarize its findings.",
+        ),
         Message::user(format!("Review {} for bugs. Use the agent tool with role review.", workdir.join("calc.py").display())),
     ];
 

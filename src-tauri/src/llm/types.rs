@@ -76,7 +76,14 @@ impl Message {
         Self { role: Role::Assistant, content: content.into(), images: vec![], tool_calls, tool_call_id: None, name: None }
     }
     pub fn tool_result(id: impl Into<String>, name: impl Into<String>, content: impl Into<String>) -> Self {
-        Self { role: Role::Tool, content: content.into(), images: vec![], tool_calls: vec![], tool_call_id: Some(id.into()), name: Some(name.into()) }
+        Self {
+            role: Role::Tool,
+            content: content.into(),
+            images: vec![],
+            tool_calls: vec![],
+            tool_call_id: Some(id.into()),
+            name: Some(name.into()),
+        }
     }
 }
 

@@ -4,8 +4,8 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use super::rules::{
-    deny, home_credential_dot, home_top, Verdict, ASK_PATTERNS, CRED_CMDS, DELETE_CMDS, DESTROY_CMDS, DISK_PATTERNS,
-    EXEMPT_PREFIXES, GIT_DESTROY, GIT_SEGMENT, MOVE_CMDS, SYSTEM_CMDS, SYSTEM_PATHS, VAR_PATTERN,
+    ASK_PATTERNS, CRED_CMDS, DELETE_CMDS, DESTROY_CMDS, DISK_PATTERNS, EXEMPT_PREFIXES, GIT_DESTROY, GIT_SEGMENT, MOVE_CMDS, SYSTEM_CMDS,
+    SYSTEM_PATHS, VAR_PATTERN, Verdict, deny, home_credential_dot, home_top,
 };
 
 /// 主入口：评估一条 shell 命令文本。cwd 用于相对路径解析。
@@ -49,10 +49,7 @@ pub fn evaluate_shell_command(command: &str, cwd: &str) -> Verdict {
 
 fn extract_nested(command: &str) -> Option<&str> {
     static NESTED: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-        vec![
-            Regex::new(r#"(?:bash|zsh|sh|fish)\s+-c\s+["']([^"']+)["']"#).unwrap(),
-            Regex::new(r#"\beval\s+["']([^"']+)["']"#).unwrap(),
-        ]
+        vec![Regex::new(r#"(?:bash|zsh|sh|fish)\s+-c\s+["']([^"']+)["']"#).unwrap(), Regex::new(r#"\beval\s+["']([^"']+)["']"#).unwrap()]
     });
     NESTED.iter().find_map(|re| re.captures(command).and_then(|c| c.get(1)).map(|m| m.as_str()))
 }
@@ -69,12 +66,7 @@ fn split_segments(command: &str) -> Vec<&str> {
 
 /// 命令替换展开：反引号与 $() 内嵌的命令同样要进评估（`rm -rf $(cat f)` 类绕过）。
 fn expand_substitutions(command: &str) -> Vec<String> {
-    static RE: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-        vec![
-            Regex::new(r"`([^`]+)`").unwrap(),
-            Regex::new(r"\$\(([^)]+)\)").unwrap(),
-        ]
-    });
+    static RE: LazyLock<Vec<Regex>> = LazyLock::new(|| vec![Regex::new(r"`([^`]+)`").unwrap(), Regex::new(r"\$\(([^)]+)\)").unwrap()]);
     RE.iter()
         .flat_map(|re| re.captures_iter(command).filter_map(|c| c.get(1).map(|m| m.as_str().to_string())).collect::<Vec<_>>())
         .collect()
@@ -130,12 +122,7 @@ fn eval_delete_segment(seg: &str, cwd: &str) -> Verdict {
     // trash 命令按可恢复降档（删除进回收站）：只拦 .git 与系统路径
     let recoverable = cmd == "trash";
 
-    let targets: Vec<&str> = tokens
-        .iter()
-        .skip(1)
-        .filter(|t| !t.starts_with('-'))
-        .copied()
-        .collect();
+    let targets: Vec<&str> = tokens.iter().skip(1).filter(|t| !t.starts_with('-')).copied().collect();
 
     if targets.is_empty() && is_delete && (seg.contains("-r") || seg.contains("-f")) {
         return deny("F5", "递归/强制删除缺少可静态确定的目标路径", Some("明确写出完整目标路径后再执行"));

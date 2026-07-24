@@ -12,8 +12,8 @@ mod types;
 use std::sync::Arc;
 
 pub use manager::TeamManager;
-pub use types::{LspPool, Member, MemberStatus, SpawnDeps, TeamTask, TeamTaskStatus};
 pub(crate) use types::TeamState;
+pub use types::{LspPool, Member, MemberStatus, SpawnDeps, TeamTask, TeamTaskStatus};
 
 // ---------------- 测试（存储与任务逻辑，不触网） ----------------
 

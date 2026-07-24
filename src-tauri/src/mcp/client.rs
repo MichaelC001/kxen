@@ -3,7 +3,7 @@
 
 use super::config::{RemoteKind, ServerConfig};
 use super::transport::{StdioTransport, Transport};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -45,12 +45,7 @@ pub struct McpClient {
 
 /// roots capability 的值形态：[{uri, name}]（roots/list 反向请求应答用）。
 fn roots_value(roots: &[String]) -> Value {
-    Value::Array(
-        roots
-            .iter()
-            .map(|r| json!({ "uri": format!("file://{r}"), "name": r }))
-            .collect(),
-    )
+    Value::Array(roots.iter().map(|r| json!({ "uri": format!("file://{r}"), "name": r })).collect())
 }
 
 impl McpClient {
@@ -60,21 +55,12 @@ impl McpClient {
     }
 
     /// 测试放行钩子：集成测试的 mock server 监听 127.0.0.1，必被生产守卫拦，只能旁路。
-    pub async fn connect_bypassing_guard_for_test(
-        server: &str,
-        config: &ServerConfig,
-        roots: &[String],
-    ) -> Result<Self, String> {
+    pub async fn connect_bypassing_guard_for_test(server: &str, config: &ServerConfig, roots: &[String]) -> Result<Self, String> {
         Self::connect_inner(server, config, roots, super::remote::Guard::Bypassed).await
     }
 
     /// spawn/建连 + initialize + initialized + tools/list + resources/prompts 清单全握手。
-    async fn connect_inner(
-        server: &str,
-        config: &ServerConfig,
-        roots: &[String],
-        guard: super::remote::Guard,
-    ) -> Result<Self, String> {
+    async fn connect_inner(server: &str, config: &ServerConfig, roots: &[String], guard: super::remote::Guard) -> Result<Self, String> {
         let roots = roots_value(roots);
         let transport: Arc<dyn Transport> = match config {
             ServerConfig::Stdio(c) => StdioTransport::spawn(&c.command, &c.args, &c.env, roots)?,
@@ -84,20 +70,11 @@ impl McpClient {
                 let auth = if explicit_auth {
                     None
                 } else {
-                    super::oauth_store::BearerAuth::from_store(
-                        &c.name,
-                        &super::oauth_store::store_path(),
-                        guard,
-                    )
+                    super::oauth_store::BearerAuth::from_store(&c.name, &super::oauth_store::store_path(), guard)
                 };
                 match c.transport {
-                    RemoteKind::Http => {
-                        super::remote::StreamableHttpTransport::connect(&c.url, &c.headers, roots, guard, auth)
-                            .await?
-                    }
-                    RemoteKind::Sse => {
-                        super::remote_sse::SseTransport::connect(&c.url, &c.headers, roots, guard, auth).await?
-                    }
+                    RemoteKind::Http => super::remote::StreamableHttpTransport::connect(&c.url, &c.headers, roots, guard, auth).await?,
+                    RemoteKind::Sse => super::remote_sse::SseTransport::connect(&c.url, &c.headers, roots, guard, auth).await?,
                 }
             }
         };
@@ -145,13 +122,7 @@ impl McpClient {
             }
         }
         let read_resource_injected = inject_read_resource(server, &mut tools, &resources);
-        Ok(Self {
-            transport,
-            read_resource_injected,
-            tools,
-            resources,
-            prompts,
-        })
+        Ok(Self { transport, read_resource_injected, tools, resources, prompts })
     }
 
     pub fn transport_kind(&self) -> &'static str {
@@ -170,10 +141,7 @@ impl McpClient {
             let uri = args.get("uri").and_then(|u| u.as_str()).ok_or("missing uri")?;
             return self.read_resource(uri).await;
         }
-        let resp = self
-            .transport
-            .request("tools/call", json!({ "name": tool, "arguments": args }), REQUEST_TIMEOUT)
-            .await?;
+        let resp = self.transport.request("tools/call", json!({ "name": tool, "arguments": args }), REQUEST_TIMEOUT).await?;
         if let Some(err) = resp.get("error") {
             return Err(format!("tools/call error: {}", err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown")));
         }
@@ -196,10 +164,7 @@ impl McpClient {
 
     /// resources/read：文本直拼；blob（base64）只占位——解码进 prompt 会炸 context。
     async fn read_resource(&self, uri: &str) -> Result<String, String> {
-        let resp = self
-            .transport
-            .request("resources/read", json!({ "uri": uri }), REQUEST_TIMEOUT)
-            .await?;
+        let resp = self.transport.request("resources/read", json!({ "uri": uri }), REQUEST_TIMEOUT).await?;
         if let Some(err) = resp.get("error") {
             return Err(format!("resources/read error: {}", err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown")));
         }
@@ -237,10 +202,7 @@ fn parse_tools(server: &str, listed: &Value) -> Vec<McpTool> {
                     name: t.get("name").and_then(|n| n.as_str()).unwrap_or_default().to_string(),
                     description: t.get("description").and_then(|d| d.as_str()).unwrap_or_default().to_string(),
                     schema: t.get("inputSchema").cloned().unwrap_or_else(|| json!({ "type": "object" })),
-                    read_only: t
-                        .pointer("/annotations/readOnlyHint")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
+                    read_only: t.pointer("/annotations/readOnlyHint").and_then(|v| v.as_bool()).unwrap_or(false),
                 })
                 .collect()
         })

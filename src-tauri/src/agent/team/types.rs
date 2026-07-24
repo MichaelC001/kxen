@@ -2,8 +2,8 @@
 
 use crate::agent::cancel::CancelToken;
 use crate::core::event::EventBus;
-use crate::llm::mrm::ModelResourceManager;
 use crate::llm::ModelRef;
+use crate::llm::mrm::ModelResourceManager;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

@@ -1,7 +1,7 @@
 //! 统一 frontmatter 超集解析：一份规范吃全 kind，未知字段不致命。
 //! 历史兼容：`type` 按值分流——值是 kind 名则当 kind，值是 note 子类型（correction 等）则 kind=Note。
 
-use super::{Entry, Kind, Scope, NOTE_TYPES};
+use super::{Entry, Kind, NOTE_TYPES, Scope};
 use std::path::Path;
 
 pub(super) fn parse_entry(scope: Scope, kind_hint: Kind, path: &Path, text: &str) -> Entry {
@@ -38,9 +38,7 @@ pub(super) fn parse_entry(scope: Scope, kind_hint: Kind, path: &Path, text: &str
                     }
                     "name" => slug = value.chars().take(64).collect(),
                     "description" => description = value.chars().take(1024).collect(),
-                    "alwaysApply" | "always_apply" | "always" => {
-                        always_apply = matches!(value, "true" | "yes" | "1")
-                    }
+                    "alwaysApply" | "always_apply" | "always" => always_apply = matches!(value, "true" | "yes" | "1"),
                     "globs" | "glob" => globs = list_value(value),
                     "enabled" => enabled = value != "false",
                     "needs" => needs = list_value(value),
@@ -49,9 +47,7 @@ pub(super) fn parse_entry(scope: Scope, kind_hint: Kind, path: &Path, text: &str
                     "disable-model-invocation" | "disable_model_invocation" => {
                         disable_model_invocation = matches!(value, "true" | "yes" | "1")
                     }
-                    "user-invocable" | "user_invocable" => {
-                        user_invocable = !matches!(value, "false" | "no" | "0")
-                    }
+                    "user-invocable" | "user_invocable" => user_invocable = !matches!(value, "false" | "no" | "0"),
                     "argument-hint" | "argument_hint" => argument_hint = Some(value.to_string()),
                     "note-type" | "note_type" => note_type = Some(value.to_string()),
                     "date" => date = value.to_string(),
@@ -64,16 +60,9 @@ pub(super) fn parse_entry(scope: Scope, kind_hint: Kind, path: &Path, text: &str
 
     // slug 兜底：文件名；SKILL.md 用父目录名
     if slug.is_empty() {
-        slug = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default();
+        slug = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         if slug == "SKILL" {
-            slug = path
-                .parent()
-                .and_then(|p| p.file_name())
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default();
+            slug = path.parent().and_then(|p| p.file_name()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         }
     }
     // description 兜底：正文首个非空行（skill 除外——无显式 description 的 skill 按规范不可见）
@@ -166,12 +155,7 @@ mod tests {
 
     #[test]
     fn unknown_fields_not_fatal() {
-        let e = parse_entry(
-            Scope::Project,
-            Kind::Reference,
-            PathBuf::from("x.md").as_path(),
-            "---\nweird: [a, b\n---\nbody",
-        );
+        let e = parse_entry(Scope::Project, Kind::Reference, PathBuf::from("x.md").as_path(), "---\nweird: [a, b\n---\nbody");
         assert_eq!(e.content, "body");
     }
 }

@@ -39,44 +39,26 @@ impl ApprovalBroker {
     }
 
     pub fn with_timeout(timeout: std::time::Duration) -> Self {
-        Self {
-            pending: Mutex::new(HashMap::new()),
-            timeout,
-        }
+        Self { pending: Mutex::new(HashMap::new()), timeout }
     }
 
     /// 登记一条审批：返回 (id, 等待句柄)。session_id 记归属，cancel_session 按会话清场。
     pub fn register(&self, session_id: &str) -> (String, oneshot::Receiver<bool>) {
         let id = crate::core::ids::new_id("appr");
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().expect("approvals").insert(
-            id.clone(),
-            PendingEntry {
-                tx,
-                session_id: session_id.to_string(),
-            },
-        );
+        self.pending.lock().expect("approvals").insert(id.clone(), PendingEntry { tx, session_id: session_id.to_string() });
         (id, rx)
     }
 
     /// 用户应答（RPC 通道）：id 存在则送达并返回 true。
     pub fn respond(&self, id: &str, allow: bool) -> bool {
-        self.pending
-            .lock()
-            .expect("approvals")
-            .remove(id)
-            .map(|e| e.tx.send(allow).is_ok())
-            .unwrap_or(false)
+        self.pending.lock().expect("approvals").remove(id).map(|e| e.tx.send(allow).is_ok()).unwrap_or(false)
     }
 
     /// 会话清场：摘走该 session 全部 pending（tx 随 entry drop，等待方收关闭信号按 deny）。
     pub fn cancel_session(&self, session_id: &str) -> usize {
         let mut map = self.pending.lock().expect("approvals");
-        let ids: Vec<String> = map
-            .iter()
-            .filter(|(_, e)| e.session_id == session_id)
-            .map(|(id, _)| id.clone())
-            .collect();
+        let ids: Vec<String> = map.iter().filter(|(_, e)| e.session_id == session_id).map(|(id, _)| id.clone()).collect();
         for id in &ids {
             map.remove(id);
         }
@@ -85,12 +67,7 @@ impl ApprovalBroker {
 
     /// 等待决定：abort 优先（视为拒绝）；超时自动 Timeout。
     /// 返回前兜底摘除：respond/cancel_session 已摘则无操作，其余路径（超时）防泄漏。
-    pub async fn wait(
-        &self,
-        id: &str,
-        rx: oneshot::Receiver<bool>,
-        cancel: Option<&crate::agent::cancel::CancelToken>,
-    ) -> ApprovalOutcome {
+    pub async fn wait(&self, id: &str, rx: oneshot::Receiver<bool>, cancel: Option<&crate::agent::cancel::CancelToken>) -> ApprovalOutcome {
         let decided = async move {
             match cancel {
                 Some(token) => tokio::select! {
@@ -112,11 +89,7 @@ impl ApprovalBroker {
 
 /// 共享审批请求：登记 + 发事件 + 挂起等用户决定（ApprovalOutcome::Allow = 放行）。
 /// payload 双写 reason 与 message：前端审批卡读 message，旧消费方读 reason。
-pub async fn request_approval(
-    appr: &crate::tools::exec::ApprovalCtx<'_>,
-    command: &str,
-    reason: &str,
-) -> ApprovalOutcome {
+pub async fn request_approval(appr: &crate::tools::exec::ApprovalCtx<'_>, command: &str, reason: &str) -> ApprovalOutcome {
     let (id, rx) = appr.broker.register(appr.session_id);
     appr.bus.publish(crate::core::event::Event::LlmDelta(serde_json::json!({
         "kind": "approval",
@@ -151,10 +124,7 @@ mod tests {
         let waiter = tokio::spawn(async move { broker.wait(&id, rx, Some(&t2)).await });
         tokio::task::yield_now().await;
         token.cancel();
-        let outcome = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
-            .await
-            .unwrap()
-            .unwrap();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(1), waiter).await.unwrap().unwrap();
         assert_eq!(outcome, ApprovalOutcome::Deny, "abort 一律按拒绝，绝不卡住取消路径");
     }
 

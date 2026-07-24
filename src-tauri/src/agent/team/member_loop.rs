@@ -1,6 +1,6 @@
 // ---------------- teammate 常驻 loop ----------------
 
-use crate::agent::agent_loop::{run_turn, AgentContext};
+use crate::agent::agent_loop::{AgentContext, run_turn};
 use crate::agent::cancel::CancelToken;
 use crate::core::shared::lock;
 use crate::llm::{Message, ModelRef};
@@ -8,9 +8,9 @@ use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Notify;
 
+use super::TeamState;
 use super::inbox::{append_inbox, drain_inbox};
 use super::types::MemberStatus;
-use super::TeamState;
 
 pub(super) async fn teammate_loop(
     state: Arc<TeamState>,
@@ -39,26 +39,31 @@ pub(super) async fn teammate_loop(
             None => base_prompt.clone(),
             Some(wake) => format!("Original task:\n{base_prompt}\n\n---\nNew messages:\n{wake}"),
         };
-        let messages = vec![
-            Message::system(teammate_system(&state, &name, &role, approved)),
-            Message::user(user_content),
-        ];
+        let messages = vec![Message::system(teammate_system(&state, &name, &role, approved)), Message::user(user_content)];
         let outcome = run_turn(&mut ctx, messages).await;
 
         if !approved {
             // 计划出炉：递交 lead 审批（经 manager.send：observer 抄送 + 前端通知）
             let text = format!("[plan for approval]\n{}", outcome.final_text);
             match state.manager.upgrade() {
-                Some(mgr) => { let _ = mgr.send(&state, &name, "lead", &text); }
-                None => { let _ = append_inbox(&state.dir, "lead", &name, &text); }
+                Some(mgr) => {
+                    let _ = mgr.send(&state, &name, "lead", &text);
+                }
+                None => {
+                    let _ = append_inbox(&state.dir, "lead", &name, &text);
+                }
             }
             set_status(&state, &name, MemberStatus::AwaitingPlanApproval);
         } else {
             // 本轮成果上报 lead（经 manager.send：observer 抄送 + 前端通知）
             if !outcome.final_text.is_empty() {
                 match state.manager.upgrade() {
-                    Some(mgr) => { let _ = mgr.send(&state, &name, "lead", &outcome.final_text); }
-                    None => { let _ = append_inbox(&state.dir, "lead", &name, &outcome.final_text); }
+                    Some(mgr) => {
+                        let _ = mgr.send(&state, &name, "lead", &outcome.final_text);
+                    }
+                    None => {
+                        let _ = append_inbox(&state.dir, "lead", &name, &outcome.final_text);
+                    }
                 }
             }
             // teammate_idle hook：exit 非零 = 打回（反馈进 inbox， teammate 继续工作）
@@ -69,7 +74,10 @@ pub(super) async fn teammate_loop(
                     Some(&cancel),
                     Some(&state.session_id),
                 );
-                if let Err(feedback) = hooks.run_named_with_approval("teammate_idle", &name, &json!({ "agent": name, "result": outcome.final_text }), appr.as_ref()).await {
+                if let Err(feedback) = hooks
+                    .run_named_with_approval("teammate_idle", &name, &json!({ "agent": name, "result": outcome.final_text }), appr.as_ref())
+                    .await
+                {
                     idle_rejected(&state, &name, &feedback);
                 }
             }
@@ -92,13 +100,7 @@ pub(super) async fn teammate_loop(
                     approved = true;
                 }
             }
-            wake_prompt = Some(
-                inbox
-                    .iter()
-                    .map(|(from, text)| format!("[{from}] {text}"))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            );
+            wake_prompt = Some(inbox.iter().map(|(from, text)| format!("[{from}] {text}")).collect::<Vec<_>>().join("\n"));
             break;
         }
         if cancel.is_cancelled() {
@@ -118,7 +120,14 @@ fn idle_rejected(state: &Arc<TeamState>, name: &str, feedback: &str) {
     }
 }
 
-fn build_ctx(state: &Arc<TeamState>, name: &str, _role: &str, model: &ModelRef, allowed: Option<&'static [&'static str]>, cancel: CancelToken) -> AgentContext {
+fn build_ctx(
+    state: &Arc<TeamState>,
+    name: &str,
+    _role: &str,
+    model: &ModelRef,
+    allowed: Option<&'static [&'static str]>,
+    cancel: CancelToken,
+) -> AgentContext {
     let agent_name = name.to_string();
     let session_id = state.session_id.clone();
     let session_id_event = session_id.clone();
@@ -216,8 +225,5 @@ fn set_status(state: &Arc<TeamState>, name: &str, status: MemberStatus) {
 }
 
 pub(super) fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }

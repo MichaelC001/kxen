@@ -7,9 +7,7 @@ pub fn encode(path: &Path) -> String {
     let mut out = String::from("file://");
     for &b in path.to_string_lossy().as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
-                out.push(b as char)
-            }
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => out.push(b as char),
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -47,10 +45,7 @@ mod tests {
 
     #[test]
     fn encodes_space_hash_and_non_ascii() {
-        assert_eq!(
-            encode(Path::new("/w/my dir/a#b.rs")),
-            "file:///w/my%20dir/a%23b.rs"
-        );
+        assert_eq!(encode(Path::new("/w/my dir/a#b.rs")), "file:///w/my%20dir/a%23b.rs");
         let encoded = encode(Path::new("/w/中文/文件.rs"));
         assert!(encoded.starts_with("file:///w/"), "{encoded}");
         assert!(!encoded.contains('中'), "{encoded}");
@@ -58,18 +53,9 @@ mod tests {
 
     #[test]
     fn roundtrip() {
-        for p in [
-            "/w/src/main.rs",
-            "/w/my dir/a#b.rs",
-            "/w/中文/文件.rs",
-            "/w/100% sure/x.go",
-        ] {
+        for p in ["/w/src/main.rs", "/w/my dir/a#b.rs", "/w/中文/文件.rs", "/w/100% sure/x.go"] {
             let encoded = encode(Path::new(p));
-            assert_eq!(
-                decode(&encoded).as_deref(),
-                Some(Path::new(p)),
-                "roundtrip {p}"
-            );
+            assert_eq!(decode(&encoded).as_deref(), Some(Path::new(p)), "roundtrip {p}");
         }
     }
 
@@ -82,9 +68,6 @@ mod tests {
 
     #[test]
     fn decode_plain_ascii() {
-        assert_eq!(
-            decode("file:///w/src/main.rs").as_deref(),
-            Some(Path::new("/w/src/main.rs"))
-        );
+        assert_eq!(decode("file:///w/src/main.rs").as_deref(), Some(Path::new("/w/src/main.rs")));
     }
 }

@@ -28,10 +28,14 @@ pub struct Session {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Part {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     /// 模型可见但 UI 隐藏的上下文（@chip 文件内容 / 知识沉淀注记）。
     /// 历史回放给模型时带上，时间线渲染时跳过。
-    Context { text: String },
+    Context {
+        text: String,
+    },
     ToolCall {
         name: String,
         /// 一行摘要（UI 头行）；精确参数在 args
@@ -42,9 +46,14 @@ pub enum Part {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         args: Option<serde_json::Value>,
     },
-    Reasoning { text: String },
+    Reasoning {
+        text: String,
+    },
     /// base64 内联 JSONL：会话目录自包含，fork/导出/rewind/删除零额外文件管理
-    Image { media_type: String, data: String },
+    Image {
+        media_type: String,
+        data: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,19 +75,28 @@ pub enum Role {
 
 // ---------------- 持久化（<sessions_dir>/<id>.json meta + <id>.jsonl 消息行） ----------------
 
-pub(crate) fn now_ms() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0) }
+pub(crate) fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
 
 // per-session 写锁：cron/队列续跑可能并发 touch 同一会话 JSONL，append 与 rewrite（tmp+rename）必须串行，否则丢并发行
-static WRITE_LOCKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<()>>>>> = std::sync::OnceLock::new();
+static WRITE_LOCKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<()>>>>> =
+    std::sync::OnceLock::new();
 
 fn write_lock(id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
     let registry = WRITE_LOCKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
     crate::core::shared::lock(registry).entry(id.to_string()).or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(()))).clone()
 }
 
-fn meta_path(dir: &Path, id: &str) -> PathBuf { dir.join(format!("{id}.json")) }
-fn messages_path(dir: &Path, id: &str) -> PathBuf { dir.join(format!("{id}.jsonl")) }
-fn compaction_path(dir: &Path, id: &str) -> PathBuf { dir.join(format!("{id}.compact.json")) }
+fn meta_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{id}.json"))
+}
+fn messages_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{id}.jsonl"))
+}
+fn compaction_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{id}.compact.json"))
+}
 
 pub fn create(dir: &Path, directory: &str) -> std::io::Result<Session> {
     std::fs::create_dir_all(dir)?;
@@ -99,7 +117,13 @@ pub fn create(dir: &Path, directory: &str) -> std::io::Result<Session> {
 }
 
 /// 就地更新元信息（重命名 / 置顶 / 手动排序）。
-pub fn update_meta(dir: &Path, id: &str, title: Option<&str>, pinned: Option<bool>, sort_order: Option<Option<u64>>) -> std::io::Result<Session> {
+pub fn update_meta(
+    dir: &Path,
+    id: &str,
+    title: Option<&str>,
+    pinned: Option<bool>,
+    sort_order: Option<Option<u64>>,
+) -> std::io::Result<Session> {
     let mut session = load_meta(dir, id)?;
     if let Some(t) = title {
         session.title = t.to_string();
@@ -184,10 +208,7 @@ pub fn append_message(dir: &Path, message: &Message) -> std::io::Result<Session>
     if !meta_path(dir, &message.session_id).exists() {
         return Err(std::io::Error::new(std::io::ErrorKind::NotFound, format!("session not found: {}", message.session_id)));
     }
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(messages_path(dir, &message.session_id))?;
+    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(messages_path(dir, &message.session_id))?;
     writeln!(file, "{}", serde_json::to_string(message)?)?;
 
     let mut session = load_meta(dir, &message.session_id)?;
@@ -303,4 +324,3 @@ pub fn fork(dir: &Path, id: &str, message_id: &str) -> std::io::Result<Session> 
     }
     Ok(session)
 }
-

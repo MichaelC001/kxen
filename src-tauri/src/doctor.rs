@@ -48,12 +48,7 @@ pub async fn system_health(state: &Arc<AppState>) -> SystemHealth {
     let (lsp_root, lsp) = {
         let lsp = state.lsp.read().expect("lsp").clone();
         let root = lsp.root().to_string_lossy().into_owned();
-        let entries = lsp
-            .status()
-            .await
-            .into_iter()
-            .map(|(language, status)| LspHealth { language, status })
-            .collect();
+        let entries = lsp.status().await.into_iter().map(|(language, status)| LspHealth { language, status }).collect();
         (root, entries)
     };
     let (mrm_describe, mrm_dispatches) = {
@@ -106,8 +101,5 @@ pub fn doctor_report(store: &AuthStore) -> DoctorReport {
 }
 
 fn kxen_account_keys(store: &AuthStore, provider: &str) -> Vec<String> {
-    kxen_app::auth::credential::accounts_of(store, provider)
-        .into_iter()
-        .filter(|k| k != provider)
-        .collect()
+    kxen_app::auth::credential::accounts_of(store, provider).into_iter().filter(|k| k != provider).collect()
 }

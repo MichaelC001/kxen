@@ -3,16 +3,13 @@
 //! openai = auth.openai.com / client_id app_EMoamEEZ73f0CkXaXp7hrann（Codex CLI 公开值）。
 //! Anthropic 刷新即吊销旧 refresh token：RECENT 跨 clone 去重，绝不重复刷新同一旧凭证。
 
-use crate::auth::credential::{account_id, AuthStore, CredentialKind};
+use crate::auth::credential::{AuthStore, CredentialKind, account_id};
 use std::sync::{Mutex, OnceLock};
 
 const BUFFER_MS: u64 = 5 * 60 * 1000;
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 fn token_endpoint(provider: &str) -> Option<(&'static str, &'static str)> {
@@ -74,12 +71,7 @@ pub async fn ensure_fresh(store: &mut AuthStore, provider: &str, account: Option
         "refresh_token": refresh,
         "client_id": client_id,
     });
-    let resp = crate::llm::client::shared_http()
-        .post(url)
-        .json(&body)
-        .timeout(std::time::Duration::from_secs(15))
-        .send()
-        .await;
+    let resp = crate::llm::client::shared_http().post(url).json(&body).timeout(std::time::Duration::from_secs(15)).send().await;
     let Ok(resp) = resp else { return false };
     if !resp.status().is_success() {
         tracing::warn!(provider, status = %resp.status(), "oauth refresh failed");

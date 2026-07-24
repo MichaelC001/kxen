@@ -38,10 +38,7 @@ fn file(dir: &Path) -> PathBuf {
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 // ---------------- 工作看板（/workspaces 卡片数据源） ----------------
@@ -109,11 +106,7 @@ pub fn overview(
             let running_sessions: Vec<RunningSession> = mine
                 .iter()
                 .filter(|s| running.contains(&s.id))
-                .map(|s| RunningSession {
-                    id: s.id.clone(),
-                    title: s.title.clone(),
-                    queued: queued.get(&s.id).copied().unwrap_or(0),
-                })
+                .map(|s| RunningSession { id: s.id.clone(), title: s.title.clone(), queued: queued.get(&s.id).copied().unwrap_or(0) })
                 .collect();
             WorkspaceOverview {
                 sessions: mine.len(),
@@ -127,11 +120,7 @@ pub fn overview(
                     .iter()
                     .filter(|g| live(g) && g.session_id.as_deref().is_some_and(|sid| mine_ids.contains(sid)))
                     .max_by_key(|g| g.updated_at)
-                    .map(|g| GoalDigest {
-                        id: g.id.clone(),
-                        objective: g.contract.objective.clone(),
-                        status: status_str(g.status).into(),
-                    }),
+                    .map(|g| GoalDigest { id: g.id.clone(), objective: g.contract.objective.clone(), status: status_str(g.status).into() }),
                 worktrees: worktrees.get(&w.path).cloned().unwrap_or_default(),
                 running_sessions,
                 path: w.path,
@@ -238,10 +227,7 @@ mod tests {
 
     #[test]
     fn overview_aggregates_sessions() {
-        let ws = vec![
-            Workspace { path: "/a".into(), last_used: 100 },
-            Workspace { path: "/b".into(), last_used: 200 },
-        ];
+        let ws = vec![Workspace { path: "/a".into(), last_used: 100 }, Workspace { path: "/b".into(), last_used: 200 }];
         let sessions = vec![session("s1", "/a", 500), session("s2", "/a", 900), session("s3", "/b", 300)];
         let running: HashSet<String> = ["s2".to_string()].into_iter().collect();
         let cards = overview(ws, &sessions, &running, &HashMap::new(), &[], &[], &HashMap::new());
@@ -256,10 +242,7 @@ mod tests {
 
     #[test]
     fn overview_board_fields() {
-        let ws = vec![
-            Workspace { path: "/a".into(), last_used: 100 },
-            Workspace { path: "/b".into(), last_used: 200 },
-        ];
+        let ws = vec![Workspace { path: "/a".into(), last_used: 100 }, Workspace { path: "/b".into(), last_used: 200 }];
         let sessions = vec![session("s1", "/a", 500), session("s2", "/a", 900), session("s3", "/b", 300)];
         let running: HashSet<String> = ["s2".to_string()].into_iter().collect();
         let queued: HashMap<String, usize> = [("s1".to_string(), 2), ("s2".to_string(), 1), ("s3".to_string(), 5)].into_iter().collect();

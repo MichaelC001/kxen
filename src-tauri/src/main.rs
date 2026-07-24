@@ -62,18 +62,13 @@ impl AppState {
         let path = kxen_app::core::paths::auth_file();
         // 共享句柄：与 TeamManager SpawnDeps 同一把锁，后台探测写入的凭证两边即时可见
         let store = Arc::new(Mutex::new(kxen_app::auth::credential::read_auth_file(&path)));
-        let config = kxen_app::core::config::Config::load(
-            &kxen_app::core::paths::config_dir().join("config.toml"),
-            None,
-        )
-        .unwrap_or_default();
+        let config =
+            kxen_app::core::config::Config::load(&kxen_app::core::paths::config_dir().join("config.toml"), None).unwrap_or_default();
         let statusline_items = config.statusline.items.clone();
         let registry = std::sync::Arc::new(kxen_app::tools::task::TaskRegistry::new());
         let extras = std::sync::Arc::new(kxen_app::agent::agent_loop::SessionExtrasRegistry::default());
         let hooks = std::sync::Arc::new(kxen_app::tools::hooks::HookRunner::from_config(&config));
-        let mrm = std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(
-            kxen_app::llm::mrm::ModelResourceManager::new(config),
-        )));
+        let mrm = std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(config))));
         let workdir: std::sync::Arc<std::path::Path> =
             std::sync::Arc::from(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
         let bus = kxen_app::core::event::EventBus::default();
@@ -144,9 +139,7 @@ impl AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).init();
 
     tauri::async_runtime::block_on(async {
         let app = tauri::Builder::default()
@@ -157,20 +150,30 @@ pub fn run() {
             .setup(|app| {
                 // macOS 原生编辑菜单：WKWebView 的 Cmd+C/V/X/A/Z 由菜单栏分发，无菜单则编辑快捷键全灭
                 use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
-                let edit = Submenu::with_items(app, "编辑", true, &[
-                    &PredefinedMenuItem::undo(app, None)?,
-                    &PredefinedMenuItem::redo(app, None)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::cut(app, None)?,
-                    &PredefinedMenuItem::copy(app, None)?,
-                    &PredefinedMenuItem::paste(app, None)?,
-                    &PredefinedMenuItem::select_all(app, None)?,
-                ])?;
-                let app_menu = Submenu::with_items(app, "kxen", true, &[
-                    &PredefinedMenuItem::hide(app, None)?,
-                    &PredefinedMenuItem::hide_others(app, None)?,
-                    &PredefinedMenuItem::quit(app, None)?,
-                ])?;
+                let edit = Submenu::with_items(
+                    app,
+                    "编辑",
+                    true,
+                    &[
+                        &PredefinedMenuItem::undo(app, None)?,
+                        &PredefinedMenuItem::redo(app, None)?,
+                        &PredefinedMenuItem::separator(app)?,
+                        &PredefinedMenuItem::cut(app, None)?,
+                        &PredefinedMenuItem::copy(app, None)?,
+                        &PredefinedMenuItem::paste(app, None)?,
+                        &PredefinedMenuItem::select_all(app, None)?,
+                    ],
+                )?;
+                let app_menu = Submenu::with_items(
+                    app,
+                    "kxen",
+                    true,
+                    &[
+                        &PredefinedMenuItem::hide(app, None)?,
+                        &PredefinedMenuItem::hide_others(app, None)?,
+                        &PredefinedMenuItem::quit(app, None)?,
+                    ],
+                )?;
                 app.set_menu(Menu::with_items(app, &[&app_menu, &edit])?)?;
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
@@ -223,7 +226,10 @@ pub fn run() {
                             let text2 = text.clone();
                             tauri::async_runtime::spawn(async move {
                                 let appr = kxen_app::tools::exec::ApprovalCtx::new(Some(broker.as_ref()), Some(&bus), None, None);
-                                if let Err(e) = hooks.run_named_with_approval("notification", &text2, &serde_json::json!({ "text": text2 }), appr.as_ref()).await {
+                                if let Err(e) = hooks
+                                    .run_named_with_approval("notification", &text2, &serde_json::json!({ "text": text2 }), appr.as_ref())
+                                    .await
+                                {
                                     tracing::warn!(error = %e, "notification hook failed");
                                 }
                             });
@@ -255,10 +261,8 @@ pub fn run() {
                                 tracing::info!(written, "memory consolidation distilled");
                             }
                         }
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_millis() as u64)
-                            .unwrap_or(0);
+                        let now =
+                            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
                         // 同批已派发的 session：首个 spawn 后 token 尚未注册进 active_runs，靠本集合判重
                         let mut dispatched: std::collections::HashSet<String> = std::collections::HashSet::new();
                         for job in kxen_app::core::schedule::drain_due(now) {
@@ -276,7 +280,9 @@ pub fn run() {
                                 // 并发 run 会交叉写 JSONL 历史：投入队列由 run 结束续跑消化
                                 cron_dispatch::CronDispatch::Enqueue => {
                                     let n = state.pending_messages.enqueue(&job.session_id, text, vec![], vec![]);
-                                    state.bus.publish(kxen_app::core::event::Event::Notification(format!("cron 触发时会话运行中，已排队（第 {n} 条）")));
+                                    state.bus.publish(kxen_app::core::event::Event::Notification(format!(
+                                        "cron 触发时会话运行中，已排队（第 {n} 条）"
+                                    )));
                                 }
                             }
                         }
@@ -323,7 +329,6 @@ pub fn run() {
 fn main() {
     run();
 }
-
 
 /// 前端拿 ws 端口 + 握手 token（替代 window.eval 注入：页面重载后注入丢失的竞态根治）。
 #[tauri::command]

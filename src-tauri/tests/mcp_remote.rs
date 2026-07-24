@@ -24,14 +24,8 @@ struct MockHttp {
 }
 
 fn http_response(status: &str, content_type: Option<&str>, extra: &str, body: &str) -> String {
-    let ct = content_type
-        .map(|c| format!("content-type: {c}\r\n"))
-        .unwrap_or_default();
-    format!(
-        "HTTP/1.1 {status}\r\n{ct}content-length: {}\r\nconnection: close\r\n{extra}\r\n{}",
-        body.len(),
-        body
-    )
+    let ct = content_type.map(|c| format!("content-type: {c}\r\n")).unwrap_or_default();
+    format!("HTTP/1.1 {status}\r\n{ct}content-length: {}\r\nconnection: close\r\n{extra}\r\n{}", body.len(), body)
 }
 
 fn json_frame(id: &Value, result: Value) -> String {
@@ -68,7 +62,12 @@ fn route(body: &str) -> String {
         }
         "tools/call" => {
             let text = v.pointer("/params/arguments/text").and_then(|t| t.as_str()).unwrap_or("");
-            http_response("200 OK", Some("application/json"), "", &json_frame(&id, json!({ "content": [ { "type": "text", "text": format!("echo:{text}") } ] })))
+            http_response(
+                "200 OK",
+                Some("application/json"),
+                "",
+                &json_frame(&id, json!({ "content": [ { "type": "text", "text": format!("echo:{text}") } ] })),
+            )
         }
         "resources/list" => {
             let result = json!({ "resources": [
@@ -86,7 +85,12 @@ fn route(body: &str) -> String {
             let result = json!({ "contents": [ { "uri": uri, "mimeType": "text/plain", "text": format!("content of {uri}") } ] });
             http_response("200 OK", Some("application/json"), "", &json_frame(&id, result))
         }
-        _ => http_response("200 OK", Some("application/json"), "", &json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "no method" } }).to_string()),
+        _ => http_response(
+            "200 OK",
+            Some("application/json"),
+            "",
+            &json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "no method" } }).to_string(),
+        ),
     }
 }
 
@@ -115,11 +119,9 @@ fn start_mock() -> MockHttp {
                     content_length = v.trim().parse().unwrap_or(0);
                 } else if lower.starts_with("mcp-session-id:") {
                     // 值必须按原行切（lower 只用于匹配），header 值大小写有语义（Bearer token）
-                    seen2.lock().unwrap().session =
-                        Some(l["mcp-session-id:".len()..].trim().to_string());
+                    seen2.lock().unwrap().session = Some(l["mcp-session-id:".len()..].trim().to_string());
                 } else if lower.starts_with("authorization:") {
-                    seen2.lock().unwrap().authorization =
-                        Some(l["authorization:".len()..].trim().to_string());
+                    seen2.lock().unwrap().authorization = Some(l["authorization:".len()..].trim().to_string());
                 }
             }
             let mut body = vec![0u8; content_length];
@@ -128,75 +130,40 @@ fn start_mock() -> MockHttp {
             let _ = stream.write_all(response.as_bytes());
         }
     });
-    MockHttp {
-        url: format!("http://127.0.0.1:{port}/mcp"),
-        seen,
-    }
+    MockHttp { url: format!("http://127.0.0.1:{port}/mcp"), seen }
 }
 
 fn remote_config(url: &str) -> ServerConfig {
     let mut headers = HashMap::new();
     headers.insert("Authorization".to_string(), "Bearer test-token".to_string());
-    ServerConfig::Remote(RemoteConfig {
-        name: "web".into(),
-        url: url.into(),
-        transport: RemoteKind::Http,
-        headers,
-        oauth: None,
-    })
+    ServerConfig::Remote(RemoteConfig { name: "web".into(), url: url.into(), transport: RemoteKind::Http, headers, oauth: None })
 }
 
 #[tokio::test]
 async fn streamable_http_end_to_end() {
     let mock = start_mock();
-    let client = McpClient::connect_bypassing_guard_for_test(
-        "web",
-        &remote_config(&mock.url),
-        &["/tmp/ws".into()],
-    )
-    .await
-    .expect("streamable http 握手应成功");
+    let client = McpClient::connect_bypassing_guard_for_test("web", &remote_config(&mock.url), &["/tmp/ws".into()])
+        .await
+        .expect("streamable http 握手应成功");
 
     assert_eq!(client.transport_kind(), "http");
     let names: Vec<&str> = client.tools.iter().map(|t| t.name.as_str()).collect();
     assert!(names.contains(&"echo"), "tools/list 应解析: {names:?}");
-    assert!(
-        names.contains(&"read_resource"),
-        "声明 resources 后应注入伪工具: {names:?}"
-    );
+    assert!(names.contains(&"read_resource"), "声明 resources 后应注入伪工具: {names:?}");
     assert_eq!(client.resources.len(), 2);
     assert_eq!(client.prompts.len(), 1);
     assert_eq!(client.prompts[0].name, "review");
-    let desc = &client
-        .tools
-        .iter()
-        .find(|t| t.name == "read_resource")
-        .unwrap()
-        .description;
-    assert!(
-        desc.contains("mem://a (a): doc a"),
-        "资源清单应进伪工具描述: {desc}"
-    );
+    let desc = &client.tools.iter().find(|t| t.name == "read_resource").unwrap().description;
+    assert!(desc.contains("mem://a (a): doc a"), "资源清单应进伪工具描述: {desc}");
 
     let out = client.call("echo", &json!({ "text": "hi" })).await.unwrap();
     assert_eq!(out, "echo:hi");
-    let out = client
-        .call("read_resource", &json!({ "uri": "mem://a" }))
-        .await
-        .unwrap();
+    let out = client.call("read_resource", &json!({ "uri": "mem://a" })).await.unwrap();
     assert_eq!(out, "content of mem://a");
 
     let seen = mock.seen.lock().unwrap();
-    assert_eq!(
-        seen.session.as_deref(),
-        Some("test-session-1"),
-        "session id 必须在后续请求回带"
-    );
-    assert_eq!(
-        seen.authorization.as_deref(),
-        Some("Bearer test-token"),
-        "config headers 必须下发"
-    );
+    assert_eq!(seen.session.as_deref(), Some("test-session-1"), "session id 必须在后续请求回带");
+    assert_eq!(seen.authorization.as_deref(), Some("Bearer test-token"), "config headers 必须下发");
 }
 
 #[tokio::test]
@@ -207,10 +174,7 @@ async fn ssrf_guard_blocks_loopback_before_connect() {
         Ok(_) => panic!("loopback 必须被 SSRF 守卫拦截"),
         Err(e) => e,
     };
-    assert!(
-        err.contains("blocked"),
-        "loopback 必须被 SSRF 守卫拦截: {err}"
-    );
+    assert!(err.contains("blocked"), "loopback 必须被 SSRF 守卫拦截: {err}");
 }
 
 #[tokio::test]

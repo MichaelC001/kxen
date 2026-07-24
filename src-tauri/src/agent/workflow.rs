@@ -8,11 +8,11 @@
 //! Everything else is plain JS: `Promise.all` for fan-out, for-loops for pipelines.
 
 use crate::agent::agent_loop::{AgentContext, AgentEvent};
-use crate::agent::subagent::{dispatch, SubagentDeps};
+use crate::agent::subagent::{SubagentDeps, dispatch};
 use rquickjs::prelude::{Async, Func};
 use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Promise, Value};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -121,7 +121,8 @@ async fn run_script(
                     if n >= MAX_AGENTS_PER_WORKFLOW {
                         return Err(workflow_err(format!("workflow agent budget exhausted ({MAX_AGENTS_PER_WORKFLOW})")));
                     }
-                    let result = dispatch(&role, prompt.clone(), &deps, crate::agent::activity::AgentKind::Workflow).await.map_err(workflow_err)?;
+                    let result =
+                        dispatch(&role, prompt.clone(), &deps, crate::agent::activity::AgentKind::Workflow).await.map_err(workflow_err)?;
                     if let Some(j) = journal.lock().expect("journal").as_mut() {
                         j.record(&role, &prompt, &result);
                     }
@@ -141,9 +142,8 @@ async fn run_script(
                 .map_err(|e| e.to_string())?;
 
             // 脚本体包成 async 函数；返回值统一转字符串
-            let wrapped = format!(
-                "(async () => {{\n{script_owned}\n}})().then(v => typeof v === 'string' ? v : JSON.stringify(v ?? null))"
-            );
+            let wrapped =
+                format!("(async () => {{\n{script_owned}\n}})().then(v => typeof v === 'string' ? v : JSON.stringify(v ?? null))");
             let promise = ctx.eval::<Promise, _>(wrapped).catch(&ctx).map_err(|e| e.to_string())?;
             let text: String = promise.into_future().await.catch(&ctx).map_err(|e| e.to_string())?;
             Ok::<String, String>(text)
@@ -189,7 +189,8 @@ mod tests {
     /// 但纯 JS 能力（算数 / Promise.all / phase / CONSTRAINTS）不需要网络。
     fn test_deps() -> SubagentDeps {
         let mut roles = HashMap::new();
-        roles.insert("thinking".into(), RoleBinding { provider: "anthropic".into(), model: "claude".into(), fallback: None, account: None });
+        roles
+            .insert("thinking".into(), RoleBinding { provider: "anthropic".into(), model: "claude".into(), fallback: None, account: None });
         roles.insert("execution".into(), RoleBinding { provider: "xai".into(), model: "grok".into(), fallback: None, account: None });
         let config = Config {
             roles,

@@ -13,11 +13,7 @@ fn usage_accumulates_across_requests() {
     acc.push(180, 40);
     acc.push(260, 30);
     assert_eq!(acc.total(), (540, 90), "input/output 必须跨 request 累加");
-    assert_eq!(
-        acc.last_input(),
-        260,
-        "ctx 占用取最近一次 request 而非累计值"
-    );
+    assert_eq!(acc.last_input(), 260, "ctx 占用取最近一次 request 而非累计值");
 }
 
 #[test]
@@ -39,10 +35,7 @@ async fn lagged_consumer_skips_and_keeps_receiving() {
         bus.publish(Event::Notification(format!("n{i}")));
     }
     let first = rx.recv().await;
-    assert!(
-        matches!(recv_verdict(first), RecvVerdict::Skip),
-        "溢出必须先判 Skip"
-    );
+    assert!(matches!(recv_verdict(first), RecvVerdict::Skip), "溢出必须先判 Skip");
     // lag 之后仍能收到后续事件：循环存活
     bus.publish(Event::Notification("after".into()));
     let mut survived = false;

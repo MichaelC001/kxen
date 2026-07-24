@@ -1,6 +1,6 @@
 //! 后台任务注册表（任务三件套的后端 + dev_server 健康检查）。
 
-use crate::core::shared::{lock, SharedStr};
+use crate::core::shared::{SharedStr, lock};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -106,7 +106,8 @@ impl TaskRegistry {
             let _ = std::process::Command::new("kill").args(["-TERM", &format!("-{pid}")]).status();
             let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
             loop {
-                let alive = std::process::Command::new("kill").args(["-0", &pid.to_string()]).status().map(|s| s.success()).unwrap_or(false);
+                let alive =
+                    std::process::Command::new("kill").args(["-0", &pid.to_string()]).status().map(|s| s.success()).unwrap_or(false);
                 if !alive || std::time::Instant::now() >= deadline {
                     break;
                 }
@@ -146,10 +147,7 @@ fn serialize_shared<S: serde::Serializer>(value: &SharedStr, serializer: S) -> R
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 pub fn task_id() -> String {
@@ -178,9 +176,8 @@ mod tests {
     #[tokio::test]
     async fn killed_task_reports_killed_not_failed() {
         let registry = Arc::new(TaskRegistry::new());
-        let id = crate::tools::exec::spawn_task(vec!["sleep".into(), "30".into()], "sleep 30", "/tmp", &registry, None)
-            .await
-            .expect("spawn");
+        let id =
+            crate::tools::exec::spawn_task(vec!["sleep".into(), "30".into()], "sleep 30", "/tmp", &registry, None).await.expect("spawn");
         assert!(registry.kill(&id).await);
         let task = registry.get(&id).expect("task");
         for _ in 0..100 {

@@ -142,7 +142,11 @@ pub fn start_mic_capture(make_handler: impl FnOnce(*mut AnyObject) -> TapHandler
         let ok: Bool = msg_send![&*engine, startAndReturnError: &mut error];
         if !ok.as_bool() {
             let _: () = msg_send![input, removeTapOnBus: 0usize];
-            return Err(if error.is_null() { "音频引擎启动失败".into() } else { error_text(error as *mut AnyObject).unwrap_or_else(|| "音频引擎启动失败".into()) });
+            return Err(if error.is_null() {
+                "音频引擎启动失败".into()
+            } else {
+                error_text(error as *mut AnyObject).unwrap_or_else(|| "音频引擎启动失败".into())
+            });
         }
         Ok((engine, sample_rate))
     }

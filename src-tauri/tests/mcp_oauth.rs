@@ -1,11 +1,11 @@
 // MCP OAuth 授权流：discovery 双链优先序 / DCR 跳过 / PKCE / 回调解析与超时 / token 落盘往返 /
 // 401->refresh->retry->拒则 needs_auth 状态机。全部走 127.0.0.1 mock（std TcpListener），无真实网络。
+use kxen_app::mcp::Guard;
 use kxen_app::mcp::McpManager;
 use kxen_app::mcp::config::{OAuthConfig, RemoteConfig, RemoteKind, ServerConfig};
 use kxen_app::mcp::oauth::{self, AuthServerMeta};
 use kxen_app::mcp::oauth_flow::{self, TokenGrant};
 use kxen_app::mcp::oauth_store::{StoredToken, TokenStore};
-use kxen_app::mcp::Guard;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -43,11 +43,7 @@ struct Mock {
 }
 
 fn http_response(status: &str, body: &str) -> String {
-    format!(
-        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    )
+    format!("HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}", body.len(), body)
 }
 
 fn route(st: &Arc<Mutex<State>>, port: u16, request_line: &str, headers: &str, body: &str) -> String {
@@ -56,12 +52,7 @@ fn route(st: &Arc<Mutex<State>>, port: u16, request_line: &str, headers: &str, b
     let path = parts.next().unwrap_or("").split('?').next().unwrap_or("");
     let (serve_prm, accepted, refresh_outcome, refresh_access) = {
         let s = st.lock().unwrap();
-        (
-            s.serve_prm,
-            s.accepted_token.clone(),
-            s.refresh_outcome,
-            s.refresh_access.clone(),
-        )
+        (s.serve_prm, s.accepted_token.clone(), s.refresh_outcome, s.refresh_access.clone())
     };
     st.lock().unwrap().hits.push(format!("{method} {path}"));
     let meta_prm = json!({
@@ -75,8 +66,7 @@ fn route(st: &Arc<Mutex<State>>, port: u16, request_line: &str, headers: &str, b
         "registration_endpoint": format!("http://127.0.0.1:{port}/register"),
     });
     match (method, path) {
-        ("GET", "/.well-known/oauth-protected-resource/mcp")
-        | ("GET", "/.well-known/oauth-protected-resource") => {
+        ("GET", "/.well-known/oauth-protected-resource/mcp") | ("GET", "/.well-known/oauth-protected-resource") => {
             if serve_prm {
                 let prm = json!({ "authorization_servers": [format!("http://127.0.0.1:{port}/as")] });
                 http_response("200 OK", &prm.to_string())
@@ -84,11 +74,8 @@ fn route(st: &Arc<Mutex<State>>, port: u16, request_line: &str, headers: &str, b
                 http_response("404 Not Found", "{}")
             }
         }
-        ("GET", "/.well-known/oauth-authorization-server/as") => {
-            http_response("200 OK", &meta_prm.to_string())
-        }
-        ("GET", "/.well-known/oauth-authorization-server/mcp")
-        | ("GET", "/.well-known/oauth-authorization-server") => {
+        ("GET", "/.well-known/oauth-authorization-server/as") => http_response("200 OK", &meta_prm.to_string()),
+        ("GET", "/.well-known/oauth-authorization-server/mcp") | ("GET", "/.well-known/oauth-authorization-server") => {
             http_response("200 OK", &meta_8414.to_string())
         }
         ("POST", "/register") => {
@@ -100,11 +87,7 @@ fn route(st: &Arc<Mutex<State>>, port: u16, request_line: &str, headers: &str, b
             if body.contains("grant_type=refresh_token") && refresh_outcome == RefreshOutcome::Reject {
                 return http_response("400 Bad Request", &json!({ "error": "invalid_grant" }).to_string());
             }
-            let access = if body.contains("grant_type=refresh_token") {
-                refresh_access
-            } else {
-                "code-access".to_string()
-            };
+            let access = if body.contains("grant_type=refresh_token") { refresh_access } else { "code-access".to_string() };
             let out = json!({ "access_token": access, "refresh_token": "rt2", "expires_in": 3600 });
             http_response("200 OK", &out.to_string())
         }
@@ -132,10 +115,12 @@ fn route(st: &Arc<Mutex<State>>, port: u16, request_line: &str, headers: &str, b
                     "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } } }
                 } ] }),
                 "tools/call" => json!({ "content": [ { "type": "text", "text": "pong" } ] }),
-                _ => return http_response(
-                    "200 OK",
-                    &json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "no method" } }).to_string(),
-                ),
+                _ => {
+                    return http_response(
+                        "200 OK",
+                        &json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "no method" } }).to_string(),
+                    );
+                }
             };
             http_response("200 OK", &json!({ "jsonrpc": "2.0", "id": id, "result": result }).to_string())
         }
@@ -147,11 +132,7 @@ fn route(st: &Arc<Mutex<State>>, port: u16, request_line: &str, headers: &str, b
 fn start_mock(serve_prm: bool) -> Mock {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let state = Arc::new(Mutex::new(State {
-        serve_prm,
-        accepted_token: "initial".into(),
-        ..Default::default()
-    }));
+    let state = Arc::new(Mutex::new(State { serve_prm, accepted_token: "initial".into(), ..Default::default() }));
     let st = state.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming() {
@@ -171,11 +152,7 @@ fn start_mock(serve_prm: bool) -> Mock {
             }
             let content_length = headers
                 .lines()
-                .find_map(|l| {
-                    l.to_ascii_lowercase()
-                        .strip_prefix("content-length:")
-                        .and_then(|v| v.trim().parse::<usize>().ok())
-                })
+                .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse::<usize>().ok()))
                 .unwrap_or(0);
             let mut body = vec![0u8; content_length];
             let _ = reader.read_exact(&mut body);
@@ -187,18 +164,13 @@ fn start_mock(serve_prm: bool) -> Mock {
 }
 
 fn http_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .unwrap()
+    reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap()
 }
 
 #[tokio::test]
 async fn discovery_prefers_prm_over_8414() {
     let mock = start_mock(true);
-    let meta = oauth::discover(&http_client(), &format!("{}/mcp", mock.origin), None, Guard::Bypassed)
-        .await
-        .expect("PRM 链应发现成功");
+    let meta = oauth::discover(&http_client(), &format!("{}/mcp", mock.origin), None, Guard::Bypassed).await.expect("PRM 链应发现成功");
     assert!(meta.token_endpoint.ends_with("/token-prm"), "PRM 链的 AS 元数据优先: {meta:?}");
     let hits = mock.state.lock().unwrap().hits.clone();
     assert_eq!(hits[0], "GET /.well-known/oauth-protected-resource/mcp", "path-scoped PRM 必须先探: {hits:?}");
@@ -213,9 +185,7 @@ async fn discovery_prefers_prm_over_8414() {
 #[tokio::test]
 async fn discovery_falls_back_to_8414() {
     let mock = start_mock(false);
-    let meta = oauth::discover(&http_client(), &format!("{}/mcp", mock.origin), None, Guard::Bypassed)
-        .await
-        .expect("8414 回落应发现成功");
+    let meta = oauth::discover(&http_client(), &format!("{}/mcp", mock.origin), None, Guard::Bypassed).await.expect("8414 回落应发现成功");
     assert!(meta.token_endpoint.ends_with("/token-8414"), "PRM 404 后回落 8414: {meta:?}");
     let hits = mock.state.lock().unwrap().hits.clone();
     let last_prm = hits.iter().rposition(|h| h.contains("oauth-protected-resource")).unwrap();
@@ -232,10 +202,7 @@ async fn dcr_skipped_when_client_id_configured() {
         url: url.clone(),
         transport: RemoteKind::Http,
         headers: HashMap::new(),
-        oauth: Some(OAuthConfig {
-            client_id: Some("cfg-client".into()),
-            ..Default::default()
-        }),
+        oauth: Some(OAuthConfig { client_id: Some("cfg-client".into()), ..Default::default() }),
     };
     let session = oauth_flow::prepare_login(&with_id, Guard::Bypassed).await.unwrap();
     assert!(session.authorize_url.contains("client_id=cfg-client"), "配置 clientId 直接用: {}", session.authorize_url);
@@ -258,8 +225,7 @@ fn pkce_s256_state_and_callback_id() {
     use sha2::Digest;
     let pkce = oauth::pkce();
     assert_eq!(pkce.verifier.len(), 43, "32 字节 base64url 必为 43 字符");
-    let expect = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(sha2::Sha256::digest(pkce.verifier.as_bytes()));
+    let expect = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(pkce.verifier.as_bytes()));
     assert_eq!(pkce.challenge, expect, "challenge 必须是 verifier 的 S256");
     assert_eq!(oauth::random_state().len(), 22, "16 字节 base64url 必为 22 字符");
     assert_eq!(oauth::callback_id("https://x.example/mcp").len(), 12, "9 字节 base64url 必为 12 字符");
@@ -279,9 +245,7 @@ fn pkce_s256_state_and_callback_id() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn callback_exact_path_code_state_then_404() {
     let (listener, port) = oauth_flow::bind_callback(None).await.unwrap();
-    let task = tokio::spawn(async move {
-        oauth_flow::wait_callback(&listener, "/callback/abc", std::time::Duration::from_secs(5)).await
-    });
+    let task = tokio::spawn(async move { oauth_flow::wait_callback(&listener, "/callback/abc", std::time::Duration::from_secs(5)).await });
     // 错 path：404 且继续等
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
     s.write_all(b"GET /wrong HTTP/1.1\r\nhost: x\r\n\r\n").unwrap();
@@ -304,9 +268,7 @@ async fn callback_exact_path_code_state_then_404() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn callback_error_params_and_timeout() {
     let (listener, port) = oauth_flow::bind_callback(None).await.unwrap();
-    let task = tokio::spawn(async move {
-        oauth_flow::wait_callback(&listener, "/callback/abc", std::time::Duration::from_secs(5)).await
-    });
+    let task = tokio::spawn(async move { oauth_flow::wait_callback(&listener, "/callback/abc", std::time::Duration::from_secs(5)).await });
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
     s.write_all(b"GET /callback/abc?error=access_denied&error_description=nope HTTP/1.1\r\nhost: x\r\n\r\n").unwrap();
     let cb = task.await.unwrap().unwrap();
@@ -315,9 +277,7 @@ async fn callback_error_params_and_timeout() {
     assert!(cb.code.is_none());
 
     let (listener, _) = oauth_flow::bind_callback(None).await.unwrap();
-    let err = oauth_flow::wait_callback(&listener, "/callback/abc", std::time::Duration::from_millis(50))
-        .await
-        .unwrap_err();
+    let err = oauth_flow::wait_callback(&listener, "/callback/abc", std::time::Duration::from_millis(50)).await.unwrap_err();
     assert!(err.contains("超时"), "短超时必须报超时: {err}");
 }
 
@@ -371,7 +331,13 @@ async fn exchange_code_posts_expected_form() {
     assert!(grant.expires_at.is_some(), "expires_in 必须折算 expires_at");
     let forms = mock.state.lock().unwrap().token_forms.clone();
     let body = &forms[0];
-    for needle in ["grant_type=authorization_code", "code=code-1", "client_id=cid", "code_verifier=verifier-1", "redirect_uri=http%3A%2F%2F127.0.0.1%3A9%2Fcallback%2Fab"] {
+    for needle in [
+        "grant_type=authorization_code",
+        "code=code-1",
+        "client_id=cid",
+        "code_verifier=verifier-1",
+        "redirect_uri=http%3A%2F%2F127.0.0.1%3A9%2Fcallback%2Fab",
+    ] {
         assert!(body.contains(needle), "token 请求缺 {needle}: {body}");
     }
 }
@@ -389,14 +355,17 @@ async fn http_401_refresh_retry_then_needs_auth() {
     let endpoint = format!("{}/token-8414", mock.origin);
     let store = TokenStore::new(store_path.clone());
     store
-        .save_token("web", &StoredToken {
-            access_token: "stale-1".into(),
-            refresh_token: Some("rt1".into()),
-            expires_at: None,
-            client_id: "cid".into(),
-            client_secret: None,
-            token_endpoint: endpoint,
-        })
+        .save_token(
+            "web",
+            &StoredToken {
+                access_token: "stale-1".into(),
+                refresh_token: Some("rt1".into()),
+                expires_at: None,
+                client_id: "cid".into(),
+                client_secret: None,
+                token_endpoint: endpoint,
+            },
+        )
         .unwrap();
     {
         let mut s = mock.state.lock().unwrap();

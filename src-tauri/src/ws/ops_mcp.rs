@@ -49,9 +49,7 @@ async fn mcp_auth(params: &Value, app: &AppHandle) -> Result<Value, String> {
                 bus.publish(kxen_app::core::event::Event::Notification(note));
             }
             Err(e) => {
-                bus.publish(kxen_app::core::event::Event::Notification(format!(
-                    "MCP server {server} 认证失败: {e}"
-                )));
+                bus.publish(kxen_app::core::event::Event::Notification(format!("MCP server {server} 认证失败: {e}")));
             }
         }
     });

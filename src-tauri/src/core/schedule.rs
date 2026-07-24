@@ -60,10 +60,7 @@ fn persist() {
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 /// 解析 cron 并算下一次触发（本地时区）。cron crate 需秒位：5 字段标准 crontab 自动补 0 秒。
@@ -74,11 +71,7 @@ pub fn next_fire_of(expr: &str, after_ms: u64) -> Result<u64, String> {
     };
     let schedule = normalized.parse::<cron::Schedule>().map_err(|e| format!("cron 表达式无效: {e}"))?;
     let after = chrono_from_ms(after_ms);
-    schedule
-        .after(&after)
-        .next()
-        .map(|t| (t.timestamp_millis()) as u64)
-        .ok_or_else(|| "cron 无可触发时间".to_string())
+    schedule.after(&after).next().map(|t| (t.timestamp_millis()) as u64).ok_or_else(|| "cron 无可触发时间".to_string())
 }
 
 fn chrono_from_ms(ms: u64) -> chrono::DateTime<chrono::Local> {

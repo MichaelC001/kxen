@@ -1,6 +1,6 @@
 // MCP 端到端：本地 bash echo server（行分隔 JSON-RPC）跑通 start/status/tools/call/restart 全链路。
-use kxen_app::mcp::config::{ServerConfig, StdioConfig};
 use kxen_app::mcp::McpManager;
+use kxen_app::mcp::config::{ServerConfig, StdioConfig};
 use std::collections::HashMap;
 
 // 注意：serde_json 紧凑序列化无空格，sed 模式按无空格匹配

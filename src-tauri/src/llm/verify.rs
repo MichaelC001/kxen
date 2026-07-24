@@ -13,7 +13,12 @@ pub struct VerifyOutcome {
 }
 
 /// 发一条真实 ping：首个有效 delta 即判活；Error/超时即判死（带原始错误文案）。
-pub async fn verify_provider(store: &crate::auth::credential::AuthStore, provider: &str, account: Option<&str>, model: Option<&str>) -> VerifyOutcome {
+pub async fn verify_provider(
+    store: &crate::auth::credential::AuthStore,
+    provider: &str,
+    account: Option<&str>,
+    model: Option<&str>,
+) -> VerifyOutcome {
     let model_id = model.map(String::from).or_else(|| {
         if let Some(name) = provider.strip_prefix("custom:") {
             let cfg = crate::core::config::Config::load(&crate::core::paths::config_dir().join("config.toml"), None).unwrap_or_default();
@@ -34,7 +39,12 @@ pub async fn verify_provider(store: &crate::auth::credential::AuthStore, provide
     let result = tokio::time::timeout(std::time::Duration::from_secs(20), async {
         while let Some(delta) = stream.next().await {
             match delta {
-                Delta::Text(_) | Delta::Reasoning(_) | Delta::Usage { .. } | Delta::Done | Delta::ToolFragments(_) | Delta::ToolCall { .. } => return Ok(()),
+                Delta::Text(_)
+                | Delta::Reasoning(_)
+                | Delta::Usage { .. }
+                | Delta::Done
+                | Delta::ToolFragments(_)
+                | Delta::ToolCall { .. } => return Ok(()),
                 Delta::Error(e) => return Err(e),
             }
         }

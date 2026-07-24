@@ -30,11 +30,7 @@ fn ensure_repo(workdir: &Path) -> Result<(), String> {
     }
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     // init 不带 --work-tree（init 不接受该参数）；后续操作才走 --git-dir/--work-tree
-    let out = std::process::Command::new("git")
-        .args(["init", "--bare"])
-        .arg(&dir)
-        .output()
-        .map_err(|e| format!("git spawn: {e}"))?;
+    let out = std::process::Command::new("git").args(["init", "--bare"]).arg(&dir).output().map_err(|e| format!("git spawn: {e}"))?;
     if !out.status.success() {
         return Err(format!("git init: {}", String::from_utf8_lossy(&out.stderr)));
     }
@@ -45,8 +41,18 @@ fn ensure_repo(workdir: &Path) -> Result<(), String> {
 /// shadow repo 无需签名；全局开着 gpgsign（如本机 1Password op-ssh-sign）时测试环境没有可用签名程序，commit 会直接失败
 fn commit_args(label: &str) -> [&str; 12] {
     [
-        "-c", "user.name=kxen", "-c", "user.email=kxen@app", "-c", "commit.gpgsign=false",
-        "commit", "--allow-empty-message", "--no-verify", "-q", "-m", label,
+        "-c",
+        "user.name=kxen",
+        "-c",
+        "user.email=kxen@app",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--allow-empty-message",
+        "--no-verify",
+        "-q",
+        "-m",
+        label,
     ]
 }
 
@@ -109,9 +115,7 @@ pub fn is_dirty(workdir: &Path) -> bool {
     }
     let mut args = vec!["status", "--porcelain", "--", "."];
     args.extend(EXCLUDES);
-    git(workdir, &args)
-        .map(|out| !String::from_utf8_lossy(&out.stdout).trim().is_empty())
-        .unwrap_or(false)
+    git(workdir, &args).map(|out| !String::from_utf8_lossy(&out.stdout).trim().is_empty()).unwrap_or(false)
 }
 
 /// checkpoint 屏障：用户消息落盘后、run_turn 前等 shadow git commit 完成。

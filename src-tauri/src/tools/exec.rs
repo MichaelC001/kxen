@@ -1,9 +1,9 @@
 //! exec 工具：type 必填 + 方言校验 + safety 拦截 + 快照 shell 执行 + auto_bg。
 
-use crate::tools::safety::{evaluate_shell_command, Verdict};
-use crate::tools::shell::{wrap_command, ShellKind};
-use crate::tools::task::{append_capped, task_id, TaskHandle, TaskRegistry};
-use crate::core::shared::{lock, SharedStr};
+use crate::core::shared::{SharedStr, lock};
+use crate::tools::safety::{Verdict, evaluate_shell_command};
+use crate::tools::shell::{ShellKind, wrap_command};
+use crate::tools::task::{TaskHandle, TaskRegistry, append_capped, task_id};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -46,9 +46,7 @@ pub enum ExecError {
 /// 方言校验（命中即拒绝 + 纠正文案）。
 pub fn validate_dialect(kind: ShellKind, command: &str) -> Result<(), ExecError> {
     let hint = match kind {
-        ShellKind::Fish if command.contains("export ") => {
-            Some("fish has no `export`. Use `set -x NAME value`.")
-        }
+        ShellKind::Fish if command.contains("export ") => Some("fish has no `export`. Use `set -x NAME value`."),
         ShellKind::Zsh if command.contains("[0]") => Some("zsh arrays are 1-indexed, not 0-indexed."),
         _ => None,
     };
@@ -113,7 +111,12 @@ pub async fn safety_gate(command: &str, cwd: &str, approval: Option<&ApprovalCtx
     }
 }
 
-pub async fn exec(params: ExecParams, registry: &Arc<TaskRegistry>, cwd: &str, approval: Option<&ApprovalCtx<'_>>) -> Result<ExecOutcome, ExecError> {
+pub async fn exec(
+    params: ExecParams,
+    registry: &Arc<TaskRegistry>,
+    cwd: &str,
+    approval: Option<&ApprovalCtx<'_>>,
+) -> Result<ExecOutcome, ExecError> {
     validate_dialect(params.shell_type, &params.command)?;
 
     let workdir: std::borrow::Cow<'_, str> = if params.path.starts_with('/') {
@@ -220,10 +223,7 @@ pub async fn spawn_task(
         workdir: SharedStr::from(workdir),
         output: output.clone(),
         truncated: truncated.clone(),
-        started_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0),
+        started_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
         pid,
         exit_code: exit_code.clone(),
         child: Arc::new(Mutex::new(None)),

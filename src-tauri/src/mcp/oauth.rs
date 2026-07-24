@@ -35,9 +35,7 @@ pub fn callback_id(server_url: &str) -> String {
 fn rand_urlsafe(bytes: usize) -> String {
     use std::io::Read;
     let mut buf = vec![0u8; bytes];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut buf))
-        .expect("read /dev/urandom for oauth");
+    std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut buf)).expect("read /dev/urandom for oauth");
     URL_SAFE_NO_PAD.encode(&buf)
 }
 
@@ -75,8 +73,7 @@ pub fn authorize_url(
     challenge: &str,
     scopes: Option<&str>,
 ) -> Result<String, String> {
-    let mut url = reqwest::Url::parse(&meta.authorization_endpoint)
-        .map_err(|e| format!("invalid authorization_endpoint: {e}"))?;
+    let mut url = reqwest::Url::parse(&meta.authorization_endpoint).map_err(|e| format!("invalid authorization_endpoint: {e}"))?;
     {
         let mut q = url.query_pairs_mut();
         q.append_pair("response_type", "code")
@@ -95,20 +92,14 @@ pub fn authorize_url(
 fn parse_meta(v: &Value, source: &str) -> Result<AuthServerMeta, String> {
     let get = |k: &str| v.get(k).and_then(|s| s.as_str()).map(String::from);
     Ok(AuthServerMeta {
-        authorization_endpoint: get("authorization_endpoint")
-            .ok_or_else(|| format!("{source}: missing authorization_endpoint"))?,
-        token_endpoint: get("token_endpoint")
-            .ok_or_else(|| format!("{source}: missing token_endpoint"))?,
+        authorization_endpoint: get("authorization_endpoint").ok_or_else(|| format!("{source}: missing authorization_endpoint"))?,
+        token_endpoint: get("token_endpoint").ok_or_else(|| format!("{source}: missing token_endpoint"))?,
         registration_endpoint: get("registration_endpoint"),
     })
 }
 
 /// discovery GET：2xx 给 body；其余（404/5xx/网络错）一律 None 让候选链继续。
-async fn get_json(
-    http: &reqwest::Client,
-    url: &str,
-    guard: Guard,
-) -> Result<Option<Value>, String> {
+async fn get_json(http: &reqwest::Client, url: &str, guard: Guard) -> Result<Option<Value>, String> {
     if guard == Guard::Enforced {
         crate::tools::net_guard::check_url(url).await?;
     }
@@ -144,9 +135,7 @@ pub async fn discover(
     guard: Guard,
 ) -> Result<AuthServerMeta, String> {
     if let Some(u) = metadata_override {
-        let v = get_json(http, u, guard)
-            .await?
-            .ok_or_else(|| format!("oauth metadata override {u} 不可达"))?;
+        let v = get_json(http, u, guard).await?.ok_or_else(|| format!("oauth metadata override {u} 不可达"))?;
         return parse_meta(&v, u);
     }
     let parsed = reqwest::Url::parse(server_url).map_err(|e| format!("invalid server url: {e}"))?;
@@ -164,11 +153,7 @@ pub async fn discover(
     as_meta.push(root("oauth-authorization-server"));
     for url in prm {
         let Some(v) = get_json(http, &url, guard).await? else { continue };
-        let Some(issuer) = v
-            .get("authorization_servers")
-            .and_then(|a| a.as_array())
-            .and_then(|a| a.first())
-            .and_then(|s| s.as_str())
+        let Some(issuer) = v.get("authorization_servers").and_then(|a| a.as_array()).and_then(|a| a.first()).and_then(|s| s.as_str())
         else {
             continue;
         };
@@ -208,10 +193,7 @@ pub async fn register(
     redirect_uri: &str,
     guard: Guard,
 ) -> Result<(String, Option<String>), String> {
-    let endpoint = meta
-        .registration_endpoint
-        .as_deref()
-        .ok_or("authorization server 不支持动态注册，请在 oauth.clientId 显式配置")?;
+    let endpoint = meta.registration_endpoint.as_deref().ok_or("authorization server 不支持动态注册，请在 oauth.clientId 显式配置")?;
     if guard == Guard::Enforced {
         crate::tools::net_guard::check_url(endpoint).await?;
     }
@@ -222,24 +204,13 @@ pub async fn register(
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
     });
-    let resp = http
-        .post(endpoint)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("oauth register {endpoint}: {e}"))?;
+    let resp = http.post(endpoint).json(&body).send().await.map_err(|e| format!("oauth register {endpoint}: {e}"))?;
     let status = resp.status();
     if !status.is_success() {
         let text: String = resp.text().await.unwrap_or_default().chars().take(200).collect();
         return Err(format!("oauth register http {status}: {text}"));
     }
     let v = resp.json::<Value>().await.map_err(|e| format!("oauth register bad json: {e}"))?;
-    let client_id = v
-        .get("client_id")
-        .and_then(|s| s.as_str())
-        .ok_or("oauth register response missing client_id")?;
-    Ok((
-        client_id.to_string(),
-        v.get("client_secret").and_then(|s| s.as_str()).map(String::from),
-    ))
+    let client_id = v.get("client_id").and_then(|s| s.as_str()).ok_or("oauth register response missing client_id")?;
+    Ok((client_id.to_string(), v.get("client_secret").and_then(|s| s.as_str()).map(String::from)))
 }

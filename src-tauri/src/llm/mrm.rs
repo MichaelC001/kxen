@@ -53,7 +53,12 @@ impl Resolved {
 
 impl ModelResourceManager {
     pub fn new(config: Config) -> Self {
-        Self { config, semaphores: Mutex::new(HashMap::new()), rpm_windows: Mutex::new(HashMap::new()), history: Mutex::new(std::collections::VecDeque::new()) }
+        Self {
+            config,
+            semaphores: Mutex::new(HashMap::new()),
+            rpm_windows: Mutex::new(HashMap::new()),
+            history: Mutex::new(std::collections::VecDeque::new()),
+        }
     }
 
     pub fn role(&self, role: &str) -> Option<&RoleBinding> {
@@ -120,7 +125,12 @@ impl ModelResourceManager {
 
     /// 同 provider 换账号（与 resolve 同一可用性判断；run.rs 重试换账号专用）。
     /// 与 resolve 不同：不记录派发历史、不走角色链，只在同 provider 账号池内找下一个可用的。
-    pub async fn rotate_account(&self, provider: &str, store: &crate::auth::credential::AuthStore, current: Option<&str>) -> Option<String> {
+    pub async fn rotate_account(
+        &self,
+        provider: &str,
+        store: &crate::auth::credential::AuthStore,
+        current: Option<&str>,
+    ) -> Option<String> {
         let effective = current.unwrap_or("default");
         for key in crate::auth::credential::accounts_of(store, provider) {
             let name = key.strip_prefix(&format!("{provider}:")).map(String::from).unwrap_or_else(|| "default".into());
@@ -207,12 +217,7 @@ impl ModelResourceManager {
     fn limit_of(&self, key: &str) -> u32 {
         // key 可为账号槽位键（provider:account）：取 provider 段的限额配置
         let provider = key.split(':').next().unwrap_or(key);
-        self.config
-            .limits
-            .providers
-            .get(provider)
-            .and_then(|l| l.concurrent)
-            .unwrap_or(self.config.limits.global_concurrent.max(1))
+        self.config.limits.providers.get(provider).and_then(|l| l.concurrent).unwrap_or(self.config.limits.global_concurrent.max(1))
     }
 
     pub async fn available(&self, provider: &str) -> bool {
@@ -226,10 +231,7 @@ impl ModelResourceManager {
         let key = crate::auth::credential::account_id(provider, account.unwrap_or("default"));
         self.wait_rpm(&key).await;
         let sem = self.semaphore_for(provider).await;
-        let permit_provider = sem
-            .acquire_owned()
-            .await
-            .expect("semaphore closed");
+        let permit_provider = sem.acquire_owned().await.expect("semaphore closed");
         // 全局并发（用 global_concurrent 总量的独立 semaphore）
         let global = self.semaphore_for("").await;
         let permit_global = global.acquire_owned().await.expect("semaphore closed");

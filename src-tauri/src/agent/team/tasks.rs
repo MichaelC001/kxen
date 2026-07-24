@@ -4,9 +4,9 @@ use crate::core::shared::lock;
 use serde_json::json;
 use std::sync::Arc;
 
+use super::TeamState;
 use super::inbox::append_inbox;
 use super::types::{TeamTask, TeamTaskStatus};
-use super::TeamState;
 
 pub(super) fn create_task(state: &Arc<TeamState>, title: &str, depends_on: Vec<u64>) -> TeamTask {
     let id = state.next_task_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -19,9 +19,10 @@ pub(super) fn create_task(state: &Arc<TeamState>, title: &str, depends_on: Vec<u
 pub(super) fn claim_task(state: &Arc<TeamState>, who: &str) -> Result<String, String> {
     let mut tasks = lock(&state.tasks);
     let done: Vec<u64> = tasks.iter().filter(|t| t.status == TeamTaskStatus::Completed).map(|t| t.id).collect();
-    let Some(task) = tasks.iter_mut().find(|t| {
-        t.status == TeamTaskStatus::Pending && t.assignee.is_none() && t.depends_on.iter().all(|d| done.contains(d))
-    }) else {
+    let Some(task) = tasks
+        .iter_mut()
+        .find(|t| t.status == TeamTaskStatus::Pending && t.assignee.is_none() && t.depends_on.iter().all(|d| done.contains(d)))
+    else {
         return Err("no claimable task (all claimed or blocked by dependencies)".into());
     };
     task.status = TeamTaskStatus::InProgress;
@@ -52,13 +53,11 @@ pub(super) async fn complete_task(state: &Arc<TeamState>, who: &str, id: u64) ->
     persist_tasks(state);
     // task_completed hook：exit 非零 = 打回（回滚 in_progress + 反馈给完成者 inbox）
     if let Some(hooks) = &state.deps.hooks {
-        let appr = crate::tools::exec::ApprovalCtx::new(
-            state.deps.approvals.as_deref(),
-            Some(&state.bus),
-            None,
-            Some(&state.session_id),
-        );
-        if let Err(feedback) = hooks.run_named_with_approval("task_completed", &title, &json!({ "task_id": id, "title": title, "assignee": who }), appr.as_ref()).await {
+        let appr = crate::tools::exec::ApprovalCtx::new(state.deps.approvals.as_deref(), Some(&state.bus), None, Some(&state.session_id));
+        if let Err(feedback) = hooks
+            .run_named_with_approval("task_completed", &title, &json!({ "task_id": id, "title": title, "assignee": who }), appr.as_ref())
+            .await
+        {
             if let Some(task) = lock(&state.tasks).iter_mut().find(|t| t.id == id) {
                 task.status = TeamTaskStatus::InProgress;
             }
@@ -172,7 +171,9 @@ mod tests {
             registry: Arc::new(crate::tools::task::TaskRegistry::new()),
             fallback_workdir: Arc::from(Path::new("/tmp")),
             store: Arc::new(std::sync::Mutex::new(crate::auth::credential::AuthStore::default())),
-            mrm: Arc::new(std::sync::RwLock::new(Arc::new(crate::llm::mrm::ModelResourceManager::new(crate::core::config::Config::default())))),
+            mrm: Arc::new(std::sync::RwLock::new(Arc::new(crate::llm::mrm::ModelResourceManager::new(
+                crate::core::config::Config::default(),
+            )))),
             hooks: None,
             extras: Arc::new(crate::agent::agent_loop::SessionExtrasRegistry::default()),
             agents: Arc::new(crate::agent::activity::AgentRegistry::default()),

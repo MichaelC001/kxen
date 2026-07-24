@@ -7,16 +7,8 @@ pub(crate) enum CronDispatch {
     Enqueue,
 }
 
-pub(crate) fn cron_dispatch(
-    has_active_run: bool,
-    has_queued: bool,
-    dispatched_this_batch: bool,
-) -> CronDispatch {
-    if has_active_run || has_queued || dispatched_this_batch {
-        CronDispatch::Enqueue
-    } else {
-        CronDispatch::Spawn
-    }
+pub(crate) fn cron_dispatch(has_active_run: bool, has_queued: bool, dispatched_this_batch: bool) -> CronDispatch {
+    if has_active_run || has_queued || dispatched_this_batch { CronDispatch::Enqueue } else { CronDispatch::Spawn }
 }
 
 #[cfg(test)]

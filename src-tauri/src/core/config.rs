@@ -65,12 +65,7 @@ pub struct VoiceConfig {
 
 impl Default for VoiceConfig {
     fn default() -> Self {
-        Self {
-            engine: "apple".into(),
-            fallback: vec![],
-            locale: "zh-CN".into(),
-            transcribe_model: "whisper-1".into(),
-        }
+        Self { engine: "apple".into(), fallback: vec![], locale: "zh-CN".into(), transcribe_model: "whisper-1".into() }
     }
 }
 
@@ -101,9 +96,7 @@ pub struct StatuslineConfig {
 
 impl Default for StatuslineConfig {
     fn default() -> Self {
-        Self {
-            items: ["workdir", "git", "goal", "tasks", "tokens", "ctx", "model"].iter().map(|s| s.to_string()).collect(),
-        }
+        Self { items: ["workdir", "git", "goal", "tasks", "tokens", "ctx", "model"].iter().map(|s| s.to_string()).collect() }
     }
 }
 
@@ -116,10 +109,7 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        Self {
-            global_concurrent: 8,
-            providers: HashMap::new(),
-        }
+        Self { global_concurrent: 8, providers: HashMap::new() }
     }
 }
 
@@ -186,10 +176,9 @@ mod tests {
 
     #[test]
     fn merge_voice_engine_keeps_other_voice_keys() {
-        let mut doc: toml::Table = toml::from_str(
-            "[voice]\nengine = \"apple\"\nfallback = [\"openai\"]\nlocale = \"en-US\"\ntranscribe_model = \"whisper-1\"\n",
-        )
-        .expect("fixture toml");
+        let mut doc: toml::Table =
+            toml::from_str("[voice]\nengine = \"apple\"\nfallback = [\"openai\"]\nlocale = \"en-US\"\ntranscribe_model = \"whisper-1\"\n")
+                .expect("fixture toml");
         merge_voice_engine(&mut doc, "openai", &["xai".to_string()]);
         let voice = doc["voice"].as_table().expect("voice table");
         assert_eq!(voice["engine"].as_str(), Some("openai"));

@@ -11,9 +11,7 @@ pub fn config_dir() -> PathBuf {
 
 /// ~/Library/Application Support/kxen（数据：goals、sessions、auth.json）
 pub fn data_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("~/Library/Application Support"))
-        .join(APP_DIR)
+    dirs::data_dir().unwrap_or_else(|| PathBuf::from("~/Library/Application Support")).join(APP_DIR)
 }
 
 /// ~/Library/Caches/kxen

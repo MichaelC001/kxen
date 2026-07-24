@@ -256,7 +256,9 @@ export default function Settings() {
                           {(u) => (
                             <div class="mt-1 flex items-center gap-2 pl-4">
                               <span class="text-[var(--text-dim)]">浏览器未打开，请手动访问：</span>
-                              <code class="flex-1 truncate text-[var(--text)] select-all">{u()}</code>
+                              <code class="flex-1 truncate text-[var(--text)] select-all">
+                                {u()}
+                              </code>
                               <button
                                 class="pressable px-2 py-0.5 rounded border border-[var(--border)] text-[var(--text)]"
                                 onClick={() => void navigator.clipboard.writeText(u())}

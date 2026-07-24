@@ -55,14 +55,9 @@ pub fn snapshots() -> &'static std::collections::HashMap<ShellKind, ShellSnapsho
         let mut map = std::collections::HashMap::new();
         for kind in [ShellKind::Zsh, ShellKind::Bash, ShellKind::Fish] {
             // fish 未安装时 output() 直接 Err -> 空快照，不影响其它 shell
-            let output = std::process::Command::new(kind.binary())
-                .args(["-lic", &kind.capture_script()])
-                .output();
-            let snapshot = output
-                .ok()
-                .filter(|o| o.status.success())
-                .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-                .unwrap_or_default();
+            let output = std::process::Command::new(kind.binary()).args(["-lic", &kind.capture_script()]).output();
+            let snapshot =
+                output.ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
             map.insert(kind, ShellSnapshot { kind, snapshot });
         }
         map

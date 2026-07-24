@@ -13,33 +13,24 @@ fn ctx_file(path: &str) -> kxen_app::agent::context::ContextItem {
 }
 
 fn img() -> kxen_app::llm::types::ImagePart {
-    kxen_app::llm::types::ImagePart {
-        media_type: "image/png".into(),
-        data: "aGVsbG8=".into(),
-    }
+    kxen_app::llm::types::ImagePart { media_type: "image/png".into(), data: "aGVsbG8=".into() }
 }
 
 #[test]
 fn enqueue_persists_and_pop_rewrites() {
     let dir = tmp_dir("rw");
     let q = PendingQueues::new(dir.clone());
-    assert_eq!(
-        q.enqueue("s1", "第一条".into(), vec![ctx_file("a.rs")], vec![img()]),
-        1
-    );
+    assert_eq!(q.enqueue("s1", "第一条".into(), vec![ctx_file("a.rs")], vec![img()]), 1);
     assert_eq!(q.enqueue("s1", "第二条".into(), vec![], vec![]), 2);
     assert!(file_path(&dir, "s1").exists(), "入队必须落盘");
 
     // context/images 随条目完整往返
     let first = q.pop("s1").unwrap();
     assert_eq!(first.text, "第一条");
-    assert!(
-        matches!(first.context.first(), Some(kxen_app::agent::context::ContextItem::File { path }) if path == "a.rs")
-    );
+    assert!(matches!(first.context.first(), Some(kxen_app::agent::context::ContextItem::File { path }) if path == "a.rs"));
     assert_eq!(first.images.len(), 1);
     // 消费后重写：盘上只剩第二条
-    let on_disk: Vec<serde_json::Value> =
-        serde_json::from_str(&std::fs::read_to_string(file_path(&dir, "s1")).unwrap()).unwrap();
+    let on_disk: Vec<serde_json::Value> = serde_json::from_str(&std::fs::read_to_string(file_path(&dir, "s1")).unwrap()).unwrap();
     assert_eq!(on_disk.len(), 1);
     assert_eq!(on_disk[0]["text"], "第二条");
 
@@ -82,11 +73,7 @@ fn clear_removes_memory_and_disk() {
     q.enqueue("s1", "b".into(), vec![], vec![]);
     assert_eq!(q.clear("s1"), 2);
     assert!(!file_path(&dir, "s1").exists());
-    assert_eq!(
-        q.restore(),
-        Vec::<String>::new(),
-        "clear 后恢复不得再带出队列"
-    );
+    assert_eq!(q.restore(), Vec::<String>::new(), "clear 后恢复不得再带出队列");
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -95,16 +82,8 @@ fn invalid_session_id_is_rejected_before_disk() {
     let dir = tmp_dir("badid");
     let before = std::fs::read_dir(&dir).unwrap().count();
     let q = PendingQueues::new(dir.clone());
-    assert_eq!(
-        q.enqueue("../escape", "x".into(), vec![], vec![]),
-        0,
-        "路径穿越 id 必须拒"
-    );
+    assert_eq!(q.enqueue("../escape", "x".into(), vec![], vec![]), 0, "路径穿越 id 必须拒");
     assert!(!q.has_queued("../escape"));
-    assert_eq!(
-        std::fs::read_dir(&dir).unwrap().count(),
-        before,
-        "拒绝发生在落盘之前"
-    );
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), before, "拒绝发生在落盘之前");
     std::fs::remove_dir_all(&dir).ok();
 }

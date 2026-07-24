@@ -26,10 +26,8 @@ pub const XAI: &[StaticModel] = &[
     m("grok-build-0.1", "Grok Build 0.1", 256_000, true, true),
 ];
 
-pub const KIMI_CODING: &[StaticModel] = &[
-    m("k3", "Kimi K3", 1_048_576, true, false),
-    m("kimi-for-coding", "Kimi K2.7 Code", 262_144, true, true),
-];
+pub const KIMI_CODING: &[StaticModel] =
+    &[m("k3", "Kimi K3", 1_048_576, true, false), m("kimi-for-coding", "Kimi K2.7 Code", 262_144, true, true)];
 
 pub const OPENROUTER: &[StaticModel] = &[
     m("anthropic/claude-opus-4.8", "Claude Opus 4.8 (OpenRouter)", 1_000_000, true, true),
@@ -118,15 +116,10 @@ pub const STEPFUN: &[StaticModel] = &[
     m("step-2-16k", "Step 2 16K", 16_384, false, false),
 ];
 
-pub const YI: &[StaticModel] = &[
-    m("yi-lightning", "Yi Lightning", 16_384, false, false),
-    m("yi-large", "Yi Large", 32_768, false, false),
-];
+pub const YI: &[StaticModel] = &[m("yi-lightning", "Yi Lightning", 16_384, false, false), m("yi-large", "Yi Large", 32_768, false, false)];
 
-pub const HUNYUAN: &[StaticModel] = &[
-    m("hunyuan-turbos-latest", "Hunyuan TurboS", 32_768, false, false),
-    m("hunyuan-t1-latest", "Hunyuan T1", 32_768, true, false),
-];
+pub const HUNYUAN: &[StaticModel] =
+    &[m("hunyuan-turbos-latest", "Hunyuan TurboS", 32_768, false, false), m("hunyuan-t1-latest", "Hunyuan T1", 32_768, true, false)];
 
 pub const QIANFAN: &[StaticModel] = &[
     m("ernie-4.5-turbo-128k", "ERNIE 4.5 Turbo 128K", 128_000, false, false),

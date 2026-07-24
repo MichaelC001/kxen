@@ -76,10 +76,7 @@ mod tests {
 
     #[test]
     fn summarize_extracts_salient_arg() {
-        assert_eq!(
-            summarize_args("exec", r#"{"command":"ls -la","path":"/x","type":"zsh"}"#),
-            "ls -la"
-        );
+        assert_eq!(summarize_args("exec", r#"{"command":"ls -la","path":"/x","type":"zsh"}"#), "ls -la");
         assert_eq!(summarize_args("read", r#"{"path":"/x/README.md"}"#), "/x/README.md");
         assert_eq!(summarize_args("glob", r#"{"pattern":"**/*.rs"}"#), "**/*.rs");
         assert_eq!(summarize_args("knowledge", r#"{"action":"add","description":"用 trash"}"#), "用 trash");

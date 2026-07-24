@@ -1,6 +1,7 @@
 //! worktree 隔离：git worktree 并行安全（批量迁移 / 并行修改）。
 //! worktree 放 `<repo>/.kxen/worktrees/<name>`（自动把 .kxen/ 写进 .gitignore），分支 `kxen/<name>`。
 
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -17,11 +18,7 @@ fn canon(repo: &Path) -> PathBuf {
 
 /// worktree 名白名单校验（与 file-backed id 同规则：杜绝路径穿越进 .kxen/worktrees/<name>）。
 pub fn validate_name(name: &str) -> Result<(), String> {
-    if crate::core::ids::is_valid_id(name) {
-        Ok(())
-    } else {
-        Err(format!("invalid worktree name: {name:?}"))
-    }
+    if crate::core::ids::is_valid_id(name) { Ok(()) } else { Err(format!("invalid worktree name: {name:?}")) }
 }
 
 /// 创建 worktree（已存在则直接复用）。
@@ -60,11 +57,7 @@ pub async fn remove_with_approval(
     let path = repo.join(".kxen").join("worktrees").join(name);
 
     // dirty 判定：worktree 内的 git status（未跟踪文件也算有改动可丢）
-    let dirty = if path.exists() {
-        !git(&path, &["status", "--porcelain"]).await?.trim().is_empty()
-    } else {
-        false
-    };
+    let dirty = if path.exists() { !git(&path, &["status", "--porcelain"]).await?.trim().is_empty() } else { false };
 
     if dirty || delete_branch {
         let mut command = format!("git worktree remove {name}");
@@ -135,6 +128,37 @@ pub async fn diff_stat(repo: &Path, name: &str) -> Result<String, String> {
     git(repo, &["diff", "--stat", &format!("kxen/{name}")]).await
 }
 
+/// worktree 工具路由（agent_loop 执行层拆出）：create/remove/list/diff 四动作。
+pub async fn tool_dispatch(repo: &Path, args: &Value, approval: Option<&crate::tools::exec::ApprovalCtx<'_>>) -> Result<String, String> {
+    match args.get("action").and_then(Value::as_str).ok_or("missing action")? {
+        "create" => {
+            let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?;
+            let info = create(repo, name).await?;
+            Ok(format!("worktree {} at {} (branch {})", info.name, info.path.display(), info.branch))
+        }
+        "remove" => {
+            let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?;
+            let delete_branch = args.get("delete_branch").and_then(Value::as_bool).unwrap_or(false);
+            remove_with_approval(repo, name, delete_branch, approval).await?;
+            Ok(format!("removed worktree {name}{}", if delete_branch { " (branch deleted)" } else { " (branch kept)" }))
+        }
+        "list" => {
+            let list = list(repo).await?;
+            Ok(if list.is_empty() {
+                "no kxen worktrees".into()
+            } else {
+                list.iter().map(|i| format!("{} -> {} ({})", i.name, i.path.display(), i.branch)).collect::<Vec<_>>().join("\n")
+            })
+        }
+        "diff" => {
+            let name = args.get("name").and_then(Value::as_str).ok_or("missing name")?;
+            let stat = diff_stat(repo, name).await?;
+            Ok(if stat.trim().is_empty() { "no changes on branch".into() } else { stat })
+        }
+        other => Err(format!("unknown worktree action: {other}")),
+    }
+}
+
 // ---------------- 通用 git 状态/diff（dock 改动面板数据源） ----------------
 
 #[derive(Debug, serde::Serialize)]
@@ -175,11 +199,7 @@ pub async fn diff_file(repo: &Path, path: &str) -> Result<String, String> {
         .await
         .map_err(|e| format!("git spawn: {e}"))?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
-    if text.trim().is_empty() {
-        Err("no diff (unchanged or not a file)".into())
-    } else {
-        Ok(text)
-    }
+    if text.trim().is_empty() { Err("no diff (unchanged or not a file)".into()) } else { Ok(text) }
 }
 
 /// .kxen/ 进 .gitignore（幂等）。
@@ -198,15 +218,14 @@ fn ensure_gitignore(repo: &Path) -> Result<(), String> {
 }
 
 async fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
-    let out = tokio::process::Command::new("git")
-        .args(args)
-        .current_dir(repo)
-        .output()
-        .await
-        .map_err(|e| format!("git spawn: {e}"))?;
+    let out = tokio::process::Command::new("git").args(args).current_dir(repo).output().await.map_err(|e| format!("git spawn: {e}"))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
-        Err(format!("git {} failed: {}", args.first().unwrap_or(&""), String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>()))
+        Err(format!(
+            "git {} failed: {}",
+            args.first().unwrap_or(&""),
+            String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>()
+        ))
     }
 }

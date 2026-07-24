@@ -5,25 +5,25 @@
 //! 端口启动时随机分配，前端经 ws_port command 获取。
 
 pub mod llm_task;
-pub mod pending;
-pub mod session_ops;
 mod ops;
 mod ops_mcp;
 mod ops_provider;
 mod ops_workspace;
+pub mod pending;
 pub mod protocol;
 mod rpc;
+pub mod session_ops;
 mod settings;
 mod stream;
 
 use futures::{SinkExt, StreamExt};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
 use tokio::net::{TcpListener, TcpStream};
-use tokio_tungstenite::tungstenite::http;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
+use tokio_tungstenite::tungstenite::http;
 
 use crate::AppState;
 use protocol::{Request, Response};
@@ -33,9 +33,7 @@ use protocol::{Request, Response};
 pub(crate) fn gen_ws_token() -> String {
     use std::io::Read;
     let mut buf = [0u8; 32];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut buf))
-        .expect("read /dev/urandom for ws token");
+    std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut buf)).expect("read /dev/urandom for ws token");
     buf.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -50,9 +48,7 @@ fn origin_allowed(origin: Option<&str>) -> bool {
 /// 握手 URI query 里的 ?token= 提取（token 是 hex，无需 URL decode）。
 fn token_from_query(uri: &str) -> Option<String> {
     let query = uri.split('?').nth(1)?;
-    query
-        .split('&')
-        .find_map(|pair| pair.strip_prefix("token=").map(String::from))
+    query.split('&').find_map(|pair| pair.strip_prefix("token=").map(String::from))
 }
 
 /// 全局流序号表（stream_id -> 已用 seq，跨连接共享保证单调）。

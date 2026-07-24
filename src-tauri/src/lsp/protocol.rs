@@ -19,9 +19,8 @@ impl FrameDecoder {
         loop {
             let Some(header_end) = find_subslice(&self.buf, b"\r\n\r\n") else { break };
             let header = String::from_utf8_lossy(&self.buf[..header_end]).to_string();
-            let Some(len) = header
-                .split("\r\n")
-                .find_map(|line| line.strip_prefix("Content-Length: ").and_then(|v| v.trim().parse::<usize>().ok()))
+            let Some(len) =
+                header.split("\r\n").find_map(|line| line.strip_prefix("Content-Length: ").and_then(|v| v.trim().parse::<usize>().ok()))
             else {
                 // 无长度头的帧无法恢复同步，丢弃到分隔符为止
                 self.buf.drain(..header_end + 4);

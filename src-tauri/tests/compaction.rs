@@ -11,10 +11,7 @@ fn tmp_dir(tag: &str) -> std::path::PathBuf {
 }
 
 fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
 }
 
 /// 带全结构 parts 的 assistant 消息：落在保留尾时 tool/image/reasoning 必须原样存活。
@@ -23,22 +20,15 @@ fn full_assistant(sid: &str, tag: &str) -> ses::Message {
         sid,
         Role::Assistant,
         vec![
-            Part::Reasoning {
-                text: format!("think-{tag}"),
-            },
+            Part::Reasoning { text: format!("think-{tag}") },
             Part::ToolCall {
                 name: "exec".into(),
                 input: serde_json::json!(format!("ls {tag}")),
                 output: format!("out-{tag}"),
                 args: Some(serde_json::json!({"command": format!("ls {tag}")})),
             },
-            Part::Image {
-                media_type: "image/png".into(),
-                data: "aGVsbG8=".into(),
-            },
-            Part::Text {
-                text: format!("done-{tag}"),
-            },
+            Part::Image { media_type: "image/png".into(), data: "aGVsbG8=".into() },
+            Part::Text { text: format!("done-{tag}") },
         ],
     )
 }
@@ -74,13 +64,7 @@ fn manual_compact_writes_checkpoint_and_preserves_tail() {
     let s = ses::create(&dir, "/tmp/work").unwrap();
     for i in 0..6 {
         // 蒸馏输入需 >1000 字符，fallback 摘要（首尾各 500）才比原文短
-        let u = ses::new_message(
-            &s.id,
-            Role::User,
-            vec![Part::Text {
-                text: format!("question-{i}-{}", "x".repeat(300)),
-            }],
-        );
+        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("question-{i}-{}", "x".repeat(300)) }]);
         ses::append_message(&dir, &u).unwrap();
         ses::append_message(&dir, &full_assistant(&s.id, &i.to_string())).unwrap();
     }
@@ -88,9 +72,7 @@ fn manual_compact_writes_checkpoint_and_preserves_tail() {
     let model = ModelRef::new("xai", "grok-build-0.1");
     let store = kxen_app::auth::credential::AuthStore::default();
     // 无凭证 -> 蒸馏走 fallback，检查点照样落盘
-    let (before, after) = rt()
-        .block_on(compact::compact_session(&dir, &s.id, &model, &store, 4))
-        .expect("12 条历史应可压缩");
+    let (before, after) = rt().block_on(compact::compact_session(&dir, &s.id, &model, &store, 4)).expect("12 条历史应可压缩");
     assert!(before > after, "压缩应显著减重: {before} -> {after}");
 
     // 原始 JSONL 一条不动（rewind 的 message id -> commit 体系不破坏）
@@ -103,23 +85,12 @@ fn manual_compact_writes_checkpoint_and_preserves_tail() {
     let view = ses::load_history(&dir, &s.id);
     assert_eq!(view.len(), 5);
     assert_eq!(view[0].role, Role::User);
-    let Part::Text { text } = &view[0].parts[0] else {
-        panic!("摘要应为 text part")
-    };
+    let Part::Text { text } = &view[0].parts[0] else { panic!("摘要应为 text part") };
     assert!(text.contains(ses::COMPACT_MARK));
     let tail_has = |f: fn(&Part) -> bool| view[1..].iter().any(|m| m.parts.iter().any(&f));
-    assert!(
-        tail_has(|p| matches!(p, Part::ToolCall { output, .. } if output == "out-5")),
-        "tool 调用原样保留"
-    );
-    assert!(
-        tail_has(|p| matches!(p, Part::Image { .. })),
-        "图片 part 原样保留"
-    );
-    assert!(
-        tail_has(|p| matches!(p, Part::Reasoning { .. })),
-        "reasoning part 原样保留"
-    );
+    assert!(tail_has(|p| matches!(p, Part::ToolCall { output, .. } if output == "out-5")), "tool 调用原样保留");
+    assert!(tail_has(|p| matches!(p, Part::Image { .. })), "图片 part 原样保留");
+    assert!(tail_has(|p| matches!(p, Part::Reasoning { .. })), "reasoning part 原样保留");
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -130,44 +101,22 @@ fn recompact_folds_prior_summary_and_advances() {
     let model = ModelRef::new("xai", "grok-build-0.1");
     let store = kxen_app::auth::credential::AuthStore::default();
     for i in 0..6 {
-        let u = ses::new_message(
-            &s.id,
-            Role::User,
-            vec![Part::Text {
-                text: format!("q{i}-{}", "y".repeat(200)),
-            }],
-        );
+        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("q{i}-{}", "y".repeat(200)) }]);
         ses::append_message(&dir, &u).unwrap();
     }
-    let c1 = rt()
-        .block_on(compact::compact_session(&dir, &s.id, &model, &store, 2))
-        .map(|_| ses::load_compaction(&dir, &s.id).unwrap());
+    let c1 = rt().block_on(compact::compact_session(&dir, &s.id, &model, &store, 2)).map(|_| ses::load_compaction(&dir, &s.id).unwrap());
     let c1 = c1.expect("首轮应可压缩");
     for i in 6..10 {
-        let u = ses::new_message(
-            &s.id,
-            Role::User,
-            vec![Part::Text {
-                text: format!("q{i}-{}", "y".repeat(200)),
-            }],
-        );
+        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("q{i}-{}", "y".repeat(200)) }]);
         ses::append_message(&dir, &u).unwrap();
     }
-    rt().block_on(compact::compact_session(&dir, &s.id, &model, &store, 2))
-        .expect("二轮应可压缩");
+    rt().block_on(compact::compact_session(&dir, &s.id, &model, &store, 2)).expect("二轮应可压缩");
     let c2 = ses::load_compaction(&dir, &s.id).unwrap();
     let raw = ses::load_messages(&dir, &s.id);
     assert_eq!(c2.upto_message_id, raw[raw.len() - 3].id);
-    assert_ne!(
-        c1.upto_message_id, c2.upto_message_id,
-        "检查点应随新消息推进"
-    );
+    assert_ne!(c1.upto_message_id, c2.upto_message_id, "检查点应随新消息推进");
     // fallback 摘要取蒸馏段头部：上次摘要并进输入的证据
-    assert!(
-        c2.summary.contains("earlier summary"),
-        "二次蒸馏应折叠上次摘要: {}",
-        c2.summary
-    );
+    assert!(c2.summary.contains("earlier summary"), "二次蒸馏应折叠上次摘要: {}", c2.summary);
     assert_eq!(ses::load_history(&dir, &s.id).len(), 3);
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -177,19 +126,12 @@ fn rewind_past_checkpoint_restores_full_history() {
     let dir = tmp_dir("rewind");
     let s = ses::create(&dir, "/tmp/work").unwrap();
     for i in 0..6 {
-        let u = ses::new_message(
-            &s.id,
-            Role::User,
-            vec![Part::Text {
-                text: format!("q{i}-{}", "z".repeat(200)),
-            }],
-        );
+        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("q{i}-{}", "z".repeat(200)) }]);
         ses::append_message(&dir, &u).unwrap();
     }
     let model = ModelRef::new("xai", "grok-build-0.1");
     let store = kxen_app::auth::credential::AuthStore::default();
-    rt().block_on(compact::compact_session(&dir, &s.id, &model, &store, 2))
-        .unwrap();
+    rt().block_on(compact::compact_session(&dir, &s.id, &model, &store, 2)).unwrap();
     let raw = ses::load_messages(&dir, &s.id); // upto = raw[3]
 
     // rewind 到 upto 之后：检查点仍生效（视图 = 摘要 + 剩余尾）
@@ -213,36 +155,17 @@ fn reopened_view_stays_below_compact_threshold() {
     // 未知模型 -> 窗口兜底 200k，触发线 160k tokens = 640k 字符
     let model = ModelRef::new("nonexistent", "ghost");
     for i in 0..4 {
-        let u = ses::new_message(
-            &s.id,
-            Role::User,
-            vec![Part::Text {
-                text: format!("big-{i}-{}", "w".repeat(300_000)),
-            }],
-        );
+        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("big-{i}-{}", "w".repeat(300_000)) }]);
         ses::append_message(&dir, &u).unwrap();
     }
     for i in 0..2 {
-        let u = ses::new_message(
-            &s.id,
-            Role::User,
-            vec![Part::Text {
-                text: format!("small-{i}"),
-            }],
-        );
+        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("small-{i}") }]);
         ses::append_message(&dir, &u).unwrap();
     }
-    assert!(
-        compact::needs_compact(&to_llm(&ses::load_history(&dir, &s.id)), &model),
-        "压缩前应触发阈值"
-    );
+    assert!(compact::needs_compact(&to_llm(&ses::load_history(&dir, &s.id)), &model), "压缩前应触发阈值");
     let store = kxen_app::auth::credential::AuthStore::default();
-    rt().block_on(compact::compact_session(&dir, &s.id, &model, &store, 2))
-        .unwrap();
+    rt().block_on(compact::compact_session(&dir, &s.id, &model, &store, 2)).unwrap();
     // 重开等价路径（重新读盘 + 应用检查点）：视图已在阈值下，不会重复支付压缩
-    assert!(
-        !compact::needs_compact(&to_llm(&ses::load_history(&dir, &s.id)), &model),
-        "重开后视图不应再触发压缩"
-    );
+    assert!(!compact::needs_compact(&to_llm(&ses::load_history(&dir, &s.id)), &model), "重开后视图不应再触发压缩");
     std::fs::remove_dir_all(&dir).ok();
 }

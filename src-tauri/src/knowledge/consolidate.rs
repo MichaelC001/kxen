@@ -18,10 +18,7 @@ fn state_file() -> std::path::PathBuf {
 }
 
 fn load_state() -> State {
-    std::fs::read_to_string(state_file())
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+    std::fs::read_to_string(state_file()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
 
 /// 水位推进：仅蒸馏成功（Ok）才写新水位，Err 留旧水位、下轮自动重试同批消息；
@@ -34,10 +31,7 @@ fn advance_watermark(state: &mut State, session_id: &str, result: &Result<usize,
 
 /// 一轮整理：返回蒸馏写入条数（任何单会话失败跳过，不阻断后续）。
 pub async fn run_once(model: &ModelRef, store: &crate::auth::credential::AuthStore) -> usize {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
     let since = now.saturating_sub(WINDOW_MS);
     let mut state = load_state();
     let mut written = 0;

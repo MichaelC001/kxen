@@ -42,11 +42,8 @@ fn wire_content(m: &Message) -> serde_json::Value {
     if m.images.is_empty() {
         return serde_json::Value::String(m.content.clone());
     }
-    let mut blocks: Vec<serde_json::Value> = m
-        .images
-        .iter()
-        .map(|img| serde_json::json!({ "type": "input_image", "image_url": img.data_url() }))
-        .collect();
+    let mut blocks: Vec<serde_json::Value> =
+        m.images.iter().map(|img| serde_json::json!({ "type": "input_image", "image_url": img.data_url() })).collect();
     if !m.content.is_empty() {
         blocks.push(serde_json::json!({ "type": "input_text", "text": m.content }));
     }
@@ -132,7 +129,12 @@ impl OpenAiProvider {
         }
     }
 
-    pub fn stream_chat(&self, model: &str, messages: &[Message], tools: &[crate::llm::tool::ToolDefinition]) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
+    pub fn stream_chat(
+        &self,
+        model: &str,
+        messages: &[Message],
+        tools: &[crate::llm::tool::ToolDefinition],
+    ) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
         let bearer = self.bearer.clone();
         let account_id = self.account_id.clone();
         let url = if self.subscription { SUBSCRIPTION_URL } else { API_URL };
@@ -145,7 +147,12 @@ impl OpenAiProvider {
             let input = input_items(&messages_owned);
             let tools_api: Vec<ResponsesTool> = tools_owned
                 .iter()
-                .map(|t| ResponsesTool { kind: "function", name: &t.function.name, description: &t.function.description, parameters: t.function.parameters.clone() })
+                .map(|t| ResponsesTool {
+                    kind: "function",
+                    name: &t.function.name,
+                    description: &t.function.description,
+                    parameters: t.function.parameters.clone(),
+                })
                 .collect();
             let req = ResponsesRequest { model: &model, input, stream: true, store: false, tools: tools_api };
             let mut builder = http
@@ -159,15 +166,17 @@ impl OpenAiProvider {
             builder.json(&req).send().await
         };
 
-        Box::pin(futures::stream::once(start).flat_map(|result| match result {
-            Ok(resp) if resp.status().is_success() => stream_sse(resp),
-            Ok(resp) => futures::stream::once(async move {
-                let status = resp.status();
-                let body = resp.text().await.unwrap_or_default();
-                Delta::Error(format!("openai HTTP {status}: {}", truncate(&body, 300)))
-            })
-            .boxed(),
-            Err(e) => futures::stream::once(async move { Delta::Error(format!("openai request failed: {e}")) }).boxed(),
+        Box::pin(futures::stream::once(start).flat_map(|result| {
+            match result {
+                Ok(resp) if resp.status().is_success() => stream_sse(resp),
+                Ok(resp) => futures::stream::once(async move {
+                    let status = resp.status();
+                    let body = resp.text().await.unwrap_or_default();
+                    Delta::Error(format!("openai HTTP {status}: {}", truncate(&body, 300)))
+                })
+                .boxed(),
+                Err(e) => futures::stream::once(async move { Delta::Error(format!("openai request failed: {e}")) }).boxed(),
+            }
         }))
     }
 }
@@ -203,10 +212,10 @@ fn delta_of(frame: SseFrame) -> Option<Delta> {
                 function: Some(ChunkFunction { name: item.name, arguments: item.arguments }),
             }]))
         }
-        "response.completed" => event.response.and_then(|r| r.usage).map(|u| Delta::Usage {
-            input: u.input_tokens.unwrap_or(0),
-            output: u.output_tokens.unwrap_or(0),
-        }),
+        "response.completed" => event
+            .response
+            .and_then(|r| r.usage)
+            .map(|u| Delta::Usage { input: u.input_tokens.unwrap_or(0), output: u.output_tokens.unwrap_or(0) }),
         _ => None,
     }
 }

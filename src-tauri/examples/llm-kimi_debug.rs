@@ -14,7 +14,8 @@ async fn main() {
     let resp = http
         .post("https://api.kimi.com/coding/v1/chat/completions")
         .bearer_auth(key)
-        .header("user-agent", "curl/8.7.1").json(&body)
+        .header("user-agent", "curl/8.7.1")
+        .json(&body)
         .send()
         .await
         .unwrap();

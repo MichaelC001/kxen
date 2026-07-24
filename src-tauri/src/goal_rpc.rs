@@ -4,7 +4,7 @@
 use kxen_app::core::event::Event;
 use kxen_app::core::goal::{Goal, GoalBudget, GoalContract};
 use kxen_app::core::paths;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn dir() -> std::path::PathBuf {
     paths::goals_dir()
@@ -32,11 +32,17 @@ pub fn call(method: &str, params: Value, bus: &kxen_app::core::event::EventBus) 
             let goals = Goal::list(&dir());
             Ok(json!(goals.iter().map(to_json).collect::<Vec<_>>()))
         }
-        "goal.focus" => Ok(Goal::focus_for(&dir(), params.get("session_id").and_then(Value::as_str)).map(|g| to_json(&g)).unwrap_or(Value::Null)),
+        "goal.focus" => {
+            Ok(Goal::focus_for(&dir(), params.get("session_id").and_then(Value::as_str)).map(|g| to_json(&g)).unwrap_or(Value::Null))
+        }
         "goal.create" => {
             let contract = GoalContract {
                 objective: params.get("objective").and_then(Value::as_str).ok_or("missing objective")?.to_string(),
-                completion_criteria: params.get("completion_criteria").and_then(Value::as_str).ok_or("missing completion_criteria")?.to_string(),
+                completion_criteria: params
+                    .get("completion_criteria")
+                    .and_then(Value::as_str)
+                    .ok_or("missing completion_criteria")?
+                    .to_string(),
                 constraints: params.get("constraints").and_then(Value::as_str).map(String::from),
                 budget: GoalBudget {
                     tokens: params.pointer("/budget/tokens").and_then(Value::as_u64),

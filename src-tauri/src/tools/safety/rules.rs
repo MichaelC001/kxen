@@ -13,7 +13,9 @@ pub enum Verdict {
         suggestion: Option<&'static str>,
     },
     /// 需用户审批后放行（push --force / reset --hard / sudo 等高危但合法操作）
-    Ask { reason: Cow<'static, str> },
+    Ask {
+        reason: Cow<'static, str>,
+    },
     /// trash 的可恢复删除（approval 档，safety 不硬拦但记录）
     Recoverable,
 }
@@ -35,11 +37,28 @@ pub(super) static ASK_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock:
 
 // F1 系统路径（macOS 细化：/private/var/folders 与 /private/tmp 是临时区，豁免）
 pub(super) const SYSTEM_PATHS: &[&str] = &[
-    "/", "/System", "/usr", "/bin", "/sbin", "/etc", "/var", "/Library", "/private/etc", "/private/var/db",
-    "/private/var/root", "/private/bin", "/private/sbin", "/private/System", "/boot", "/proc", "/sys", "/dev",
+    "/",
+    "/System",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/etc",
+    "/var",
+    "/Library",
+    "/private/etc",
+    "/private/var/db",
+    "/private/var/root",
+    "/private/bin",
+    "/private/sbin",
+    "/private/System",
+    "/boot",
+    "/proc",
+    "/sys",
+    "/dev",
 ];
 
-pub(super) const EXEMPT_PREFIXES: &[&str] = &["/private/var/folders", "/private/tmp", "/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"];
+pub(super) const EXEMPT_PREFIXES: &[&str] =
+    &["/private/var/folders", "/private/tmp", "/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"];
 
 pub(super) fn home_top() -> &'static [&'static str] {
     &["Documents", "Desktop", "Downloads", "Library", "Pictures", "Movies"]
@@ -50,17 +69,10 @@ pub(super) fn home_credential_dot() -> &'static [&'static str] {
 }
 
 pub(super) static DISK_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-    [
-        r"^\s*/?dd\b.*\bof=/dev/",
-        r"\bmkfs(\.|\b)",
-        r"\bdiskutil\s+erase",
-        r"\bhdiutil\s+erase",
-        r"\bfdisk\b",
-        r"\bparted\b",
-    ]
-    .iter()
-    .map(|p| Regex::new(p).expect("static pattern"))
-    .collect()
+    [r"^\s*/?dd\b.*\bof=/dev/", r"\bmkfs(\.|\b)", r"\bdiskutil\s+erase", r"\bhdiutil\s+erase", r"\bfdisk\b", r"\bparted\b"]
+        .iter()
+        .map(|p| Regex::new(p).expect("static pattern"))
+        .collect()
 });
 
 pub(super) static SYSTEM_CMDS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
@@ -87,13 +99,10 @@ pub(super) static DESTROY_CMDS: LazyLock<Vec<(Regex, &'static str, &'static str)
 });
 
 pub(super) static GIT_DESTROY: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
-    [
-        (r"\bgit\s+update-ref\s+-d\b", "git update-ref -d 删除 refs"),
-        (r"\bgit\s+branch\s+-D\s+\*", "git branch -D 批量删除分支"),
-    ]
-    .iter()
-    .map(|(p, why)| (Regex::new(p).expect("static pattern"), *why))
-    .collect()
+    [(r"\bgit\s+update-ref\s+-d\b", "git update-ref -d 删除 refs"), (r"\bgit\s+branch\s+-D\s+\*", "git branch -D 批量删除分支")]
+        .iter()
+        .map(|(p, why)| (Regex::new(p).expect("static pattern"), *why))
+        .collect()
 });
 
 pub(super) static VAR_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?").unwrap());

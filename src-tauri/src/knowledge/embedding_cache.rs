@@ -24,10 +24,7 @@ pub struct EmbeddingCache {
 impl EmbeddingCache {
     /// 读盘失败（不存在/坏 JSON）按空缓存起步：缓存永远可以重建，不因此报错。
     pub fn load(path: &Path) -> Self {
-        let map = std::fs::read_to_string(path)
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default();
+        let map = std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
         Self { path: path.to_path_buf(), map }
     }
 
@@ -74,8 +71,5 @@ impl EmbeddingCache {
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }

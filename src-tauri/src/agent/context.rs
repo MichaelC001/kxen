@@ -12,12 +12,22 @@ const DIR_LIST_CAP: usize = 200;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContextItem {
-    File { path: String },
-    Dir { path: String },
-    Web { url: String },
-    Docs { url: String },
+    File {
+        path: String,
+    },
+    Dir {
+        path: String,
+    },
+    Web {
+        url: String,
+    },
+    Docs {
+        url: String,
+    },
     /// 纯文本注记（知识沉淀指令等）：注入模型但不属于任何文件。
-    Note { text: String },
+    Note {
+        text: String,
+    },
 }
 
 /// 全部 context item -> 拼接的注入文本 + 失败清单（调用方负责把失败告知用户）。
@@ -105,20 +115,15 @@ fn file_block(path: &str, workdir: &Path) -> (String, Option<String>) {
     let rel = full.strip_prefix(workdir).unwrap_or(&full).to_string_lossy().into_owned();
     let full = match guard_context_path(&full, workdir) {
         Ok(p) => p,
-        Err(e) => {
-            return (
-                format!("\n<file_content path=\"{rel}\">(blocked: {e})</file_content>\n"),
-                Some(format!("{rel}（{e}）")),
-            )
-        }
+        Err(e) => return (format!("\n<file_content path=\"{rel}\">(blocked: {e})</file_content>\n"), Some(format!("{rel}（{e}）"))),
     };
     match std::fs::read(&full) {
-        Err(e) => (
-            format!("\n<file_content path=\"{rel}\">(read failed: {e})</file_content>\n"),
-            Some(format!("{rel}（{e}）")),
-        ),
+        Err(e) => (format!("\n<file_content path=\"{rel}\">(read failed: {e})</file_content>\n"), Some(format!("{rel}（{e}）"))),
         Ok(bytes) if bytes.len() > FILE_CAP => (
-            format!("\n<file_content path=\"{rel}\">(file too large: {} bytes > 64KB cap; use the read tool with anchors for specific sections)</file_content>\n", bytes.len()),
+            format!(
+                "\n<file_content path=\"{rel}\">(file too large: {} bytes > 64KB cap; use the read tool with anchors for specific sections)</file_content>\n",
+                bytes.len()
+            ),
             None,
         ),
         Ok(bytes) if bytes.len() > OUTLINE_THRESHOLD => {
@@ -145,18 +150,10 @@ fn dir_block(path: &str, workdir: &Path) -> (String, Option<String>) {
     let rel = full.strip_prefix(workdir).unwrap_or(&full).to_string_lossy().into_owned();
     let full = match guard_context_path(&full, workdir) {
         Ok(p) => p,
-        Err(e) => {
-            return (
-                format!("\n<dir_listing path=\"{rel}\">(blocked: {e})</dir_listing>\n"),
-                Some(format!("{rel}（{e}）")),
-            )
-        }
+        Err(e) => return (format!("\n<dir_listing path=\"{rel}\">(blocked: {e})</dir_listing>\n"), Some(format!("{rel}（{e}）"))),
     };
     let Ok(entries) = std::fs::read_dir(&full) else {
-        return (
-            format!("\n<dir_listing path=\"{rel}\">(not a directory)</dir_listing>\n"),
-            Some(format!("{rel}（不是目录或不存在）")),
-        );
+        return (format!("\n<dir_listing path=\"{rel}\">(not a directory)</dir_listing>\n"), Some(format!("{rel}（不是目录或不存在）")));
     };
     let mut lines: Vec<String> = entries
         .flatten()
@@ -173,29 +170,20 @@ fn dir_block(path: &str, workdir: &Path) -> (String, Option<String>) {
 async fn web_block(url: &str) -> (String, Option<String>) {
     match crate::tools::webfetch::fetch_text(url).await {
         Ok(text) => (format!("\n<url_content url=\"{url}\">\n{text}\n</url_content>\n"), None),
-        Err(e) => (
-            format!("\n<url_content url=\"{url}\">(fetch failed: {e})</url_content>\n"),
-            Some(format!("{url}（{e}）")),
-        ),
+        Err(e) => (format!("\n<url_content url=\"{url}\">(fetch failed: {e})</url_content>\n"), Some(format!("{url}（{e}）"))),
     }
 }
 
 /// 公网图片 URL -> ImagePart（content-type 判定，5MB cap）。非图片返回 None（走 web_block 文本通道）。
 pub async fn fetch_image_url(url: &str) -> Option<crate::llm::types::ImagePart> {
-    let looks_image = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].iter().any(|e| url.to_lowercase().split('?').next().unwrap_or("").ends_with(e));
+    let looks_image =
+        [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].iter().any(|e| url.to_lowercase().split('?').next().unwrap_or("").ends_with(e));
     if !looks_image {
         return None;
     }
     // SSRF 守卫：与 webfetch 同一通道（逐跳 DNS 检查 + 重定向收口）
     let resp = crate::tools::net_guard::get_guarded(&crate::tools::webfetch::guarded_client(), url).await.ok()?;
-    let mime = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .split(';')
-        .next()?
-        .to_string();
+    let mime = resp.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("").split(';').next()?.to_string();
     if !mime.starts_with("image/") {
         return None;
     }

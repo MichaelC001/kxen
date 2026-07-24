@@ -1,6 +1,6 @@
 //! exec 真实验证：快命令前台、长命令 auto_bg、rm -> trash 遮蔽、safety 拦截。
 
-use kxen_app::tools::exec::{exec, ExecOutcome, ExecParams};
+use kxen_app::tools::exec::{ExecOutcome, ExecParams, exec};
 use kxen_app::tools::shell::ShellKind;
 use kxen_app::tools::task::TaskRegistry;
 use std::sync::Arc;
@@ -14,7 +14,13 @@ async fn main() {
 
     // 1. 快命令前台
     let out = exec(
-        ExecParams { shell_type: ShellKind::Zsh, path: cwd.display().to_string(), command: "echo hello-kxen && pwd".into(), timeout_ms: None, background: false },
+        ExecParams {
+            shell_type: ShellKind::Zsh,
+            path: cwd.display().to_string(),
+            command: "echo hello-kxen && pwd".into(),
+            timeout_ms: None,
+            background: false,
+        },
         &registry,
         &cwd.display().to_string(),
         None,
@@ -54,7 +60,13 @@ async fn main() {
 
     // 4. 长命令 auto_bg（sleep 30，15s 预算内应转后台）
     let out = exec(
-        ExecParams { shell_type: ShellKind::Zsh, path: cwd.display().to_string(), command: "sleep 30 && echo late".into(), timeout_ms: None, background: false },
+        ExecParams {
+            shell_type: ShellKind::Zsh,
+            path: cwd.display().to_string(),
+            command: "sleep 30 && echo late".into(),
+            timeout_ms: None,
+            background: false,
+        },
         &registry,
         &cwd.display().to_string(),
         None,

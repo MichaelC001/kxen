@@ -75,10 +75,7 @@ impl StreamableHttpTransport {
     }
 
     fn decorate(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        let mut req = req.header(
-            reqwest::header::ACCEPT,
-            "application/json, text/event-stream",
-        );
+        let mut req = req.header(reqwest::header::ACCEPT, "application/json, text/event-stream");
         for (k, v) in &self.headers {
             req = req.header(k, v);
         }
@@ -100,11 +97,7 @@ impl StreamableHttpTransport {
             .send()
             .await
             .map_err(|e| PostReject::Other(format!("mcp http post {}: {e}", self.url)))?;
-        if let Some(sid) = resp
-            .headers()
-            .get("mcp-session-id")
-            .and_then(|v| v.to_str().ok())
-        {
+        if let Some(sid) = resp.headers().get("mcp-session-id").and_then(|v| v.to_str().ok()) {
             *self.session.lock().expect("mcp session") = Some(sid.to_string());
         }
         let status = resp.status();
@@ -125,10 +118,7 @@ impl StreamableHttpTransport {
             .and_then(|v| v.to_str().ok())
             .is_some_and(|ct| ct.contains("text/event-stream"));
         if !is_sse {
-            let v = resp
-                .json::<Value>()
-                .await
-                .map_err(|e| PostReject::Other(format!("mcp http bad json: {e}")))?;
+            let v = resp.json::<Value>().await.map_err(|e| PostReject::Other(format!("mcp http bad json: {e}")))?;
             return Ok(PostOutcome::Messages(vec![v]));
         }
         let mut parser = super::sse::SseParser::new();
@@ -147,11 +137,7 @@ impl StreamableHttpTransport {
 
     /// 401/403 自愈链：显式 Authorization 被拒 -> 直接报失败不回落；有 OAuth token ->
     /// refresh 后整帧重试一次，refresh 被拒或重试仍 401/403 才抛 AUTH_REQUIRED 让上层标 needs_auth。
-    async fn post(
-        &self,
-        frame: Value,
-        timeout: std::time::Duration,
-    ) -> Result<PostOutcome, String> {
+    async fn post(&self, frame: Value, timeout: std::time::Duration) -> Result<PostOutcome, String> {
         let work = async {
             let reject = match self.post_once(&frame).await {
                 Ok(out) => return Ok(out),
@@ -167,9 +153,7 @@ impl StreamableHttpTransport {
             match auth.refresh().await {
                 Ok(()) => match self.post_once(&frame).await {
                     Ok(out) => Ok(out),
-                    Err(PostReject::Auth(code)) => Err(oauth::err_auth_required(&format!(
-                        "mcp http {code} after token refresh"
-                    ))),
+                    Err(PostReject::Auth(code)) => Err(oauth::err_auth_required(&format!("mcp http {code} after token refresh"))),
                     Err(PostReject::Other(e)) => Err(e),
                 },
                 Err(e) => Err(oauth::err_auth_required(&format!("token refresh failed: {e}"))),
@@ -181,12 +165,7 @@ impl StreamableHttpTransport {
         }
     }
 
-    async fn request_inner(
-        &self,
-        method: &str,
-        params: Value,
-        timeout: std::time::Duration,
-    ) -> Result<Value, String> {
+    async fn request_inner(&self, method: &str, params: Value, timeout: std::time::Duration) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let frame = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
         match self.post(frame, timeout).await? {
@@ -196,8 +175,7 @@ impl StreamableHttpTransport {
                     // server 反向请求（method+id 同帧）：只懂 roots/list，答完继续等自己的响应
                     if msg.get("method").is_some() {
                         if let Some(rid) = msg.get("id").and_then(|i| i.as_u64()) {
-                            let answer =
-                                super::transport::answer_server_request(&msg, rid, &self.roots);
+                            let answer = super::transport::answer_server_request(&msg, rid, &self.roots);
                             // 应答帧走新 POST，server 侧期待 202；失败不阻断主请求
                             let _ = self.post(answer, std::time::Duration::from_secs(10)).await;
                         }
@@ -207,18 +185,14 @@ impl StreamableHttpTransport {
                         return Ok(msg);
                     }
                 }
-                Err(format!(
-                    "mcp http request {method} got no matching response"
-                ))
+                Err(format!("mcp http request {method} got no matching response"))
             }
         }
     }
 
     async fn notify_inner(&self, method: &str, params: Value) -> Result<(), String> {
         let frame = json!({ "jsonrpc": "2.0", "method": method, "params": params });
-        self.post(frame, std::time::Duration::from_secs(30))
-            .await
-            .map(|_| ())
+        self.post(frame, std::time::Duration::from_secs(30)).await.map(|_| ())
     }
 
     async fn close_inner(&self) {
@@ -226,22 +200,13 @@ impl StreamableHttpTransport {
         let Some(session) = self.session.lock().expect("mcp session").take() else {
             return;
         };
-        let req = self
-            .client
-            .delete(&self.url)
-            .header("mcp-session-id", session);
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), self.decorate(req).send())
-            .await;
+        let req = self.client.delete(&self.url).header("mcp-session-id", session);
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), self.decorate(req).send()).await;
     }
 }
 
 impl Transport for StreamableHttpTransport {
-    fn request<'a>(
-        &'a self,
-        method: &'a str,
-        params: Value,
-        timeout: std::time::Duration,
-    ) -> BoxFuture<'a, Result<Value, String>> {
+    fn request<'a>(&'a self, method: &'a str, params: Value, timeout: std::time::Duration) -> BoxFuture<'a, Result<Value, String>> {
         Box::pin(async move { self.request_inner(method, params, timeout).await })
     }
 
@@ -260,15 +225,11 @@ impl Transport for StreamableHttpTransport {
 
 /// config 的 headers 表校验为可下发形态；非法 header 名/值在建连前报错，比请求时才炸好定位。
 /// pub(crate)：streamable http 与 legacy sse 共用。
-pub(crate) fn validate_headers(
-    headers: &HashMap<String, String>,
-) -> Result<Vec<(String, String)>, String> {
+pub(crate) fn validate_headers(headers: &HashMap<String, String>) -> Result<Vec<(String, String)>, String> {
     let mut out = Vec::new();
     for (k, v) in headers {
-        reqwest::header::HeaderName::from_bytes(k.as_bytes())
-            .map_err(|e| format!("invalid mcp header name {k}: {e}"))?;
-        reqwest::header::HeaderValue::from_str(v)
-            .map_err(|e| format!("invalid mcp header value for {k}: {e}"))?;
+        reqwest::header::HeaderName::from_bytes(k.as_bytes()).map_err(|e| format!("invalid mcp header name {k}: {e}"))?;
+        reqwest::header::HeaderValue::from_str(v).map_err(|e| format!("invalid mcp header value for {k}: {e}"))?;
         out.push((k.clone(), v.clone()));
     }
     Ok(out)

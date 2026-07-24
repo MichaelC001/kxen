@@ -13,12 +13,7 @@ use tokio::process::{Child, ChildStdin};
 
 /// 三种 transport 的统一抽象。手写 BoxFuture 返回：不引 async-trait 依赖。
 pub trait Transport: Send + Sync {
-    fn request<'a>(
-        &'a self,
-        method: &'a str,
-        params: Value,
-        timeout: std::time::Duration,
-    ) -> BoxFuture<'a, Result<Value, String>>;
+    fn request<'a>(&'a self, method: &'a str, params: Value, timeout: std::time::Duration) -> BoxFuture<'a, Result<Value, String>>;
     fn notify<'a>(&'a self, method: &'a str, params: Value) -> BoxFuture<'a, Result<(), String>>;
     fn close<'a>(&'a self) -> BoxFuture<'a, ()>;
     /// "stdio" | "http" | "sse"（status 展示与日志用）
@@ -49,12 +44,7 @@ pub struct StdioTransport {
 }
 
 impl StdioTransport {
-    pub fn spawn(
-        command: &str,
-        args: &[String],
-        env: &HashMap<String, String>,
-        roots: Value,
-    ) -> Result<Arc<Self>, String> {
+    pub fn spawn(command: &str, args: &[String], env: &HashMap<String, String>, roots: Value) -> Result<Arc<Self>, String> {
         let mut cmd = tokio::process::Command::new(command);
         cmd.args(args)
             .envs(env)
@@ -64,8 +54,7 @@ impl StdioTransport {
         let mut child = cmd.spawn().map_err(|e| format!("mcp spawn {command}: {e}"))?;
         let stdin = child.stdin.take().ok_or("no stdin")?;
         let stdout = child.stdout.take().ok_or("no stdout")?;
-        let pending: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Value>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let pending: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Value>>>> = Arc::new(Mutex::new(HashMap::new()));
         let pending_rx = pending.clone();
         let stdin = Arc::new(tokio::sync::Mutex::new(stdin));
         let stdin_tx = stdin.clone();
@@ -92,21 +81,11 @@ impl StdioTransport {
             // EOF：全部挂起请求按失败结束（调用方走 lazy restart）
             pending_rx.lock().expect("mcp pending").clear();
         });
-        Ok(Arc::new(Self {
-            child: tokio::sync::Mutex::new(child),
-            stdin,
-            pending,
-            next_id: AtomicU64::new(1),
-        }))
+        Ok(Arc::new(Self { child: tokio::sync::Mutex::new(child), stdin, pending, next_id: AtomicU64::new(1) }))
     }
 
     /// 发送请求并等待响应（行分隔 JSON-RPC）。
-    async fn request_inner(
-        &self,
-        method: &str,
-        params: Value,
-        timeout: std::time::Duration,
-    ) -> Result<Value, String> {
+    async fn request_inner(&self, method: &str, params: Value, timeout: std::time::Duration) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.pending.lock().expect("mcp pending").insert(id, tx);
@@ -129,12 +108,7 @@ impl StdioTransport {
 }
 
 impl Transport for StdioTransport {
-    fn request<'a>(
-        &'a self,
-        method: &'a str,
-        params: Value,
-        timeout: std::time::Duration,
-    ) -> BoxFuture<'a, Result<Value, String>> {
+    fn request<'a>(&'a self, method: &'a str, params: Value, timeout: std::time::Duration) -> BoxFuture<'a, Result<Value, String>> {
         Box::pin(async move { self.request_inner(method, params, timeout).await })
     }
 

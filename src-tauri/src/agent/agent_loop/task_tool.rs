@@ -1,7 +1,7 @@
 //! task 工具：后台任务统一管理（dev server 是带 ready 门的 start）。
 //! 从 execute.rs 拆出（350 行门禁）；task start 与 exec 同过 safety 闸门。
 
-use crate::tools::dev_server::{dev_server, restart_task, DevServerParams, ReadySpec};
+use crate::tools::dev_server::{DevServerParams, ReadySpec, dev_server, restart_task};
 use serde_json::Value;
 
 use super::context::AgentContext;
@@ -14,7 +14,9 @@ pub async fn execute_task_tool(args: &Value, ctx: &AgentContext) -> Result<Strin
         "start" => {
             let params = DevServerParams {
                 command: args.get("command").and_then(Value::as_str).ok_or("missing command")?.to_string(),
-                workdir: resolve_path(args.get("workdir").and_then(Value::as_str).unwrap_or(&cwd), &ctx.workdir).to_string_lossy().into_owned(),
+                workdir: resolve_path(args.get("workdir").and_then(Value::as_str).unwrap_or(&cwd), &ctx.workdir)
+                    .to_string_lossy()
+                    .into_owned(),
                 ready: args.get("ready").map(|r| ReadySpec {
                     pattern: r.get("pattern").and_then(Value::as_str).map(String::from),
                     port: r.get("port").and_then(Value::as_u64).map(|p| p as u16),
@@ -29,9 +31,7 @@ pub async fn execute_task_tool(args: &Value, ctx: &AgentContext) -> Result<Strin
                 ctx.cancel.as_ref(),
                 ctx.session_id.as_deref(),
             );
-            crate::tools::exec::safety_gate(&params.command, &params.workdir, appr.as_ref())
-                .await
-                .map_err(|e| e.to_string())?;
+            crate::tools::exec::safety_gate(&params.command, &params.workdir, appr.as_ref()).await.map_err(|e| e.to_string())?;
             dev_server(params, &ctx.registry)
                 .await
                 .map(|s| format!("ready: {} (task {})", s.url.unwrap_or_else(|| "(no url)".into()), s.task_id))

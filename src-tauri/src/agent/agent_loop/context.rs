@@ -29,10 +29,7 @@ pub struct SessionExtrasRegistry {
 
 impl SessionExtrasRegistry {
     pub fn extras_for(&self, session_id: &str) -> Arc<SessionExtras> {
-        crate::core::shared::lock(&self.inner)
-            .entry(session_id.to_string())
-            .or_default()
-            .clone()
+        crate::core::shared::lock(&self.inner).entry(session_id.to_string()).or_default().clone()
     }
 
     /// 会话销毁时清状态：下次取用重建空实例。

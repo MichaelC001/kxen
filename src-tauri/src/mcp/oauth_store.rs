@@ -41,12 +41,7 @@ impl TokenStore {
     }
 
     /// 授权完成落盘（整表读改写 + 0600 + tmp+rename）。
-    pub fn save(
-        &self,
-        server: &str,
-        session: &LoginSession,
-        grant: &TokenGrant,
-    ) -> Result<(), String> {
+    pub fn save(&self, server: &str, session: &LoginSession, grant: &TokenGrant) -> Result<(), String> {
         let token = StoredToken {
             access_token: grant.access_token.clone(),
             refresh_token: grant.refresh_token.clone(),
@@ -66,10 +61,7 @@ impl TokenStore {
 }
 
 fn load_all(path: &Path) -> HashMap<String, StoredToken> {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+    std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
 }
 
 fn write_all(path: &Path, all: &HashMap<String, StoredToken>) -> Result<(), String> {
@@ -82,8 +74,7 @@ fn write_all(path: &Path, all: &HashMap<String, StoredToken>) -> Result<(), Stri
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))
-            .map_err(|e| e.to_string())?;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
     }
     std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
@@ -100,17 +91,8 @@ pub struct BearerAuth {
 impl BearerAuth {
     pub fn from_store(server: &str, store_path: &Path, guard: Guard) -> Option<Arc<Self>> {
         let token = load_all(store_path).remove(server)?;
-        let http = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .ok()?;
-        Some(Arc::new(Self {
-            http,
-            store_path: store_path.to_path_buf(),
-            server: server.to_string(),
-            token: Mutex::new(token),
-            guard,
-        }))
+        let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().ok()?;
+        Some(Arc::new(Self { http, store_path: store_path.to_path_buf(), server: server.to_string(), token: Mutex::new(token), guard }))
     }
 
     /// Authorization 头值（每请求现取：refresh 后必须生效于下一帧）。
@@ -131,15 +113,7 @@ impl BearerAuth {
                 t.client_secret.clone(),
             )
         };
-        let grant = refresh_grant(
-            &self.http,
-            &endpoint,
-            &refresh_token,
-            &client_id,
-            client_secret.as_deref(),
-            self.guard,
-        )
-        .await?;
+        let grant = refresh_grant(&self.http, &endpoint, &refresh_token, &client_id, client_secret.as_deref(), self.guard).await?;
         let mut all = load_all(&self.store_path);
         let mut t = self.token.lock().expect("oauth token");
         t.access_token = grant.access_token;

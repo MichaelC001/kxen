@@ -73,10 +73,7 @@ impl DeltaParser {
                 }
                 None
             }
-            "message_delta" => event
-                .usage
-                .and_then(|u| u.output_tokens)
-                .map(|output| Delta::Usage { input: self.input_seen, output }),
+            "message_delta" => event.usage.and_then(|u| u.output_tokens).map(|output| Delta::Usage { input: self.input_seen, output }),
             "content_block_start" => {
                 let block = event.content_block?;
                 if block.kind != "tool_use" {
@@ -85,10 +82,7 @@ impl DeltaParser {
                 Some(Delta::ToolFragments(vec![ChunkToolCall {
                     index: event.index,
                     id: block.id,
-                    function: Some(ChunkFunction {
-                        name: block.name.map(|n| super::anthropic::unmap_tool_name(&n)),
-                        arguments: None,
-                    }),
+                    function: Some(ChunkFunction { name: block.name.map(|n| super::anthropic::unmap_tool_name(&n)), arguments: None }),
                 }]))
             }
             "content_block_delta" => {
@@ -134,7 +128,8 @@ mod tests {
     fn tool_use_fragments_accumulate_into_call() {
         let mut p = DeltaParser::default();
         let start = p.delta_of(SseFrame::Data(
-            r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_01","name":"Bash","input":{}}}"#.into(),
+            r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_01","name":"Bash","input":{}}}"#
+                .into(),
         ));
         let d1 = p.delta_of(SseFrame::Data(
             r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"ls"}}"#.into(),
@@ -158,7 +153,10 @@ mod tests {
     #[test]
     fn usage_merges_input_from_message_start() {
         let mut p = DeltaParser::default();
-        assert!(p.delta_of(SseFrame::Data(r#"{"type":"message_start","message":{"usage":{"input_tokens":321,"output_tokens":1}}}"#.into())).is_none());
+        assert!(
+            p.delta_of(SseFrame::Data(r#"{"type":"message_start","message":{"usage":{"input_tokens":321,"output_tokens":1}}}"#.into()))
+                .is_none()
+        );
         let u = p.delta_of(SseFrame::Data(r#"{"type":"message_delta","usage":{"output_tokens":42}}"#.into()));
         assert!(matches!(u, Some(Delta::Usage { input: 321, output: 42 })));
     }
@@ -166,9 +164,11 @@ mod tests {
     #[test]
     fn text_and_thinking_deltas() {
         let mut p = DeltaParser::default();
-        let t = p.delta_of(SseFrame::Data(r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"pong"}}"#.into()));
+        let t =
+            p.delta_of(SseFrame::Data(r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"pong"}}"#.into()));
         assert!(matches!(t, Some(Delta::Text(s)) if s == "pong"));
-        let r = p.delta_of(SseFrame::Data(r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","text":"hmm"}}"#.into()));
+        let r =
+            p.delta_of(SseFrame::Data(r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","text":"hmm"}}"#.into()));
         assert!(matches!(r, Some(Delta::Reasoning(s)) if s == "hmm"));
     }
 }

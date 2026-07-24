@@ -44,14 +44,9 @@ impl SseTransport {
         let base = reqwest::Url::parse(url).map_err(|e| format!("invalid mcp sse url: {e}"))?;
         let pairs = super::remote::validate_headers(headers)?;
         let explicit_auth = headers.keys().any(|k| k.eq_ignore_ascii_case("authorization"));
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| e.to_string())?;
+        let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().map_err(|e| e.to_string())?;
         let send_get = || {
-            let mut req = client
-                .get(url)
-                .header(reqwest::header::ACCEPT, "text/event-stream");
+            let mut req = client.get(url).header(reqwest::header::ACCEPT, "text/event-stream");
             for (k, v) in &pairs {
                 req = req.header(k, v);
             }
@@ -60,30 +55,20 @@ impl SseTransport {
             }
             req.send()
         };
-        let resp = send_get()
-            .await
-            .map_err(|e| format!("mcp sse connect {url}: {e}"))?;
+        let resp = send_get().await.map_err(|e| format!("mcp sse connect {url}: {e}"))?;
         let resp = match resp.status() {
             s @ (reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN) => {
                 if explicit_auth {
-                    return Err(format!(
-                        "mcp sse connect http {s}: configured Authorization header rejected"
-                    ));
+                    return Err(format!("mcp sse connect http {s}: configured Authorization header rejected"));
                 }
                 let Some(a) = &auth else {
                     return Err(oauth::err_auth_required(&format!("mcp sse connect http {s}")));
                 };
-                a.refresh()
-                    .await
-                    .map_err(|e| oauth::err_auth_required(&format!("token refresh failed: {e}")))?;
-                let retry = send_get()
-                    .await
-                    .map_err(|e| format!("mcp sse connect {url}: {e}"))?;
+                a.refresh().await.map_err(|e| oauth::err_auth_required(&format!("token refresh failed: {e}")))?;
+                let retry = send_get().await.map_err(|e| format!("mcp sse connect {url}: {e}"))?;
                 let st = retry.status();
                 if st == reqwest::StatusCode::UNAUTHORIZED || st == reqwest::StatusCode::FORBIDDEN {
-                    return Err(oauth::err_auth_required(&format!(
-                        "mcp sse connect http {st} after token refresh"
-                    )));
+                    return Err(oauth::err_auth_required(&format!("mcp sse connect http {st} after token refresh")));
                 }
                 retry
             }
@@ -93,22 +78,13 @@ impl SseTransport {
             return Err(format!("mcp sse connect http {}", resp.status()));
         }
 
-        let pending: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Value>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let pending: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Value>>>> = Arc::new(Mutex::new(HashMap::new()));
         let (endpoint_tx, endpoint_rx) = tokio::sync::oneshot::channel::<reqwest::Url>();
         let reader = {
             let pending = pending.clone();
             let client = client.clone();
             let pairs = pairs.clone();
-            tokio::spawn(read_loop(
-                resp,
-                base,
-                pending,
-                endpoint_tx,
-                client,
-                pairs,
-                roots,
-            ))
+            tokio::spawn(read_loop(resp, base, pending, endpoint_tx, client, pairs, roots))
         };
         let post_url = match tokio::time::timeout(ENDPOINT_TIMEOUT, endpoint_rx).await {
             Ok(Ok(u)) => u,
@@ -141,25 +117,17 @@ impl SseTransport {
     /// POST 一帧到 endpoint；2xx（规范为 202）即视为送达，响应经 SSE 流回来。
     /// 401/403：与 streamable http 同一自愈链（refresh -> 重试一次 -> 拒则 AUTH_REQUIRED）。
     async fn post(&self, frame: Value) -> Result<(), String> {
-        let resp = self
-            .decorate(self.client.post(self.post_url.clone()))
-            .json(&frame)
-            .send()
-            .await
-            .map_err(|e| format!("mcp sse post: {e}"))?;
+        let resp =
+            self.decorate(self.client.post(self.post_url.clone())).json(&frame).send().await.map_err(|e| format!("mcp sse post: {e}"))?;
         let status = resp.status();
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             if self.explicit_auth {
-                return Err(format!(
-                    "mcp sse post http {status}: configured Authorization header rejected"
-                ));
+                return Err(format!("mcp sse post http {status}: configured Authorization header rejected"));
             }
             let Some(auth) = &self.auth else {
                 return Err(oauth::err_auth_required(&format!("mcp sse post http {status}")));
             };
-            auth.refresh()
-                .await
-                .map_err(|e| oauth::err_auth_required(&format!("token refresh failed: {e}")))?;
+            auth.refresh().await.map_err(|e| oauth::err_auth_required(&format!("token refresh failed: {e}")))?;
             let resp = self
                 .decorate(self.client.post(self.post_url.clone()))
                 .json(&frame)
@@ -168,9 +136,7 @@ impl SseTransport {
                 .map_err(|e| format!("mcp sse post: {e}"))?;
             let status = resp.status();
             if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-                return Err(oauth::err_auth_required(&format!(
-                    "mcp sse post http {status} after token refresh"
-                )));
+                return Err(oauth::err_auth_required(&format!("mcp sse post http {status} after token refresh")));
             }
             if !status.is_success() {
                 return Err(format!("mcp sse post http {status}"));
@@ -183,12 +149,7 @@ impl SseTransport {
         Ok(())
     }
 
-    async fn request_inner(
-        &self,
-        method: &str,
-        params: Value,
-        timeout: std::time::Duration,
-    ) -> Result<Value, String> {
+    async fn request_inner(&self, method: &str, params: Value, timeout: std::time::Duration) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.pending.lock().expect("mcp pending").insert(id, tx);
@@ -205,8 +166,7 @@ impl SseTransport {
     }
 
     async fn notify_inner(&self, method: &str, params: Value) -> Result<(), String> {
-        self.post(json!({ "jsonrpc": "2.0", "method": method, "params": params }))
-            .await
+        self.post(json!({ "jsonrpc": "2.0", "method": method, "params": params })).await
     }
 
     async fn close_inner(&self) {
@@ -249,9 +209,7 @@ async fn read_loop(
                     };
                     if v.get("method").is_some() {
                         // server 反向请求（roots/list）：应答帧 POST 回 endpoint
-                        if let (Some(rid), Some(url)) =
-                            (v.get("id").and_then(|i| i.as_u64()), post_url.clone())
-                        {
+                        if let (Some(rid), Some(url)) = (v.get("id").and_then(|i| i.as_u64()), post_url.clone()) {
                             let answer = super::transport::answer_server_request(&v, rid, &roots);
                             let mut req = client.post(url).json(&answer);
                             for (k, val) in &headers {
@@ -277,12 +235,7 @@ async fn read_loop(
 }
 
 impl Transport for SseTransport {
-    fn request<'a>(
-        &'a self,
-        method: &'a str,
-        params: Value,
-        timeout: std::time::Duration,
-    ) -> BoxFuture<'a, Result<Value, String>> {
+    fn request<'a>(&'a self, method: &'a str, params: Value, timeout: std::time::Duration) -> BoxFuture<'a, Result<Value, String>> {
         Box::pin(async move { self.request_inner(method, params, timeout).await })
     }
 

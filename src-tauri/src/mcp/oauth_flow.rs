@@ -2,10 +2,7 @@
 //! 回调 path 带 callback_id（见 oauth.rs）绑定 redirect 与 server；等待上限 CALLBACK_TIMEOUT。
 
 use super::config::RemoteConfig;
-use super::oauth::{
-    AuthServerMeta, CALLBACK_TIMEOUT, authorize_url, callback_id, discover, pkce, random_state,
-    register,
-};
+use super::oauth::{AuthServerMeta, CALLBACK_TIMEOUT, authorize_url, callback_id, discover, pkce, random_state, register};
 use super::oauth_store::TokenStore;
 use super::remote::Guard;
 use serde_json::Value;
@@ -19,18 +16,14 @@ pub struct CallbackParams {
 }
 
 /// 绑回调端口：配置端口被占回退 :0 随机（固定端口只是便利，不该让授权流起不来）。
-pub async fn bind_callback(
-    port: Option<u16>,
-) -> Result<(tokio::net::TcpListener, u16), String> {
+pub async fn bind_callback(port: Option<u16>) -> Result<(tokio::net::TcpListener, u16), String> {
     if let Some(p) = port {
         match tokio::net::TcpListener::bind(("127.0.0.1", p)).await {
             Ok(l) => return Ok((l, p)),
             Err(e) => tracing::warn!(port = p, error = %e, "oauth 回调端口被占，回退随机端口"),
         }
     }
-    let l = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .map_err(|e| format!("oauth 回调端口绑定失败: {e}"))?;
+    let l = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.map_err(|e| format!("oauth 回调端口绑定失败: {e}"))?;
     let port = l.local_addr().map_err(|e| e.to_string())?.port();
     Ok((l, port))
 }
@@ -82,11 +75,8 @@ pub async fn wait_callback(
                 }
             }
             let html = "<html><body><h3>kxen MCP 认证完成，可以关闭本页面</h3></body></html>";
-            let resp = format!(
-                "HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncontent-length: {}\r\n\r\n{}",
-                html.len(),
-                html
-            );
+            let resp =
+                format!("HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncontent-length: {}\r\n\r\n{}", html.len(), html);
             let _ = sock.write_all(resp.as_bytes()).await;
             return Ok(out);
         }
@@ -104,43 +94,23 @@ pub struct TokenGrant {
     pub expires_at: Option<u64>,
 }
 
-async fn post_token(
-    http: &reqwest::Client,
-    endpoint: &str,
-    form: Vec<(&str, &str)>,
-    guard: Guard,
-) -> Result<TokenGrant, String> {
+async fn post_token(http: &reqwest::Client, endpoint: &str, form: Vec<(&str, &str)>, guard: Guard) -> Result<TokenGrant, String> {
     if guard == Guard::Enforced {
         crate::tools::net_guard::check_url(endpoint).await?;
     }
-    let resp = http
-        .post(endpoint)
-        .form(&form)
-        .send()
-        .await
-        .map_err(|e| format!("oauth token {endpoint}: {e}"))?;
+    let resp = http.post(endpoint).form(&form).send().await.map_err(|e| format!("oauth token {endpoint}: {e}"))?;
     let status = resp.status();
     if !status.is_success() {
         let text: String = resp.text().await.unwrap_or_default().chars().take(200).collect();
         return Err(format!("oauth token http {status}: {text}"));
     }
     let v = resp.json::<Value>().await.map_err(|e| format!("oauth token bad json: {e}"))?;
-    let access_token = v
-        .get("access_token")
-        .and_then(|s| s.as_str())
-        .ok_or("oauth token response missing access_token")?
-        .to_string();
-    let expires_at = v.get("expires_in").and_then(|n| n.as_u64()).map(|secs| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() + secs)
-            .unwrap_or(0)
-    });
-    Ok(TokenGrant {
-        access_token,
-        refresh_token: v.get("refresh_token").and_then(|s| s.as_str()).map(String::from),
-        expires_at,
-    })
+    let access_token = v.get("access_token").and_then(|s| s.as_str()).ok_or("oauth token response missing access_token")?.to_string();
+    let expires_at = v
+        .get("expires_in")
+        .and_then(|n| n.as_u64())
+        .map(|secs| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() + secs).unwrap_or(0));
+    Ok(TokenGrant { access_token, refresh_token: v.get("refresh_token").and_then(|s| s.as_str()).map(String::from), expires_at })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -175,11 +145,7 @@ pub async fn refresh_grant(
     client_secret: Option<&str>,
     guard: Guard,
 ) -> Result<TokenGrant, String> {
-    let mut form = vec![
-        ("grant_type", "refresh_token"),
-        ("refresh_token", refresh_token),
-        ("client_id", client_id),
-    ];
+    let mut form = vec![("grant_type", "refresh_token"), ("refresh_token", refresh_token), ("client_id", client_id)];
     if let Some(s) = client_secret {
         form.push(("client_secret", s));
     }
@@ -204,13 +170,9 @@ pub struct LoginSession {
 
 /// discovery -> (DCR) -> 绑回调 -> PKCE 授权 URL。config 有 client_id 时跳过动态注册。
 pub async fn prepare_login(cfg: &RemoteConfig, guard: Guard) -> Result<LoginSession, String> {
-    let http = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| e.to_string())?;
+    let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().map_err(|e| e.to_string())?;
     let oauth = cfg.oauth.clone().unwrap_or_default();
-    let meta: AuthServerMeta =
-        discover(&http, &cfg.url, oauth.auth_server_metadata_url.as_deref(), guard).await?;
+    let meta: AuthServerMeta = discover(&http, &cfg.url, oauth.auth_server_metadata_url.as_deref(), guard).await?;
     let (listener, port) = bind_callback(oauth.callback_port).await?;
     let callback_path = format!("/callback/{}", callback_id(&cfg.url));
     let redirect_uri = format!("http://127.0.0.1:{port}{callback_path}");
@@ -220,14 +182,7 @@ pub async fn prepare_login(cfg: &RemoteConfig, guard: Guard) -> Result<LoginSess
     };
     let pkce = pkce();
     let state = random_state();
-    let url = authorize_url(
-        &meta,
-        &client_id,
-        &redirect_uri,
-        &state,
-        &pkce.challenge,
-        oauth.scopes.as_deref(),
-    )?;
+    let url = authorize_url(&meta, &client_id, &redirect_uri, &state, &pkce.challenge, oauth.scopes.as_deref())?;
     Ok(LoginSession {
         server: cfg.name.clone(),
         authorize_url: url,
@@ -244,10 +199,7 @@ pub async fn prepare_login(cfg: &RemoteConfig, guard: Guard) -> Result<LoginSess
 }
 
 /// 等回调 -> 验 state -> 换 token -> 落盘。state 不符直接拒（防 CSRF 混流）。
-pub async fn finish_login(
-    session: &LoginSession,
-    store: &TokenStore,
-) -> Result<TokenGrant, String> {
+pub async fn finish_login(session: &LoginSession, store: &TokenStore) -> Result<TokenGrant, String> {
     let cb = wait_callback(&session.listener, &session.callback_path, CALLBACK_TIMEOUT).await?;
     if let Some(err) = cb.error {
         let desc = cb.error_description.unwrap_or_default();
@@ -257,10 +209,7 @@ pub async fn finish_login(
         return Err("oauth 回调 state 不匹配（疑似跨流混淆，已丢弃）".into());
     }
     let code = cb.code.ok_or("oauth 回调缺 code")?;
-    let http = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| e.to_string())?;
+    let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().map_err(|e| e.to_string())?;
     let grant = exchange_code(
         &http,
         &session.token_endpoint,

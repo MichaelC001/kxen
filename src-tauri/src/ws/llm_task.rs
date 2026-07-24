@@ -7,17 +7,21 @@ use tauri::{AppHandle, Manager};
 
 use crate::AppState;
 
-pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String, context: Vec<kxen_app::agent::context::ContextItem>, mut images: Vec<kxen_app::llm::types::ImagePart>, app: AppHandle) {
+pub(crate) async fn run_llm(
+    stream_id: String,
+    session_id: String,
+    text: String,
+    context: Vec<kxen_app::agent::context::ContextItem>,
+    mut images: Vec<kxen_app::llm::types::ImagePart>,
+    app: AppHandle,
+) {
     use kxen_app::core::session as ses;
 
     let state = app.state::<Arc<AppState>>();
     let sessions_dir = kxen_app::core::paths::sessions_dir();
 
     // cron 触发的 run：消息前缀 [cron <id>]（main.rs tick 注入格式），run 结束回写 job 执行历史
-    let cron_job_id = text
-        .strip_prefix("[cron ")
-        .and_then(|rest| rest.split(']').next())
-        .map(str::to_string);
+    let cron_job_id = text.strip_prefix("[cron ").and_then(|rest| rest.split(']').next()).map(str::to_string);
 
     // 多 workspace：run 的 workdir 取 session 归属目录（fallback 当前活跃 workspace）
     let session_dir = ses::load_meta(&sessions_dir, &session_id)
@@ -58,8 +62,7 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         let mut text_items = Vec::new();
         for item in context {
             let is_image = match &item {
-                kxen_app::agent::context::ContextItem::Web { url }
-                | kxen_app::agent::context::ContextItem::Docs { url } => {
+                kxen_app::agent::context::ContextItem::Web { url } | kxen_app::agent::context::ContextItem::Docs { url } => {
                     if let Some(img) = kxen_app::agent::context::fetch_image_url(url).await {
                         images.push(img);
                         true
@@ -116,13 +119,7 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
                 state.auth_store.lock().expect("auth_store").insert(key, cred);
             }
         }
-        (
-            model,
-            store,
-            state.registry.clone(),
-            std::sync::Arc::from(session_path.as_path()),
-            state.bus.clone(),
-        )
+        (model, store, state.registry.clone(), std::sync::Arc::from(session_path.as_path()), state.bus.clone())
     };
 
     // 历史：应用压缩检查点后的模型视图（Text/Context 进模型，其余 part 丢弃；与 compact 同口径）
@@ -158,10 +155,7 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
         tracker: {
             let mut t = kxen_app::tools::fs_tool::FileTracker::default();
             // 会话级改动快照：改动面板「本会话 agent 改了什么」的数据源
-            t.snapshots = kxen_app::core::shared::lock(&state.session_snapshots)
-                .entry(session_id.clone())
-                .or_default()
-                .clone();
+            t.snapshots = kxen_app::core::shared::lock(&state.session_snapshots).entry(session_id.clone()).or_default().clone();
             t
         },
         workdir,
@@ -196,15 +190,19 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
                 AE::ToolCall { name, summary, arguments } => {
                     // input 留一行摘要（UI 头行），args 存精确参数；parse 失败留原文不丢数据
                     let args = serde_json::from_str(arguments).unwrap_or_else(|_| json!(arguments));
-                    transcript_writer
-                        .lock()
-                        .expect("transcript")
-                        .push(ses::Part::ToolCall { name: name.clone(), input: json!(summary), output: String::new(), args: Some(args) });
+                    transcript_writer.lock().expect("transcript").push(ses::Part::ToolCall {
+                        name: name.clone(),
+                        input: json!(summary),
+                        output: String::new(),
+                        args: Some(args),
+                    });
                 }
                 AE::ToolResult { name, output, .. } => {
                     let mut guard = transcript_writer.lock().expect("transcript");
-                    if let Some(ses::Part::ToolCall { output: slot, .. }) =
-                        guard.iter_mut().rev().find(|p| matches!(p, ses::Part::ToolCall { name: n, output, .. } if n == name && output.is_empty()))
+                    if let Some(ses::Part::ToolCall { output: slot, .. }) = guard
+                        .iter_mut()
+                        .rev()
+                        .find(|p| matches!(p, ses::Part::ToolCall { name: n, output, .. } if n == name && output.is_empty()))
                     {
                         // 完整结果落盘，cap 10_000 字节防 JSONL 单行爆炸（UI 折叠区本就截断展示）
                         *slot = cap_output(output, 10_000);
@@ -236,15 +234,16 @@ pub(crate) async fn run_llm(stream_id: String, session_id: String, text: String,
     // run 收尾清掉本 session 挂起的审批：等待方按 deny 唤醒，防 pending 泄漏（session 删除同理可达）
     state.approvals.cancel_session(&session_id);
     // stop hook（run 结束挂点，fire-and-log；Ask 档走审批通道）
-    let stop_appr = kxen_app::tools::exec::ApprovalCtx::new(
-        Some(state.approvals.as_ref()),
-        Some(&state.bus),
-        Some(&cancel),
-        Some(session_id.as_str()),
-    );
+    let stop_appr =
+        kxen_app::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), Some(&cancel), Some(session_id.as_str()));
     if let Err(e) = state
         .hooks
-        .run_named_with_approval("stop", &session_id, &serde_json::json!({ "session_id": session_id, "aborted": outcome.aborted }), stop_appr.as_ref())
+        .run_named_with_approval(
+            "stop",
+            &session_id,
+            &serde_json::json!({ "session_id": session_id, "aborted": outcome.aborted }),
+            stop_appr.as_ref(),
+        )
         .await
     {
         tracing::warn!(error = %e, "stop hook failed");

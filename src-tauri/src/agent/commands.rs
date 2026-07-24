@@ -35,26 +35,19 @@ pub fn list(workdir: &Path) -> Vec<CommandInfo> {
             argument_hint: hint.map(String::from),
         })
         .collect();
-    out.extend(
-        knowledge::scan(workdir)
-            .into_iter()
-            .filter(|e| e.kind == Kind::Command && e.enabled)
-            .map(|e| CommandInfo {
-                name: e.slug,
-                description: e.description,
-                kind: "custom",
-                argument_hint: e.argument_hint,
-            }),
-    );
+    out.extend(knowledge::scan(workdir).into_iter().filter(|e| e.kind == Kind::Command && e.enabled).map(|e| CommandInfo {
+        name: e.slug,
+        description: e.description,
+        kind: "custom",
+        argument_hint: e.argument_hint,
+    }));
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
 }
 
 /// 发送时展开自定义命令：$ARGUMENTS 模板 + needs 依赖懒加载注入。非自定义命令返回 None。
 pub fn expand(workdir: &Path, name: &str, args: &str) -> Option<String> {
-    let entry = knowledge::scan(workdir)
-        .into_iter()
-        .find(|e| e.kind == Kind::Command && e.enabled && e.slug == name)?;
+    let entry = knowledge::scan(workdir).into_iter().find(|e| e.kind == Kind::Command && e.enabled && e.slug == name)?;
     // 信任门：未信任项目 command 只索引（list 可见）不展开，与 render 的 untrusted downgrade 同模式
     if entry.scope == knowledge::Scope::Project && !crate::core::trust::is_trusted(workdir) {
         return None;
@@ -71,13 +64,8 @@ mod tests {
     /// 进程级隔离信任 store：与 render 测试同值（Once 写序防并行 env 竞态）。
     fn setup() {
         static ONCE: std::sync::Once = std::sync::Once::new();
-        ONCE.call_once(|| {
-            unsafe {
-                std::env::set_var(
-                    "KXEN_TRUST_FILE",
-                    std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())),
-                );
-            }
+        ONCE.call_once(|| unsafe {
+            std::env::set_var("KXEN_TRUST_FILE", std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())));
         });
     }
 

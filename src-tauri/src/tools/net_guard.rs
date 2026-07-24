@@ -29,17 +29,12 @@ fn is_blocked_ip_with(ip: &IpAddr, allow_loopback: bool) -> bool {
             if allow_loopback && v6.is_loopback() {
                 return false;
             }
-            if v6.is_loopback()
-                || v6.is_unspecified()
-                || v6.is_unique_local()
-                || v6.is_unicast_link_local()
-            {
+            if v6.is_loopback() || v6.is_unspecified() || v6.is_unique_local() || v6.is_unicast_link_local() {
                 return true;
             }
             // v4-mapped（::ffff:a.b.c.d，NAT64/DNS64 会真实出现）按内嵌 v4 重判，
             // 否则 ::ffff:127.0.0.1 绕过上面的 v6 段检查
-            v6.to_ipv4_mapped()
-                .is_some_and(|v4| is_blocked_ip_with(&IpAddr::V4(v4), allow_loopback))
+            v6.to_ipv4_mapped().is_some_and(|v4| is_blocked_ip_with(&IpAddr::V4(v4), allow_loopback))
         }
     }
 }
@@ -68,23 +63,13 @@ async fn check_url_inner(url: &str, allow_loopback: bool) -> Result<(), String> 
     let port = parsed.port_or_known_default().ok_or("url has no port")?;
     // v6 字面量 host_str 带方括号（[::1]），剥掉再按 IP 解析；
     // 字面 IP 直接判定：lookup_host 拼 "host:port" 对 v6 有歧义，且不该走 DNS
-    let bare = host
-        .strip_prefix('[')
-        .and_then(|h| h.strip_suffix(']'))
-        .unwrap_or(host);
+    let bare = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
     if let Ok(ip) = bare.parse::<IpAddr>() {
-        return if is_blocked_ip_with(&ip, allow_loopback) {
-            Err(format!("{host} is a blocked address"))
-        } else {
-            Ok(())
-        };
+        return if is_blocked_ip_with(&ip, allow_loopback) { Err(format!("{host} is a blocked address")) } else { Ok(()) };
     }
     // 域名返回全部 A/AAAA 记录，任一命中拒绝段即拒
-    let addrs: Vec<IpAddr> = tokio::net::lookup_host((host, port))
-        .await
-        .map_err(|e| format!("dns resolve failed for {host}: {e}"))?
-        .map(|sa| sa.ip())
-        .collect();
+    let addrs: Vec<IpAddr> =
+        tokio::net::lookup_host((host, port)).await.map_err(|e| format!("dns resolve failed for {host}: {e}"))?.map(|sa| sa.ip()).collect();
     if addrs.is_empty() {
         return Err(format!("dns resolve failed for {host}: no address"));
     }
@@ -100,11 +85,7 @@ pub async fn get_guarded(client: &reqwest::Client, url: &str) -> Result<reqwest:
     let mut current = reqwest::Url::parse(url).map_err(|e| format!("invalid url: {e}"))?;
     for _ in 0..=MAX_REDIRECT_HOPS {
         check_url(current.as_str()).await?;
-        let resp = client
-            .get(current.clone())
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        let resp = client.get(current.clone()).send().await.map_err(|e| e.to_string())?;
         if !resp.status().is_redirection() {
             return Ok(resp);
         }
@@ -114,9 +95,7 @@ pub async fn get_guarded(client: &reqwest::Client, url: &str) -> Result<reqwest:
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| format!("http {} redirect without location", resp.status()))?;
         // Location 可能是相对路径（/next、//other/x），join 按 RFC3986 解析
-        current = current
-            .join(location)
-            .map_err(|e| format!("bad redirect location {location}: {e}"))?;
+        current = current.join(location).map_err(|e| format!("bad redirect location {location}: {e}"))?;
     }
     Err(format!("too many redirects (>{MAX_REDIRECT_HOPS})"))
 }
@@ -144,12 +123,7 @@ mod tests {
         ] {
             assert!(is_blocked_ip(&ip), "{ip} 应被拒绝");
         }
-        for ip in [
-            v4(8, 8, 8, 8),
-            v4(172, 15, 0, 1),
-            v4(172, 32, 0, 1),
-            v4(1, 1, 1, 1),
-        ] {
+        for ip in [v4(8, 8, 8, 8), v4(172, 15, 0, 1), v4(172, 32, 0, 1), v4(1, 1, 1, 1)] {
             assert!(!is_blocked_ip(&ip), "{ip} 应放行");
         }
     }
@@ -168,10 +142,7 @@ mod tests {
         for ip in blocked {
             assert!(is_blocked_ip(&ip), "{ip} 应被拒绝");
         }
-        let allowed: [IpAddr; 2] = [
-            "2606:4700:4700::1111".parse().unwrap(),
-            "::ffff:8.8.8.8".parse().unwrap(),
-        ];
+        let allowed: [IpAddr; 2] = ["2606:4700:4700::1111".parse().unwrap(), "::ffff:8.8.8.8".parse().unwrap()];
         for ip in allowed {
             assert!(!is_blocked_ip(&ip), "{ip} 应放行");
         }
@@ -179,18 +150,11 @@ mod tests {
 
     #[test]
     fn rejects_blocked_url_without_network() {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         // 字面 IP 不走 DNS，测试无网络依赖；十进制/十六进制写法由 URL 解析器归一成点分
-        for url in [
-            "http://127.0.0.1/",
-            "http://169.254.169.254/latest/meta-data",
-            "http://[::1]/",
-            "http://2130706433/",
-            "http://0x7f000001/",
-        ] {
+        for url in
+            ["http://127.0.0.1/", "http://169.254.169.254/latest/meta-data", "http://[::1]/", "http://2130706433/", "http://0x7f000001/"]
+        {
             let err = rt.block_on(check_url(url)).unwrap_err();
             assert!(err.contains("blocked"), "{url} -> {err}");
         }
@@ -200,10 +164,7 @@ mod tests {
 
     #[test]
     fn loopback_exception_only_relieves_loopback() {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         // 字面 IP 不走 DNS：loopback 放行，RFC1918/link-local 仍拒
         assert!(rt.block_on(check_url_allow_loopback("http://127.0.0.1:11434/api/embed")).is_ok());
         assert!(rt.block_on(check_url_allow_loopback("http://[::1]:11434/")).is_ok());

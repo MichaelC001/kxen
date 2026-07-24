@@ -19,13 +19,7 @@ pub fn tool_defs(tools: &[McpTool]) -> Vec<ToolDefinition> {
 /// 按角色过滤后的 MCP tool defs（P0-08）：restricted（子代理白名单角色）只保留
 /// read_only=true 的工具——无 annotation 的一律视为写工具被滤掉（宁严勿宽）。
 pub fn tool_defs_for(tools: &[McpTool], restricted: bool) -> Vec<ToolDefinition> {
-    tool_defs(
-        &tools
-            .iter()
-            .filter(|t| !restricted || t.read_only)
-            .cloned()
-            .collect::<Vec<_>>(),
-    )
+    tool_defs(&tools.iter().filter(|t| !restricted || t.read_only).cloned().collect::<Vec<_>>())
 }
 
 /// 前缀解析：mcp__server__tool -> (server, tool)。

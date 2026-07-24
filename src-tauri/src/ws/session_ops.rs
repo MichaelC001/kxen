@@ -1,7 +1,7 @@
 //! session 域辅助：rewind / send_message 参数 / 会话级模型与 meta 更新（rpc.rs 拆出，350 门禁）。
 
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 #[derive(Deserialize)]
 pub(super) struct SendMessageParams {
     pub session_id: String,
@@ -40,11 +40,9 @@ pub(super) fn session_rewind(params: &Value, state: &crate::AppState) -> Result<
     let messages = kxen_app::core::session::load_messages(&dir, session_id);
     let message_found = messages.iter().any(|m| m.id == message_id);
     // 同 workspace（按 session 归属目录判定）任何 session 有 active run 即拒绝
-    let active_in_workspace = kxen_app::core::shared::lock(&state.active_runs).keys().any(|sid| {
-        kxen_app::core::session::load_meta(&dir, sid)
-            .map(|m| m.directory == meta.directory)
-            .unwrap_or(false)
-    });
+    let active_in_workspace = kxen_app::core::shared::lock(&state.active_runs)
+        .keys()
+        .any(|sid| kxen_app::core::session::load_meta(&dir, sid).map(|m| m.directory == meta.directory).unwrap_or(false));
     let dirty = kxen_app::tools::checkpoint::is_dirty(std::path::Path::new(&meta.directory));
     rewind_gate(active_in_workspace, dirty, confirm, message_found)?;
     let idx = messages.iter().position(|m| m.id == message_id).expect("rewind_gate 已确认消息存在");
@@ -56,9 +54,8 @@ pub(super) fn session_rewind(params: &Value, state: &crate::AppState) -> Result<
 /// ws 内共用的生效模型解析：session 覆盖 > 全局默认（AppState.model）。
 pub(super) fn effective_session_model(session_id: Option<&str>, state: &crate::AppState) -> kxen_app::llm::ModelRef {
     let default = state.model.lock().map(|m| m.clone()).unwrap_or_default();
-    let session_override = session_id
-        .and_then(|id| kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), id).ok())
-        .and_then(|m| m.model);
+    let session_override =
+        session_id.and_then(|id| kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), id).ok()).and_then(|m| m.model);
     kxen_app::core::session::effective_model(session_override.as_ref(), &default).clone()
 }
 
@@ -67,7 +64,9 @@ pub(super) fn session_set_model(params: &Value) -> Result<Value, String> {
     let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
     let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
     let model = params.get("model").and_then(Value::as_str).ok_or("missing model")?;
-    let session = kxen_app::core::session::set_model(&kxen_app::core::paths::sessions_dir(), id, Some(kxen_app::llm::ModelRef::new(provider, model))).map_err(|e| e.to_string())?;
+    let session =
+        kxen_app::core::session::set_model(&kxen_app::core::paths::sessions_dir(), id, Some(kxen_app::llm::ModelRef::new(provider, model)))
+            .map_err(|e| e.to_string())?;
     Ok(json!(session))
 }
 
@@ -77,7 +76,8 @@ pub(super) fn session_update_meta(params: &Value) -> Result<Value, String> {
     let title = params.get("title").and_then(Value::as_str);
     let pinned = params.get("pinned").and_then(Value::as_bool);
     let sort_order = params.get("sort_order").map(|v| v.as_u64());
-    let session = kxen_app::core::session::update_meta(&kxen_app::core::paths::sessions_dir(), id, title, pinned, sort_order).map_err(|e| e.to_string())?;
+    let session = kxen_app::core::session::update_meta(&kxen_app::core::paths::sessions_dir(), id, title, pinned, sort_order)
+        .map_err(|e| e.to_string())?;
     Ok(json!(session))
 }
 
@@ -101,8 +101,7 @@ pub(super) async fn session_delete(params: &Value, state: &crate::AppState) -> R
             m.parts
                 .iter()
                 .filter_map(|p| match p {
-                    kxen_app::core::session::Part::Text { text }
-                    | kxen_app::core::session::Part::Context { text } => Some(text.as_str()),
+                    kxen_app::core::session::Part::Text { text } | kxen_app::core::session::Part::Context { text } => Some(text.as_str()),
                     _ => None,
                 })
                 .collect::<Vec<_>>()

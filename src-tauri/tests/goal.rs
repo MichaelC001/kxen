@@ -11,10 +11,7 @@ fn contract() -> GoalContract {
 }
 
 fn wall_contract() -> GoalContract {
-    GoalContract {
-        budget: GoalBudget { tokens: None, turns: None, wall_clock_ms: Some(500) },
-        ..contract()
-    }
+    GoalContract { budget: GoalBudget { tokens: None, turns: None, wall_clock_ms: Some(500) }, ..contract() }
 }
 
 #[test]
@@ -141,10 +138,7 @@ fn pause_resume_accumulates_paused_ms() {
 
 #[test]
 fn record_turn_wall_uses_active_time() {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
     // 真实跨度 10s 超 500ms 预算
     let mut over = Goal::create(wall_contract(), "go".into()).unwrap();
     over.status = GoalStatus::Active;

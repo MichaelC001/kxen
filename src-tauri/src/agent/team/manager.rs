@@ -3,15 +3,15 @@
 use crate::core::event::EventBus;
 use crate::core::shared::lock;
 use crate::llm::ModelRef;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use super::TeamState;
 use super::inbox::{append_inbox, drain_inbox};
 use super::tasks::{claim_task, complete_task, create_task};
 use super::types::SpawnDeps;
-use super::TeamState;
 
 pub struct TeamManager {
     root: PathBuf,
@@ -59,16 +59,13 @@ impl TeamManager {
             let session_id = entry.file_name().to_string_lossy().into_owned();
             let Ok(text) = std::fs::read_to_string(dir.join("config.json")) else { continue };
             let Ok(config) = serde_json::from_str::<Value>(&text) else { continue };
-            let mut members: Vec<super::types::Member> = config
-                .get("members")
-                .and_then(|m| serde_json::from_value(m.clone()).ok())
-                .unwrap_or_default();
+            let mut members: Vec<super::types::Member> =
+                config.get("members").and_then(|m| serde_json::from_value(m.clone()).ok()).unwrap_or_default();
             // 重启名单先算好：落盘状态 Working/Idle/AwaitingPlanApproval 都算崩前活跃
             let restart: Vec<super::types::Member> = members
                 .iter()
                 .filter(|m| {
-                    !m.prompt.is_empty()
-                        && !matches!(m.status, super::types::MemberStatus::Shutdown | super::types::MemberStatus::Failed)
+                    !m.prompt.is_empty() && !matches!(m.status, super::types::MemberStatus::Shutdown | super::types::MemberStatus::Failed)
                 })
                 .cloned()
                 .collect();
@@ -81,10 +78,8 @@ impl TeamManager {
                     };
                 }
             }
-            let tasks: Vec<super::types::TeamTask> = std::fs::read_to_string(dir.join("tasks.json"))
-                .ok()
-                .and_then(|t| serde_json::from_str(&t).ok())
-                .unwrap_or_default();
+            let tasks: Vec<super::types::TeamTask> =
+                std::fs::read_to_string(dir.join("tasks.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
             let next_id = tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1;
             let _ = std::fs::create_dir_all(dir.join("inboxes"));
             let workdir = self.session_workdir(&session_id);
@@ -110,24 +105,26 @@ impl TeamManager {
 
     pub(super) fn state_for(self: &Arc<Self>, session_id: &str) -> Arc<TeamState> {
         let mut map = lock(&self.sessions);
-        map.entry(session_id.to_string()).or_insert_with(|| {
-            let dir = self.root.join(session_id);
-            let _ = std::fs::create_dir_all(dir.join("inboxes"));
-            let workdir = self.session_workdir(session_id);
-            Arc::new(TeamState {
-                session_id: session_id.to_string(),
-                dir,
-                workdir,
-                manager: Arc::downgrade(self),
-                members: std::sync::Mutex::new(Vec::new()),
-                cancels: std::sync::Mutex::new(HashMap::new()),
-                notifies: std::sync::Mutex::new(HashMap::new()),
-                tasks: std::sync::Mutex::new(Vec::new()),
-                next_task_id: std::sync::atomic::AtomicU64::new(1),
-                deps: self.deps.clone(),
-                bus: self.bus.clone(),
+        map.entry(session_id.to_string())
+            .or_insert_with(|| {
+                let dir = self.root.join(session_id);
+                let _ = std::fs::create_dir_all(dir.join("inboxes"));
+                let workdir = self.session_workdir(session_id);
+                Arc::new(TeamState {
+                    session_id: session_id.to_string(),
+                    dir,
+                    workdir,
+                    manager: Arc::downgrade(self),
+                    members: std::sync::Mutex::new(Vec::new()),
+                    cancels: std::sync::Mutex::new(HashMap::new()),
+                    notifies: std::sync::Mutex::new(HashMap::new()),
+                    tasks: std::sync::Mutex::new(Vec::new()),
+                    next_task_id: std::sync::atomic::AtomicU64::new(1),
+                    deps: self.deps.clone(),
+                    bus: self.bus.clone(),
+                })
             })
-        }).clone()
+            .clone()
     }
 
     /// lead 工具入口。
@@ -141,9 +138,12 @@ impl TeamManager {
                 crate::core::ids::validate_id(&name)?;
                 let role = args.get("role").and_then(Value::as_str).unwrap_or("execution").to_string();
                 // 部分模型（grok-build）固定把简报写进 text：别名兜底，二者取一
-                let prompt = args.get("prompt").and_then(Value::as_str)
+                let prompt = args
+                    .get("prompt")
+                    .and_then(Value::as_str)
                     .or_else(|| args.get("text").and_then(Value::as_str))
-                    .ok_or("missing prompt")?.to_string();
+                    .ok_or("missing prompt")?
+                    .to_string();
                 // 模型会给可选项填空串（gpt-5.4 习性）：空串视同未传
                 let model = args.get("model").and_then(Value::as_str).filter(|m| !m.is_empty()).map(String::from);
                 let plan_approval = args.get("plan_approval").and_then(Value::as_bool).unwrap_or(false);
@@ -189,7 +189,11 @@ impl TeamManager {
             "list" => Ok(self.render_list(&state)),
             "task_create" => {
                 let title = args.get("title").and_then(Value::as_str).ok_or("missing title")?;
-                let depends_on: Vec<u64> = args.get("depends_on").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
+                let depends_on: Vec<u64> = args
+                    .get("depends_on")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_u64).collect())
+                    .unwrap_or_default();
                 let task = create_task(&state, title, depends_on);
                 Ok(format!("task #{} created: {}", task.id, task.title))
             }
@@ -215,7 +219,10 @@ impl TeamManager {
         if to == "lead" {
             // lead 的信件：bus 推给前端 + 写入 lead inbox 等下次 run 注入
             append_inbox(&state.dir, "lead", from, text)?;
-            self.bus.publish(crate::core::event::Event::Notification(format!("teammate {from}: {}", text.chars().take(120).collect::<String>())));
+            self.bus.publish(crate::core::event::Event::Notification(format!(
+                "teammate {from}: {}",
+                text.chars().take(120).collect::<String>()
+            )));
             self.fanout_observers(state, from, "lead", text);
             return Ok(());
         }

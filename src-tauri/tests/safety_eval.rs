@@ -1,5 +1,5 @@
 // safety 命令评估与路径守卫测试（从 eval.rs 拆出，350 行门禁）。
-use kxen_app::tools::safety::{evaluate_shell_command, guard_path, Verdict};
+use kxen_app::tools::safety::{Verdict, evaluate_shell_command, guard_path};
 
 const CWD: &str = "/Users/test/project";
 
@@ -13,7 +13,15 @@ fn allowed(cmd: &str) -> bool {
 
 #[test]
 fn f1_system() {
-    for cmd in ["rm -rf /", "rm -rf /usr", "sudo rm -rf /etc", "dd if=/dev/zero of=/dev/disk0", "mkfs.ext4 /dev/sda1", "diskutil eraseDisk JHFS+ New disk0", "find / -name x -delete"] {
+    for cmd in [
+        "rm -rf /",
+        "rm -rf /usr",
+        "sudo rm -rf /etc",
+        "dd if=/dev/zero of=/dev/disk0",
+        "mkfs.ext4 /dev/sda1",
+        "diskutil eraseDisk JHFS+ New disk0",
+        "find / -name x -delete",
+    ] {
         assert!(denied(cmd), "should deny: {cmd}");
     }
 }
@@ -72,7 +80,9 @@ fn f3_git() {
 
 #[test]
 fn f4_destroy() {
-    for cmd in ["terraform destroy", "dropdb production", "kubectl delete ns prod", "aws s3 rb s3://b --force", "docker system prune --volumes"] {
+    for cmd in
+        ["terraform destroy", "dropdb production", "kubectl delete ns prod", "aws s3 rb s3://b --force", "docker system prune --volumes"]
+    {
         assert!(denied(cmd), "should deny: {cmd}");
     }
 }

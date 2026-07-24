@@ -29,10 +29,7 @@ pub fn retryable(err: &str) -> bool {
 /// 指数退避 + 抖动：800ms / 1.6s / 3.2s 起步。
 pub fn backoff_ms(attempt: usize) -> u64 {
     let base = 800u64 << attempt.min(3);
-    let jitter = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| (d.subsec_millis() % 500) as u64)
-        .unwrap_or(0);
+    let jitter = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| (d.subsec_millis() % 500) as u64).unwrap_or(0);
     base + jitter
 }
 
@@ -41,11 +38,7 @@ pub fn next_account(store: &AuthStore, provider: &str, current: Option<&str>) ->
     let effective = current.unwrap_or("default");
     crate::auth::credential::accounts_of(store, provider)
         .into_iter()
-        .map(|k| {
-            k.strip_prefix(&format!("{provider}:"))
-                .map(String::from)
-                .unwrap_or_else(|| "default".into())
-        })
+        .map(|k| k.strip_prefix(&format!("{provider}:")).map(String::from).unwrap_or_else(|| "default".into()))
         .find(|name| name != effective)
 }
 
@@ -73,23 +66,14 @@ mod tests {
     #[test]
     fn next_account_rotates() {
         let mut store = AuthStore::default();
-        store.insert(
-            "xai".into(),
-            crate::auth::credential::CredentialKind::Api { key: "k1".into(), region: None },
-        );
-        store.insert(
-            "xai:work".into(),
-            crate::auth::credential::CredentialKind::Api { key: "k2".into(), region: None },
-        );
+        store.insert("xai".into(), crate::auth::credential::CredentialKind::Api { key: "k1".into(), region: None });
+        store.insert("xai:work".into(), crate::auth::credential::CredentialKind::Api { key: "k2".into(), region: None });
         assert_eq!(next_account(&store, "xai", None).as_deref(), Some("work"));
         assert_eq!(next_account(&store, "xai", Some("work")).as_deref(), Some("default"));
         assert_eq!(next_account(&store, "openai", None), None);
         // 单账号无备选
         let mut single = AuthStore::default();
-        single.insert(
-            "xai".into(),
-            crate::auth::credential::CredentialKind::Api { key: "k".into(), region: None },
-        );
+        single.insert("xai".into(), crate::auth::credential::CredentialKind::Api { key: "k".into(), region: None });
         assert_eq!(next_account(&single, "xai", None), None);
     }
 }

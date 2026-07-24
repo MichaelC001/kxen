@@ -71,11 +71,7 @@ pub type AuthStore = HashMap<String, CredentialKind>;
 
 /// 账号键：默认账号 = 裸 provider（零迁移）；命名账号 = "provider:名字"。
 pub fn account_id(provider: &str, account: &str) -> String {
-    if account.is_empty() || account == "default" {
-        provider.to_string()
-    } else {
-        format!("{provider}:{account}")
-    }
+    if account.is_empty() || account == "default" { provider.to_string() } else { format!("{provider}:{account}") }
 }
 
 /// provider 的全部账号键（默认账号在前，命名账号字典序）。
@@ -103,10 +99,7 @@ pub fn credential_for<'a>(store: &'a AuthStore, provider: &str, account: Option<
 }
 
 pub fn read_auth_file(path: &Path) -> AuthStore {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+    std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
 }
 
 pub fn write_auth_file(path: &Path, store: &AuthStore) -> crate::core::Result<()> {
@@ -125,8 +118,5 @@ pub fn write_auth_file(path: &Path, store: &AuthStore) -> crate::core::Result<()
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }

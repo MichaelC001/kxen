@@ -1,9 +1,9 @@
 //! dev_server 管理：就绪等待（pattern/端口）、restart、list、健康检查。
 
-use crate::tools::exec::{spawn_task, ExecError};
-use crate::tools::shell::{wrap_command, ShellKind};
-use crate::tools::task::TaskRegistry;
 use crate::core::shared::lock;
+use crate::tools::exec::{ExecError, spawn_task};
+use crate::tools::shell::{ShellKind, wrap_command};
+use crate::tools::task::TaskRegistry;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -65,10 +65,7 @@ pub async fn dev_server(params: DevServerParams, registry: &Arc<TaskRegistry>) -
             // readiness 超时：进程必须跟着死（复用进程组 SIGTERM->SIGKILL），不留孤儿
             registry.kill(&task_id).await;
             let tail = lock(&task.output).clone();
-            Err(ExecError::Spawn(format!(
-                "dev server not ready within {timeout}ms. tail:\n{}",
-                crate::tools::task::tail_of(&tail, 800)
-            )))
+            Err(ExecError::Spawn(format!("dev server not ready within {timeout}ms. tail:\n{}", crate::tools::task::tail_of(&tail, 800))))
         }
     }
 }
@@ -80,9 +77,8 @@ enum Ready {
 }
 
 async fn wait_ready(task: Arc<crate::tools::task::TaskHandle>, pattern: Option<String>, port: Option<u16>) -> Ready {
-    let patterns: Vec<String> = pattern
-        .map(|p| vec![p.to_lowercase()])
-        .unwrap_or_else(|| READY_DEFAULT_PATTERNS.iter().map(|s| s.to_string()).collect());
+    let patterns: Vec<String> =
+        pattern.map(|p| vec![p.to_lowercase()]).unwrap_or_else(|| READY_DEFAULT_PATTERNS.iter().map(|s| s.to_string()).collect());
 
     loop {
         // 进程提前退出 -> 失败
@@ -122,14 +118,10 @@ async fn wait_ready(task: Arc<crate::tools::task::TaskHandle>, pattern: Option<S
 fn parse_port(output: &str) -> Option<u16> {
     static RE: std::sync::LazyLock<regex::Regex> =
         std::sync::LazyLock::new(|| regex::Regex::new(r"(?:localhost|127\.0\.0\.1|:):(\d{4,5})\b").unwrap());
-    RE.captures(output)
-        .and_then(|c| c.get(1))
-        .and_then(|m| m.as_str().parse().ok())
-        .or_else(|| {
-            static RE2: std::sync::LazyLock<regex::Regex> =
-                std::sync::LazyLock::new(|| regex::Regex::new(r"port\s+(\d{4,5})").unwrap());
-            RE2.captures(output).and_then(|c| c.get(1)).and_then(|m| m.as_str().parse().ok())
-        })
+    RE.captures(output).and_then(|c| c.get(1)).and_then(|m| m.as_str().parse().ok()).or_else(|| {
+        static RE2: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"port\s+(\d{4,5})").unwrap());
+        RE2.captures(output).and_then(|c| c.get(1)).and_then(|m| m.as_str().parse().ok())
+    })
 }
 
 fn spawn_health_check(task: Arc<crate::tools::task::TaskHandle>, registry: Arc<TaskRegistry>) {

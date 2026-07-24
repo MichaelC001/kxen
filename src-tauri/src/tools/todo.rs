@@ -50,11 +50,7 @@ impl TodoStore {
         if items.is_empty() {
             return "todo list is empty".into();
         }
-        items
-            .iter()
-            .map(|i| format!("{} #{} {}", if i.done { "[x]" } else { "[ ]" }, i.id, i.content))
-            .collect::<Vec<_>>()
-            .join("\n")
+        items.iter().map(|i| format!("{} #{} {}", if i.done { "[x]" } else { "[ ]" }, i.id, i.content)).collect::<Vec<_>>().join("\n")
     }
 }
 

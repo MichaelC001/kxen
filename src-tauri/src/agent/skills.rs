@@ -79,6 +79,32 @@ pub fn render_loaded(skill: &Skill, args: &str, trigger: &str, deps: &str) -> St
     )
 }
 
+/// skill 工具调用入口（agent_loop 执行路由拆出）：递归 cap + 同 args 重调拒绝 + 装载渲染。
+pub fn invoke(workdir: &Path, extras: &crate::agent::agent_loop::SessionExtras, name: &str, args: &str) -> Result<String, String> {
+    // 递归深度 cap 3（skill -> skill 链）
+    let depth = extras.skill_depth.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    let result = (|| {
+        if depth > SKILL_RECURSION_CAP {
+            return Err(format!("skill recursion cap ({}) reached", SKILL_RECURSION_CAP));
+        }
+        let Some(skill) = find(workdir, name) else {
+            return Err(format!("skill not found: {name}"));
+        };
+        if skill.disable_model_invocation {
+            return Err(format!("skill {name} is user-invocable only (disable-model-invocation)"));
+        }
+        // 同 args 禁止重调
+        let key = format!("{name}\x1f{args}");
+        if !crate::core::shared::lock(&extras.loaded_skills).insert(key) {
+            return Err(format!("skill {name} already loaded with identical args - reuse the block in this session"));
+        }
+        let deps = crate::knowledge::resolve_needs(workdir, &skill.needs);
+        Ok(render_loaded(&skill, args, "model", &deps))
+    })();
+    extras.skill_depth.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,13 +113,8 @@ mod tests {
     /// 进程级隔离信任 store：与 render 测试同值（Once 写序防并行 env 竞态）。
     fn setup() {
         static ONCE: std::sync::Once = std::sync::Once::new();
-        ONCE.call_once(|| {
-            unsafe {
-                std::env::set_var(
-                    "KXEN_TRUST_FILE",
-                    std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())),
-                );
-            }
+        ONCE.call_once(|| unsafe {
+            std::env::set_var("KXEN_TRUST_FILE", std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())));
         });
     }
 

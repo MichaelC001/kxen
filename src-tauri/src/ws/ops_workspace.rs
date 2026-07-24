@@ -1,6 +1,6 @@
 //! workspace 域 RPC：工作看板卡片数据（仿 ops_provider 分文件模式）。
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
@@ -13,8 +13,7 @@ pub(super) async fn handle(method: &str, _params: &Value, app: &AppHandle) -> Re
         "workspaces.overview" => {
             let state = app.state::<Arc<AppState>>();
             let sessions = kxen_app::core::session::list(&kxen_app::core::paths::sessions_dir());
-            let running: std::collections::HashSet<String> =
-                kxen_app::core::shared::lock(&state.active_runs).keys().cloned().collect();
+            let running: std::collections::HashSet<String> = kxen_app::core::shared::lock(&state.active_runs).keys().cloned().collect();
             let workspaces = kxen_app::core::workspace::list(&kxen_app::core::paths::data_dir());
             // queue/cron 都是内存快照，一次锁取出
             let queued = state.pending_messages.counts();

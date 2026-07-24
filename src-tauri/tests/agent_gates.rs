@@ -37,14 +37,7 @@ fn test_ctx() -> AgentContext {
 #[tokio::test]
 async fn team_tool_is_lead_only() {
     let ctx = test_ctx();
-    let err = dispatch_tool(
-        "team",
-        &json!({ "action": "spawn", "name": "x", "prompt": "y" }),
-        "/tmp",
-        &ctx,
-    )
-    .await
-    .unwrap_err();
+    let err = dispatch_tool("team", &json!({ "action": "spawn", "name": "x", "prompt": "y" }), "/tmp", &ctx).await.unwrap_err();
     assert!(err.contains("lead-only"), "got: {err}");
 }
 
@@ -52,12 +45,7 @@ async fn team_tool_is_lead_only() {
 #[tokio::test]
 async fn task_start_blocked_by_safety() {
     let mut ctx = test_ctx();
-    let err = execute_task_tool(
-        &json!({ "action": "start", "command": "rm -rf /" }),
-        &mut ctx,
-    )
-    .await
-    .unwrap_err();
+    let err = execute_task_tool(&json!({ "action": "start", "command": "rm -rf /" }), &mut ctx).await.unwrap_err();
     assert!(err.contains("F1"), "got: {err}");
 }
 
@@ -65,12 +53,7 @@ async fn task_start_blocked_by_safety() {
 #[tokio::test]
 async fn task_start_ask_needs_approval_channel() {
     let mut ctx = test_ctx();
-    let err = execute_task_tool(
-        &json!({ "action": "start", "command": "sudo ls" }),
-        &mut ctx,
-    )
-    .await
-    .unwrap_err();
+    let err = execute_task_tool(&json!({ "action": "start", "command": "sudo ls" }), &mut ctx).await.unwrap_err();
     assert!(err.contains("approval"), "got: {err}");
 }
 

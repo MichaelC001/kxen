@@ -49,8 +49,9 @@ async fn read_capped(resp: reqwest::Response, max_chars: usize) -> Result<String
 fn strip_html(html: &str) -> String {
     static RE_SCRIPT: std::sync::LazyLock<regex::Regex> =
         std::sync::LazyLock::new(|| regex::Regex::new(r"(?is)<(script|style)[^>]*>.*?</(script|style)>").unwrap());
-    static RE_BLOCK: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)</?(p|div|h[1-6]|li|br|tr|section|article|header|footer|ul|ol|table|blockquote)[^>]*>").unwrap());
+    static RE_BLOCK: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)</?(p|div|h[1-6]|li|br|tr|section|article|header|footer|ul|ol|table|blockquote)[^>]*>").unwrap()
+    });
     static RE_TAG: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"<[^>]+>").unwrap());
     static RE_WS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\n{3,}").unwrap());
 

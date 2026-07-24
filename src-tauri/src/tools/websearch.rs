@@ -42,11 +42,7 @@ fn parse_results(html: &str) -> Vec<SearchHit> {
         .captures_iter(html)
         .take(MAX_RESULTS)
         .enumerate()
-        .map(|(i, c)| SearchHit {
-            title: clean(&c[2]),
-            url: decode_uddg(&c[1]),
-            snippet: snippets.get(i).cloned().unwrap_or_default(),
-        })
+        .map(|(i, c)| SearchHit { title: clean(&c[2]), url: decode_uddg(&c[1]), snippet: snippets.get(i).cloned().unwrap_or_default() })
         .collect()
 }
 
@@ -91,11 +87,7 @@ pub fn format_hits(hits: &[SearchHit]) -> String {
     if hits.is_empty() {
         return "no results".into();
     }
-    hits.iter()
-        .enumerate()
-        .map(|(i, h)| format!("{}. {}\n   {}\n   {}", i + 1, h.title, h.url, h.snippet))
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    hits.iter().enumerate().map(|(i, h)| format!("{}. {}\n   {}\n   {}", i + 1, h.title, h.url, h.snippet)).collect::<Vec<_>>().join("\n\n")
 }
 
 #[cfg(test)]

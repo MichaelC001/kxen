@@ -59,7 +59,12 @@ pub fn statuses(config: &crate::core::config::Config, store: &AuthStore) -> Vec<
 }
 
 /// multipart 上传整文件 -> 转写文本。
-pub async fn transcribe_file(config: &crate::core::config::Config, store: &AuthStore, provider: &str, path: &str) -> Result<String, String> {
+pub async fn transcribe_file(
+    config: &crate::core::config::Config,
+    store: &AuthStore,
+    provider: &str,
+    path: &str,
+) -> Result<String, String> {
     // 自定义提供商（audio 标记）：端点 = base_url + /audio/transcriptions，key 直取 custom:<name>
     let (label, url, key) = if let Some(name) = provider.strip_prefix("custom:") {
         let def = config.custom_providers.get(name).ok_or_else(|| format!("自定义提供商未配置: {name}"))?;
@@ -71,7 +76,8 @@ pub async fn transcribe_file(config: &crate::core::config::Config, store: &AuthS
         };
         (name.to_string(), format!("{}/audio/transcriptions", def.base_url.trim_end_matches('/')), key.clone())
     } else {
-        let (_, label, url) = PROVIDERS.iter().find(|(id, _, _)| *id == provider).ok_or_else(|| format!("未知转写 provider: {provider}"))?;
+        let (_, label, url) =
+            PROVIDERS.iter().find(|(id, _, _)| *id == provider).ok_or_else(|| format!("未知转写 provider: {provider}"))?;
         let Some(CredentialKind::Api { key, .. }) = store.get(&store_key(provider)) else {
             return Err(format!("{label}未配置 API key"));
         };

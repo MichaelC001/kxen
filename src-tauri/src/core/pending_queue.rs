@@ -27,18 +27,13 @@ pub fn file_path(dir: &Path, id: &str) -> PathBuf {
 
 impl PendingQueues {
     pub fn new(dir: PathBuf) -> Self {
-        Self {
-            dir,
-            map: std::sync::Mutex::new(HashMap::new()),
-        }
+        Self { dir, map: std::sync::Mutex::new(HashMap::new()) }
     }
 
     /// 内存状态整写到盘；空队列删文件（残留空文件会被 restore 当有效队列）。
     fn persist(&self, id: &str) {
-        let snapshot: Vec<QueuedMessage> = crate::core::shared::lock(&self.map)
-            .get(id)
-            .map(|q| q.iter().cloned().collect())
-            .unwrap_or_default();
+        let snapshot: Vec<QueuedMessage> =
+            crate::core::shared::lock(&self.map).get(id).map(|q| q.iter().cloned().collect()).unwrap_or_default();
         let path = file_path(&self.dir, id);
         if snapshot.is_empty() {
             let _ = std::fs::remove_file(&path);
@@ -67,11 +62,7 @@ impl PendingQueues {
         let n = {
             let mut map = crate::core::shared::lock(&self.map);
             let q = map.entry(id.to_string()).or_default();
-            q.push_back(QueuedMessage {
-                text,
-                context,
-                images,
-            });
+            q.push_back(QueuedMessage { text, context, images });
             q.len()
         };
         self.persist(id);
@@ -80,9 +71,7 @@ impl PendingQueues {
 
     /// 弹出队首（消费后重写磁盘）。pop 即删盘上行条目：崩溃窗口内丢一条与旧纯内存行为等价，不引入重复消费。
     pub fn pop(&self, id: &str) -> Option<QueuedMessage> {
-        let item = crate::core::shared::lock(&self.map)
-            .get_mut(id)?
-            .pop_front();
+        let item = crate::core::shared::lock(&self.map).get_mut(id)?.pop_front();
         if item.is_some() {
             self.persist(id);
         }
@@ -91,34 +80,22 @@ impl PendingQueues {
 
     /// 清空该 session 队列（abort/delete 用），返回清掉条数。
     pub fn clear(&self, id: &str) -> usize {
-        let n = crate::core::shared::lock(&self.map)
-            .remove(id)
-            .map(|q| q.len())
-            .unwrap_or(0);
+        let n = crate::core::shared::lock(&self.map).remove(id).map(|q| q.len()).unwrap_or(0);
         let _ = std::fs::remove_file(file_path(&self.dir, id));
         n
     }
 
     pub fn texts(&self, id: &str) -> Vec<String> {
-        crate::core::shared::lock(&self.map)
-            .get(id)
-            .map(|q| q.iter().map(|m| m.text.clone()).collect())
-            .unwrap_or_default()
+        crate::core::shared::lock(&self.map).get(id).map(|q| q.iter().map(|m| m.text.clone()).collect()).unwrap_or_default()
     }
 
     pub fn has_queued(&self, id: &str) -> bool {
-        crate::core::shared::lock(&self.map)
-            .get(id)
-            .is_some_and(|q| !q.is_empty())
+        crate::core::shared::lock(&self.map).get(id).is_some_and(|q| !q.is_empty())
     }
 
     /// 全量非空队列长度快照（workspace 看板聚合：一次锁取出，避免逐 session 加锁）
     pub fn counts(&self) -> HashMap<String, usize> {
-        crate::core::shared::lock(&self.map)
-            .iter()
-            .filter(|(_, q)| !q.is_empty())
-            .map(|(id, q)| (id.clone(), q.len()))
-            .collect()
+        crate::core::shared::lock(&self.map).iter().filter(|(_, q)| !q.is_empty()).map(|(id, q)| (id.clone(), q.len())).collect()
     }
 
     /// 启动恢复：读全部 queue 文件进内存，返回有待跑消息的 session id（调用方据此续跑）。
@@ -136,15 +113,12 @@ impl PendingQueues {
             if crate::core::ids::validate_id(id).is_err() {
                 continue;
             }
-            let items: Vec<QueuedMessage> = std::fs::read_to_string(entry.path())
-                .ok()
-                .and_then(|text| serde_json::from_str(&text).ok())
-                .unwrap_or_default();
+            let items: Vec<QueuedMessage> =
+                std::fs::read_to_string(entry.path()).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
             if items.is_empty() {
                 continue;
             }
-            crate::core::shared::lock(&self.map)
-                .insert(id.to_string(), items.into_iter().collect());
+            crate::core::shared::lock(&self.map).insert(id.to_string(), items.into_iter().collect());
             ready.push(id.to_string());
         }
         ready

@@ -1,6 +1,6 @@
 //! provider 域 RPC：verify / accounts / 多账号导入删除 / 自定义提供商 CRUD / reprobe。
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
@@ -82,7 +82,8 @@ pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Res
                     }).collect::<Vec<_>>()
                 })
                 .collect();
-            let cfg = kxen_app::core::config::Config::load(&kxen_app::core::paths::config_dir().join("config.toml"), None).unwrap_or_default();
+            let cfg =
+                kxen_app::core::config::Config::load(&kxen_app::core::paths::config_dir().join("config.toml"), None).unwrap_or_default();
             for (name, def) in &cfg.custom_providers {
                 let id = format!("custom:{name}");
                 out.push(json!({ "provider": id, "account": "default", "id": id, "expired": false, "custom": true, "base_url": def.base_url, "models": def.models, "protocol": def.protocol, "capabilities": def.capabilities }));
@@ -171,7 +172,10 @@ pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Res
             super::ops::write_toml(&path, &doc)?;
             let state = app.state::<Arc<AppState>>();
             let mut store = state.auth_store.lock().map_err(|e| e.to_string())?;
-            store.insert(format!("custom:{name}"), kxen_app::auth::credential::CredentialKind::Api { key: api_key.to_string(), region: None });
+            store.insert(
+                format!("custom:{name}"),
+                kxen_app::auth::credential::CredentialKind::Api { key: api_key.to_string(), region: None },
+            );
             kxen_app::auth::credential::write_auth_file(&kxen_app::core::paths::auth_file(), &store).map_err(|e| e.to_string())?;
             Ok(json!({ "id": format!("custom:{name}") }))
         }

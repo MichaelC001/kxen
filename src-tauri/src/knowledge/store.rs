@@ -1,17 +1,10 @@
 //! 写回路：notes/ 写入（同 slug 覆盖）、启停、双 scope 晋升、回收站删除、.kxen 私址存量迁移。
 
-use super::{scan, scope_root, slugify, today, Entry, Kind, Scope, NOTE_TYPES};
+use super::{Entry, Kind, NOTE_TYPES, Scope, scan, scope_root, slugify, today};
 use std::path::{Path, PathBuf};
 
 /// 写入或更新一条 note（同 slug = 同题，整体覆盖不追加）。返回文件路径。
-pub fn add(
-    scope: Scope,
-    workdir: &Path,
-    slug: Option<&str>,
-    note_type: &str,
-    description: &str,
-    content: &str,
-) -> Result<String, String> {
+pub fn add(scope: Scope, workdir: &Path, slug: Option<&str>, note_type: &str, description: &str, content: &str) -> Result<String, String> {
     let note_type = if NOTE_TYPES.contains(&note_type) { note_type } else { "note" };
     let description = description.trim();
     if description.is_empty() {
@@ -20,11 +13,7 @@ pub fn add(
     let slug = slugify(slug.unwrap_or(description));
     let dir = scope_root(scope, workdir).join(Kind::Note.dir_name());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let body = format!(
-        "---\nnote-type: {note_type}\ndescription: {description}\ndate: {}\n---\n\n{}\n",
-        today(),
-        content.trim()
-    );
+    let body = format!("---\nnote-type: {note_type}\ndescription: {description}\ndate: {}\n---\n\n{}\n", today(), content.trim());
     let path = dir.join(format!("{slug}.md"));
     std::fs::write(&path, body).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().into_owned())
@@ -39,13 +28,10 @@ fn find_entry(scope: Scope, workdir: &Path, slug: &str) -> Result<Entry, String>
     // 先精确匹配再回落 slugify 规范化：带哈希后缀的 CJK slug 二次 slugify 会追加新哈希而失真
     // （哈希取的是原始描述），规范化只兜底手输描述定位
     let entries = scan(workdir);
-    let found = entries
-        .iter()
-        .find(|e| e.scope == scope && e.slug == slug)
-        .or_else(|| {
-            let normalized = slugify(slug);
-            entries.iter().find(|e| e.scope == scope && e.slug == normalized)
-        });
+    let found = entries.iter().find(|e| e.scope == scope && e.slug == slug).or_else(|| {
+        let normalized = slugify(slug);
+        entries.iter().find(|e| e.scope == scope && e.slug == normalized)
+    });
     found.cloned().ok_or_else(|| format!("not found: {}/{slug}", scope.as_str()))
 }
 
@@ -120,10 +106,7 @@ mod tests {
         let dir = ws("dedup");
         add(Scope::Project, &dir, None, "correction", "use trash not rm", "v1").unwrap();
         add(Scope::Project, &dir, None, "correction", "use trash not rm", "v2").unwrap();
-        let entries: Vec<Entry> = list(&dir)
-            .into_iter()
-            .filter(|e| e.scope == Scope::Project && e.kind == Kind::Note)
-            .collect();
+        let entries: Vec<Entry> = list(&dir).into_iter().filter(|e| e.scope == Scope::Project && e.kind == Kind::Note).collect();
         assert_eq!(entries.len(), 1);
         assert!(entries[0].content.contains("v2"));
         assert_eq!(entries[0].note_type.as_deref(), Some("correction"));
@@ -144,10 +127,7 @@ mod tests {
         let dir = ws("cjk");
         add(Scope::Project, &dir, None, "note", "修复登录页样式崩溃", "v1").unwrap();
         add(Scope::Project, &dir, None, "note", "修复登录页样式崩坏", "v2").unwrap();
-        let entries: Vec<Entry> = list(&dir)
-            .into_iter()
-            .filter(|e| e.scope == Scope::Project && e.kind == Kind::Note)
-            .collect();
+        let entries: Vec<Entry> = list(&dir).into_iter().filter(|e| e.scope == Scope::Project && e.kind == Kind::Note).collect();
         assert_eq!(entries.len(), 2, "近义中文描述靠哈希后缀各自成条");
         assert_ne!(entries[0].slug, entries[1].slug);
         assert!(entries.iter().all(|e| e.slug.chars().any(crate::knowledge::is_cjk)), "slug 保留中文: {entries:?}");

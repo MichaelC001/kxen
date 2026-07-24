@@ -49,7 +49,10 @@ impl LspManager {
                 let outcome = if languages::probe(spec).await {
                     LspClient::start(&self.root, spec).await
                 } else {
-                    Err(format!("{} unavailable: install it ({}) for {} language-server features", spec.command, spec.install_hint, spec.id))
+                    Err(format!(
+                        "{} unavailable: install it ({}) for {} language-server features",
+                        spec.command, spec.install_hint, spec.id
+                    ))
                 };
                 match outcome {
                     Ok(client) => {
@@ -119,12 +122,7 @@ pub fn notify_change(lsp: Option<&Arc<LspManager>>, path: &Path) {
 }
 
 /// lsp 工具单一入口：action = diagnostics(默认)/hover/definition/references/symbols。
-pub async fn lsp_tool(
-    lsp: Option<&Arc<LspManager>>,
-    args: &Value,
-    workdir: &Path,
-    tracked: Vec<PathBuf>,
-) -> Result<String, String> {
+pub async fn lsp_tool(lsp: Option<&Arc<LspManager>>, args: &Value, workdir: &Path, tracked: Vec<PathBuf>) -> Result<String, String> {
     let Some(lsp) = lsp else { return Err("lsp not configured".into()) };
     let action = args.get("action").and_then(Value::as_str).unwrap_or("diagnostics");
     let path = args.get("path").and_then(Value::as_str).map(|p| workdir.join(p));
@@ -223,10 +221,12 @@ fn group_by_language(tracked: Vec<PathBuf>) -> Vec<(&'static LanguageSpec, Vec<P
     let mut map: HashMap<&'static str, Vec<PathBuf>> = HashMap::new();
     for path in tracked.into_iter().take(SYNC_CAP) {
         let Some(spec) = languages::for_path(&path) else { continue };
-        map.entry(spec.id).or_insert_with(|| {
-            order.push(spec);
-            Vec::new()
-        }).push(path);
+        map.entry(spec.id)
+            .or_insert_with(|| {
+                order.push(spec);
+                Vec::new()
+            })
+            .push(path);
     }
     order.into_iter().filter_map(|spec| map.remove(spec.id).map(|files| (spec, files))).collect()
 }

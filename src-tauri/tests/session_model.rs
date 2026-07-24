@@ -44,27 +44,16 @@ fn fork_inherits_model_override() {
     let dir = tmp_dir("fork");
     let s = ses::create(&dir, "/tmp/work").unwrap();
     ses::set_model(&dir, &s.id, Some(ModelRef::new("claude", "sonnet-4"))).unwrap();
-    let m = ses::new_message(
-        &s.id,
-        ses::Role::User,
-        vec![ses::Part::Text { text: "hi".into() }],
-    );
+    let m = ses::new_message(&s.id, ses::Role::User, vec![ses::Part::Text { text: "hi".into() }]);
     ses::append_message(&dir, &m).unwrap();
 
     let forked = ses::fork(&dir, &s.id, &m.id).unwrap();
     let m = forked.model.as_ref().expect("fork inherits model override");
-    assert_eq!(
-        (m.provider.as_str(), m.model.as_str()),
-        ("claude", "sonnet-4")
-    );
+    assert_eq!((m.provider.as_str(), m.model.as_str()), ("claude", "sonnet-4"));
 
     // 无覆盖的源会话 fork 后仍无覆盖
     let plain = ses::create(&dir, "/tmp/work").unwrap();
-    let pm = ses::new_message(
-        &plain.id,
-        ses::Role::User,
-        vec![ses::Part::Text { text: "x".into() }],
-    );
+    let pm = ses::new_message(&plain.id, ses::Role::User, vec![ses::Part::Text { text: "x".into() }]);
     ses::append_message(&dir, &pm).unwrap();
     let forked_plain = ses::fork(&dir, &plain.id, &pm.id).unwrap();
     assert!(forked_plain.model.is_none());

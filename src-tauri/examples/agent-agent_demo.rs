@@ -1,6 +1,6 @@
 //! agent loop 真实验证：模型自主决定并调用工具（真实 xai 调用）。
 
-use kxen_app::agent::agent_loop::{run_turn, AgentContext, AgentEvent};
+use kxen_app::agent::agent_loop::{AgentContext, AgentEvent, run_turn};
 use kxen_app::llm::{Message, ModelRef};
 use kxen_app::tools::fs_tool::FileTracker;
 use kxen_app::tools::task::TaskRegistry;
@@ -40,8 +40,12 @@ async fn main() {
         on_event: Arc::new(|event| match event {
             AgentEvent::Text { text } => print!("{text}"),
             AgentEvent::Reasoning { text } => eprint!("[r:{}]", first_chars(&text, 40)),
-            AgentEvent::ToolCall { name, summary, .. } => println!("\n>>> TOOL CALL {name}: {}", first_chars(&summary, 100)),
-            AgentEvent::ToolResult { name, summary, .. } => println!("<<< TOOL RESULT {name}: {}", first_chars(&summary, 100)),
+            AgentEvent::ToolCall { name, summary, .. } => {
+                println!("\n>>> TOOL CALL {name}: {}", first_chars(&summary, 100))
+            }
+            AgentEvent::ToolResult { name, summary, .. } => {
+                println!("<<< TOOL RESULT {name}: {}", first_chars(&summary, 100))
+            }
             AgentEvent::Compacted { summary } => println!("\n=== COMPACTED: {} ===", first_chars(&summary, 80)),
             AgentEvent::Phase { name } => println!("\n--- PHASE: {name} ---"),
             AgentEvent::Done { turns, .. } => println!("\n=== DONE in {turns} turns ==="),

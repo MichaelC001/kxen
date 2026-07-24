@@ -2,9 +2,7 @@
 use kxen_app::agent::approval::ApprovalBroker;
 use kxen_app::core::event::{Event, EventBus};
 use kxen_app::tools::exec::ApprovalCtx;
-use kxen_app::tools::worktree::{
-    create, diff_stat, list, remove, remove_with_approval, validate_name,
-};
+use kxen_app::tools::worktree::{create, diff_stat, list, remove, remove_with_approval, validate_name};
 use std::path::{Path, PathBuf};
 
 /// 建临时 git 仓库（tag 区分并行测试，避免同 pid 撞目录；先清上次失败的残留）
@@ -13,67 +11,32 @@ fn init_repo(tag: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&repo);
     std::fs::create_dir_all(&repo).unwrap();
     let run = |args: &[&str]| {
-        let out = std::process::Command::new("git")
-            .args(args)
-            .current_dir(&repo)
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+        let out = std::process::Command::new("git").args(args).current_dir(&repo).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     };
     run(&["init", "-b", "main"]);
     std::fs::write(repo.join("a.txt"), "hello").unwrap();
     run(&["add", "."]);
-    run(&[
-        "-c",
-        "user.email=t@t",
-        "-c",
-        "user.name=t",
-        "-c",
-        "commit.gpgsign=false",
-        "commit",
-        "-m",
-        "init",
-    ]);
+    run(&["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-m", "init"]);
     repo
 }
 
 /// 同步跑 git 取 stdout（断言分支是否还存在）
 fn git_out(repo: &Path, args: &[&str]) -> String {
-    let out = std::process::Command::new("git")
-        .args(args)
-        .current_dir(repo)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    let out = std::process::Command::new("git").args(args).current_dir(repo).output().unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
 /// 挂总线等审批事件并按 allow 应答（join! 同任务轮询，避开 spawn 的 'static 约束）
-async fn respond_via_bus<T>(
-    broker: &ApprovalBroker,
-    bus: &EventBus,
-    allow: bool,
-    fut: impl std::future::Future<Output = T>,
-) -> T {
+async fn respond_via_bus<T>(broker: &ApprovalBroker, bus: &EventBus, allow: bool, fut: impl std::future::Future<Output = T>) -> T {
     let mut rx = bus.subscribe();
     let responder = async {
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 if let Ok(Event::LlmDelta(v)) = rx.recv().await {
                     if v.get("kind").and_then(|k| k.as_str()) == Some("approval") {
-                        let id = v
-                            .get("approval_id")
-                            .and_then(|i| i.as_str())
-                            .unwrap_or_default()
-                            .to_string();
+                        let id = v.get("approval_id").and_then(|i| i.as_str()).unwrap_or_default().to_string();
                         assert!(broker.respond(&id, allow), "approval should be pending");
                         return;
                     }
@@ -106,20 +69,8 @@ async fn lifecycle() {
     // 删分支必须过审批：用户放行后 worktree 与分支一起清掉
     let broker = ApprovalBroker::new();
     let bus = EventBus::default();
-    let ctx = ApprovalCtx {
-        broker: &broker,
-        bus: &bus,
-        cancel: None,
-        session_id: "t",
-    };
-    respond_via_bus(
-        &broker,
-        &bus,
-        true,
-        remove_with_approval(&repo, "wt1", true, Some(&ctx)),
-    )
-    .await
-    .unwrap();
+    let ctx = ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "t" };
+    respond_via_bus(&broker, &bus, true, remove_with_approval(&repo, "wt1", true, Some(&ctx))).await.unwrap();
     assert!(list(&repo).await.unwrap().is_empty());
 
     std::fs::remove_dir_all(&repo).ok();
@@ -137,20 +88,8 @@ fn name_validation() {
 async fn remove_and_diff_reject_bad_names() {
     let repo = init_repo("bad");
     for bad in ["../x", "a/b", ".."] {
-        assert!(
-            remove(&repo, bad, false)
-                .await
-                .unwrap_err()
-                .contains("invalid worktree name"),
-            "{bad}"
-        );
-        assert!(
-            diff_stat(&repo, bad)
-                .await
-                .unwrap_err()
-                .contains("invalid worktree name"),
-            "{bad}"
-        );
+        assert!(remove(&repo, bad, false).await.unwrap_err().contains("invalid worktree name"), "{bad}");
+        assert!(diff_stat(&repo, bad).await.unwrap_err().contains("invalid worktree name"), "{bad}");
     }
     std::fs::remove_dir_all(&repo).ok();
 }
@@ -178,26 +117,10 @@ async fn delete_branch_requires_approval() {
 
     let broker = ApprovalBroker::new();
     let bus = EventBus::default();
-    let ctx = ApprovalCtx {
-        broker: &broker,
-        bus: &bus,
-        cancel: None,
-        session_id: "t",
-    };
-    respond_via_bus(
-        &broker,
-        &bus,
-        true,
-        remove_with_approval(&repo, "b1", true, Some(&ctx)),
-    )
-    .await
-    .unwrap();
+    let ctx = ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "t" };
+    respond_via_bus(&broker, &bus, true, remove_with_approval(&repo, "b1", true, Some(&ctx))).await.unwrap();
     assert!(!repo.join(".kxen/worktrees/b1").exists());
-    assert!(
-        git_out(&repo, &["branch", "--list", "kxen/b1"])
-            .trim()
-            .is_empty()
-    );
+    assert!(git_out(&repo, &["branch", "--list", "kxen/b1"]).trim().is_empty());
     std::fs::remove_dir_all(&repo).ok();
 }
 
@@ -215,31 +138,12 @@ async fn dirty_remove_guarded_by_approval() {
 
     let broker = ApprovalBroker::new();
     let bus = EventBus::default();
-    let ctx = ApprovalCtx {
-        broker: &broker,
-        bus: &bus,
-        cancel: None,
-        session_id: "t",
-    };
-    let err = respond_via_bus(
-        &broker,
-        &bus,
-        false,
-        remove_with_approval(&repo, "d1", false, Some(&ctx)),
-    )
-    .await
-    .unwrap_err();
+    let ctx = ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "t" };
+    let err = respond_via_bus(&broker, &bus, false, remove_with_approval(&repo, "d1", false, Some(&ctx))).await.unwrap_err();
     assert!(err.contains("用户拒绝"), "{err}");
     assert!(wt.join("dirty.txt").exists());
 
-    respond_via_bus(
-        &broker,
-        &bus,
-        true,
-        remove_with_approval(&repo, "d1", false, Some(&ctx)),
-    )
-    .await
-    .unwrap();
+    respond_via_bus(&broker, &bus, true, remove_with_approval(&repo, "d1", false, Some(&ctx))).await.unwrap();
     assert!(!wt.exists());
     std::fs::remove_dir_all(&repo).ok();
 }

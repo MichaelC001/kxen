@@ -1,13 +1,13 @@
 //! RPC 通道：请求-响应（id 关联，支持并发调用）。
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
 use super::llm_task::run_llm;
 use super::settings::{set_role, statusline_report};
-use crate::doctor::doctor_report;
 use crate::AppState;
+use crate::doctor::doctor_report;
 
 pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Result<Value, String> {
     // 领域分组先走 ops.rs（voice/knowledge/provider/mrm/test_dispatch）
@@ -52,12 +52,17 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let state = app.state::<Arc<AppState>>();
             let running: std::collections::HashSet<String> = kxen_app::core::shared::lock(&state.active_runs).keys().cloned().collect();
             let sessions = kxen_app::core::session::list(&kxen_app::core::paths::sessions_dir());
-            Ok(json!(sessions.into_iter().map(|s| {
-                let running_flag = running.contains(&s.id);
-                let mut v = serde_json::to_value(&s).unwrap_or_default();
-                v.as_object_mut().map(|o| o.insert("running".into(), json!(running_flag)));
-                v
-            }).collect::<Vec<_>>()))
+            Ok(json!(
+                sessions
+                    .into_iter()
+                    .map(|s| {
+                        let running_flag = running.contains(&s.id);
+                        let mut v = serde_json::to_value(&s).unwrap_or_default();
+                        v.as_object_mut().map(|o| o.insert("running".into(), json!(running_flag)));
+                        v
+                    })
+                    .collect::<Vec<_>>()
+            ))
         }
         "workspace.current" => {
             let state = app.state::<Arc<AppState>>();
@@ -100,11 +105,29 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
         }
         "session.create" => {
             let state = app.state::<Arc<AppState>>();
-            let directory = params.get("directory").and_then(Value::as_str).map(String::from)
+            let directory = params
+                .get("directory")
+                .and_then(Value::as_str)
+                .map(String::from)
                 .unwrap_or_else(|| state.active_workspace.read().expect("workspace").to_string_lossy().into_owned());
             let session = kxen_app::core::session::create(&kxen_app::core::paths::sessions_dir(), &directory).map_err(|e| e.to_string())?;
             // session_start hook（fire-and-log；Ask 档走审批通道，临时值活到语句结束可安全借用）
-            let _ = state.hooks.run_named_with_approval("session_start", &session.id, &json!({ "id": session.id, "directory": directory }), kxen_app::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), None, Some(session.id.as_str())).as_ref()).await.inspect_err(|e| tracing::warn!(error = %e, "session_start hook failed"));
+            let _ = state
+                .hooks
+                .run_named_with_approval(
+                    "session_start",
+                    &session.id,
+                    &json!({ "id": session.id, "directory": directory }),
+                    kxen_app::tools::exec::ApprovalCtx::new(
+                        Some(state.approvals.as_ref()),
+                        Some(&state.bus),
+                        None,
+                        Some(session.id.as_str()),
+                    )
+                    .as_ref(),
+                )
+                .await
+                .inspect_err(|e| tracing::warn!(error = %e, "session_start hook failed"));
             Ok(json!(session))
         }
         "session.messages" => {
@@ -122,7 +145,8 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
         "session.fork" => {
             let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let message_id = params.get("message_id").and_then(Value::as_str).ok_or("missing message_id")?;
-            let session = kxen_app::core::session::fork(&kxen_app::core::paths::sessions_dir(), session_id, message_id).map_err(|e| e.to_string())?;
+            let session =
+                kxen_app::core::session::fork(&kxen_app::core::paths::sessions_dir(), session_id, message_id).map_err(|e| e.to_string())?;
             Ok(json!(session))
         }
         "session.rewind" => super::session_ops::session_rewind(&params, &app.state::<Arc<AppState>>()),
@@ -140,14 +164,17 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
         "session.export" => {
             let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let out = params.get("path").and_then(Value::as_str).map(std::path::PathBuf::from);
-            let path = kxen_app::core::session_export::export_to_file(&kxen_app::core::paths::sessions_dir(), session_id, out.as_deref()).map_err(|e| e.to_string())?;
+            let path = kxen_app::core::session_export::export_to_file(&kxen_app::core::paths::sessions_dir(), session_id, out.as_deref())
+                .map_err(|e| e.to_string())?;
             Ok(json!({ "path": path.to_string_lossy() }))
         }
         "worktree.list" => {
             let state = app.state::<Arc<AppState>>();
             let dir = state.active_workspace.read().expect("workspace").clone();
             let infos = kxen_app::tools::worktree::list(&dir).await?;
-            Ok(json!(infos.iter().map(|i| json!({ "name": i.name, "path": i.path.to_string_lossy(), "branch": i.branch })).collect::<Vec<_>>()))
+            Ok(json!(
+                infos.iter().map(|i| json!({ "name": i.name, "path": i.path.to_string_lossy(), "branch": i.branch })).collect::<Vec<_>>()
+            ))
         }
         "worktree.create" => {
             let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
@@ -180,10 +207,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             // 本会话 agent 改动（快照口径），与 git status 无关
             let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let state = app.state::<Arc<AppState>>();
-            let entries = kxen_app::core::shared::lock(&state.session_snapshots)
-                .get(id)
-                .map(|s| s.status())
-                .unwrap_or_default();
+            let entries = kxen_app::core::shared::lock(&state.session_snapshots).get(id).map(|s| s.status()).unwrap_or_default();
             Ok(serde_json::to_value(entries).map_err(|e| e.to_string())?)
         }
         "diff.agent_file" => {
@@ -207,11 +231,8 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let state = app.state::<Arc<AppState>>();
             // run 进行中：默认入队（queue）；config.send_when_running=interrupt 时打断当前立即发送
             if kxen_app::core::shared::lock(&state.active_runs).contains_key(&p.session_id) {
-                let cfg = kxen_app::core::config::Config::load(
-                    &kxen_app::core::paths::config_dir().join("config.toml"),
-                    None,
-                )
-                .unwrap_or_default();
+                let cfg = kxen_app::core::config::Config::load(&kxen_app::core::paths::config_dir().join("config.toml"), None)
+                    .unwrap_or_default();
                 let policy = if cfg.send_when_running.is_empty() { "queue" } else { cfg.send_when_running.as_str() };
                 if policy != "interrupt" {
                     let n = state.pending_messages.enqueue(&p.session_id, p.text, p.context, p.images);
@@ -270,11 +291,8 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             Ok(statusline_report(session_id, &state))
         }
         "config.get" => {
-            let config = kxen_app::core::config::Config::load(
-                &kxen_app::core::paths::config_dir().join("config.toml"),
-                None,
-            )
-            .map_err(|e| e.to_string())?;
+            let config = kxen_app::core::config::Config::load(&kxen_app::core::paths::config_dir().join("config.toml"), None)
+                .map_err(|e| e.to_string())?;
             Ok(serde_json::to_value(config).map_err(|e| e.to_string())?)
         }
         "config.set_role" => {
@@ -317,4 +335,3 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
         other => Err(format!("unknown method: {other}")),
     }
 }
-

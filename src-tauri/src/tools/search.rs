@@ -50,7 +50,13 @@ pub fn glob_files(pattern: &str, base: &Path) -> Result<SearchHits, SearchError>
         let path = entry.path();
         let rel = path.strip_prefix(base).unwrap_or(path).to_string_lossy().into_owned();
         if set.is_match(&rel) {
-            let mtime = entry.metadata().ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+            let mtime = entry
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
             hits.push((rel, mtime));
         }
     }
@@ -163,10 +169,7 @@ pub fn complete(query: &str, base: &Path, limit: usize) -> Vec<CompleteEntry> {
         }
         let score = if query.is_empty() { Some(0) } else { fuzzy_score(&query, &rel.to_lowercase()) };
         if let Some(score) = score {
-            hits.push((
-                score,
-                CompleteEntry { path: rel, kind: if is_file { "file" } else { "dir" } },
-            ));
+            hits.push((score, CompleteEntry { path: rel, kind: if is_file { "file" } else { "dir" } }));
         }
         if hits.len() >= limit * 8 {
             break;

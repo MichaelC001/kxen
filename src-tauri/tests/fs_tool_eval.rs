@@ -1,6 +1,6 @@
 // fs_tool 公开 API 集成测试（从 fs_tool.rs 拆出，350 行门禁）：
 // read 分页 / 文件新鲜度（纳秒精度）/ edit 双模式。
-use kxen_app::tools::fs_tool::{edit, read, AnchorEdit, EditSpec, FileTracker, FsToolError};
+use kxen_app::tools::fs_tool::{AnchorEdit, EditSpec, FileTracker, FsToolError, edit, read};
 use kxen_app::tools::hashline::generate_anchors;
 use std::path::PathBuf;
 

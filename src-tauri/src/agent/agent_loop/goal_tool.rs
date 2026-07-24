@@ -26,7 +26,11 @@ pub async fn execute_goal_tool(args: &Value, session_id: Option<&str>) -> Result
         "create" => {
             let contract = crate::core::goal::GoalContract {
                 objective: args.get("objective").and_then(Value::as_str).ok_or("missing objective")?.to_string(),
-                completion_criteria: args.get("completion_criteria").and_then(Value::as_str).ok_or("missing completion_criteria")?.to_string(),
+                completion_criteria: args
+                    .get("completion_criteria")
+                    .and_then(Value::as_str)
+                    .ok_or("missing completion_criteria")?
+                    .to_string(),
                 constraints: args.get("constraints").and_then(Value::as_str).map(String::from),
                 budget: crate::core::goal::GoalBudget {
                     tokens: args.pointer("/budget/tokens").and_then(Value::as_u64),

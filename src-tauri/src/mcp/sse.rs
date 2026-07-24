@@ -58,10 +58,7 @@ impl SseParser {
     fn dispatch(&mut self, out: &mut Vec<SseEvent>) {
         // 只有 event 没有 data 的块不是有效事件，丢弃但清状态防串帧
         if self.has_data {
-            out.push(SseEvent {
-                event: self.event.take(),
-                data: std::mem::take(&mut self.data),
-            });
+            out.push(SseEvent { event: self.event.take(), data: std::mem::take(&mut self.data) });
             self.has_data = false;
         }
         self.event = None;
@@ -77,13 +74,7 @@ mod tests {
         let mut p = SseParser::new();
         let out = p.feed(b"data: {\"a\":1}\n\ndata: second\n\n");
         assert_eq!(out.len(), 2);
-        assert_eq!(
-            out[0],
-            SseEvent {
-                event: None,
-                data: "{\"a\":1}".into()
-            }
-        );
+        assert_eq!(out[0], SseEvent { event: None, data: "{\"a\":1}".into() });
         assert_eq!(out[1].data, "second");
     }
 

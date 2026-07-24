@@ -51,11 +51,7 @@ fn parse_line(line: &str) -> Option<SseFrame> {
         return None; // 空行分隔 / 心跳注释
     }
     let data = line.strip_prefix("data:")?.trim_start();
-    if data == "[DONE]" {
-        Some(SseFrame::Done)
-    } else {
-        Some(SseFrame::Data(data.to_string()))
-    }
+    if data == "[DONE]" { Some(SseFrame::Done) } else { Some(SseFrame::Data(data.to_string())) }
 }
 
 #[cfg(test)]
@@ -68,10 +64,13 @@ mod tests {
         let mut frames = p.feed(b"data: {\"a\":1}\n\nda");
         frames.extend(p.feed(b"ta: {\"b\":2}\n"));
         frames.extend(p.feed(b"data: [DONE]\n"));
-        let datas: Vec<_> = frames.iter().filter_map(|f| match f {
-            SseFrame::Data(d) => Some(d.as_str()),
-            _ => None,
-        }).collect();
+        let datas: Vec<_> = frames
+            .iter()
+            .filter_map(|f| match f {
+                SseFrame::Data(d) => Some(d.as_str()),
+                _ => None,
+            })
+            .collect();
         assert_eq!(datas, vec!["{\"a\":1}", "{\"b\":2}"]);
         assert!(frames.iter().any(|f| matches!(f, SseFrame::Done)));
     }

@@ -3,7 +3,7 @@
 //! hook 命令与 exec 同过 safety 拦截；环境变量 KXEN_EVENT / KXEN_TOOL / KXEN_PAYLOAD 注入。
 
 use crate::core::config::{Config, HookDef};
-use crate::tools::safety::{evaluate_shell_command, Verdict};
+use crate::tools::safety::{Verdict, evaluate_shell_command};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -51,7 +51,12 @@ impl HookRunner {
     }
 
     /// run_pre 的审批通道变体：Ask 档 hook 命令挂起等用户决定。
-    pub async fn run_pre_with_approval(&self, tool: &str, payload: &Value, approval: Option<&crate::tools::exec::ApprovalCtx<'_>>) -> Result<(), String> {
+    pub async fn run_pre_with_approval(
+        &self,
+        tool: &str,
+        payload: &Value,
+        approval: Option<&crate::tools::exec::ApprovalCtx<'_>>,
+    ) -> Result<(), String> {
         for hook in self.matching("pre_tool_use", tool) {
             self.execute(&hook, "pre_tool_use", tool, payload, approval).await?;
         }
@@ -68,7 +73,13 @@ impl HookRunner {
     }
 
     /// run_named 的审批通道变体。
-    pub async fn run_named_with_approval(&self, event: &str, subject: &str, payload: &Value, approval: Option<&crate::tools::exec::ApprovalCtx<'_>>) -> Result<(), String> {
+    pub async fn run_named_with_approval(
+        &self,
+        event: &str,
+        subject: &str,
+        payload: &Value,
+        approval: Option<&crate::tools::exec::ApprovalCtx<'_>>,
+    ) -> Result<(), String> {
         for hook in self.matching(event, subject) {
             self.execute(&hook, event, subject, payload, approval).await?;
         }
@@ -84,7 +95,14 @@ impl HookRunner {
             .unwrap_or_default()
     }
 
-    async fn execute(&self, hook: &CompiledHook, event: &str, tool: &str, payload: &Value, approval: Option<&crate::tools::exec::ApprovalCtx<'_>>) -> Result<(), String> {
+    async fn execute(
+        &self,
+        hook: &CompiledHook,
+        event: &str,
+        tool: &str,
+        payload: &Value,
+        approval: Option<&crate::tools::exec::ApprovalCtx<'_>>,
+    ) -> Result<(), String> {
         match evaluate_shell_command(&hook.command, "/") {
             Verdict::Deny { rule_id, reason, .. } => {
                 return Err(format!("hook blocked by safety rule {rule_id}: {reason}"));
@@ -159,11 +177,13 @@ mod tests {
 
     #[tokio::test]
     async fn pre_hook_blocks_on_nonzero_exit() {
-        let r = runner(r#"
+        let r = runner(
+            r#"
 [[hooks.pre_tool_use]]
 matcher = "exec"
 command = "exit 1"
-"#);
+"#,
+        );
         let err = r.run_pre("exec", &json!({})).await.unwrap_err();
         assert!(err.contains("exited 1"), "unexpected: {err}");
         // 不匹配的工具不受影响
@@ -172,19 +192,23 @@ command = "exit 1"
 
     #[tokio::test]
     async fn pre_hook_receives_env() {
-        let r = runner(r#"
+        let r = runner(
+            r#"
 [[hooks.pre_tool_use]]
 command = "test \"$KXEN_TOOL\" = \"exec\" && test \"$KXEN_EVENT\" = \"pre_tool_use\""
-"#);
+"#,
+        );
         assert!(r.run_pre("exec", &json!({"command": "ls"})).await.is_ok());
     }
 
     #[tokio::test]
     async fn safety_denied_hook_blocks() {
-        let r = runner(r#"
+        let r = runner(
+            r#"
 [[hooks.pre_tool_use]]
 command = "rm -rf /"
-"#);
+"#,
+        );
         let err = r.run_pre("exec", &json!({})).await.unwrap_err();
         assert!(err.contains("safety"), "unexpected: {err}");
     }

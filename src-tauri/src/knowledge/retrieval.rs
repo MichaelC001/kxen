@@ -153,11 +153,7 @@ pub fn fuse(bm25_norm: f64, semantic_norm: Option<f64>, scope: Scope, date: &str
 fn recency_boost(date: &str, today: &str) -> f64 {
     let (Some(d), Some(t)) = (parse_date_days(date), parse_date_days(today)) else { return 0.0 };
     let age = t - d;
-    if (0..=RECENCY_WINDOW_DAYS).contains(&age) {
-        RECENCY_BOOST * (1.0 - age as f64 / RECENCY_WINDOW_DAYS as f64)
-    } else {
-        0.0
-    }
+    if (0..=RECENCY_WINDOW_DAYS).contains(&age) { RECENCY_BOOST * (1.0 - age as f64 / RECENCY_WINDOW_DAYS as f64) } else { 0.0 }
 }
 
 /// "YYYY-MM-DD" -> 相对纪元天数（Howard Hinnant civil 算法），只差值比较，不需要时区。

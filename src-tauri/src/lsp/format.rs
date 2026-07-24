@@ -54,33 +54,20 @@ pub fn locations(result: &Value, none_msg: &str) -> String {
             break;
         }
         let (uri, range) = if item.get("targetUri").is_some() {
-            (
-                item.get("targetUri").and_then(Value::as_str),
-                item.get("targetRange"),
-            )
+            (item.get("targetUri").and_then(Value::as_str), item.get("targetRange"))
         } else {
             (item.get("uri").and_then(Value::as_str), item.get("range"))
         };
         let Some(start) = range.and_then(|r| r.get("start")) else {
             continue;
         };
-        let (Some(line), Some(col)) = (
-            start.get("line").and_then(Value::as_u64),
-            start.get("character").and_then(Value::as_u64),
-        ) else {
+        let (Some(line), Some(col)) = (start.get("line").and_then(Value::as_u64), start.get("character").and_then(Value::as_u64)) else {
             continue;
         };
-        let path = uri
-            .and_then(uri::decode)
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| uri.unwrap_or("?").to_string());
+        let path = uri.and_then(uri::decode).map(|p| p.display().to_string()).unwrap_or_else(|| uri.unwrap_or("?").to_string());
         out.push_str(&format!("{path}:{}:{}\n", line + 1, col + 1));
     }
-    if out.is_empty() {
-        none_msg.into()
-    } else {
-        out.trim_end().to_string()
-    }
+    if out.is_empty() { none_msg.into() } else { out.trim_end().to_string() }
 }
 
 /// documentSymbol result -> 缩进树 `name (kind) line`（1-based）；空 -> "no symbols"。
@@ -97,11 +84,7 @@ pub fn symbols(result: &Value) -> String {
     if budget == 0 {
         out.push_str("... (truncated)\n");
     }
-    if out.is_empty() {
-        "no symbols".into()
-    } else {
-        out.trim_end().to_string()
-    }
+    if out.is_empty() { "no symbols".into() } else { out.trim_end().to_string() }
 }
 
 fn render_symbol(sym: &Value, depth: usize, out: &mut String, budget: &mut usize) {
@@ -111,15 +94,9 @@ fn render_symbol(sym: &Value, depth: usize, out: &mut String, budget: &mut usize
     let Some(name) = sym.get("name").and_then(Value::as_str) else {
         return;
     };
-    let kind = sym
-        .get("kind")
-        .and_then(Value::as_u64)
-        .map(kind_str)
-        .unwrap_or("?");
+    let kind = sym.get("kind").and_then(Value::as_u64).map(kind_str).unwrap_or("?");
     // SymbolInformation 的 range 在 location 下；DocumentSymbol 直接在 range 下
-    let range = sym
-        .get("range")
-        .or_else(|| sym.get("location").and_then(|l| l.get("range")));
+    let range = sym.get("range").or_else(|| sym.get("location").and_then(|l| l.get("range")));
     let line = range
         .and_then(|r| r.get("start"))
         .and_then(|s| s.get("line"))
@@ -170,14 +147,10 @@ mod tests {
 
     #[test]
     fn hover_marked_string_array_and_empty() {
-        let r =
-            json!({ "contents": [{ "language": "rust", "value": "fn main()" }, "entry point"] });
+        let r = json!({ "contents": [{ "language": "rust", "value": "fn main()" }, "entry point"] });
         assert_eq!(hover(&r), "fn main()\nentry point");
         assert_eq!(hover(&json!(null)), "no hover info");
-        assert_eq!(
-            hover(&json!({ "contents": { "kind": "plaintext", "value": "  " } })),
-            "no hover info"
-        );
+        assert_eq!(hover(&json!({ "contents": { "kind": "plaintext", "value": "  " } })), "no hover info");
     }
 
     #[test]
@@ -189,14 +162,8 @@ mod tests {
             { "uri": "file:///w/my%20dir/b.rs", "range": { "start": { "line": 9, "character": 1 } } },
         ]);
         assert_eq!(locations(&arr, "none"), "/w/a.rs:1:1\n/w/my dir/b.rs:10:2");
-        assert_eq!(
-            locations(&json!(null), "no references found"),
-            "no references found"
-        );
-        assert_eq!(
-            locations(&json!([]), "no definition found"),
-            "no definition found"
-        );
+        assert_eq!(locations(&json!(null), "no references found"), "no references found");
+        assert_eq!(locations(&json!([]), "no definition found"), "no definition found");
     }
 
     #[test]
@@ -213,10 +180,7 @@ mod tests {
                 { "name": "run", "kind": 6, "range": { "start": { "line": 8 } } },
             ] },
         ]);
-        assert_eq!(
-            symbols(&r),
-            "main (function) 1\nApp (struct) 6\n  run (method) 9"
-        );
+        assert_eq!(symbols(&r), "main (function) 1\nApp (struct) 6\n  run (method) 9");
     }
 
     #[test]

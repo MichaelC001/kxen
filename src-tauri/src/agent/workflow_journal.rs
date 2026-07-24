@@ -38,10 +38,7 @@ impl Journal {
         crate::core::ids::validate_id(run_id).ok()?;
         let ns = stable_hash(&[run_id, &stable_hash(&[script])]);
         let file = journal_file(run_id);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let mut done = HashMap::new();
         let mut kept_lines: Vec<String> = Vec::new();
         let mut dropped = false;
@@ -50,7 +47,9 @@ impl Journal {
                 let entry = serde_json::from_str::<serde_json::Value>(line).ok();
                 let alive = entry
                     .as_ref()
-                    .and_then(|v| Some((v.get("key")?.as_str()?.to_string(), v.get("result")?.as_str()?.to_string(), v.get("ts")?.as_u64()?)))
+                    .and_then(|v| {
+                        Some((v.get("key")?.as_str()?.to_string(), v.get("result")?.as_str()?.to_string(), v.get("ts")?.as_u64()?))
+                    })
                     .filter(|(_, _, ts)| now.saturating_sub(*ts) <= ENTRY_TTL_SECS);
                 match alive {
                     Some((key, result, _)) => {
@@ -76,10 +75,7 @@ impl Journal {
     pub fn record(&mut self, role: &str, prompt: &str, result: &str) {
         use std::io::Write;
         let key = stable_hash(&[&self.ns, role, prompt]);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         if let Some(parent) = self.file.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -150,10 +146,7 @@ mod tests {
         let file = journal_file(&run_id);
         cleanup(&run_id);
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
         let stale = now - ENTRY_TTL_SECS - 1;
         let mut j = Journal::open(&run_id, "script-v1").unwrap();
         j.record("execution", "fresh", "ok");

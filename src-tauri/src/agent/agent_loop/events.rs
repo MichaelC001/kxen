@@ -5,18 +5,39 @@ use serde::Serialize;
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentEvent {
-    Text { text: String },
-    Reasoning { text: String },
+    Text {
+        text: String,
+    },
+    Reasoning {
+        text: String,
+    },
     /// arguments 是精确调用参数（转录落盘用）；summary 只是一行摘要（UI 头行）
-    ToolCall { name: String, summary: String, arguments: String },
+    ToolCall {
+        name: String,
+        summary: String,
+        arguments: String,
+    },
     /// output 是完整结果（转录落盘用）；summary 保留给 UI 头行
-    ToolResult { name: String, summary: String, output: String },
+    ToolResult {
+        name: String,
+        summary: String,
+        output: String,
+    },
     /// auto-compact 发生：摘要供会话落检查点（不上行前端）
-    Compacted { summary: String },
-    Phase { name: String },
-    Done { turns: u32, stats: Option<RunStats> },
+    Compacted {
+        summary: String,
+    },
+    Phase {
+        name: String,
+    },
+    Done {
+        turns: u32,
+        stats: Option<RunStats>,
+    },
     Aborted,
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 /// 单轮运行统计（TTFT / 耗时 / tok/s / tokens）。

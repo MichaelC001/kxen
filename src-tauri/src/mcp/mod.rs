@@ -11,8 +11,8 @@ pub mod oauth_store;
 mod remote;
 mod remote_sse;
 mod sse;
-mod transport;
 pub mod tools;
+mod transport;
 
 use self::client::{McpClient, McpTool};
 use self::config::{PolicySet, ServerConfig, ToolPolicy};
@@ -97,23 +97,14 @@ impl McpManager {
     /// 测试钩子：mock server 监听 127.0.0.1 必被生产守卫拦（同 McpClient 的 bypass 设计）。
     #[doc(hidden)]
     pub async fn start_bypassing_guard_for_test(&self, configs: Vec<ServerConfig>) {
-        self.reload_inner(configs, PolicySet::default(), Vec::new(), remote::Guard::Bypassed)
-            .await;
+        self.reload_inner(configs, PolicySet::default(), Vec::new(), remote::Guard::Bypassed).await;
     }
 
-    async fn reload_inner(
-        &self,
-        configs: Vec<ServerConfig>,
-        policies: PolicySet,
-        roots: Vec<String>,
-        guard: remote::Guard,
-    ) {
+    async fn reload_inner(&self, configs: Vec<ServerConfig>, policies: PolicySet, roots: Vec<String>, guard: remote::Guard) {
         let _guard = self.reload_lock.lock().await;
         *self.policies.lock().expect("mcp") = policies;
         *self.roots.lock().expect("mcp") = roots;
-        let old: Vec<Entry> = std::mem::take(&mut *self.servers.lock().expect("mcp"))
-            .into_values()
-            .collect();
+        let old: Vec<Entry> = std::mem::take(&mut *self.servers.lock().expect("mcp")).into_values().collect();
         for entry in old {
             if let Some(c) = entry.client {
                 c.shutdown().await;
@@ -121,16 +112,11 @@ impl McpManager {
         }
         for config in configs {
             let name = config.name().to_string();
-            self.servers.lock().expect("mcp").insert(
-                name.clone(),
-                Entry { config: config.clone(), client: None, needs_auth: false },
-            );
+            self.servers.lock().expect("mcp").insert(name.clone(), Entry { config: config.clone(), client: None, needs_auth: false });
             let roots = self.roots.lock().expect("mcp").clone();
             let connect = match guard {
                 remote::Guard::Enforced => McpClient::connect(&name, &config, &roots).await,
-                remote::Guard::Bypassed => {
-                    McpClient::connect_bypassing_guard_for_test(&name, &config, &roots).await
-                }
+                remote::Guard::Bypassed => McpClient::connect_bypassing_guard_for_test(&name, &config, &roots).await,
             };
             match connect {
                 Ok(client) => {
@@ -188,23 +174,13 @@ impl McpManager {
                 url: e.config.url().map(str::to_string),
                 tools: e.client.as_ref().map(|c| c.tools.len()).unwrap_or(0),
                 resources: e.client.as_ref().map(|c| c.resources.len()).unwrap_or(0),
-                prompts: e
-                    .client
-                    .as_ref()
-                    .map(|c| c.prompts.iter().map(|p| p.name.clone()).collect())
-                    .unwrap_or_default(),
+                prompts: e.client.as_ref().map(|c| c.prompts.iter().map(|p| p.name.clone()).collect()).unwrap_or_default(),
             })
             .collect()
     }
 
     pub fn all_tools(&self) -> Vec<McpTool> {
-        self.servers
-            .lock()
-            .expect("mcp")
-            .values()
-            .filter_map(|e| e.client.as_ref().map(|c| c.tools.clone()))
-            .flatten()
-            .collect()
+        self.servers.lock().expect("mcp").values().filter_map(|e| e.client.as_ref().map(|c| c.tools.clone())).flatten().collect()
     }
 
     pub fn policy_for(&self, server: &str, tool: &str) -> ToolPolicy {
@@ -221,12 +197,7 @@ impl McpManager {
             Err(e) => {
                 if oauth::is_auth_required(&e) {
                     self.mark_needs_auth(server, true);
-                    let dead = self
-                        .servers
-                        .lock()
-                        .expect("mcp")
-                        .get_mut(server)
-                        .and_then(|e| e.client.take());
+                    let dead = self.servers.lock().expect("mcp").get_mut(server).and_then(|e| e.client.take());
                     if let Some(c) = dead {
                         c.shutdown().await;
                     }
@@ -244,27 +215,20 @@ impl McpManager {
         args: &Value,
         approval: Option<&crate::tools::exec::ApprovalCtx<'_>>,
     ) -> Result<String, String> {
-        let (server, tool) = tools::split_prefixed(prefixed)
-            .ok_or_else(|| format!("invalid mcp tool name: {prefixed}"))?;
+        let (server, tool) = tools::split_prefixed(prefixed).ok_or_else(|| format!("invalid mcp tool name: {prefixed}"))?;
         match self.policy_for(server, tool) {
             ToolPolicy::Deny => Err(format!("mcp tool {prefixed} denied by toolPolicies")),
             ToolPolicy::Allow => self.call(server, tool, args).await,
             ToolPolicy::Ask => {
                 // fail-closed：无审批通道一律拒，不静默放行
                 let Some(appr) = approval else {
-                    return Err(format!(
-                        "mcp tool {prefixed} needs approval（当前上下文无审批通道，按拒绝处理）"
-                    ));
+                    return Err(format!("mcp tool {prefixed} needs approval（当前上下文无审批通道，按拒绝处理）"));
                 };
                 let reason = format!("MCP 工具 {prefixed} 需要确认（toolPolicies: ask）");
                 match crate::agent::approval::request_approval(appr, prefixed, &reason).await {
                     crate::agent::approval::ApprovalOutcome::Allow => self.call(server, tool, args).await,
-                    crate::agent::approval::ApprovalOutcome::Timeout => {
-                        Err(format!("mcp tool {prefixed} 审批超时未响应"))
-                    }
-                    crate::agent::approval::ApprovalOutcome::Deny => {
-                        Err(format!("mcp tool {prefixed} 已被用户拒绝或中断"))
-                    }
+                    crate::agent::approval::ApprovalOutcome::Timeout => Err(format!("mcp tool {prefixed} 审批超时未响应")),
+                    crate::agent::approval::ApprovalOutcome::Deny => Err(format!("mcp tool {prefixed} 已被用户拒绝或中断")),
                 }
             }
         }

@@ -32,21 +32,23 @@ impl LlmClient {
                 };
                 crate::llm::anthropic::AnthropicProvider::new(access.clone()).stream_chat(&model.model, messages, tools)
             }
-            "openai" => {
-                match crate::auth::credential::credential_for(&store, "openai", model.account.as_deref()) {
-                    Some(crate::auth::credential::CredentialKind::Oauth { access, account_id, .. }) => {
-                        crate::llm::openai::OpenAiProvider::new(access.clone(), account_id.clone(), true).stream_chat(&model.model, messages, tools)
-                    }
-                    Some(crate::auth::credential::CredentialKind::Api { key, .. }) => {
-                        crate::llm::openai::OpenAiProvider::new(key.clone(), None, false).stream_chat(&model.model, messages, tools)
-                    }
-                    _ => Box::pin(futures::stream::once(async { Delta::Error("openai credential missing (run doctor)".into()) })),
+            "openai" => match crate::auth::credential::credential_for(&store, "openai", model.account.as_deref()) {
+                Some(crate::auth::credential::CredentialKind::Oauth { access, account_id, .. }) => crate::llm::openai::OpenAiProvider::new(
+                    access.clone(),
+                    account_id.clone(),
+                    true,
+                )
+                .stream_chat(&model.model, messages, tools),
+                Some(crate::auth::credential::CredentialKind::Api { key, .. }) => {
+                    crate::llm::openai::OpenAiProvider::new(key.clone(), None, false).stream_chat(&model.model, messages, tools)
                 }
-            }
+                _ => Box::pin(futures::stream::once(async { Delta::Error("openai credential missing (run doctor)".into()) })),
+            },
             other if other.starts_with("custom:") => {
                 // 自定义类型提供商：config.toml 给端点+协议，auth.json 给 key（custom:<name>）
                 let name = other[7..].to_string();
-                let cfg = crate::core::config::Config::load(&crate::core::paths::config_dir().join("config.toml"), None).unwrap_or_default();
+                let cfg =
+                    crate::core::config::Config::load(&crate::core::paths::config_dir().join("config.toml"), None).unwrap_or_default();
                 let Some(def) = cfg.custom_providers.get(&name).cloned() else {
                     return Box::pin(futures::stream::once(async move { Delta::Error(format!("custom provider not configured: {name}")) }));
                 };
@@ -54,9 +56,14 @@ impl LlmClient {
                     return Box::pin(futures::stream::once(async move { Delta::Error(format!("custom provider {name} missing api key")) }));
                 };
                 if def.protocol == "anthropic" {
-                    crate::llm::anthropic::AnthropicProvider::custom(format!("{}/v1/messages", def.base_url.trim_end_matches('/')), key.clone()).stream_chat(&model.model, messages, tools)
+                    crate::llm::anthropic::AnthropicProvider::custom(
+                        format!("{}/v1/messages", def.base_url.trim_end_matches('/')),
+                        key.clone(),
+                    )
+                    .stream_chat(&model.model, messages, tools)
                 } else {
-                    crate::llm::xai::XaiProvider::custom(format!("{}/chat/completions", def.base_url.trim_end_matches('/')), key.clone()).stream_chat_with_tools(&model.model, messages, tools)
+                    crate::llm::xai::XaiProvider::custom(format!("{}/chat/completions", def.base_url.trim_end_matches('/')), key.clone())
+                        .stream_chat_with_tools(&model.model, messages, tools)
                 }
             }
             p => {
@@ -75,7 +82,9 @@ impl LlmClient {
                             crate::providers::AuthKind::Oauth => (p.to_string(), "run doctor"),
                             _ => (p.to_string(), "import API key in settings"),
                         };
-                        return Box::pin(futures::stream::once(async move { Delta::Error(format!("{provider} credential missing ({hint})")) }));
+                        return Box::pin(futures::stream::once(
+                            async move { Delta::Error(format!("{provider} credential missing ({hint})")) },
+                        ));
                     }
                 };
                 let url = spec.chat_url(cred.and_then(|c| c.region()));

@@ -1,4 +1,4 @@
-//! 工程门禁（cargo test 硬检查）：单文件 <= 350 行。
+//! 工程门禁（cargo test 硬检查）：单文件 <= 350 行 + cargo fmt --check。
 //! 覆盖 src-tauri/src/（rs）与 仓库根 src/（ts/tsx，前端）；违规即测试失败。
 
 use std::path::Path;
@@ -13,6 +13,22 @@ fn file_size_gate() {
     // 前端已上移至仓库根的 src/（src-tauri 的上一级）
     visit(&root.join("../src"), &["ts", "tsx"], MAX_LINES, &mut offenders);
     assert!(offenders.is_empty(), "超 {MAX_LINES} 行门禁的文件:\n{}", offenders.join("\n"));
+}
+
+/// 格式门禁：格式与行数统一守门（仓库已采纳 rustfmt，未 fmt 的提交与超行数同属一类违规）。
+#[test]
+fn rustfmt_gate() {
+    let out = std::process::Command::new(env!("CARGO"))
+        .args(["fmt", "--check"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("spawn cargo fmt");
+    assert!(
+        out.status.success(),
+        "cargo fmt --check 未通过:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 fn visit(dir: &Path, exts: &[&str], max: usize, offenders: &mut Vec<String>) {

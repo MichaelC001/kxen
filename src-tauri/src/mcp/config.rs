@@ -40,11 +40,7 @@ impl PolicySet {
     /// 默认 Allow 而非 Ask：server 本身来自用户显式配置或已信任项目，
     /// 默认 ask 会给存量调用强塞弹窗。
     pub fn for_tool(&self, server: &str, tool: &str) -> ToolPolicy {
-        self.inner
-            .get(&format!("{server}.{tool}"))
-            .copied()
-            .or_else(|| self.inner.get(server).copied())
-            .unwrap_or(ToolPolicy::Allow)
+        self.inner.get(&format!("{server}.{tool}")).copied().or_else(|| self.inner.get(server).copied()).unwrap_or(ToolPolicy::Allow)
     }
 
     /// 项目覆盖用户：同键以后 extend 进来的为准。
@@ -207,12 +203,7 @@ fn parse_server(name: String, def: ServerDef) -> Option<ServerConfig> {
                 return None;
             }
         }
-        return Some(ServerConfig::Stdio(StdioConfig {
-            name,
-            command,
-            args: def.args,
-            env: def.env,
-        }));
+        return Some(ServerConfig::Stdio(StdioConfig { name, command, args: def.args, env: def.env }));
     }
     tracing::warn!(name, "mcp server 既无 command 也无 url，跳过");
     None
@@ -227,11 +218,7 @@ fn load_file(path: &Path) -> (Vec<ServerConfig>, PolicySet) {
             return (vec![], PolicySet::default());
         }
     };
-    let servers = parsed
-        .servers
-        .into_iter()
-        .filter_map(|(name, def)| parse_server(name, def))
-        .collect();
+    let servers = parsed.servers.into_iter().filter_map(|(name, def)| parse_server(name, def)).collect();
     let mut policies = PolicySet::default();
     for (key, value) in parsed.policies {
         match ToolPolicy::parse(&value) {
@@ -275,7 +262,9 @@ mod tests {
     #[test]
     fn parses_stdio_and_remote_and_policies() {
         let dir = std::env::temp_dir().join(format!("kxen-mcp-cfg-{}", std::process::id()));
-        let path = write(&dir, r#"{
+        let path = write(
+            &dir,
+            r#"{
             "mcpServers": {
                 "fs": {"command": "npx", "args": ["-y", "srv"], "type": "stdio"},
                 "web": {"type": "http", "url": "https://x.example/mcp", "headers": {"Authorization": "Bearer t"}},
@@ -283,7 +272,8 @@ mod tests {
                 "bad": {"url": "ftp://z.example/x"}
             },
             "toolPolicies": {"fs": "ask", "fs.read_file": "allow", "web": "deny", "oops": "maybe"}
-        }"#);
+        }"#,
+        );
         let (cfgs, policies) = load_file(&path);
         assert_eq!(cfgs.len(), 3, "非法 scheme 必须跳过: {cfgs:?}");
         let web = cfgs.iter().find(|c| c.name() == "web").unwrap();
@@ -301,13 +291,16 @@ mod tests {
     #[test]
     fn parses_remote_oauth_object() {
         let dir = std::env::temp_dir().join(format!("kxen-mcp-oauth-cfg-{}", std::process::id()));
-        let path = write(&dir, r#"{"mcpServers": {
+        let path = write(
+            &dir,
+            r#"{"mcpServers": {
             "full": {"url": "https://x.example/mcp", "oauth": {
                 "clientId": "cid", "clientSecret": "sec", "callbackPort": 19876,
                 "scopes": "mcp read", "authServerMetadataUrl": "https://as.example/meta"
             }},
             "bare": {"url": "https://y.example/mcp"}
-        }}"#);
+        }}"#,
+        );
         let (cfgs, _) = load_file(&path);
         assert_eq!(cfgs.len(), 2);
         let full = cfgs.iter().find(|c| c.name() == "full").unwrap();
@@ -327,10 +320,13 @@ mod tests {
     #[test]
     fn infers_kind_from_command_or_url() {
         let dir = std::env::temp_dir().join(format!("kxen-mcp-infer-{}", std::process::id()));
-        let path = write(&dir, r#"{"mcpServers": {
+        let path = write(
+            &dir,
+            r#"{"mcpServers": {
             "a": {"command": "srv"},
             "b": {"url": "https://b.example/mcp"}
-        }}"#);
+        }}"#,
+        );
         let (cfgs, _) = load_file(&path);
         assert_eq!(cfgs.len(), 2);
         let a = cfgs.iter().find(|c| c.name() == "a").unwrap();

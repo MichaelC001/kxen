@@ -1,6 +1,6 @@
 //! 状态栏与设置。
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::AppState;
@@ -51,15 +51,19 @@ pub(super) fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Valu
 }
 
 /// 非破坏写回：toml::Value 上改 roles[role]，保留文件其余内容；随后重建 MRM 热换 Arc。
-pub(super) fn set_role(role: &str, provider: &str, model: &str, fallback: Option<&str>, account: Option<&str>, state: &Arc<AppState>) -> Result<Value, String> {
+pub(super) fn set_role(
+    role: &str,
+    provider: &str,
+    model: &str,
+    fallback: Option<&str>,
+    account: Option<&str>,
+    state: &Arc<AppState>,
+) -> Result<Value, String> {
     let path = kxen_app::core::paths::config_dir().join("config.toml");
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     // toml 1.x：Value::from_str 解析的是「值」不是文档，文档必须按 Table 解析
-    let mut doc: toml::Table = if text.trim().is_empty() {
-        toml::Table::new()
-    } else {
-        toml::from_str(&text).map_err(|e| format!("config.toml parse: {e}"))?
-    };
+    let mut doc: toml::Table =
+        if text.trim().is_empty() { toml::Table::new() } else { toml::from_str(&text).map_err(|e| format!("config.toml parse: {e}"))? };
     let roles = doc.entry(String::from("roles")).or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
     let roles_table = roles.as_table_mut().ok_or("roles is not a table")?;
     let mut binding = toml::map::Map::new();

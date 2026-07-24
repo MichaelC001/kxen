@@ -71,8 +71,7 @@ impl ProviderSpec {
 
     /// 区域解析：None / 未知 key 一律回落缺省区域（存量凭证无 region 的兼容路径）。
     pub fn region(&self, key: Option<&str>) -> &'static RegionSpec {
-        key.and_then(|k| self.regions.iter().find(|r| r.key == k))
-            .unwrap_or_else(|| self.default_region())
+        key.and_then(|k| self.regions.iter().find(|r| r.key == k)).unwrap_or_else(|| self.default_region())
     }
 
     pub fn has_regions(&self) -> bool {

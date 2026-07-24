@@ -6,13 +6,21 @@ use crate::llm::ModelRef;
 use std::sync::Arc;
 use tokio::sync::Notify;
 
+use super::TeamState;
 use super::manager::TeamManager;
 use super::member_loop::teammate_loop;
 use super::types::{Member, MemberStatus};
-use super::TeamState;
 
 impl TeamManager {
-    pub(super) fn spawn(&self, state: &Arc<TeamState>, name: String, role: String, prompt: String, model_ref: ModelRef, plan_approval: bool) -> Result<String, String> {
+    pub(super) fn spawn(
+        &self,
+        state: &Arc<TeamState>,
+        name: String,
+        role: String,
+        prompt: String,
+        model_ref: ModelRef,
+        plan_approval: bool,
+    ) -> Result<String, String> {
         if lock(&state.members).iter().any(|m| m.name == name) {
             return Err(format!("teammate already exists: {name}"));
         }
@@ -33,7 +41,14 @@ impl TeamManager {
 
     /// 成员 loop 启动（spawn 与 restore 共用）：注册活动表 + 重建取消/唤醒通道 + spawn task。
     /// 崩溃重启后 cancels/notifies 是空表，不重建则 shutdown/唤醒对新 loop 全哑。
-    pub(super) fn start_member_loop(state: &Arc<TeamState>, name: String, role: String, prompt: String, model_ref: ModelRef, approved: bool) {
+    pub(super) fn start_member_loop(
+        state: &Arc<TeamState>,
+        name: String,
+        role: String,
+        prompt: String,
+        model_ref: ModelRef,
+        approved: bool,
+    ) {
         state.deps.agents.register(&state.session_id, &name, crate::agent::activity::AgentKind::Teammate, &model_ref);
         let cancel = CancelToken::new();
         let notify = Arc::new(Notify::new());

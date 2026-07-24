@@ -1,7 +1,7 @@
 //! 单一注入渲染：rules 全文（alwaysApply/globs 命中/无条件 rule）+ notes/memory 全文（截 500）
 //! + references/history/未激活 rules 一行索引 + skills 清单。command 不进 system prompt（slash 菜单 + 展开注入）。
 
-use super::{scan, Entry, Kind};
+use super::{Entry, Kind, scan};
 use std::path::{Path, PathBuf};
 
 const NOTE_BODY_CAP: usize = 500;
@@ -14,10 +14,8 @@ pub fn render(workdir: &Path, involved: &[PathBuf]) -> Option<String> {
     if entries.is_empty() {
         return None;
     }
-    let involved_rel: Vec<String> = involved
-        .iter()
-        .filter_map(|p| p.strip_prefix(workdir).ok().map(|r| r.to_string_lossy().into_owned()))
-        .collect();
+    let involved_rel: Vec<String> =
+        involved.iter().filter_map(|p| p.strip_prefix(workdir).ok().map(|r| r.to_string_lossy().into_owned())).collect();
 
     let mut rules = String::new();
     let mut index = String::new();
@@ -85,9 +83,7 @@ pub fn render(workdir: &Path, involved: &[PathBuf]) -> Option<String> {
 
 fn rel_label(workdir: &Path, e: &Entry) -> String {
     let p = Path::new(&e.path);
-    p.strip_prefix(workdir)
-        .map(|r| r.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| e.path.clone())
+    p.strip_prefix(workdir).map(|r| r.to_string_lossy().into_owned()).unwrap_or_else(|_| e.path.clone())
 }
 
 fn globs_hit(patterns: &[String], involved_rel: &[String]) -> bool {
@@ -137,10 +133,7 @@ mod tests {
         ONCE.call_once(|| {
             // 进程级一次性：隔离 store（并行测试不踩真实 trusted.json）
             unsafe {
-                std::env::set_var(
-                    "KXEN_TRUST_FILE",
-                    std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())),
-                );
+                std::env::set_var("KXEN_TRUST_FILE", std::env::temp_dir().join(format!("kxen-kn-trust-store-{}.json", std::process::id())));
             }
         });
     }

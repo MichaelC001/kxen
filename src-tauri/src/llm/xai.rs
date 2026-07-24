@@ -1,11 +1,11 @@
 //! xAI provider（OpenAI 兼容薄实现：registry 全部 OpenAI 兼容厂商共用的 wire 层）。
 
+use crate::core::shared::SharedStr;
 use crate::llm::sse::{SseFrame, SseParser};
-use crate::llm::types::{Delta, Message};
 use crate::llm::tool::ToolDefinition;
+use crate::llm::types::{Delta, Message};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use crate::core::shared::SharedStr;
 use std::pin::Pin;
 
 pub struct XaiProvider {
@@ -47,11 +47,8 @@ fn wire_message(m: &Message) -> WireMessage<'_> {
     let content = if m.images.is_empty() {
         serde_json::Value::String(m.content.clone())
     } else {
-        let mut blocks: Vec<serde_json::Value> = m
-            .images
-            .iter()
-            .map(|img| serde_json::json!({ "type": "image_url", "image_url": { "url": img.data_url() } }))
-            .collect();
+        let mut blocks: Vec<serde_json::Value> =
+            m.images.iter().map(|img| serde_json::json!({ "type": "image_url", "image_url": { "url": img.data_url() } })).collect();
         if !m.content.is_empty() {
             blocks.push(serde_json::json!({ "type": "text", "text": m.content }));
         }
@@ -107,7 +104,12 @@ impl XaiProvider {
         self.stream_chat_with_tools(model, messages, &[])
     }
 
-    pub fn stream_chat_with_tools(&self, model: &str, messages: &[Message], tools: &[crate::llm::tool::ToolDefinition]) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
+    pub fn stream_chat_with_tools(
+        &self,
+        model: &str,
+        messages: &[Message],
+        tools: &[crate::llm::tool::ToolDefinition],
+    ) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
         let tools_owned: Option<Vec<ToolDefinition>> = if tools.is_empty() { None } else { Some(tools.to_vec()) };
         let bearer = self.bearer.clone();
         let model = model.to_string();
@@ -118,18 +120,30 @@ impl XaiProvider {
         let start = async move {
             let tools_opt = tools_owned.as_deref();
             let wire: Vec<WireMessage> = messages.iter().map(wire_message).collect();
-            http.post(self_url.as_ref()).bearer_auth(bearer).json(&ChatRequest { model: &model, messages: wire, stream: true, stream_options: StreamOptions { include_usage: true }, tools: tools_opt }).send().await
+            http.post(self_url.as_ref())
+                .bearer_auth(bearer)
+                .json(&ChatRequest {
+                    model: &model,
+                    messages: wire,
+                    stream: true,
+                    stream_options: StreamOptions { include_usage: true },
+                    tools: tools_opt,
+                })
+                .send()
+                .await
         };
 
-        Box::pin(futures::stream::once(start).flat_map(|result| match result {
-            Ok(resp) if resp.status().is_success() => stream_sse(resp),
-            Ok(resp) => futures::stream::once(async move {
-                let status = resp.status();
-                let body = resp.text().await.unwrap_or_default();
-                Delta::Error(format!("xai HTTP {status}: {}", truncate(&body, 300)))
-            })
-            .boxed(),
-            Err(e) => futures::stream::once(async move { Delta::Error(format!("xai request failed: {e}")) }).boxed(),
+        Box::pin(futures::stream::once(start).flat_map(|result| {
+            match result {
+                Ok(resp) if resp.status().is_success() => stream_sse(resp),
+                Ok(resp) => futures::stream::once(async move {
+                    let status = resp.status();
+                    let body = resp.text().await.unwrap_or_default();
+                    Delta::Error(format!("xai HTTP {status}: {}", truncate(&body, 300)))
+                })
+                .boxed(),
+                Err(e) => futures::stream::once(async move { Delta::Error(format!("xai request failed: {e}")) }).boxed(),
+            }
         }))
     }
 }
@@ -153,10 +167,7 @@ fn delta_of(frame: SseFrame) -> Option<Delta> {
         SseFrame::Data(data) => {
             let chunk: ChatChunk = serde_json::from_str(&data).ok()?;
             if let Some(usage) = chunk.usage {
-                return Some(Delta::Usage {
-                    input: usage.prompt_tokens.unwrap_or(0),
-                    output: usage.completion_tokens.unwrap_or(0),
-                });
+                return Some(Delta::Usage { input: usage.prompt_tokens.unwrap_or(0), output: usage.completion_tokens.unwrap_or(0) });
             }
             let delta = chunk.choices.into_iter().next()?.delta;
             if !delta.tool_calls.is_empty() {
@@ -192,7 +203,6 @@ mod tests {
         assert!(matches!(delta_of(frame), Some(Delta::Usage { input: 10, output: 4 })));
     }
 }
-
 
 #[cfg(test)]
 mod wire_tests {

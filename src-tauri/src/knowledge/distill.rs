@@ -1,7 +1,7 @@
 //! 删除会话兜底蒸馏：消息流 -> 当前 provider 一次性调用 -> 0..N 条 note 落 personal notes/。
 //! 纯函数（build_prompt/parse_output）可单测；流错误经 Result 上抛，是否阻塞由调用方决定。
 
-use super::{add, Scope};
+use super::{Scope, add};
 use crate::llm::{LlmClient, Message, ModelRef};
 use serde::Deserialize;
 
@@ -46,11 +46,7 @@ pub fn parse_output(text: &str) -> Vec<NewNote> {
         return Vec::new();
     }
     let notes: Vec<NewNote> = serde_json::from_str(&text[s..=e]).unwrap_or_default();
-    notes
-        .into_iter()
-        .filter(|n| !n.description.trim().is_empty() && !n.content.trim().is_empty())
-        .take(5)
-        .collect()
+    notes.into_iter().filter(|n| !n.description.trim().is_empty() && !n.content.trim().is_empty()).take(5).collect()
 }
 
 /// 删除前兜底蒸馏。返回沉淀条数；LLM 流报错（Delta::Error）以 Err 传播，

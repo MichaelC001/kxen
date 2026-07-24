@@ -1,6 +1,6 @@
 //! doctor 命令逻辑的独立验证（不经 Tauri 窗口）。
 
-use kxen_app::auth::{credential::read_auth_file, credential::write_auth_file, probe_all, ProbeOutcome};
+use kxen_app::auth::{ProbeOutcome, credential::read_auth_file, credential::write_auth_file, probe_all};
 use kxen_app::core::paths;
 
 fn main() {

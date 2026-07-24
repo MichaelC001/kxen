@@ -1,7 +1,7 @@
 //! Apple 原生语音引擎（Speech.framework，本地离线识别 zh/en）。
 
-use super::objc;
 use super::EngineStatus;
+use super::objc;
 
 pub fn status() -> EngineStatus {
     let (status, detail) = match objc::authorization_status() {

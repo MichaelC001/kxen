@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Diagnostic {
-    pub line: u32,   // 1-based（LSP 是 0-based，展示层 +1）
-    pub col: u32,    // 1-based
+    pub line: u32,      // 1-based（LSP 是 0-based，展示层 +1）
+    pub col: u32,       // 1-based
     pub severity: char, // 'E' | 'W' | 'I'
     pub message: String,
 }

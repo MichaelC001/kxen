@@ -28,16 +28,11 @@ fn route_response(v: &Value) -> Option<Value> {
             "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } } }
         } ] }),
         "tools/call" => {
-            let text = v
-                .pointer("/params/arguments/text")
-                .and_then(|t| t.as_str())
-                .unwrap_or("");
+            let text = v.pointer("/params/arguments/text").and_then(|t| t.as_str()).unwrap_or("");
             json!({ "content": [ { "type": "text", "text": format!("echo:{text}") } ] })
         }
         _ => {
-            return Some(
-                json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "no method" } }),
-            );
+            return Some(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "no method" } }));
         }
     };
     Some(json!({ "jsonrpc": "2.0", "id": id, "result": result }))
@@ -60,9 +55,7 @@ fn read_request(reader: &mut BufReader<TcpStream>) -> (String, String) {
         .lines()
         .find_map(|l| {
             let lower = l.to_ascii_lowercase();
-            lower
-                .strip_prefix("content-length:")
-                .and_then(|v| v.trim().parse::<usize>().ok())
+            lower.strip_prefix("content-length:").and_then(|v| v.trim().parse::<usize>().ok())
         })
         .unwrap_or(0);
     let mut body = vec![0u8; content_length];
@@ -118,9 +111,7 @@ fn start_mock() -> MockSse {
             std::thread::spawn(move || handle(stream, slot));
         }
     });
-    MockSse {
-        url: format!("http://127.0.0.1:{port}/sse"),
-    }
+    MockSse { url: format!("http://127.0.0.1:{port}/sse") }
 }
 
 fn sse_config(url: &str) -> ServerConfig {
@@ -136,9 +127,7 @@ fn sse_config(url: &str) -> ServerConfig {
 #[tokio::test]
 async fn legacy_sse_end_to_end() {
     let mock = start_mock();
-    let client = McpClient::connect_bypassing_guard_for_test("old", &sse_config(&mock.url), &[])
-        .await
-        .expect("legacy sse 握手应成功");
+    let client = McpClient::connect_bypassing_guard_for_test("old", &sse_config(&mock.url), &[]).await.expect("legacy sse 握手应成功");
     assert_eq!(client.transport_kind(), "sse");
     assert_eq!(client.tools.len(), 1);
     assert_eq!(client.tools[0].name, "echo");
@@ -148,10 +137,7 @@ async fn legacy_sse_end_to_end() {
 
     let out = client.call("echo", &json!({ "text": "hi" })).await.unwrap();
     assert_eq!(out, "echo:hi");
-    let out = client
-        .call("echo", &json!({ "text": "again" }))
-        .await
-        .unwrap();
+    let out = client.call("echo", &json!({ "text": "again" })).await.unwrap();
     assert_eq!(out, "echo:again", "同一 SSE 流上 id 路由必须持续可用");
 
     client.shutdown().await;
@@ -164,8 +150,5 @@ async fn sse_guard_blocks_loopback() {
         Ok(_) => panic!("legacy sse 同样过 SSRF 守卫"),
         Err(e) => e,
     };
-    assert!(
-        err.contains("blocked"),
-        "legacy sse 同样过 SSRF 守卫: {err}"
-    );
+    assert!(err.contains("blocked"), "legacy sse 同样过 SSRF 守卫: {err}");
 }

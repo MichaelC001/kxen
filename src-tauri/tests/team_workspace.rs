@@ -42,9 +42,9 @@ fn deps(fallback: &Path, store: Arc<Mutex<AuthStore>>) -> SpawnDeps {
         registry: Arc::new(kxen_app::tools::task::TaskRegistry::new()),
         fallback_workdir: Arc::from(fallback),
         store,
-        mrm: Arc::new(std::sync::RwLock::new(Arc::new(
-            kxen_app::llm::mrm::ModelResourceManager::new(kxen_app::core::config::Config::default()),
-        ))),
+        mrm: Arc::new(std::sync::RwLock::new(Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(
+            kxen_app::core::config::Config::default(),
+        )))),
         hooks: None,
         extras: Arc::new(kxen_app::agent::agent_loop::SessionExtrasRegistry::default()),
         agents: Arc::new(kxen_app::agent::activity::AgentRegistry::default()),
@@ -60,12 +60,7 @@ fn workdir_binds_session_workspace_and_never_drifts_on_switch() {
     // 时刻 1：app 活跃 workspace = A，建会话 sa（session.create 记录 directory = A）
     let sa = kxen_app::core::session::create(&f.sessions, f.ws_a.to_str().unwrap()).unwrap();
     let store = Arc::new(Mutex::new(AuthStore::default()));
-    let mgr = TeamManager::new(
-        f.base.join("teams"),
-        deps(&f.fallback, store),
-        EventBus::default(),
-        f.sessions.clone(),
-    );
+    let mgr = TeamManager::new(f.base.join("teams"), deps(&f.fallback, store), EventBus::default(), f.sessions.clone());
     assert_eq!(&*mgr.session_workdir(&sa.id), f.ws_a.as_path());
 
     // 时刻 2：switch 到 B（AppState 只改 active_workspace；lib 侧真相源是 session metadata）
@@ -74,18 +69,10 @@ fn workdir_binds_session_workspace_and_never_drifts_on_switch() {
 
     // A 的 team 不漂移：list_json 触发真实 state_for 建 TeamState 后仍绑 A
     let _ = mgr.list_json(&sa.id);
-    assert_eq!(
-        &*mgr.session_workdir(&sa.id),
-        f.ws_a.as_path(),
-        "switch 后 A 会话的 team 必须继续用 A"
-    );
+    assert_eq!(&*mgr.session_workdir(&sa.id), f.ws_a.as_path(), "switch 后 A 会话的 team 必须继续用 A");
     // 新 spawn 到 B 会话的 team 用 B
     let _ = mgr.list_json(&sb.id);
-    assert_eq!(
-        &*mgr.session_workdir(&sb.id),
-        f.ws_b.as_path(),
-        "B 会话的 team 必须用 B"
-    );
+    assert_eq!(&*mgr.session_workdir(&sb.id), f.ws_b.as_path(), "B 会话的 team 必须用 B");
 
     // metadata 缺失（会话已删）回退启动目录
     assert_eq!(&*mgr.session_workdir("ses_missing"), f.fallback.as_path());
@@ -97,15 +84,9 @@ fn store_handle_is_shared_not_frozen() {
     let store = Arc::new(Mutex::new(AuthStore::default()));
     let d = deps(&f.fallback, store.clone());
     // deps 建成后 AppState 侧才写入（模拟启动探测/token 刷新晚于 TeamManager 构造）
-    store
-        .lock()
-        .expect("store")
-        .insert("xai".into(), CredentialKind::Api { key: "k".into(), region: None });
+    store.lock().expect("store").insert("xai".into(), CredentialKind::Api { key: "k".into(), region: None });
     let snapshot = d.store.lock().expect("store").clone();
-    assert!(
-        snapshot.contains_key("xai"),
-        "操作点快照必须看到共享句柄的新值，而非启动时冻结副本"
-    );
+    assert!(snapshot.contains_key("xai"), "操作点快照必须看到共享句柄的新值，而非启动时冻结副本");
 }
 
 #[test]
@@ -115,15 +96,8 @@ fn lsp_pool_keyed_by_team_session_workspace() {
     let a1 = pool.for_workspace(&f.ws_a);
     let a2 = pool.for_workspace(&f.ws_a);
     let b = pool.for_workspace(&f.ws_b);
-    assert!(
-        Arc::ptr_eq(&a1, &a2),
-        "同 workspace 复用同一 rust-analyzer 管理器"
-    );
+    assert!(Arc::ptr_eq(&a1, &a2), "同 workspace 复用同一 rust-analyzer 管理器");
     assert!(!Arc::ptr_eq(&a1, &b));
-    assert_eq!(
-        a1.root(),
-        f.ws_a.as_path(),
-        "A 的 member 诊断 root 必须是 A"
-    );
+    assert_eq!(a1.root(), f.ws_a.as_path(), "A 的 member 诊断 root 必须是 A");
     assert_eq!(b.root(), f.ws_b.as_path(), "B 的 member 诊断 root 必须是 B");
 }
