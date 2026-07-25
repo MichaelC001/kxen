@@ -15,6 +15,22 @@ pub enum GoalStatus {
     Canceled,
 }
 
+impl GoalStatus {
+    /// GoalUpdate 事件 payload 与 workspace digest 的同一收口：snake_case 状态串（前端按此配色板）。
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Queued => "queued",
+            Self::Active => "active",
+            Self::Paused => "paused",
+            Self::Complete => "complete",
+            Self::Blocked => "blocked",
+            Self::BudgetLimited => "budget_limited",
+            Self::Canceled => "canceled",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GoalBudget {

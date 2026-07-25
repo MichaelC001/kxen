@@ -157,7 +157,7 @@ pub fn dispatch_tool<'a>(
                 other => Err(format!("unknown schedule action: {other}")),
             },
             "task" => execute_task_tool(&args, ctx).await,
-            "goal" => execute_goal_tool(&args, ctx.session_id.as_deref()).await,
+            "goal" => execute_goal_tool(&args, ctx.session_id.as_deref(), ctx.bus.as_ref()).await,
             "glob" => {
                 let base = resolve_path(args.get("path").and_then(Value::as_str).unwrap_or(&cwd), &ctx.workdir);
                 let pattern = args.get("pattern").and_then(Value::as_str).ok_or("missing pattern")?;

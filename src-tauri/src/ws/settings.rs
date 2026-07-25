@@ -66,15 +66,7 @@ pub(super) fn set_role(
         if text.trim().is_empty() { toml::Table::new() } else { toml::from_str(&text).map_err(|e| format!("config.toml parse: {e}"))? };
     let roles = doc.entry(String::from("roles")).or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
     let roles_table = roles.as_table_mut().ok_or("roles is not a table")?;
-    let mut binding = toml::map::Map::new();
-    binding.insert("provider".into(), toml::Value::String(provider.into()));
-    binding.insert("model".into(), toml::Value::String(model.into()));
-    if let Some(f) = fallback {
-        binding.insert("fallback".into(), toml::Value::String(f.into()));
-    }
-    if let Some(a) = account {
-        binding.insert("account".into(), toml::Value::String(a.into()));
-    }
+    let binding = merge_binding(roles_table.get(role).and_then(toml::Value::as_table), provider, model, fallback, account);
     roles_table.insert(role.into(), toml::Value::Table(binding));
 
     std::fs::create_dir_all(kxen_app::core::paths::config_dir()).map_err(|e| e.to_string())?;
@@ -86,4 +78,84 @@ pub(super) fn set_role(
     let config = kxen_app::core::config::Config::load(&path, None).map_err(|e| e.to_string())?;
     *state.mrm.write().expect("mrm lock") = std::sync::Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(config));
     Ok(json!({ "role": role, "provider": provider, "model": model }))
+}
+
+/// 合并新旧 binding（P0-4 数据不丢的主防线，双保险以后端为准：RPC 面向所有调用方，
+/// 前端全量带字段只是其中之一）。旧实现整表重建，缺省参数直接抹掉旧值——切 provider 丢
+/// fallback+account、改 model 丢降级链。约定：None = 未提及沿用旧值；Some("") = 显式清除
+/// （前端选「无降级/账号轮转」、provider 变更清 account 走这里）；Some(v) = 覆盖。
+fn merge_binding(
+    old: Option<&toml::map::Map<String, toml::Value>>,
+    provider: &str,
+    model: &str,
+    fallback: Option<&str>,
+    account: Option<&str>,
+) -> toml::map::Map<String, toml::Value> {
+    fn field(old: Option<&toml::map::Map<String, toml::Value>>, key: &str, new: Option<&str>) -> Option<toml::Value> {
+        match new {
+            None => old.and_then(|t| t.get(key)).cloned(),
+            Some("") => None,
+            Some(v) => Some(toml::Value::String(v.into())),
+        }
+    }
+    let mut binding = toml::map::Map::new();
+    binding.insert("provider".into(), toml::Value::String(provider.into()));
+    binding.insert("model".into(), toml::Value::String(model.into()));
+    if let Some(f) = field(old, "fallback", fallback) {
+        binding.insert("fallback".into(), f);
+    }
+    if let Some(a) = field(old, "account", account) {
+        binding.insert("account".into(), a);
+    }
+    binding
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_binding;
+
+    fn old_binding() -> toml::map::Map<String, toml::Value> {
+        let mut t = toml::map::Map::new();
+        t.insert("provider".into(), toml::Value::String("anthropic".into()));
+        t.insert("model".into(), toml::Value::String("claude-opus-4-1".into()));
+        t.insert("fallback".into(), toml::Value::String("execution".into()));
+        t.insert("account".into(), toml::Value::String("work".into()));
+        t
+    }
+
+    fn get<'a>(b: &'a toml::map::Map<String, toml::Value>, key: &str) -> Option<&'a str> {
+        b.get(key).and_then(toml::Value::as_str)
+    }
+
+    #[test]
+    fn omitted_fields_fall_back_to_old_binding() {
+        // P0-4 回归：切 provider / 改 model 缺省调用不再丢 fallback+account
+        let old = old_binding();
+        let b = merge_binding(Some(&old), "openai", "gpt-5.2", None, None);
+        assert_eq!(get(&b, "provider"), Some("openai"));
+        assert_eq!(get(&b, "model"), Some("gpt-5.2"));
+        assert_eq!(get(&b, "fallback"), Some("execution"));
+        assert_eq!(get(&b, "account"), Some("work"));
+    }
+
+    #[test]
+    fn explicit_empty_string_clears_field() {
+        // 清除语义：Some("") 删除字段（沿用旧值会清不掉，这是与 None 的关键区分）
+        let old = old_binding();
+        let b = merge_binding(Some(&old), "anthropic", "claude-opus-4-1", Some(""), Some(""));
+        assert!(!b.contains_key("fallback"));
+        assert!(!b.contains_key("account"));
+    }
+
+    #[test]
+    fn overwrite_wins_and_fresh_role_has_no_defaults() {
+        let old = old_binding();
+        let b = merge_binding(Some(&old), "anthropic", "m", Some("review"), Some("team"));
+        assert_eq!(get(&b, "fallback"), Some("review"));
+        assert_eq!(get(&b, "account"), Some("team"));
+        // 新建角色：无旧值可沿用，缺省即缺省
+        let b = merge_binding(None, "anthropic", "m", None, None);
+        assert!(!b.contains_key("fallback"));
+        assert!(!b.contains_key("account"));
+    }
 }

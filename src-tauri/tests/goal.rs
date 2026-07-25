@@ -153,3 +153,62 @@ fn record_turn_wall_uses_active_time() {
     paused.record_turn(0, None, false).unwrap();
     assert_eq!(paused.status, GoalStatus::Active);
 }
+
+// --- P0-4：agent 侧 goal 工具迁移后 publish GoalUpdate（Dock 面板不再断链） ---
+
+/// 进程级隔离 goals 目录：Once 写序同值无竞态（与 KXEN_AUTH_FILE 规约一致）。
+fn goals_dir_isolation() -> std::path::PathBuf {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    let dir = std::env::temp_dir().join(format!("kxen-goal-tool-{}", std::process::id()));
+    ONCE.call_once(|| unsafe {
+        std::env::set_var("KXEN_GOALS_DIR", &dir);
+    });
+    dir
+}
+
+#[tokio::test]
+async fn goal_tool_publishes_goal_update_on_create_and_transit() {
+    use kxen_app::agent::agent_loop::execute_goal_tool;
+    use kxen_app::core::event::{Event, EventBus};
+
+    let dir = goals_dir_isolation();
+    let bus = EventBus::new(16);
+    let mut rx = bus.subscribe();
+
+    let out = execute_goal_tool(
+        &serde_json::json!({"action": "create", "objective": "迁移完成", "completion_criteria": "测试全绿"}),
+        Some("sess-pub"),
+        Some(&bus),
+    )
+    .await
+    .unwrap();
+    let id = out.split_whitespace().nth(1).expect("show 输出第二段是 goal id").to_string();
+    match rx.try_recv().unwrap() {
+        Event::GoalUpdate { id: got, status } => {
+            assert_eq!(got, id);
+            assert_eq!(status, "draft");
+        }
+        other => panic!("期望 GoalUpdate，实际 {other:?}"),
+    }
+
+    for (action, want) in [("activate", "active"), ("cancel", "canceled")] {
+        let args = serde_json::json!({"action": action, "id": id});
+        execute_goal_tool(&args, None, Some(&bus)).await.unwrap();
+        match rx.try_recv().unwrap() {
+            Event::GoalUpdate { id: got, status } => {
+                assert_eq!(got, id);
+                assert_eq!(status, want);
+            }
+            other => panic!("期望 GoalUpdate，实际 {other:?}"),
+        }
+    }
+
+    // get 只读：无状态迁移不发事件
+    execute_goal_tool(&serde_json::json!({"action": "get", "id": id}), None, Some(&bus)).await.unwrap();
+    assert!(rx.try_recv().is_err(), "get 不应发 GoalUpdate");
+
+    // 无 bus（子代理无事件通道）不 panic，落盘照常
+    execute_goal_tool(&serde_json::json!({"action": "list"}), None, None).await.unwrap();
+
+    std::fs::remove_dir_all(&dir).ok();
+}

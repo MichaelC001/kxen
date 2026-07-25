@@ -120,7 +120,7 @@ pub fn overview(
                     .iter()
                     .filter(|g| live(g) && g.session_id.as_deref().is_some_and(|sid| mine_ids.contains(sid)))
                     .max_by_key(|g| g.updated_at)
-                    .map(|g| GoalDigest { id: g.id.clone(), objective: g.contract.objective.clone(), status: status_str(g.status).into() }),
+                    .map(|g| GoalDigest { id: g.id.clone(), objective: g.contract.objective.clone(), status: g.status.as_str().into() }),
                 worktrees: worktrees.get(&w.path).cloned().unwrap_or_default(),
                 running_sessions,
                 path: w.path,
@@ -133,21 +133,6 @@ pub fn overview(
 fn live(g: &crate::core::goal::Goal) -> bool {
     use crate::core::goal::GoalStatus::*;
     matches!(g.status, Active | Paused | Blocked | BudgetLimited)
-}
-
-/// 与 GoalUpdate 事件一致的 snake_case 状态串（前端按此配色板）。
-fn status_str(s: crate::core::goal::GoalStatus) -> &'static str {
-    use crate::core::goal::GoalStatus::*;
-    match s {
-        Draft => "draft",
-        Queued => "queued",
-        Active => "active",
-        Paused => "paused",
-        Blocked => "blocked",
-        BudgetLimited => "budget_limited",
-        Complete => "complete",
-        Canceled => "canceled",
-    }
 }
 
 fn dirty_count(path: &str) -> Option<usize> {

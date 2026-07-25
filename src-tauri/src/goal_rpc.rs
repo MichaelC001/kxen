@@ -80,20 +80,7 @@ pub fn call(method: &str, params: Value, bus: &kxen_app::core::event::EventBus) 
 }
 
 fn publish(bus: &kxen_app::core::event::EventBus, goal: &Goal) {
-    bus.publish(Event::GoalUpdate { id: goal.id.clone(), status: status_str(goal.status) });
-}
-
-fn status_str(status: kxen_app::core::goal::GoalStatus) -> &'static str {
-    match status {
-        kxen_app::core::goal::GoalStatus::Draft => "draft",
-        kxen_app::core::goal::GoalStatus::Queued => "queued",
-        kxen_app::core::goal::GoalStatus::Active => "active",
-        kxen_app::core::goal::GoalStatus::Paused => "paused",
-        kxen_app::core::goal::GoalStatus::Blocked => "blocked",
-        kxen_app::core::goal::GoalStatus::BudgetLimited => "budget_limited",
-        kxen_app::core::goal::GoalStatus::Complete => "complete",
-        kxen_app::core::goal::GoalStatus::Canceled => "canceled",
-    }
+    bus.publish(Event::GoalUpdate { id: goal.id.clone(), status: goal.status.as_str() });
 }
 
 fn load(id: &str) -> Result<Goal, String> {

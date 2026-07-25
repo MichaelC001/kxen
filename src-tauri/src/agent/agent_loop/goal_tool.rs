@@ -1,8 +1,13 @@
 //! goal 工具：目标生命周期管理（list/create/get/activate/pause/resume/cancel/complete）。
+//! 状态迁移成功后 publish GoalUpdate（此前只落盘不发布，Dock 面板对 /write-goal 主流程零刷新）。
 
 use serde_json::Value;
 
-pub async fn execute_goal_tool(args: &Value, session_id: Option<&str>) -> Result<String, String> {
+pub async fn execute_goal_tool(
+    args: &Value,
+    session_id: Option<&str>,
+    bus: Option<&crate::core::event::EventBus>,
+) -> Result<String, String> {
     let action = args.get("action").and_then(Value::as_str).ok_or("missing action")?;
     let dir = crate::core::paths::goals_dir();
     let show = |g: &crate::core::goal::Goal| {
@@ -42,6 +47,7 @@ pub async fn execute_goal_tool(args: &Value, session_id: Option<&str>) -> Result
             let mut goal = crate::core::goal::Goal::create(contract, id).map_err(|e| e.to_string())?;
             goal.session_id = session_id.map(String::from);
             goal.save(&dir).map_err(|e| e.to_string())?;
+            publish(bus, &goal);
             Ok(show(&goal))
         }
         other => {
@@ -60,7 +66,18 @@ pub async fn execute_goal_tool(args: &Value, session_id: Option<&str>) -> Result
                 unknown => return Err(format!("unknown goal action: {unknown}")),
             }
             goal.save(&dir).map_err(|e| e.to_string())?;
+            // get 只读无状态迁移，不发事件
+            if other != "get" {
+                publish(bus, &goal);
+            }
             Ok(show(&goal))
         }
+    }
+}
+
+/// 与 goal_rpc.rs 同一收口：GoalUpdate payload 形态一致（id + snake_case 状态串），Dock goal 面板据此刷新。
+fn publish(bus: Option<&crate::core::event::EventBus>, goal: &crate::core::goal::Goal) {
+    if let Some(bus) = bus {
+        bus.publish(crate::core::event::Event::GoalUpdate { id: goal.id.clone(), status: goal.status.as_str() });
     }
 }

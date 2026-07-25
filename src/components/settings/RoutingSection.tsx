@@ -76,17 +76,27 @@ export default function RoutingSection() {
 
   const accountOptions = (provider: string) => accounts().filter((a) => a.provider === provider);
 
-  const update = async (
-    role: string,
-    provider: string,
-    model: string,
-    account?: string,
-    fallback?: string,
-  ) => {
-    await configSetRole(role, provider, model, fallback || undefined, account || undefined);
+  // P0-4：update 永远以当前 binding 全量合并后下发（后端缺省会沿用旧值，见 settings.rs merge_binding）。
+  // provider 变更时仅清 account（账号归属 provider，留旧账号会绑错）；fallback 是角色间降级关系，
+  // 与 provider 无关，必须保留。想清除的字段显式传 ""（None/缺省在后端是「沿用旧值」语义）。
+  const update = async (role: string, patch: Partial<RoleBindingView>) => {
+    const cur = roles()[role] ?? {
+      provider: "anthropic",
+      model: "",
+      account: null,
+      fallback: null,
+    };
+    const next = { ...cur, ...patch };
+    if (patch.provider !== undefined && patch.provider !== cur.provider) next.account = null;
+    await configSetRole(role, next.provider, next.model, next.fallback ?? "", next.account ?? "");
     setRoles((prev) => ({
       ...prev,
-      [role]: { provider, model, account: account || null, fallback: fallback || null },
+      [role]: {
+        provider: next.provider,
+        model: next.model,
+        account: next.account ?? null,
+        fallback: next.fallback ?? null,
+      },
     }));
     flash(`${ROLE_LABELS[role] ?? role} 已保存并热生效`);
   };
@@ -151,13 +161,13 @@ export default function RoutingSection() {
                   <select
                     class="bg-transparent border border-[var(--border)] rounded px-1.5 py-1 text-xs text-[var(--text-dim)]"
                     value={binding().provider}
-                    onChange={(e) =>
-                      void update(
-                        role,
-                        e.currentTarget.value,
-                        binding().model || defaultModelOf(e.currentTarget.value),
-                      )
-                    }
+                    onChange={(e) => {
+                      const provider = e.currentTarget.value;
+                      void update(role, {
+                        provider,
+                        model: binding().model || defaultModelOf(provider),
+                      });
+                    }}
                   >
                     <For each={providers()}>
                       {(p) => <option value={p.key}>{p.display}</option>}
@@ -167,9 +177,7 @@ export default function RoutingSection() {
                     class="bg-transparent border border-[var(--border)] rounded px-1.5 py-1 text-xs text-[var(--text-dim)]"
                     title="账号：轮转 = 槽满自动换下一个账号"
                     value={binding().account ?? ""}
-                    onChange={(e) =>
-                      void update(role, binding().provider, binding().model, e.currentTarget.value)
-                    }
+                    onChange={(e) => void update(role, { account: e.currentTarget.value || null })}
                   >
                     <option value="">账号轮转</option>
                     <For each={accountOptions(binding().provider)}>
@@ -181,7 +189,7 @@ export default function RoutingSection() {
                     class="flex-1 bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs font-mono"
                     value={binding().model}
                     placeholder="model id（可下拉搜索）"
-                    onChange={(e) => void update(role, binding().provider, e.currentTarget.value)}
+                    onChange={(e) => void update(role, { model: e.currentTarget.value })}
                   />
                   <datalist id={`models-${role}`}>
                     <For each={cat().find((p) => p.provider === binding().provider)?.models ?? []}>
@@ -194,15 +202,7 @@ export default function RoutingSection() {
                     class="bg-transparent border border-[var(--border)] rounded px-1.5 py-1 text-xs text-[var(--text-dim)]"
                     title="降级目标角色：本角色槽位满时降级到该角色"
                     value={binding().fallback ?? ""}
-                    onChange={(e) =>
-                      void update(
-                        role,
-                        binding().provider,
-                        binding().model,
-                        binding().account ?? undefined,
-                        e.currentTarget.value || undefined,
-                      )
-                    }
+                    onChange={(e) => void update(role, { fallback: e.currentTarget.value || null })}
                   >
                     <option value="">无降级</option>
                     <For each={Object.keys(ROLE_LABELS).filter((r) => r !== role)}>

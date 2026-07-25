@@ -30,6 +30,10 @@ pub fn auth_file() -> PathBuf {
 
 /// goals 目录
 pub fn goals_dir() -> PathBuf {
+    // 测试隔离：环境变量覆盖（与 auth_file 同规约，Once 写序防并行 env 竞态，勿删）
+    if let Ok(p) = std::env::var("KXEN_GOALS_DIR") {
+        return PathBuf::from(p);
+    }
     data_dir().join("goals")
 }
 
