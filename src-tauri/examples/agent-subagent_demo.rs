@@ -40,6 +40,7 @@ async fn main() {
         approvals: None,
         mcp: None,
         lsp: None,
+        notify: None,
         loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
         on_event: Arc::new(|event| match event {
             AgentEvent::Text { text } => print!("{text}"),

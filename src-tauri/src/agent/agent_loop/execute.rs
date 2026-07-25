@@ -291,6 +291,21 @@ pub fn dispatch_tool<'a>(
                 let Some(mut deps) = crate::agent::subagent::SubagentDeps::from_context(ctx) else {
                     return Err("agent tool unavailable: mrm not configured".into());
                 };
+                // background=true：spawn 到后台立即回执，结果经通知路由逐路送回（主 loop 不阻塞等齐）
+                if args.get("background").and_then(Value::as_bool).unwrap_or(false) {
+                    let Some(router) = ctx.notify.clone() else {
+                        return Err("background dispatch unavailable: no notify channel in this context".into());
+                    };
+                    let worktree = args.get("worktree").and_then(Value::as_str).map(str::to_string);
+                    return Ok(crate::agent::background::spawn_background_agent(
+                        &role,
+                        prompt,
+                        deps,
+                        worktree,
+                        ctx.workdir.clone(),
+                        router,
+                    ));
+                }
                 // worktree 隔离：该次派发在独立树执行，主树零接触
                 let mut note = String::new();
                 if let Some(wt) = args.get("worktree").and_then(Value::as_str) {
@@ -298,7 +313,7 @@ pub fn dispatch_tool<'a>(
                     note = format!("\n[worktree: {} (branch {})]", info.path.display(), info.branch);
                     deps.workdir = Arc::from(info.path.as_path());
                 }
-                let result =
+                let (_name, result) =
                     Box::pin(crate::agent::subagent::dispatch(&role, prompt, &deps, crate::agent::activity::AgentKind::Subagent)).await?;
                 Ok(format!("{result}{note}"))
             }

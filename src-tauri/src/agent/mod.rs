@@ -3,6 +3,7 @@
 pub mod activity;
 pub mod agent_loop;
 pub mod approval;
+pub mod background;
 pub mod cancel;
 pub mod commands;
 pub mod compact;

@@ -264,3 +264,25 @@ async fn top_level_empty_string_is_flagged() {
     let out = run_ok("return '';").await;
     assert!(body(&out).contains("[EMPTY]"), "{out}");
 }
+
+#[tokio::test]
+async fn duplicate_phase_calls_do_not_inflate_progress() {
+    // 进度计数去重：matched 按 index、未匹配按 name；事件不去重照常上行（UI 重复标记无害）
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let script = "const meta = { name: 'wf-dup', phases: [{ title: 'a' }, { title: 'b' }] };\nphase('a'); phase('a'); phase('b'); phase('zzz'); phase('zzz');\nreturn 'ok'";
+    let fut = run_script(script, test_deps(), tx, Arc::new(AtomicBool::new(false)), None);
+    tokio::pin!(fut);
+    let mut phases = Vec::new();
+    let result = loop {
+        tokio::select! {
+            r = &mut fut => break r,
+            Some(msg) = rx.recv() => phases.push(msg),
+        }
+    };
+    while let Ok(msg) = rx.try_recv() {
+        phases.push(msg);
+    }
+    let out = result.unwrap();
+    assert!(out.contains("phases 3/2"), "去重后应为 a/b/zzz 各计一次: {out}");
+    assert_eq!(phases.len(), 5, "事件流不去重，重复调用仍上行");
+}

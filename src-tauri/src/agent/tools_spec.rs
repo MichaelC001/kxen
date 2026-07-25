@@ -163,13 +163,14 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "agent",
-            "Dispatch a subagent by role: thinking (deep analysis), planning (task decomposition), execution (fast execution), review (adversarial review), research (external research). Each runs on a model chosen for the role.",
+            "Dispatch a subagent by role: thinking (deep analysis), planning (task decomposition), execution (fast execution), review (adversarial review), research (external research). Each runs on a model chosen for the role. Default is synchronous (blocks until the subagent finishes); set background=true for 2+ independent tasks to run them in parallel - the call returns a receipt immediately and each result arrives later as a task notification.",
             json!({
                 "type": "object",
                 "properties": {
                     "role": { "type": "string", "enum": ["thinking", "planning", "execution", "review", "research"] },
                     "prompt": { "type": "string", "description": "The task for the subagent to perform" },
-                    "worktree": { "type": "string", "description": "Optional: run this dispatch inside an isolated git worktree with this name (branch kxen/<name>, main tree untouched)" }
+                    "worktree": { "type": "string", "description": "Optional: run this dispatch inside an isolated git worktree with this name (branch kxen/<name>, main tree untouched)" },
+                    "background": { "type": "boolean", "description": "Optional, default false. true = async dispatch: receipt now, result delivered as a task notification in a later turn" }
                 },
                 "required": ["role", "prompt"]
             }),

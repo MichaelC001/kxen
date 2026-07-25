@@ -159,6 +159,8 @@ fn build_ctx(
         approvals: state.deps.approvals.clone(),
         mcp: state.deps.mcp.clone(),
         lsp: Some(state.deps.lsp.for_workspace(&state.workdir)),
+        // teammate 不开通知通道：background 派发只从主会话发起（teammate 走 send_message 回 lead）
+        notify: None,
         on_event: Arc::new(move |event| {
             let mut payload = match serde_json::to_value(&event) {
                 Ok(v) => v,

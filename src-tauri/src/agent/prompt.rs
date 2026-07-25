@@ -124,6 +124,22 @@ until the user says go.
 correctness, security, performance, convention (check against real files, not taste). Findings \
 only: severity P0/P1/P2, file:line, one-line fix, deduped. No style nits, no praise, no fixes.";
 
+const BACKGROUND_PLAYBOOK: &str = "\
+## background agents (streaming reduction)
+
+For 2+ INDEPENDENT research or implementation tasks, dispatch them in one turn with \
+agent(..., background=true) instead of awaiting each dispatch in sequence. The tool returns a \
+receipt immediately; each result arrives later as a `[task notification] agent <name> (<role>) \
+finished` user message.
+
+- Digest each notification as it lands: extract that path's conclusions, and spot-check critical \
+claims with exec/read before trusting them - a subagent's say-so is not proof.
+- Synthesize only after ALL dispatched paths have reported. While some are still running, keep \
+doing useful foreground work - never idle-wait and never poll for results.
+- The same per-path digestion applies inside workflow scripts: when paths must be consumed as they \
+finish, await them in order or race them with Promise.race - parallel(...) alone always waits for \
+the whole batch.";
+
 /// Full system prompt for a turn. `workdir` is rendered into the environment line.
 /// `involved` = 本会话涉及文件（OKF globs 动态激活与多层就近的输入）。
 /// `session_id` = goal 按 session 粒度注入（多会话并发各见各的 goal）。
@@ -140,6 +156,8 @@ pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf],
     out.push_str(WRITE_GOAL_PLAYBOOK);
     out.push_str("\n\n");
     out.push_str(ULTRA_PLAYBOOK);
+    out.push_str("\n\n");
+    out.push_str(BACKGROUND_PLAYBOOK);
     out.push_str("\n\n");
     out.push_str(KNOWLEDGE_GUIDE);
     if let Some(block) = crate::knowledge::render(workdir, involved) {

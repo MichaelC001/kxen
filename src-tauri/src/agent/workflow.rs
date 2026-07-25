@@ -155,7 +155,7 @@ pub async fn run_script(
                         return Err(workflow_err(msg));
                     }
                     match dispatch(&role, prompt.clone(), &deps, crate::agent::activity::AgentKind::Workflow).await {
-                        Ok(result) => {
+                        Ok((_name, result)) => {
                             *stats.lock().expect("stats").ok_by_role.entry(role.clone()).or_insert(0) += 1;
                             if let Some(j) = journal.lock().expect("journal").as_mut() {
                                 j.record(&role, &prompt, &result);
@@ -174,12 +174,21 @@ pub async fn run_script(
             globals.set("__kxen_agent", agent_fn).catch(&ctx).map_err(|e| e.to_string())?;
             ctx.eval::<Value, _>(js::AGENT_JS).catch(&ctx).map_err(|e| e.to_string())?;
 
-            // __kxen_phase：wrapped 脚本里的局部 phase 闭包按 meta 匹配好 index/total 后调这里
+            // __kxen_phase：wrapped 脚本里的局部 phase 闭包按 meta 匹配好 index/total 后调这里。
+            // 计数去重：matched 按 index、未匹配按 name——脚本重复调同名 phase 不虚报进度；
+            // 事件不去重照常上行（UI 重复标记一次无害，改行为超出去重目标）
             let phases_done = Arc::new(AtomicU32::new(0));
+            let phase_seen = Arc::new(std::sync::Mutex::new(std::collections::HashSet::<String>::new()));
             let phase_fn = {
                 let phases_done = phases_done.clone();
                 Func::from(move |name: String, index: Option<u32>, total: Option<u32>, workflow_name: Option<String>| {
-                    phases_done.fetch_add(1, Ordering::Relaxed);
+                    let key = match index {
+                        Some(i) => format!("idx:{i}"),
+                        None => format!("name:{name}"),
+                    };
+                    if crate::core::shared::lock(&phase_seen).insert(key) {
+                        phases_done.fetch_add(1, Ordering::Relaxed);
+                    }
                     let _ = phase_tx.send(PhaseMsg { name, index, total, workflow_name });
                 })
             };

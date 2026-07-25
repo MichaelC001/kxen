@@ -261,7 +261,7 @@ export default function Session() {
                 return (
                   <div class="text-xs text-[var(--text-faint)] flex items-center gap-2">
                     <span class="inline-block w-1 h-1 rounded-full bg-[var(--accent)]" />
-                    phase: {item.name}
+                    {item.name}
                   </div>
                 );
               }

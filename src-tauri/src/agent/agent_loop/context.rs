@@ -69,5 +69,7 @@ pub struct AgentContext {
     pub mcp: Option<Arc<crate::mcp::McpManager>>,
     /// LSP 多语言诊断/导航（rust/ts/js/py/go per-language 懒启动；None = 未接线）。
     pub lsp: Option<Arc<crate::lsp::LspManager>>,
+    /// 后台 agent 完成通知路由（仅主会话 ctx 开；子代理不再嵌套派发，None）。
+    pub notify: Option<Arc<crate::agent::background::NotifyRouter>>,
     pub on_event: Arc<dyn Fn(AgentEvent) + Send + Sync>,
 }

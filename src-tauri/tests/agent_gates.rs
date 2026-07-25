@@ -29,6 +29,7 @@ fn test_ctx() -> AgentContext {
         approvals: None,
         mcp: None,
         lsp: None,
+        notify: None,
         on_event: Arc::new(|_| {}),
     }
 }

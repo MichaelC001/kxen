@@ -47,11 +47,11 @@ export function applyStreamEvent(
     deps.setOrbPhase("thinking");
     applyApprovalEvent(deps.setItems, event);
   } else {
-    // workflow phase：有 index/total 时显示进度（phase 2/10: xxx），无则原样（旧脚本无 meta）
+    // workflow phase：有 index/total 时 `phase 2/10 · xxx`（避免 phase: + i/N: 双冒号），无则 `phase: xxx`（旧脚本无 meta）
     const label =
       event.index != null && event.total != null
-        ? `${event.index}/${event.total}: ${event.name}`
-        : event.name;
+        ? `phase ${event.index}/${event.total} · ${event.name}`
+        : `phase: ${event.name}`;
     deps.setItems((prev) => [...prev, { kind: "phase", name: label }]);
   }
   deps.scroll();

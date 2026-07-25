@@ -84,6 +84,7 @@ fn subagent_shares_parent_session_extras() {
         approvals: None,
         mcp: None,
         lsp: None,
+        notify: None,
         on_event: Arc::new(|_| {}),
     };
     let deps = SubagentDeps::from_context(&ctx).expect("from_context");

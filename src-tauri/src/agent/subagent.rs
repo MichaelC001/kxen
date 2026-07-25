@@ -1,6 +1,7 @@
 //! 角色化 subagent：角色预设（model 经 mrm 路由 + 权限预设 + brief）+ 派发。
 //! 角色 brief 全部英文（提示词规则），UI 文案不走这里。
 
+use crate::agent::activity::AgentKind;
 use crate::agent::agent_loop::{AgentContext, run_turn};
 use crate::llm::Message;
 use crate::llm::mrm::ModelResourceManager;
@@ -152,9 +153,8 @@ fn parse_frontmatter(text: &str) -> (std::collections::HashMap<String, String>, 
     (map, rest[end + 4..].trim().to_string())
 }
 
-/// agent 派发：角色 -> mrm 路由 model -> 独立子 loop -> 结果回传。
-/// kind 区分来源（agent 工具 / workflow 的 agent()），统一进活动注册表供 UI 多窗格展示。
-pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: crate::agent::activity::AgentKind) -> Result<String, String> {
+/// agent 派发：角色 -> mrm 路由 model -> 独立子 loop -> (定名, 结果) 回传；定名给 background 拼完成通知，kind 统一进活动注册表供 UI 多窗格展示。
+pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: AgentKind) -> Result<(String, String), String> {
     // 未知 role 显式报错：静默回落只读会把实现类任务做成"跑完但没改"，比直接报错更难被发现
     if !role_exists(role, &deps.workdir) {
         return Err(format!(
@@ -198,8 +198,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: cra
         max_turns: agent.max_turns,
         mrm: None,
         allowed_tools: if allowed.is_empty() { None } else { Some(allowed) },
-        // subagent 与父 run 同 session：共享 extras（todo/deferred 工具互通）；
-        // deps.extras 为 None 的调用方（test_dispatch 等无 session 上下文）给一次性临时实例
+        // 与父 run 同 session 共享 extras（todo/deferred 工具互通）；deps.extras 为 None（无 session 上下文）给临时实例
         extras: Some(deps.extras.clone().unwrap_or_default()),
         hooks: deps.hooks.clone(),
         cancel: Some(cancel),
@@ -211,6 +210,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: cra
         approvals: deps.approvals.clone(),
         mcp: deps.mcp.clone(),
         lsp: deps.lsp.clone(),
+        notify: None, // 子代理不开通知通道：不嵌套派发（background 只从主会话发起）
         loop_detector: crate::agent::loop_detect::LoopDetector::new(),
         on_event: {
             let bus = deps.bus.clone();
@@ -241,7 +241,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: cra
         if outcome.aborted { crate::agent::activity::ActivityStatus::Shutdown } else { crate::agent::activity::ActivityStatus::Done },
     );
     drop(grant);
-    Ok(outcome.final_text)
+    Ok((name, outcome.final_text))
 }
 
 #[cfg(test)]

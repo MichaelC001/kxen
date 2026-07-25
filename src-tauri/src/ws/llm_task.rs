@@ -152,6 +152,10 @@ pub(crate) async fn run_llm(
     let cancel = kxen_app::agent::cancel::CancelToken::new();
     kxen_app::core::shared::lock(&state.active_runs).insert(session_id.clone(), cancel.clone());
 
+    // 后台 agent 完成通知路由：run 存活期由 run loop 逐轮 drain 注入 messages；
+    // run 收尾 close 后（含 run 结束后才完成的派发）通知直投 pending queue，由队列续跑消化
+    let notify = std::sync::Arc::new(kxen_app::agent::background::NotifyRouter::new());
+
     let mut ctx = kxen_app::agent::agent_loop::AgentContext {
         registry,
         tracker: {
@@ -178,6 +182,7 @@ pub(crate) async fn run_llm(
         approvals: Some(state.approvals.clone()),
         mcp: Some(state.mcp.clone()),
         lsp: Some(state.lsp.read().expect("lsp").clone()),
+        notify: Some(notify.clone()),
         on_event: Arc::new(move |event| {
             use kxen_app::agent::agent_loop::AgentEvent as AE;
             match &event {
@@ -231,6 +236,15 @@ pub(crate) async fn run_llm(
         }),
     };
     let outcome = kxen_app::agent::agent_loop::run_turn(&mut ctx, messages).await;
+    // 通知路由收尾：通道残留与此后到达的通知全部入队。本 run 的收尾 pop（下方）立即消化残留；
+    // 晚到的由下一个 run 的收尾 pop 消化——不新起 spawn 路径，复用队列既有续跑（最小接线）
+    notify.close({
+        let state = state.inner().clone();
+        let sid = session_id.clone();
+        std::sync::Arc::new(move |text: String| {
+            state.pending_messages.enqueue(&sid, text, vec![], vec![]);
+        })
+    });
     kxen_app::core::shared::lock(&state.session_involved).insert(session_id.clone(), ctx.tracker.files());
     kxen_app::core::shared::lock(&state.active_runs).remove(&session_id);
     // run 收尾清掉本 session 挂起的审批：等待方按 deny 唤醒，防 pending 泄漏（session 删除同理可达）

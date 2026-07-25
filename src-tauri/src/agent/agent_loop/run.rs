@@ -100,6 +100,11 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
             }
         }
 
+        // 后台 agent 完成通知：每轮 LLM 请求前 drain 注入 messages（逐路消化，不等全部到齐）
+        if let Some(msg) = ctx.notify.as_ref().and_then(|r| crate::agent::background::notifications_message(r.drain())) {
+            messages.push(msg);
+        }
+
         let mut acc = ToolCallAccumulator::default();
         let mut text = String::new();
         // OAuth 主动刷新：快过期先换 token（RECENT 跨 clone 去重，不重复吊销）
