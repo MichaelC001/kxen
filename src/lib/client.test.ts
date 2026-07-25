@@ -1,6 +1,6 @@
 // 重连订阅恢复实测（P1-15）：先快照再重开，open 回写同一 Map 也不得持续 reopen。
 import { describe, expect, it } from "vitest";
-import { createSubChunkHandler, restoreSubscriptions } from "./client";
+import { client, createSubChunkHandler, fireResync, restoreSubscriptions } from "./client";
 
 describe("restoreSubscriptions", () => {
   it("open 回写新 key 时恰好恢复原有订阅，不形成 reopen 循环", async () => {
@@ -34,6 +34,20 @@ describe("restoreSubscriptions", () => {
     });
     expect(opened).toEqual([["a"], ["b"]]);
     expect([...subs.keys()]).toEqual(["sub-new"]);
+  });
+});
+
+describe("resync 广播（断线重连后对账通知）", () => {
+  it("onResync 注册的回调在 fireResync 时触发，注销后不再触发", () => {
+    let n = 0;
+    const off = client.onResync(() => {
+      n++;
+    });
+    fireResync();
+    expect(n).toBe(1);
+    off();
+    fireResync();
+    expect(n).toBe(1);
   });
 });
 

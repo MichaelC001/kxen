@@ -1,19 +1,19 @@
 import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import {
   onLlmDelta,
-  sendMessage,
   sessionAbort,
   sessionExport,
   sessionMessages,
   sessionPendingList,
+  sessionRunning,
   statusline,
-  type ContextItem,
 } from "../lib/chat";
 import { createConverge } from "../lib/converge";
 import { createDeltaBatcher } from "../lib/delta-batch";
 import { respondApproval as respondApprovalImpl } from "../lib/approvals";
 import { applyStreamEvent, appendRawItem } from "../lib/session-events";
 import { editResend as editResendImpl, forkAt, rerun as rerunImpl } from "../lib/session-actions";
+import { createSendFlow } from "../lib/send";
 import { createSessionRewind } from "../lib/rewind";
 import { createSessionModelLabel } from "../lib/session-model";
 import AssistantItem from "../components/AssistantItem";
@@ -21,13 +21,7 @@ import ApprovalCard from "../components/ApprovalCard";
 import PendingQueue from "../components/PendingQueue";
 import RewindConfirm from "../components/RewindConfirm";
 import UserItem from "../components/UserItem";
-import {
-  activeSessionId,
-  ensureActiveSession,
-  newSession,
-  sessions,
-  setHasConversation,
-} from "../lib/state";
+import { activeSessionId, newSession, sessions, setHasConversation } from "../lib/state";
 import { onDragStart } from "../lib/drag";
 import ThinkingOrb from "../components/ThinkingOrb";
 import type { OrbState } from "../lib/orb";
@@ -133,31 +127,38 @@ export default function Session() {
         converge(activeSessionId(), { stats, error });
       },
       (event) => applyStreamEvent(event, { setItems, setOrbPhase, scroll }),
+      () => {
+        // resync（bus lag / 断线重连）：只对账，streaming 由运行真源决定——
+        // run 还在跑：保留 streaming（后续 delta 自然续上，stop 按钮不丢）；
+        // done 在断线窗口丢失：running=false 按真源收回；核对失败（null）保守保留等下轮 resync
+        batcher.flushNow();
+        const sid = activeSessionId();
+        if (!sid) return;
+        converge(sid);
+        if (streamingSid() !== sid) return;
+        void sessionRunning(sid).then((running) => {
+          if (running === false && streamingSid() === sid) setStreamingSid("");
+        });
+      },
     );
   });
 
   onCleanup(() => unlisten?.());
 
-  const send = async (
-    text: string,
-    context: ContextItem[],
-    images: Array<{ media_type: string; data: string }>,
-  ) => {
-    // 不在前端拦截并发：后端按会话排队（此处静默 return 曾经直接吞掉用户消息）
-    const sid = await ensureActiveSession();
-    if (!streaming()) {
+  // 发送链路实现见 lib/send.ts（乐观上屏 + 失败态标记/点击重发）
+  const { send, retry: retrySend } = createSendFlow({
+    streaming,
+    onStreamStart: (sid) => {
       setStreamingSid(sid);
       setOrbPhase("thinking");
-    }
-    setItems((prev) => [
-      ...prev,
-      { kind: "msg", role: "user", content: text, images: images.length ? images : undefined },
-    ]);
-    scroll(true); // 自己发的消息强制到底
-    const r = await sendMessage(sid, text, context, images).catch(() => null);
-    if (r?.queued) setPendingQueue((prev) => [...prev, text]);
-  };
-
+    },
+    onStreamStop: (sid) => {
+      if (streamingSid() === sid) setStreamingSid("");
+    },
+    setItems,
+    setPendingQueue,
+    scroll,
+  });
   const stop = () => {
     const sid = activeSessionId();
     if (sid) {
@@ -280,6 +281,7 @@ export default function Session() {
                     onFork={() => void forkAt(item.messageId!)}
                     onEditResend={(text) => void editResend(i(), text)}
                     onRewind={() => void rewindAt(item.messageId!)}
+                    onRetry={() => void retrySend(item)}
                   />
                 );
               }

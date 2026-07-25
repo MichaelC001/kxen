@@ -257,7 +257,8 @@ pub(crate) async fn run_llm(
     // P0-2a 摘除：此后 teammate -> lead 报告走 pending queue 续跑路（relay 查无 router）
     state.team.relay().unregister(&session_id, &notify);
     kxen_app::core::shared::lock(&state.session_involved).insert(session_id.clone(), ctx.tracker.files());
-    kxen_app::core::shared::lock(&state.active_runs).remove(&session_id);
+    // 代际匹配才摘 token：interrupt 策略下新 run 已占位，无条件 remove 会删掉新 run 的 abort 通道
+    kxen_app::agent::cancel::remove_if_current(&mut kxen_app::core::shared::lock(&state.active_runs), &session_id, &cancel);
     // run 收尾清掉本 session 挂起的审批：等待方按 deny 唤醒，防 pending 泄漏（session 删除同理可达）
     state.approvals.cancel_session(&session_id);
     // stop hook（run 结束挂点，fire-and-log；Ask 档走审批通道）
@@ -317,8 +318,11 @@ pub(crate) async fn run_llm(
         tracing::error!(error = %e, "session append failed");
     }
 
-    // 队列下一条：run 进行中收到的消息按序接续（pop 即落盘重写，崩溃窗口丢一条与旧纯内存等价）
-    if let Some(q) = state.pending_messages.pop(&session_id) {
+    // 队列下一条：run 进行中收到的消息按序接续（pop 即落盘重写，崩溃窗口丢一条与旧纯内存等价）。
+    // pop 前复查本 run token：已 cancel（abort/interrupt）不续跑——收尾 pop 起新 run 会让 abort 失效；
+    // 残留队列由下一次 send 的 run 收尾或重启 restore 消化
+    let next = if cancel.is_cancelled() { None } else { state.pending_messages.pop(&session_id) };
+    if let Some(q) = next {
         let stream_id = super::protocol::stream_id("run");
         kxen_app::core::shared::lock(&state.run_streams).insert(stream_id.clone(), session_id.clone());
         spawn_run(stream_id, session_id, q.text, q.context, q.images, app.clone());

@@ -9,6 +9,7 @@ export default function UserItem(props: {
   onFork: () => void;
   onEditResend: (text: string) => void;
   onRewind: () => void;
+  onRetry: () => void;
 }) {
   return (
     <div
@@ -47,6 +48,16 @@ export default function UserItem(props: {
         <div class="selectable max-w-[80%] rounded-2xl rounded-br-md px-3.5 py-2 text-sm bg-[var(--accent)] text-[var(--accent-contrast)] whitespace-pre-wrap">
           {props.item.content}
         </div>
+      </Show>
+      {/* 发送失败：错误原因 + 点击重发（失败气泡无 messageId，MessageActions 本就不显示） */}
+      <Show when={props.item.sendError}>
+        <button
+          class="pressable self-end text-2xs text-[var(--err)]"
+          title="点击重发"
+          onClick={() => props.onRetry()}
+        >
+          发送失败：{props.item.sendError}（点击重发）
+        </button>
       </Show>
       <Show when={props.item.messageId}>
         <div class="self-end">

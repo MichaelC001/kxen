@@ -1,5 +1,5 @@
 // 存储消息 -> 时间线条目（工具调用/推理/文本/图片按序还原）。
-import type { RunStats, StoredMessage } from "./chat";
+import type { ContextItem, RunStats, StoredMessage } from "./chat";
 
 export interface MsgItem {
   kind: "msg";
@@ -12,6 +12,11 @@ export interface MsgItem {
   messageId?: string | undefined;
   /** 通知类 user 消息的来源小标（[teammate x] / [task notification] 前缀，与后端落盘文本同口径） */
   source?: string | undefined;
+  /** 发送失败标记（仅内存不落盘）：消息未到达后端，存储快照本就没有这条，
+   *  刷新/对账后气泡随乐观上屏一起消失（重发入口随之消失，可接受） */
+  sendError?: string | undefined;
+  /** 乐观气泡携带的 @ 引用原件：发送失败重发时原样带回，引用不丢 */
+  context?: ContextItem[] | undefined;
 }
 export interface ToolItem {
   kind: "tool";

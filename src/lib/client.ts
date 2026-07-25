@@ -74,6 +74,11 @@ const chunkHandlers = new Set<(chunk: StreamChunk) => void>();
 const RESYNC_STREAM_ID = "sys.resync";
 const resyncHandlers = new Set<() => void>();
 
+/** resync 广播：sys.resync 控制帧与断线重连订阅恢复后共用（各面板重拉快照对账）。 */
+export function fireResync(): void {
+  resyncHandlers.forEach((h) => h());
+}
+
 /** ws 连接端点：端口 + capability token（后端握手强制校验，本机随机端口不能裸奔）。 */
 interface WsEndpoint {
   port: number;
@@ -107,7 +112,7 @@ async function ensureConn(): Promise<WebSocket> {
       if (msg.stream?.id) {
         // resync 控制帧走独立通道：不是业务 chunk，chunkHandlers 按 sub-*/run-* id 过滤会丢弃它
         if (msg.stream.id === RESYNC_STREAM_ID) {
-          resyncHandlers.forEach((h) => h());
+          fireResync();
           return;
         }
         chunkHandlers.forEach((h) => h(msg));
@@ -157,6 +162,8 @@ function drop() {
   setTimeout(() => {
     void ensureConn()
       .then(() => restoreSubscriptions(subscriptions, openSubscription))
+      // 断线窗口的服务端事件（done/delta）随旧连接丢失：订阅恢复后广播 resync，各面板重拉对账
+      .then(() => fireResync())
       .catch(() => {}); // 重连失败由下一轮 heartbeat 兜底，不浮 unhandled rejection
   }, 1000);
 }

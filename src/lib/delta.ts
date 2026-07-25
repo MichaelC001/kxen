@@ -34,12 +34,14 @@ export function onLlmDelta(
   onReasoning: (text: string) => void,
   onDone: (stats?: RunStats, error?: string) => void,
   onTool?: (event: ToolEvent) => void,
+  onReconcile?: () => void,
 ): () => void {
   let off: (() => void) | undefined;
   let current: string | undefined;
-  // bus lag 丢帧后服务端下发 resync：本地时间线已有缺口（done 丢失会卡死 streaming 态），
-  // 复用 done 对账通道（flush + 快照重载 + 队列真源）收口；run 仍在跑时后续 delta 自然续上
-  const offResync = client.onResync(() => onDone());
+  // bus lag 丢帧 / 断线重连后下发 resync：本地时间线可能有缺口（done 丢失会卡死 streaming 态）。
+  // 只对账不清 streaming：run 仍在跑时后续 delta 自然续上（旧实现直接 onDone 清 streamingSid =
+  // mid-run resync 丢停止按钮的根因）；done 真丢失由调用方按运行真源收回
+  const offResync = client.onResync(() => onReconcile?.());
   // 后端 stream ACL：带 session_id 的帧只发给订阅了 session:<id> topic 的连接，
   // 订阅必须跟随活跃会话（旧订阅退掉，否则切走后仍占着别会话的帧通道）
   createEffect(() => {

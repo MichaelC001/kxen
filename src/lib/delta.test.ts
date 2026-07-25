@@ -4,6 +4,7 @@ import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 
 const handlers = vi.hoisted(() => new Set<(payload: unknown) => void>());
+const resyncCbs = vi.hoisted(() => new Set<() => void>());
 
 vi.mock("./client", () => ({
   client: {
@@ -13,7 +14,10 @@ vi.mock("./client", () => ({
         return () => handlers.delete(cb);
       },
     }),
-    onResync: () => () => {},
+    onResync: (cb: () => void) => {
+      resyncCbs.add(cb);
+      return () => resyncCbs.delete(cb);
+    },
   },
 }));
 
@@ -23,15 +27,20 @@ function emit(payload: unknown) {
   for (const h of handlers) h(payload);
 }
 
+function fireResync() {
+  for (const cb of resyncCbs) cb();
+}
+
 interface Rec {
   texts: string[];
   reasonings: string[];
   dones: Array<{ stats: RunStats | undefined; error: string | undefined }>;
   tools: ToolEvent[];
+  reconciles: number[];
 }
 
 async function setup(session = "s1"): Promise<Rec & { dispose: () => void }> {
-  const rec: Rec = { texts: [], reasonings: [], dones: [], tools: [] };
+  const rec: Rec = { texts: [], reasonings: [], dones: [], tools: [], reconciles: [] };
   let dispose: () => void = () => {};
   createRoot((d) => {
     dispose = d;
@@ -42,6 +51,7 @@ async function setup(session = "s1"): Promise<Rec & { dispose: () => void }> {
       (t) => rec.reasonings.push(t),
       (stats, error) => rec.dones.push({ stats, error }),
       (e) => rec.tools.push(e),
+      () => rec.reconciles.push(1),
     );
   });
   // createEffect 里的订阅异步生效，等一轮宏任务再发帧
@@ -121,6 +131,14 @@ describe("onLlmDelta 主流与 agent 流隔离", () => {
       approvalId: "appr-1",
       outcome: "timeout",
     });
+    rec.dispose();
+  });
+
+  it("resync 只走对账回调，不触发 onDone（mid-run 误清 streaming 回归）", async () => {
+    const rec = await setup();
+    fireResync();
+    expect(rec.reconciles).toHaveLength(1);
+    expect(rec.dones).toEqual([]);
     rec.dispose();
   });
 });

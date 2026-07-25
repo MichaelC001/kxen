@@ -174,6 +174,14 @@ export async function sessionList(): Promise<SessionMeta[]> {
   return client.rpc<SessionMeta[]>("session.list");
 }
 
+/** 会话运行态核对（resync 对账用）：RPC 失败/会话不在列表返回 null = 未知，调用方保守处理（不清 streaming 等下轮） */
+export async function sessionRunning(id: string): Promise<boolean | null> {
+  const list = await sessionList().catch(() => null);
+  if (!list) return null;
+  const s = list.find((x) => x.id === id);
+  return s ? (s.running ?? false) : null;
+}
+
 export async function sessionCreate(directory?: string): Promise<SessionMeta> {
   return client.rpc<SessionMeta>("session.create", directory ? { directory } : {});
 }
