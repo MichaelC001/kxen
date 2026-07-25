@@ -14,6 +14,6 @@ pnpm exec vitest run src/components/settings
 sleep 4
 pnpm exec vitest run src/components/orb.test src/components/selection.test src/components/AgentFocusView.test src/components/RightColumn.test src/components/Dock.test src/components/DockRepoDiff.test src/components/DockWorktree.test src/components/NotificationCenter.test src/components/StatusBar.test
 sleep 4
-pnpm exec vitest run src/components/SessionRow.test src/components/SessionTree.test src/components/TopAgentBar.test src/components/UserItem.test src/components/AssistantItem.test
+pnpm exec vitest run src/components/SessionRow.test src/components/SessionTree.test src/components/AgentRunCards.test src/components/UserItem.test src/components/AssistantItem.test
 sleep 4
 pnpm exec vitest run src/pages

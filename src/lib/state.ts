@@ -13,7 +13,7 @@ export const [activeSessionId, setActiveSessionId] = createSignal<string>("");
 export const [hasConversation, setHasConversation] = createSignal(false);
 /** 子代理名单（teammate/subagent/workflow 统一视图）。 */
 export const [agents, setAgents] = createSignal<AgentActivity[]>([]);
-/** PrimaryContent 选中项："" / "main" = 主会话，否则为 agent run 名（TopAgentBar chip 与右栏窗格共用）。 */
+/** PrimaryContent 选中项："" / "main" = 主会话，否则为 agent run 名（AgentRunCards 卡与右栏概览卡共用）。 */
 export const [activeAgentFocus, setActiveAgentFocus] = createSignal<string>("");
 
 /** 当前选中是否为主会话。 */

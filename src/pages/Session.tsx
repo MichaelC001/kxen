@@ -27,6 +27,7 @@ import { onDragStart } from "../lib/drag";
 import ThinkingOrb from "../components/ThinkingOrb";
 import type { OrbState } from "../lib/orb";
 import EmptyHero from "../components/EmptyHero";
+import AgentRunCards from "../components/AgentRunCards";
 import ToolCard from "../components/ToolCard";
 import Composer from "../components/composer/TextComposer";
 import { ArrowDown, Download, FolderOpen } from "lucide-solid";
@@ -288,6 +289,9 @@ export default function Session() {
               );
             }}
           </For>
+
+          {/* agent 状态卡钉在时间线尾部：空会话恢复 agent 现场时也在 EmptyHero 上方可见 */}
+          <AgentRunCards />
 
           <Show when={items().length === 0}>
             <EmptyHero />

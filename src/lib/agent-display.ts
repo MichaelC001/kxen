@@ -1,4 +1,4 @@
-/** 子代理状态/kind 的统一展示映射：TopAgentBar chip、RightColumn 窗格卡、AgentFocusView 头三处共用，
+/** 子代理状态/kind 的统一展示映射：AgentRunCards、RightColumn 概览卡、AgentFocusView 头三处共用，
  *  单点定义避免三处状态色漂移。 */
 export const STATUS_TONE: Record<
   string,

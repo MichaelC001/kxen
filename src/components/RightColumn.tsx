@@ -6,17 +6,29 @@ import { statusDot } from "../lib/variants";
 import { kindBadge, statusText, statusTone } from "../lib/agent-display";
 import { formatError } from "../lib/error-text";
 import { activeAgentFocus, activeSessionId, agents, setActiveAgentFocus } from "../lib/state";
+import { AgentRunActionButtons, useAgentRunActions } from "./agent-run";
 import Dock from "./Dock";
 
-/** 右列：上 = 子代理概览卡（点击选中 TopAgentBar chip，转录在 PrimaryContent 展示）；下 = 会话上下文 Dock。 */
+/** 右列：上 = 子代理概览卡（点击切主区看转录；running 出停止钮、终态出关闭钮，动作逻辑在 agent-run.tsx）；
+ *  下 = 会话上下文 Dock。 */
 export default function RightColumn() {
+  const { stopping, stopAgent, dismissAgent } = useAgentRunActions();
   return (
     <div class="w-full h-full flex flex-col bg-[var(--bg-raised)]">
       {/* 子代理窗格区 */}
       <Show when={agents().length > 0}>
         <div class="shrink-0 border-b border-[var(--border)]" style={{ "max-height": "45%" }}>
           <div class="overflow-y-auto h-full">
-            <For each={agents()}>{(a) => <AgentPane name={a.name} />}</For>
+            <For each={agents()}>
+              {(a) => (
+                <AgentPane
+                  name={a.name}
+                  stopping={stopping() === a.name}
+                  onStop={(n) => void stopAgent(n)}
+                  onDismiss={(n) => void dismissAgent(n)}
+                />
+              )}
+            </For>
           </div>
         </div>
       </Show>
@@ -41,8 +53,13 @@ function previewEntry(
   return null;
 }
 
-/** 单个子代理概览卡：状态行 + 最近输出预览，点击选中 TopAgentBar chip。 */
-function AgentPane(props: { name: string }) {
+/** 单个子代理概览卡：状态行 + 最近输出预览，点击切主区看该 run 的转录。 */
+function AgentPane(props: {
+  name: string;
+  stopping: boolean;
+  onStop: (name: string) => void;
+  onDismiss: (name: string) => void;
+}) {
   const activity = () => agents().find((a) => a.name === props.name);
   const [preview, setPreview] = createSignal<{ text: string; kind: "text" | "error" | "tool" }>();
   let off: (() => void) | undefined;
@@ -82,36 +99,51 @@ function AgentPane(props: { name: string }) {
   onCleanup(() => off?.());
 
   return (
-    <button
-      class="w-full text-left px-3 py-2 border-b border-[var(--border)]/50 hover:bg-[var(--bg-overlay)]/40"
-      classList={{ "bg-[var(--bg-overlay)]/60": activeAgentFocus() === props.name }}
-      onClick={() => setActiveAgentFocus(props.name)}
-    >
-      <div class="flex items-center gap-1.5">
-        <span class={statusDot(statusTone(activity()?.status ?? "idle"))} />
-        <span class="text-xs font-medium">{props.name}</span>
-        <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
-          {kindBadge(activity()?.kind ?? "subagent")}
-        </span>
-        <span class="text-2xs text-[var(--text-faint)] truncate">{activity()?.model.model}</span>
-        <span class="text-2xs text-[var(--text-faint)] ml-auto">
-          {statusText(activity()?.status ?? "idle")}
-        </span>
-        <ChevronRight size={11} class="text-[var(--text-faint)]" />
-      </div>
-      <Show when={preview()}>
-        {(p) => (
-          <div
-            class="text-2xs truncate mt-1 font-mono"
-            classList={{
-              "text-[var(--err)]": p().kind === "error",
-              "text-[var(--text-faint)]": p().kind !== "error",
-            }}
-          >
-            {p().text}
-          </div>
-        )}
-      </Show>
-    </button>
+    <div class="group relative border-b border-[var(--border)]/50">
+      <button
+        class="w-full text-left px-3 py-2 hover:bg-[var(--bg-overlay)]/40"
+        classList={{
+          "bg-[var(--bg-overlay)]/60": activeAgentFocus() === props.name,
+          "opacity-50": props.stopping,
+        }}
+        disabled={props.stopping}
+        onClick={() => setActiveAgentFocus(props.name)}
+      >
+        <div class="flex items-center gap-1.5">
+          <span class={statusDot(statusTone(activity()?.status ?? "idle"))} />
+          <span class="text-xs font-medium">{props.name}</span>
+          <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
+            {kindBadge(activity()?.kind ?? "subagent")}
+          </span>
+          <span class="text-2xs text-[var(--text-faint)] truncate">{activity()?.model.model}</span>
+          <span class="text-2xs text-[var(--text-faint)] ml-auto">
+            {statusText(activity()?.status ?? "idle")}
+          </span>
+          {/* hover 时管理钮覆盖右上角，箭头让位避免叠影 */}
+          <ChevronRight size={11} class="text-[var(--text-faint)] group-hover:hidden" />
+        </div>
+        <Show when={preview()}>
+          {(p) => (
+            <div
+              class="text-2xs truncate mt-1 font-mono"
+              classList={{
+                "text-[var(--err)]": p().kind === "error",
+                "text-[var(--text-faint)]": p().kind !== "error",
+              }}
+            >
+              {p().text}
+            </div>
+          )}
+        </Show>
+      </button>
+      <AgentRunActionButtons
+        name={props.name}
+        status={activity()?.status ?? "idle"}
+        stopping={props.stopping}
+        class="right-2 top-2"
+        onStop={props.onStop}
+        onDismiss={props.onDismiss}
+      />
+    </div>
   );
 }
