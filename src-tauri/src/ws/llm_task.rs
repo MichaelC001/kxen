@@ -238,13 +238,14 @@ pub(crate) async fn run_llm(
         }),
     };
     let outcome = kxen_app::agent::agent_loop::run_turn(&mut ctx, &mut messages).await;
-    // 通知路由收尾：通道残留与此后到达的通知全部入队。本 run 的收尾 pop（下方）立即消化残留；
-    // 晚到的由下一个 run 的收尾 pop 消化——不新起 spawn 路径，复用队列既有续跑（最小接线）
+    // 通知路由收尾：通道残留与此后到达的通知全部入队 + kick 拉活（kick_session 判活，无活跃 run 才起）。
+    // 本 run 的收尾 pop（下方）立即消化残留，kick 撞见活跃 run / 空队列即退，不并发起第二个 run。
     notify.close({
         let state = state.inner().clone();
         let sid = session_id.clone();
         std::sync::Arc::new(move |text: String| {
             state.pending_messages.enqueue(&sid, text, vec![], vec![]);
+            kxen_app::agent::background::kick_late(&sid);
         })
     });
     // P0-2a 摘除：此后 teammate -> lead 报告走 pending queue 续跑路（relay 查无 router）

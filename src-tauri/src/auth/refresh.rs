@@ -142,7 +142,9 @@ fn apply_refresh(store: &mut AuthStore, key: &str, parsed: RefreshResponse, old_
         account_id: acc_id.clone(),
     };
     recent().lock().expect("recent").insert(key.to_string(), new_cred.clone());
-    store.insert(key.to_string(), new_cred);
+    store.insert(key.to_string(), new_cred.clone());
+    // 回写登记的共享 store：本 run 外的克隆点（父 run 下一 run / teammate 下一轮 / 下次 dispatch）即时拿到新凭证
+    crate::auth::shared_store::propagate(key, &new_cred);
 }
 
 #[cfg(test)]

@@ -60,14 +60,22 @@ pub(super) fn effective_session_model(session_id: Option<&str>, state: &crate::A
 }
 
 /// session.set_model RPC：写会话级模型覆盖（落盘 meta JSON；全局默认仍走 set_model / config.set_role）。
+/// provider/model 同缺 = 清除覆盖（跟随全局默认）；只给一个属调用方错误。
 pub(super) fn session_set_model(params: &Value) -> Result<Value, String> {
     let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
-    let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
-    let model = params.get("model").and_then(Value::as_str).ok_or("missing model")?;
-    let session =
-        kxen_app::core::session::set_model(&kxen_app::core::paths::sessions_dir(), id, Some(kxen_app::llm::ModelRef::new(provider, model)))
-            .map_err(|e| e.to_string())?;
+    let over = parse_model_override(params)?;
+    let session = kxen_app::core::session::set_model(&kxen_app::core::paths::sessions_dir(), id, over).map_err(|e| e.to_string())?;
     Ok(json!(session))
+}
+
+fn parse_model_override(params: &Value) -> Result<Option<kxen_app::llm::ModelRef>, String> {
+    let provider = params.get("provider").and_then(Value::as_str);
+    let model = params.get("model").and_then(Value::as_str);
+    match (provider, model) {
+        (Some(p), Some(m)) => Ok(Some(kxen_app::llm::ModelRef::new(p, m))),
+        (None, None) => Ok(None),
+        _ => Err("provider 与 model 必须同给或同缺".into()),
+    }
 }
 
 /// session.update_meta RPC（rpc.rs 迁来，350 门禁）：重命名 / 置顶 / 手动排序。
@@ -176,5 +184,17 @@ mod tests {
         // 脏且无确认拒绝；带确认放行
         assert!(rewind_gate(false, true, false, true).unwrap_err().contains("confirm"));
         assert!(rewind_gate(false, true, true, true).is_ok());
+    }
+
+    #[test]
+    fn parse_model_override_contract() {
+        // 同给 = 写覆盖
+        let over = parse_model_override(&json!({ "provider": "xai", "model": "grok" })).unwrap();
+        assert_eq!(over.map(|m| (m.provider, m.model)), Some(("xai".to_string(), "grok".to_string())));
+        // 同缺 = 清除覆盖（跟随全局默认）
+        assert!(parse_model_override(&json!({})).unwrap().is_none());
+        // 只给一个 = 调用方错误
+        assert!(parse_model_override(&json!({ "provider": "xai" })).is_err());
+        assert!(parse_model_override(&json!({ "model": "grok" })).is_err());
     }
 }

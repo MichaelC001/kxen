@@ -4,6 +4,7 @@
 pub mod credential;
 pub mod probe;
 pub mod refresh;
+pub mod shared_store;
 
 pub use credential::{Credential, CredentialKind};
 pub use probe::{ProbeOutcome, ProbeRule, probe_all};

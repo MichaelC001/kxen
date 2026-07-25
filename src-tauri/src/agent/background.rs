@@ -78,6 +78,52 @@ pub fn notifications_message(notes: Vec<String>) -> Option<crate::llm::Message> 
     Some(crate::llm::Message::user(notes.join("\n\n---\n\n")))
 }
 
+/// run loop 轮间 drain 口：通知先逐条落盘为 user 消息再合并注入 messages。
+/// 落盘先于进 messages：本轮 LLM 请求致命失败 / 进程崩溃，通知不随内存 messages 蒸发；
+/// 与 manager.drain_lead_inbox 的 [teammate {from}] 同口径（来源前缀已在通知文本里）。
+/// 不双写：relay 单路选择（Notify/Pending/Inbox 三选一），drain 点只覆盖 Notify 路的量。
+/// session_id 缺失（非主会话上下文）只注入不落盘。
+pub fn drain_to_session(router: &NotifyRouter, session_id: Option<&str>) -> Option<crate::llm::Message> {
+    drain_to_session_in(router, &crate::core::paths::sessions_dir(), session_id)
+}
+
+/// drain_to_session 的可注目录版：paths::sessions_dir 无 env 覆盖，测试不能写真实数据目录。
+pub fn drain_to_session_in(router: &NotifyRouter, dir: &std::path::Path, session_id: Option<&str>) -> Option<crate::llm::Message> {
+    let notes = router.drain();
+    if notes.is_empty() {
+        return None;
+    }
+    if let Some(sid) = session_id {
+        for note in &notes {
+            let part = crate::core::session::Part::Text { text: note.clone() };
+            let msg = crate::core::session::new_message(sid, crate::core::session::Role::User, vec![part]);
+            // 落盘失败（会话已删等）只告警：注入仍继续，当前 run 不该因盘态丢通知
+            if let Err(e) = crate::core::session::append_message(dir, &msg) {
+                tracing::warn!(error = %e, "notify persist failed");
+            }
+        }
+    }
+    notifications_message(notes)
+}
+
+/// late 通知入队后的续跑触发（P0-2 同款）：kxen_app spawn 不了 run_llm，binary crate 启动时注入。
+static LATE_KICK: std::sync::OnceLock<std::sync::Mutex<Option<Arc<dyn Fn(String) + Send + Sync>>>> = std::sync::OnceLock::new();
+
+fn late_kick_slot() -> &'static std::sync::Mutex<Option<Arc<dyn Fn(String) + Send + Sync>>> {
+    LATE_KICK.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+pub fn set_late_kick(kick: impl Fn(String) + Send + Sync + 'static) {
+    *crate::core::shared::lock(late_kick_slot()) = Some(Arc::new(kick));
+}
+
+/// late 闭包入队后调用：未接线（测试）时通知躺队列，由既有续跑兜底不丢。
+pub fn kick_late(session_id: &str) {
+    if let Some(k) = crate::core::shared::lock(late_kick_slot()).clone() {
+        k(session_id.to_string());
+    }
+}
+
 /// background=true 派发：spawn 到后台立即回执；dispatch 完成（含失败）经 router 送通知。
 /// worktree 创建也移进后台：回执不被 IO 拖住，创建失败同样以通知送达。
 /// 定名前的失败（未知 role / 无可用模型）不进回执而走通知：回执语义保持单一「已受理」。

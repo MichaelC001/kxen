@@ -53,6 +53,17 @@ pub fn first_line(s: &str, max: usize) -> String {
     if line.len() <= max { line.to_string() } else { format!("{}…", &line[..line.floor_char_boundary(max)]) }
 }
 
+/// 可见 deferred 工具：tool_search 挂载集 ∩ 身份白名单。
+/// readonly 子代理 / plan-mode teammate 与父 session 共享 extras，不过白名单会看到 todo/webfetch/websearch（越权面）。
+pub fn deferred_visible(extras: Option<&super::context::SessionExtras>, allowed: Option<&[&str]>) -> Vec<crate::llm::tool::ToolDefinition> {
+    let Some(extras) = extras else { return Vec::new() };
+    let enabled = crate::core::shared::lock(&extras.extra_tools);
+    crate::agent::tools_spec::deferred_tools()
+        .into_iter()
+        .filter(|t| enabled.contains(&t.function.name) && allowed.is_none_or(|a| a.contains(&t.function.name.as_str())))
+        .collect()
+}
+
 /// 内置只读工具集（P2-04 并行判定）：read/glob/grep/search 类，无文件与状态写。
 pub fn is_read_only_builtin(name: &str) -> bool {
     const READ_ONLY: &[&str] = &["read", "glob", "grep", "lsp", "webfetch", "websearch"];
@@ -82,5 +93,22 @@ mod tests {
         assert_eq!(summarize_args("knowledge", r#"{"action":"add","description":"用 trash"}"#), "用 trash");
         // 未知工具/坏 JSON 退化为原文截断
         assert_eq!(summarize_args("mystery", "raw args"), "raw args");
+    }
+
+    #[test]
+    fn deferred_respects_allowed_whitelist() {
+        let extras = crate::agent::agent_loop::SessionExtras::default();
+        extras.extra_tools.lock().expect("tools").insert("todo".to_string());
+        extras.extra_tools.lock().expect("tools").insert("webfetch".to_string());
+        // 无白名单（full）：挂载的全部可见
+        let names: Vec<_> = deferred_visible(Some(&extras), None).into_iter().map(|t| t.function.name).collect();
+        assert_eq!(names, ["todo", "webfetch"]);
+        // readonly 白名单（read/glob/grep）：共享 extras 里挂载的 deferred 一个都不可见
+        assert!(deferred_visible(Some(&extras), Some(&["read", "glob", "grep"])).is_empty());
+        // 白名单显式含 todo（如 ReadonlyTodo 放开）：只放白名单内的
+        let names: Vec<_> = deferred_visible(Some(&extras), Some(&["todo"])).into_iter().map(|t| t.function.name).collect();
+        assert_eq!(names, ["todo"]);
+        // 无 extras（子代理无 session 上下文）：空
+        assert!(deferred_visible(None, None).is_empty());
     }
 }

@@ -9,7 +9,7 @@ function setup() {
   const [items, setItems] = createSignal<Item[]>([]);
   const [, setOrbPhase] = createSignal<OrbState>("thinking");
   const deps = { setItems, setOrbPhase, scroll: () => {} };
-  return { deps, last: () => items().at(-1) };
+  return { deps, items, last: () => items().at(-1) };
 }
 
 describe("applyStreamEvent phase 分支", () => {
@@ -23,5 +23,42 @@ describe("applyStreamEvent phase 分支", () => {
     const { deps, last } = setup();
     applyStreamEvent({ kind: "phase", name: "scan" }, deps);
     expect(last()).toEqual({ kind: "phase", name: "phase: scan" });
+  });
+});
+
+describe("applyStreamEvent tool_result 分支", () => {
+  it("完整 output 填入结果（流式展开区透传）", () => {
+    const { deps, items } = setup();
+    applyStreamEvent({ kind: "tool_call", name: "exec", summary: "ls" }, deps);
+    applyStreamEvent(
+      { kind: "tool_result", name: "exec", summary: "done", output: "file1\nfile2" },
+      deps,
+    );
+    const tool = items().find((it) => it.kind === "tool");
+    expect(tool && "result" in tool ? tool.result : undefined).toBe("file1\nfile2");
+  });
+
+  it("output 缺省回退一行摘要", () => {
+    const { deps, items } = setup();
+    applyStreamEvent({ kind: "tool_call", name: "exec", summary: "ls" }, deps);
+    applyStreamEvent({ kind: "tool_result", name: "exec", summary: "done" }, deps);
+    const tool = items().find((it) => it.kind === "tool");
+    expect(tool && "result" in tool ? tool.result : undefined).toBe("done");
+  });
+});
+
+describe("applyStreamEvent approval_resolved 分支", () => {
+  it("等待中的审批卡置失效", () => {
+    const { deps, items } = setup();
+    applyStreamEvent(
+      { kind: "approval", name: "approval", approvalId: "a1", command: "rm x", reason: "r" },
+      deps,
+    );
+    applyStreamEvent(
+      { kind: "approval_resolved", name: "approval", approvalId: "a1", outcome: "timeout" },
+      deps,
+    );
+    const card = items().find((it) => it.kind === "approval");
+    expect(card && "resolved" in card ? card.resolved : undefined).toBe("timeout");
   });
 });

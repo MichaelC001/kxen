@@ -215,11 +215,11 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "team",
-            "Lead an agent team. spawn (name, role, prompt, model? as provider/model, plan_approval?) creates a teammate with its own context and model; message (name, text) sends to its inbox; approve/reject (name, feedback?) answers a plan approval request; shutdown (name); task_create (title, depends_on?); task_cancel (id) cancels a non-completed task; task_reassign (id, to?) returns a task to the pool and optionally notifies a new owner; list shows members and tasks. Teammates report back automatically - do not poll. Example: {\"action\":\"spawn\",\"name\":\"a\",\"role\":\"execution\",\"model\":\"anthropic/claude-sonnet-4-5-20250929\",\"prompt\":\"task brief\"}.",
+            "Lead an agent team. spawn (name, role, prompt, model? as provider/model, plan_approval?) creates a teammate with its own context and model; message (name, text) sends to its inbox; approve/reject (name, feedback?) answers a plan approval request; shutdown (name); task_create (title, depends_on?); task_cancel (id) cancels a non-completed task; task_fail (id, reason?) marks a non-terminal task as failed and cascades to pending dependents; task_reassign (id, to?) returns a task to the pool and optionally notifies a new owner; list shows members and tasks. Teammates report back automatically - do not poll. Example: {\"action\":\"spawn\",\"name\":\"a\",\"role\":\"execution\",\"model\":\"anthropic/claude-sonnet-4-5-20250929\",\"prompt\":\"task brief\"}.",
             json!({
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["spawn", "message", "approve", "reject", "shutdown", "list", "task_create", "task_cancel", "task_reassign"] },
+                    "action": { "type": "string", "enum": ["spawn", "message", "approve", "reject", "shutdown", "list", "task_create", "task_cancel", "task_fail", "task_reassign"] },
                     "name": { "type": "string" },
                     "role": { "type": "string", "enum": ["thinking", "planning", "execution", "review", "research", "observer"], "description": "observer = receives copies of all team traffic" },
                     "prompt": { "type": "string", "description": "REQUIRED for spawn: the teammate's standing task brief (never 'text')" },
@@ -229,7 +229,8 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                     "feedback": { "type": "string" },
                     "title": { "type": "string" },
                     "depends_on": { "type": "array", "items": { "type": "integer" } },
-                    "id": { "type": "integer", "description": "task id for task_cancel/task_reassign" },
+                    "id": { "type": "integer", "description": "task id for task_cancel/task_fail/task_reassign" },
+                    "reason": { "type": "string", "description": "why the task failed (for task_fail)" },
                     "to": { "type": "string", "description": "optional teammate to notify on task_reassign" }
                 },
                 "required": ["action"]

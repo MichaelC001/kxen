@@ -39,6 +39,8 @@ pub(super) async fn teammate_loop(
         set_status(&state, &name, MemberStatus::Working);
         // 阶段 ctx：plan_approval 未批准前只读
         let allowed: Option<&'static [&'static str]> = if approved { None } else { Some(READONLY_TEAM_TOOLS) };
+        // 凭证预防刷新：build_ctx 只克隆共享 store 快照，长过期 token 不先换新则当轮失败下轮才自愈
+        refresh_store_credentials(&state, &model).await;
         let mut ctx = build_ctx(&state, &name, &role, &model, allowed, cancel.clone());
         if first_round {
             first_round = false;
@@ -175,6 +177,28 @@ fn build_ctx(
     }
 }
 
+/// 凭证预防刷新（主会话 llm_task 同款）：克隆出 store 刷（避免持锁跨 await），成功回写共享 store。
+/// 只刷 ctx 快照不回写时，共享 store 里的旧 refresh 被吊销后每轮快照都是废票，当轮失败下轮才自愈。
+pub(super) async fn refresh_store_credentials(state: &Arc<TeamState>, model: &ModelRef) {
+    let mut store = lock(&state.deps.store).clone();
+    if crate::auth::refresh::ensure_fresh(&mut store, &model.provider, model.account.as_deref()).await {
+        write_back_credential(&state.deps.store, &model.provider, model.account.as_deref(), &store);
+    }
+}
+
+/// 刷新成果回写共享 store：克隆刷新的新凭证只活在副本里，不回写下一轮快照又拿旧值。
+pub(super) fn write_back_credential(
+    store: &Arc<std::sync::Mutex<crate::auth::credential::AuthStore>>,
+    provider: &str,
+    account: Option<&str>,
+    refreshed: &crate::auth::credential::AuthStore,
+) {
+    let key = account.map(|a| crate::auth::credential::account_id(provider, a)).unwrap_or_else(|| provider.to_string());
+    if let Some(cred) = refreshed.get(&key).cloned() {
+        lock(store).insert(key, cred);
+    }
+}
+
 pub(super) fn teammate_system(state: &Arc<TeamState>, name: &str, role: &str, approved: bool) -> String {
     let mode = if approved {
         "You may use your full tool set to implement."
@@ -213,8 +237,7 @@ fn set_status(state: &Arc<TeamState>, name: &str, status: MemberStatus) {
         MemberStatus::Shutdown => crate::agent::activity::ActivityStatus::Shutdown,
     };
     state.deps.agents.set_status(&state.session_id, name, activity_status);
-    let config = json!({ "session_id": state.session_id, "members": *lock(&state.members) });
-    let _ = std::fs::write(state.dir.join("config.json"), serde_json::to_string_pretty(&config).unwrap_or_default());
+    super::types::persist_config(state);
     let label = match status {
         MemberStatus::Working => "working",
         MemberStatus::Idle => "idle",
@@ -227,4 +250,79 @@ fn set_status(state: &Arc<TeamState>, name: &str, status: MemberStatus) {
 
 pub(super) fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::event::EventBus;
+    use std::path::{Path, PathBuf};
+
+    fn deps() -> super::super::types::SpawnDeps {
+        super::super::types::SpawnDeps {
+            registry: Arc::new(crate::tools::task::TaskRegistry::new()),
+            fallback_workdir: Arc::from(Path::new("/tmp")),
+            store: Arc::new(std::sync::Mutex::new(crate::auth::credential::AuthStore::default())),
+            mrm: Arc::new(std::sync::RwLock::new(Arc::new(crate::llm::mrm::ModelResourceManager::new(
+                crate::core::config::Config::default(),
+            )))),
+            hooks: None,
+            extras: Arc::new(crate::agent::agent_loop::SessionExtrasRegistry::default()),
+            agents: Arc::new(crate::agent::activity::AgentRegistry::default()),
+            approvals: None,
+            mcp: None,
+            lsp: Arc::new(crate::agent::team::LspPool::default()),
+        }
+    }
+
+    fn state(tag: &str) -> (Arc<TeamState>, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("kxen-loop-{tag}-{}", std::process::id()));
+        let mgr = crate::agent::team::TeamManager::new(dir.clone(), deps(), EventBus::default(), dir.join("sessions"), None);
+        (mgr.state_for("s1"), dir)
+    }
+
+    /// 凭证预防刷新回写：ensure_fresh 换新的凭证必须落回共享 store（含命名账号键），
+    /// 否则下轮 build_ctx 快照又拿旧值。grant 路径不触网测不了，见 auth::refresh 测试。
+    #[test]
+    fn write_back_credential_updates_shared_store() {
+        use crate::auth::credential::CredentialKind;
+        let shared = Arc::new(std::sync::Mutex::new(crate::auth::credential::AuthStore::default()));
+        lock(&shared)
+            .insert("anthropic".into(), CredentialKind::Oauth { access: "old".into(), refresh: "r1".into(), expires: 1, account_id: None });
+        let mut refreshed = crate::auth::credential::AuthStore::default();
+        refreshed.insert(
+            "anthropic".into(),
+            CredentialKind::Oauth { access: "new".into(), refresh: "r2".into(), expires: u64::MAX, account_id: None },
+        );
+        write_back_credential(&shared, "anthropic", None, &refreshed);
+        let cred = lock(&shared).get("anthropic").cloned().unwrap();
+        assert!(matches!(cred, CredentialKind::Oauth { ref access, .. } if access == "new"), "回写必须换成新 access");
+        let mut named = crate::auth::credential::AuthStore::default();
+        named.insert(
+            "openai:work".into(),
+            CredentialKind::Oauth { access: "w2".into(), refresh: "r3".into(), expires: u64::MAX, account_id: None },
+        );
+        write_back_credential(&shared, "openai", Some("work"), &named);
+        assert!(lock(&shared).contains_key("openai:work"), "命名账号必须写进 provider:account 键");
+    }
+
+    /// 无需刷新时共享 store 原地不动（两条早退路都不触网）：未过期 OAuth 跳过；空 refresh 不可刷。
+    #[tokio::test]
+    async fn refresh_store_credentials_noop_preserves_store() {
+        use crate::auth::credential::CredentialKind;
+        let (state, dir) = state("refresh-noop");
+        lock(&state.deps.store).insert(
+            "anthropic".into(),
+            CredentialKind::Oauth { access: "a".into(), refresh: "r".into(), expires: now_ms() + 3_600_000, account_id: None },
+        );
+        refresh_store_credentials(&state, &ModelRef::new("anthropic", "m")).await;
+        let cred = lock(&state.deps.store).get("anthropic").cloned().unwrap();
+        assert!(matches!(cred, CredentialKind::Oauth { ref access, .. } if access == "a"), "未过期必须原样保留");
+        lock(&state.deps.store)
+            .insert("openai".into(), CredentialKind::Oauth { access: "a2".into(), refresh: String::new(), expires: 1, account_id: None });
+        refresh_store_credentials(&state, &ModelRef::new("openai", "m")).await;
+        let cred = lock(&state.deps.store).get("openai").cloned().unwrap();
+        assert!(matches!(cred, CredentialKind::Oauth { ref access, .. } if access == "a2"), "空 refresh 不可刷必须原样保留");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

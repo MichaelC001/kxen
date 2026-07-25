@@ -88,4 +88,39 @@ describe("onLlmDelta 主流与 agent 流隔离", () => {
     expect(rec.texts).toEqual([]);
     rec.dispose();
   });
+
+  it("tool_result 透传完整 output", async () => {
+    const rec = await setup();
+    emit({
+      kind: "tool_result",
+      session_id: "s1",
+      name: "exec",
+      summary: "ls ok",
+      output: "file1\nfile2",
+    });
+    expect(rec.tools).toHaveLength(1);
+    expect(rec.tools[0]).toMatchObject({
+      kind: "tool_result",
+      name: "exec",
+      output: "file1\nfile2",
+    });
+    rec.dispose();
+  });
+
+  it("approval.resolved 映射为 approval_resolved 工具事件", async () => {
+    const rec = await setup();
+    emit({
+      kind: "approval.resolved",
+      session_id: "s1",
+      approval_id: "appr-1",
+      outcome: "timeout",
+    });
+    expect(rec.tools).toHaveLength(1);
+    expect(rec.tools[0]).toMatchObject({
+      kind: "approval_resolved",
+      approvalId: "appr-1",
+      outcome: "timeout",
+    });
+    rec.dispose();
+  });
 });

@@ -69,10 +69,7 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
             "send_message" | "team_task" => ctx.team_identity.is_some(),
             _ => true,
         });
-        if let Some(extras) = &ctx.extras {
-            let enabled = crate::core::shared::lock(&extras.extra_tools);
-            tools.extend(crate::agent::tools_spec::deferred_tools().into_iter().filter(|t| enabled.contains(&t.function.name)));
-        }
+        tools.extend(super::helpers::deferred_visible(ctx.extras.as_deref(), ctx.allowed_tools));
         // MCP 工具桥：mcp__server__tool 前缀挂出（未配置为空集）。
         // restricted 角色（allowed_tools 白名单）只放 read_only 工具（P0-08，过滤在 tool_defs_for）
         if let Some(mcp) = &ctx.mcp {
@@ -100,8 +97,8 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
             }
         }
 
-        // 后台 agent 完成通知：每轮 LLM 请求前 drain 注入 messages（逐路消化，不等全部到齐）
-        if let Some(msg) = ctx.notify.as_ref().and_then(|r| crate::agent::background::notifications_message(r.drain())) {
+        // 后台 agent 完成通知：每轮 LLM 请求前 drain（先逐条落盘 user 消息再注入，致命失败不丢）
+        if let Some(msg) = ctx.notify.as_ref().and_then(|r| crate::agent::background::drain_to_session(r, ctx.session_id.as_deref())) {
             messages.push(msg);
         }
 

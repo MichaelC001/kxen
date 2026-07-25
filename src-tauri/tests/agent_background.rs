@@ -1,10 +1,11 @@
 // 后台 agent 派发与通知路由（块一：流式归约）集成测试。
 // 覆盖：回执不阻塞（拿到回执而非 dispatch 结果）、完成通知进路由通道、无通道上下文显式报错、
-// close 前后路由切换（通道 -> late 闭包）、残留合并投出、通知文本截断、多路合并 user 消息。
+// close 前后路由切换（通道 -> late 闭包）、残留合并投出、通知文本截断、多路合并 user 消息、
+// 轮间 drain 先落盘为 user 消息再注入（致命失败不丢）、late 通知入队后 kick 拉活。
 // 不触网：空凭证下 dispatch 仍 resolve（子 loop 把 LLM 错误吞成返回文本，同 tests/workflow.rs 口径）。
 
 use kxen_app::agent::agent_loop::{AgentContext, dispatch_tool};
-use kxen_app::agent::background::{NotifyRouter, notification_text, notifications_message};
+use kxen_app::agent::background::{NotifyRouter, drain_to_session_in, kick_late, notification_text, notifications_message, set_late_kick};
 use kxen_app::core::config::{Config, Limits, ProviderLimit, RoleBinding};
 use kxen_app::llm::ModelRef;
 use kxen_app::llm::mrm::ModelResourceManager;
@@ -132,4 +133,61 @@ fn notifications_message_merges_paths_into_one_user_message() {
         "多路合一条需分节标注: {}",
         msg.content
     );
+}
+
+#[test]
+fn drain_to_session_persists_notes_as_user_messages() {
+    // 落盘先于进 messages：通知逐条成 user 消息进 JSONL（致命失败后可从盘重建），注入仍是合并的一条
+    let dir = std::env::temp_dir().join(format!("kxen-drain-persist-{}", std::process::id()));
+    let session = kxen_app::core::session::create(&dir, "/tmp").expect("create session");
+    let router = NotifyRouter::new();
+    router.notify("[task notification] agent a (execution) finished:\ndone".into());
+    router.notify("[teammate w] 报告".into());
+    let msg = drain_to_session_in(&router, &dir, Some(&session.id)).expect("有通知应合并注入");
+    assert!(msg.content.contains("---"), "多路合并需分节标注: {}", msg.content);
+    let stored = kxen_app::core::session::load_messages(&dir, &session.id);
+    assert_eq!(stored.len(), 2, "每条通知独立落盘: {stored:?}");
+    for (m, prefix) in stored.iter().zip(["[task notification]", "[teammate w]"]) {
+        assert!(matches!(m.role, kxen_app::core::session::Role::User), "通知落盘必须是 user 角色");
+        match m.parts.first() {
+            Some(kxen_app::core::session::Part::Text { text }) => assert!(text.starts_with(prefix), "来源前缀保留: {text}"),
+            other => panic!("通知落盘必须是 Text part: {other:?}"),
+        }
+    }
+    // 通道已排空：二次 drain 不重复落盘（双写防线）
+    assert!(drain_to_session_in(&router, &dir, Some(&session.id)).is_none());
+    assert_eq!(kxen_app::core::session::load_messages(&dir, &session.id).len(), 2);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn drain_to_session_without_session_id_only_injects() {
+    // 非主会话上下文（subagent 不开通道，防御分支）：只注入不落盘
+    let dir = std::env::temp_dir().join(format!("kxen-drain-nosid-{}", std::process::id()));
+    let router = NotifyRouter::new();
+    router.notify("n1".into());
+    let msg = drain_to_session_in(&router, &dir, None).expect("some");
+    assert!(msg.content.contains("n1"));
+    assert!(!dir.exists(), "无 session_id 不得落盘建目录");
+}
+
+#[test]
+fn late_kick_fires_after_enqueue() {
+    // llm_task late 闭包同构：入队 + kick 拉活（wire_background_kick 注入的回调）
+    let dir = std::env::temp_dir().join(format!("kxen-late-kick-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pending = Arc::new(kxen_app::core::pending_queue::PendingQueues::new(dir.clone()));
+    let kicks = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let kicks2 = kicks.clone();
+    set_late_kick(move |sid| kicks2.lock().unwrap().push(sid));
+    let router = NotifyRouter::new();
+    let p = pending.clone();
+    router.close(Arc::new(move |text: String| {
+        p.enqueue("s1", text, vec![], vec![]);
+        kick_late("s1");
+    }));
+    router.notify("晚到通知".into());
+    assert_eq!(pending.texts("s1"), vec!["晚到通知".to_string()], "late 通知必须入队");
+    assert_eq!(kicks.lock().unwrap().as_slice(), &["s1".to_string()], "入队后必须 kick 拉活");
+    std::fs::remove_dir_all(&dir).ok();
 }

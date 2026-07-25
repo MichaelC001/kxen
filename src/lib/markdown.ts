@@ -4,27 +4,12 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import markedShiki from "marked-shiki";
 // 细粒度 core 入口：全量 "shiki" 入口会把全部语言语法（emacs-lisp 780KB、cpp 626KB 等）
-// 都打成构建产物，而运行时只用 LANGS 里这 15 种
+// 都打成构建产物，而运行时只用 SHIKI_LANGS 里这几种
 import { createHighlighterCore, type HighlighterCore } from "shiki/core";
 import { createOnigurumaEngine } from "shiki/engine/oniguruma";
+import { SHIKI_LANGS } from "./langs";
 
-const LANGS = [
-  "rust",
-  "typescript",
-  "tsx",
-  "javascript",
-  "json",
-  "toml",
-  "bash",
-  "zsh",
-  "shell",
-  "python",
-  "markdown",
-  "yaml",
-  "html",
-  "css",
-  "diff",
-];
+export { SHIKI_LANGS } from "./langs";
 
 let highlighter: HighlighterCore | null = null;
 let ready = false;
@@ -79,7 +64,7 @@ export async function initMarkdown(): Promise<void> {
   marked.use(
     markedShiki({
       highlight(code, lang) {
-        if (!highlighter || !lang || !LANGS.includes(lang)) {
+        if (!highlighter || !lang || !SHIKI_LANGS.includes(lang)) {
           return wrapCodeBlock(`<pre><code>${escapeHtml(code)}</code></pre>`, lang || "text");
         }
         // 主题在渲染时动态读取（注册一次，不重复 marked.use）

@@ -84,18 +84,32 @@ export function createRewindFlow(deps: {
 }
 
 /** Session 页接线（350 门禁拆出）：信号 + 确认流 + 错误尾注一次给齐。 */
-export function createSessionRewind(deps: { sessionId: () => string; onDone: () => void }) {
+export function createSessionRewind(deps: {
+  sessionId: () => string;
+  onDone: () => void;
+  call?: (sessionId: string, messageId: string, confirm: boolean) => Promise<unknown>;
+}) {
   const [pending, setPending] = createSignal<string | null>(null);
   const [note, setNote] = createSignal("");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const showNote = (text: string) => {
+    // 连续报错只留一个计时器：旧计时器不抢清新文案
+    if (timer) clearTimeout(timer);
+    setNote(text);
+    timer = setTimeout(() => setNote(""), 4000);
+  };
+  const dismissNote = () => {
+    if (timer) clearTimeout(timer);
+    setNote("");
+  };
   // 成功才对账：失败的回退不动时间线，不触发无意义重载
   const flow = createRewindFlow({
     sessionId: deps.sessionId,
+    // exactOptionalPropertyTypes：显式 undefined 不能传给可选属性，有注入才带上
+    ...(deps.call ? { call: deps.call } : {}),
     onPendingChange: setPending,
     onDone: deps.onDone,
-    onError: (text) => {
-      setNote(text);
-      setTimeout(() => setNote(""), 4000);
-    },
+    onError: showNote,
   });
-  return { pending, note, flow };
+  return { pending, note, flow, dismissNote };
 }

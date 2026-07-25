@@ -95,6 +95,30 @@ pub(super) fn fail_task(state: &Arc<TeamState>, who: &str, id: u64, reason: &str
     Ok(format!("task #{id} failed ({reason}){suffix}"))
 }
 
+/// lead 判负：非终态任务标 Failed 并沿依赖链级联（终态拒改，与 reassign 同谓词）。
+/// 与 teammate 自报 fail_task 分路：lead 是派发方，执行者失联/方向错误时可判负任何在途任务；
+/// assignee 清空（原执行者后续 complete 会被 InProgress 守卫拒止）。
+pub(super) fn lead_fail_task(state: &Arc<TeamState>, id: u64, reason: &str) -> Result<String, String> {
+    {
+        let mut tasks = lock(&state.tasks);
+        let Some(task) = tasks.iter_mut().find(|t| t.id == id) else {
+            return Err(format!("task not found: #{id}"));
+        };
+        match task.status {
+            TeamTaskStatus::Completed | TeamTaskStatus::Failed | TeamTaskStatus::Canceled => {
+                return Err(format!("task #{id} is terminal (status: {:?})", task.status));
+            }
+            _ => {}
+        }
+        task.status = TeamTaskStatus::Failed;
+        task.assignee = None;
+    }
+    let cascaded = cascade_terminal(state, id, TeamTaskStatus::Failed);
+    persist_tasks(state);
+    let suffix = if cascaded.is_empty() { String::new() } else { format!("; cascaded failed: {:?}", cascaded) };
+    Ok(format!("task #{id} failed ({reason}){suffix}"))
+}
+
 /// lead 取消任务：Completed 拒绝（终态不可改）；Canceled 沿依赖链级联。
 pub(super) fn cancel_task(state: &Arc<TeamState>, id: u64) -> Result<String, String> {
     {
@@ -217,6 +241,52 @@ mod tests {
         let t4 = create_task(&state, "other", vec![]);
         assert!(claim_task(&state, "b").is_ok());
         assert!(fail_task(&state, "a", t4.id, "x").is_err());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn lead_fail_task_marks_cascades_and_rejects_terminal() {
+        let (state, dir) = state("leadfail");
+        let t1 = create_task(&state, "root", vec![]);
+        let t2 = create_task(&state, "child", vec![t1.id]);
+        assert!(claim_task(&state, "a").is_ok());
+        // lead 判负他人执行中任务：标 Failed + 清 assignee + Pending 下游级联
+        lead_fail_task(&state, t1.id, "direction wrong").unwrap();
+        let got = statuses(&state);
+        assert!(got.contains(&(t1.id, TeamTaskStatus::Failed)));
+        assert!(got.contains(&(t2.id, TeamTaskStatus::Failed)), "Pending 下游必须级联");
+        assert!(lock(&state.tasks).iter().find(|t| t.id == t1.id).unwrap().assignee.is_none(), "判负后 assignee 必须清空");
+        // 原执行者后续 complete 被 InProgress 守卫拒止
+        assert!(complete_task(&state, "a", t1.id).await.is_err());
+        // 终态拒改：已 Failed 不可重复判负
+        assert!(lead_fail_task(&state, t1.id, "again").unwrap_err().contains("terminal"));
+        // Completed 同样拒改
+        let t3 = create_task(&state, "done", vec![]);
+        assert!(claim_task(&state, "b").is_ok());
+        complete_task(&state, "b", t3.id).await.unwrap();
+        assert!(lead_fail_task(&state, t3.id, "too late").unwrap_err().contains("terminal"));
+        assert!(lead_fail_task(&state, 999, "ghost").is_err());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// lead task_fail 路由：lead_action 判负非终态任务并级联下游；tools_spec 的 team schema 同步收录该动作
+    #[tokio::test]
+    async fn lead_action_task_fail_routes_and_in_schema() {
+        let dir = std::env::temp_dir().join(format!("kxen-task-route-{}", std::process::id()));
+        let mgr = crate::agent::team::TeamManager::new(dir.clone(), deps(), EventBus::default(), dir.join("sessions"), None);
+        let state = mgr.state_for("s1");
+        let t1 = create_task(&state, "root", vec![]);
+        let t2 = create_task(&state, "child", vec![t1.id]);
+        mgr.lead_action("s1", &serde_json::json!({ "action": "task_fail", "id": t1.id, "reason": "stale direction" })).await.unwrap();
+        {
+            let tasks = lock(&state.tasks);
+            assert_eq!(tasks.iter().find(|t| t.id == t1.id).unwrap().status, TeamTaskStatus::Failed);
+            assert_eq!(tasks.iter().find(|t| t.id == t2.id).unwrap().status, TeamTaskStatus::Failed, "Pending 下游必须级联");
+        }
+        assert!(mgr.lead_action("s1", &serde_json::json!({ "action": "task_fail" })).await.is_err(), "缺 id 必须报错");
+        let team = crate::agent::tools_spec::core_tools().into_iter().find(|t| t.function.name == "team").unwrap();
+        let schema = serde_json::to_string(&team.function.parameters).unwrap();
+        assert!(schema.contains("task_fail"), "team 工具 schema 必须收录 task_fail: {schema}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

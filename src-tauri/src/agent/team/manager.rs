@@ -213,6 +213,11 @@ impl TeamManager {
                 let id = args.get("id").and_then(Value::as_u64).ok_or("missing id")?;
                 super::tasks::cancel_task(&state, id)
             }
+            "task_fail" => {
+                let id = args.get("id").and_then(Value::as_u64).ok_or("missing id")?;
+                let reason = args.get("reason").and_then(Value::as_str).unwrap_or("no reason given");
+                super::tasks::lead_fail_task(&state, id, reason)
+            }
             "task_reassign" => {
                 let id = args.get("id").and_then(Value::as_u64).ok_or("missing id")?;
                 // to 可空：空串视同未传（模型给可选项填空串的习性）
@@ -325,10 +330,5 @@ impl TeamManager {
         let members = lock(&state.members).clone();
         let tasks = lock(&state.tasks).clone();
         json!({ "members": members, "tasks": tasks })
-    }
-
-    pub(super) fn persist_config(&self, state: &Arc<TeamState>) {
-        let config = json!({ "session_id": state.session_id, "members": *lock(&state.members) });
-        let _ = std::fs::write(state.dir.join("config.json"), serde_json::to_string_pretty(&config).unwrap_or_default());
     }
 }

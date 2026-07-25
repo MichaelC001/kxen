@@ -2,8 +2,8 @@
 import { createEffect, createSignal, For, onMount, Show } from "solid-js";
 import { Check, ChevronDown, Search } from "lucide-solid";
 import { configSetRole, currentModel } from "../../lib/chat";
-import { sessionSetModel } from "../../lib/session-model";
-import { activeSessionId } from "../../lib/state";
+import { sessionFollowGlobalModel, sessionSetModel } from "../../lib/session-model";
+import { activeSessionId, sessions } from "../../lib/state";
 import { onClickOutside } from "../../lib/dismiss";
 import {
   fmtCtx,
@@ -30,19 +30,27 @@ interface Row {
 
 export default function ModelPicker() {
   const [cur, setCur] = createSignal({ provider: "", model: "" });
+  const [globalDef, setGlobalDef] = createSignal({ provider: "", model: "" });
   const [cat, setCat] = createSignal<ProviderCatalog[]>([]);
   const [open, setOpen] = createSignal(false);
   const [query, setQuery] = createSignal("");
   const [roleMsg, setRoleMsg] = createSignal("");
+  // 本地选择优先于 sessions 列表推导（set_model 不触发列表刷新，meta 是旧值）
+  const [followOverride, setFollowOverride] = createSignal<boolean | null>(null);
   let root: HTMLDivElement | undefined;
   onClickOutside(
     () => root,
     () => setOpen(false),
   );
 
-  onMount(() => void modelsCatalog().then(setCat));
+  onMount(() => {
+    void modelsCatalog().then(setCat);
+    void currentModel().then((m) => setGlobalDef({ provider: m.provider, model: m.model }));
+  });
   // 生效模型随活跃会话重取（session 覆盖 > 全局默认）
   createEffect(() => {
+    activeSessionId();
+    setFollowOverride(null);
     void currentModel(activeSessionId() || undefined).then((m) =>
       setCur({ provider: m.provider, model: m.model }),
     );
@@ -63,11 +71,28 @@ export default function ModelPicker() {
   const curInfo = () => modelOf(cat(), cur().provider, cur().model);
   const curLabel = () =>
     curInfo()?.name ?? (cur().model ? `${cur().provider}/${cur().model}` : "模型");
+  const globalLabel = () =>
+    modelOf(cat(), globalDef().provider, globalDef().model)?.name ??
+    (globalDef().model || "未设置");
+  // 跟随态：本地选择优先；否则按 session meta 有无覆盖推导（草稿态无 meta = 跟随）
+  const following = () =>
+    followOverride() ?? !sessions().find((s) => s.id === activeSessionId())?.model;
 
   // 切模型只写当前 session 的 metadata（草稿态暂存，落库后回写）；全局默认在设置页改
   const pick = (r: Row) => {
     void sessionSetModel(activeSessionId(), r.provider, r.model.id);
     setCur({ provider: r.provider, model: r.model.id });
+    setFollowOverride(false);
+    setOpen(false);
+  };
+
+  // 跟随全局默认：清除 session 覆盖（后端 provider/model 同缺 = 清除），生效模型回到全局默认
+  const followGlobal = () => {
+    const sid = activeSessionId();
+    void sessionFollowGlobalModel(sid)
+      .then(() => currentModel(sid || undefined))
+      .then((m) => setCur({ provider: m.provider, model: m.model }));
+    setFollowOverride(true);
     setOpen(false);
   };
 
@@ -105,6 +130,25 @@ export default function ModelPicker() {
             />
           </div>
           <div class="max-h-72 overflow-y-auto py-1">
+            <div
+              class="model-row"
+              classList={{ "model-row-active": following() }}
+              onClick={followGlobal}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs font-medium truncate">跟随全局默认</span>
+                  <Show when={following()}>
+                    <Check size={12} class="text-[var(--accent-hover)]" />
+                  </Show>
+                </div>
+                <div class="text-2xs text-[var(--text-faint)] truncate">
+                  当前全局：{globalLabel()}
+                </div>
+              </div>
+            </div>
+            <div class="mx-2 my-1 border-t border-[var(--border)]" />
             <For each={filtered()}>
               {(r) => (
                 <div

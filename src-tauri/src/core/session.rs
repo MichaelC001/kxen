@@ -178,23 +178,23 @@ pub fn list(dir: &Path) -> Vec<Session> {
     out
 }
 
-/// 删除会话：移入系统废纸篓（Finder 可恢复）。测试走硬删，避免 cargo test 污染用户废纸篓。
+/// 删除会话：移入系统废纸篓（Finder 可恢复）。
+/// tempdir 下的 dir 走硬删：集成测试（tests/ 目标编译 lib 时不带 cfg(test)）以临时目录为 dir，
+/// cfg 分支挡不住它们，会污染用户废纸篓；路径判定对单测/集成测试/生产三类调用都成立。
 pub fn remove(dir: &Path, id: &str) {
     // 非法 id 按 not-found 处理（无操作），绝不拼路径
     if crate::core::ids::validate_id(id).is_err() {
         return;
     }
-    #[cfg(not(test))]
-    {
-        let _ = trash::delete(meta_path(dir, id));
-        let _ = trash::delete(messages_path(dir, id));
-        let _ = trash::delete(compaction_path(dir, id));
-    }
-    #[cfg(test)]
-    {
-        let _ = std::fs::remove_file(meta_path(dir, id));
-        let _ = std::fs::remove_file(messages_path(dir, id));
-        let _ = std::fs::remove_file(compaction_path(dir, id));
+    let paths = [meta_path(dir, id), messages_path(dir, id), compaction_path(dir, id)];
+    if dir.starts_with(std::env::temp_dir()) {
+        for p in &paths {
+            let _ = std::fs::remove_file(p);
+        }
+    } else {
+        for p in &paths {
+            let _ = trash::delete(p);
+        }
     }
 }
 

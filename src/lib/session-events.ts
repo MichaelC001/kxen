@@ -1,5 +1,5 @@
 import type { Setter } from "solid-js";
-import { applyApprovalEvent } from "./approvals";
+import { applyApprovalEvent, applyApprovalResolved } from "./approvals";
 import type { ToolEvent } from "./delta";
 import type { Item } from "./items";
 import type { OrbState } from "./orb";
@@ -37,7 +37,8 @@ export function applyStreamEvent(
         if (!item) continue;
         if (item.kind === "tool" && item.name === event.name && item.result === undefined) {
           const next = [...prev];
-          next[i] = { ...item, result: event.summary ?? "" };
+          // output 是完整结果（流式展开区透传）；缺省回退一行摘要
+          next[i] = { ...item, result: event.output ?? event.summary ?? "" };
           return next;
         }
       }
@@ -46,6 +47,10 @@ export function applyStreamEvent(
   } else if (event.kind === "approval") {
     deps.setOrbPhase("thinking");
     applyApprovalEvent(deps.setItems, event);
+  } else if (event.kind === "approval_resolved") {
+    // 超时/取消的了结帧：等待中的审批卡置失效
+    if (event.approvalId)
+      applyApprovalResolved(deps.setItems, event.approvalId, event.outcome ?? "cancelled");
   } else {
     // workflow phase：有 index/total 时 `phase 2/10 · xxx`（避免 phase: + i/N: 双冒号），无则 `phase: xxx`（旧脚本无 meta）
     const label =

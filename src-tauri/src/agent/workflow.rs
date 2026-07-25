@@ -214,11 +214,10 @@ pub async fn run_script(
             let wf_name = meta.as_ref().and_then(|m| m.get("name")).and_then(|n| n.as_str()).unwrap_or("workflow");
             let phases_total = meta.as_ref().and_then(|m| m.get("phases")).and_then(|p| p.as_array()).map(|a| a.len() as u32);
             let stats = stats.lock().expect("stats");
-            let agents_ok: u32 = stats.ok_by_role.values().sum();
             let mut text = text;
             text.push_str(&js::envelope(
                 wf_name,
-                agents_ok,
+                &stats.ok_by_role,
                 &stats.failures,
                 phases_done.load(Ordering::Relaxed),
                 phases_total,

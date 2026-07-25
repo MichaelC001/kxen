@@ -11,13 +11,17 @@ export interface RunStats {
 }
 
 export interface ToolEvent {
-  kind: "tool_call" | "tool_result" | "phase" | "approval";
+  kind: "tool_call" | "tool_result" | "phase" | "approval" | "approval_resolved";
   name: string;
   summary?: string | undefined;
   args?: string | undefined;
+  // tool_result 的完整输出（流式态透传；Done 对账后由存储快照替换）
+  output?: string | undefined;
   approvalId?: string | undefined;
   command?: string | undefined;
   reason?: string | undefined;
+  // approval_resolved 的了结方式：timeout / cancelled
+  outcome?: string | undefined;
   // workflow phase 结构化进度（脚本声明 meta.phases 时才有）
   index?: number | undefined;
   total?: number | undefined;
@@ -64,10 +68,12 @@ export function onLlmDelta(
     name?: string;
     summary?: string;
     arguments?: string;
+    output?: string;
     stats?: RunStats;
     agent?: string;
     approval_id?: string;
     command?: string;
+    outcome?: string;
     index?: number;
     total?: number;
     workflow_name?: string;
@@ -106,7 +112,13 @@ export function onLlmDelta(
           });
         break;
       case "tool_result":
-        if (event.name) onTool?.({ kind: event.kind, name: event.name, summary: event.summary });
+        if (event.name)
+          onTool?.({
+            kind: event.kind,
+            name: event.name,
+            summary: event.summary,
+            output: event.output,
+          });
         break;
       case "phase":
         if (event.name)
@@ -126,6 +138,14 @@ export function onLlmDelta(
           approvalId: event.approval_id,
           command: event.command,
           reason: event.message,
+        });
+        break;
+      case "approval.resolved":
+        onTool?.({
+          kind: "approval_resolved",
+          name: "approval",
+          approvalId: event.approval_id,
+          outcome: event.outcome,
         });
         break;
     }

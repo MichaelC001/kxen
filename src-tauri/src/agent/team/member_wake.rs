@@ -24,8 +24,9 @@ pub(super) const CLAIM_NUDGE: &str = "(idle check) No new messages. There are pe
 pub(super) const PLAN_VERDICT_APPROVED: &str = "[plan-verdict:approved]";
 pub(super) const PLAN_VERDICT_REJECTED: &str = "[plan-verdict:rejected]";
 
-/// 单 wake 合并渲染上限：批量来信拼成一条 user 消息进历史，无 cap 会爆上下文。
-/// 被省略的信件已经 drain 消费且经 push_inbox_transcript 落进 transcript，不算静默丢失。
+/// 单 wake 合并渲染上限：批量来信拼成一条文本，无 cap 会爆 LLM 上下文、撑大 transcript JSONL 单行。
+/// LLM 历史（inbox_text）与 transcript 展示（push_inbox_transcript）两侧同口径：
+/// 超 cap 的尾部两侧都省略并以标注条数收场（极端刷信只丢展示，条数留痕）。
 pub(super) const MERGED_INBOX_CAP: usize = 16_000;
 
 pub(super) enum IdleWake {
@@ -103,13 +104,12 @@ pub(super) fn strip_system(messages: Vec<Message>) -> Vec<Message> {
     }
 }
 
-/// inbox 拼成一条 user 消息文本（[from] 标注来源）；合并总长超 cap 省略尾部并标注条数。
+/// 合并 cap：格式化后的行逐条拼接，超 MERGED_INBOX_CAP 省略尾部并标注条数。
 /// 首条不受 cap 限制（单条已被 append_inbox 限 4000，必然放得下，guard 防空转）。
-pub(super) fn inbox_text(inbox: &[(String, String)]) -> String {
+fn join_capped(lines: impl IntoIterator<Item = String>) -> String {
     let mut out = String::new();
     let mut omitted = 0usize;
-    for (from, text) in inbox {
-        let line = format!("[{from}] {text}");
+    for line in lines {
         if !out.is_empty() && out.len() + 1 + line.len() > MERGED_INBOX_CAP {
             omitted += 1;
             continue;
@@ -125,14 +125,20 @@ pub(super) fn inbox_text(inbox: &[(String, String)]) -> String {
     out
 }
 
+/// inbox 拼成一条 user 消息文本（[from] 标注来源）；合并超 cap 省略尾部（见 join_capped）。
+pub(super) fn inbox_text(inbox: &[(String, String)]) -> String {
+    join_capped(inbox.iter().map(|(from, text)| format!("[{from}] {text}")))
+}
+
 /// 审批通过侦测：只认 lead verdict 私信的结构化前缀（lead 手写/转述 "Plan approved" 文本不再误批）
 pub(super) fn inbox_has_plan_approval(inbox: &[(String, String)]) -> bool {
     inbox.iter().any(|(from, text)| from == "lead" && text.starts_with(PLAN_VERDICT_APPROVED))
 }
 
-/// P1-4：来信入 transcript + bus（复用 text 事件形态，AgentFocusView 按 kind=text 渲染可见）
+/// P1-4：来信入 transcript + bus（复用 text 事件形态，AgentFocusView 按 kind=text 渲染可见）。
+/// 展示侧与 LLM 侧同 cap：极端刷信不撑大 transcript JSONL 单行。
 pub(super) fn push_inbox_transcript(state: &Arc<TeamState>, name: &str, inbox: &[(String, String)]) {
-    let text = inbox.iter().map(|(from, t)| format!("[inbox {from}] {t}")).collect::<Vec<_>>().join("\n");
+    let text = join_capped(inbox.iter().map(|(from, t)| format!("[inbox {from}] {t}")));
     let payload = json!({ "kind": "text", "text": text, "agent": name, "session_id": state.session_id });
     state.deps.agents.push_transcript(&state.session_id, name, payload.clone());
     state.bus.publish(crate::core::event::Event::LlmDelta(payload));
@@ -218,6 +224,23 @@ mod tests {
         assert_eq!(t.len(), 1);
         assert_eq!(t[0]["kind"], "text");
         assert!(t[0]["text"].as_str().unwrap().contains("[inbox lead] hello"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// transcript 展示侧同 cap：批量刷信合并文本超 MERGED_INBOX_CAP 省略尾部并标注（JSONL 单行不爆）
+    #[tokio::test]
+    async fn inbox_transcript_text_is_capped() {
+        let (state, dir) = state("transcript-cap");
+        state.deps.agents.register("s1", "w", crate::agent::activity::AgentKind::Teammate, &crate::llm::ModelRef::new("p", "m"));
+        let big = "y".repeat(5000);
+        let inbox: Vec<(String, String)> = (0..10).map(|_| ("lead".to_string(), big.clone())).collect();
+        push_inbox_transcript(&state, "w", &inbox);
+        let t = state.deps.agents.transcript("s1", "w");
+        assert_eq!(t.len(), 1);
+        let text = t[0]["text"].as_str().unwrap();
+        // 每行 "[inbox lead] " + 5000 字符 = 5013：3 条入列（15041），第 4 条起省略
+        assert_eq!(text.matches("[inbox lead]").count(), 3, "超 cap 尾部必须省略");
+        assert!(text.contains("7 message(s) omitted"), "必须标注省略条数: {text}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -126,6 +126,7 @@ impl AgentRegistry {
     /// 前缀定名注册（subagent/workflow 派发口）：「查重名 -> 生成唯一名 -> 插入」同一把锁内完成，
     /// 返回定名。拆成 unique_name + register 两次取锁时，真并发下同 role 两个派发拿到同名，
     /// register 去重把它们并成一条、两路转录交错写同一 agent。
+    /// 重放与 register 同路：teammate 若经此口定名注册，磁盘转录照样注水（非 teammate 早退零开销）。
     pub fn register_unique(&self, session_id: &str, prefix: &str, kind: AgentKind, model: &ModelRef) -> String {
         let mut map = crate::core::shared::lock(&self.sessions);
         let list = map.entry(session_id.to_string()).or_default();
@@ -139,7 +140,7 @@ impl AgentRegistry {
             model: model.clone(),
             status: ActivityStatus::Working,
             started_at: now_ms(),
-            transcript: VecDeque::new(),
+            transcript: self.rehydrate(session_id, &name, kind),
         });
         name
     }
@@ -253,6 +254,30 @@ mod tests {
         reg2.push_transcript("s1", "../escape", serde_json::json!({ "x": 1 }));
         let names: Vec<_> = std::fs::read_dir(root.join("s1/transcripts")).unwrap().map(|e| e.unwrap().file_name()).collect();
         assert_eq!(names.len(), 1, "非法 name 不得产生新文件: {names:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// register_unique 同路重放：teammate 经定名口注册时磁盘转录照样注水；
+    /// subagent 经同口注册不重放（一次性派发，rehydrate 早退）。
+    #[test]
+    fn register_unique_rehydrates_teammate_transcript() {
+        let dir = std::env::temp_dir().join(format!("kxen-rehydrate-unique-{}", std::process::id()));
+        let root = dir.join("teams");
+        let model = ModelRef::new("p", "m");
+        let reg = AgentRegistry::default();
+        reg.set_team_root(root.clone());
+        reg.register("s1", "w-1", AgentKind::Teammate, &model);
+        reg.push_transcript("s1", "w-1", serde_json::json!({ "kind": "text", "text": "persisted" }));
+        // 模拟重启：新 registry 经 register_unique 定名命中同名（prefix-i 撞已落盘文件）
+        let reg2 = AgentRegistry::default();
+        reg2.set_team_root(root.clone());
+        let name = reg2.register_unique("s1", "w", AgentKind::Teammate, &model);
+        assert_eq!(name, "w-1");
+        let t = reg2.transcript("s1", "w-1");
+        assert_eq!(t.len(), 1, "register_unique 注册 teammate 必须重放磁盘转录");
+        assert_eq!(t[0]["text"], "persisted");
+        let sub = reg2.register_unique("s1", "sub", AgentKind::Subagent, &model);
+        assert!(reg2.transcript("s1", &sub).is_empty(), "subagent 一次性派发不得重放");
         std::fs::remove_dir_all(&dir).ok();
     }
 

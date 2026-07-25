@@ -1,20 +1,41 @@
-// 审批卡：Ask 档挂起命令的用户决定入口（允许/拒绝，决定后只读展示）。
+// 审批卡：Ask 档挂起命令的用户决定入口（允许/拒绝，决定后只读展示；超时/取消置灰色失效态）。
 import { Show } from "solid-js";
 import type { ApprovalItem } from "../lib/items";
+
+const RESOLVED_TEXT: Record<NonNullable<ApprovalItem["resolved"]>, string> = {
+  allowed: "已允许",
+  denied: "已拒绝",
+  timeout: "已超时",
+  cancelled: "已取消",
+  expired: "已失效",
+};
 
 export default function ApprovalCard(props: {
   item: ApprovalItem;
   onRespond: (id: string, allow: boolean) => void;
 }) {
+  // 非用户决定的 resolved（超时/取消/失效）：卡片转灰，与等待态的警示色拉开
+  const invalid = () =>
+    props.item.resolved === "timeout" ||
+    props.item.resolved === "cancelled" ||
+    props.item.resolved === "expired";
   return (
-    <div class="rounded-lg border border-[var(--warn)]/50 bg-[var(--warn)]/5 px-3 py-2.5 text-xs space-y-2">
-      <div class="text-[var(--warn)]">审批请求：{props.item.reason}</div>
+    <div
+      class="rounded-lg border px-3 py-2.5 text-xs space-y-2"
+      classList={{
+        "border-[var(--border)] bg-[var(--bg-raised)] opacity-70": invalid(),
+        "border-[var(--warn)]/50 bg-[var(--warn)]/5": !invalid(),
+      }}
+    >
+      <div class={invalid() ? "text-[var(--text-faint)]" : "text-[var(--warn)]"}>
+        审批请求：{props.item.reason}
+      </div>
       <div class="selectable font-mono text-[var(--text-dim)] break-all">{props.item.command}</div>
       <Show
         when={!props.item.resolved}
         fallback={
           <div class="text-2xs text-[var(--text-faint)]">
-            {props.item.resolved === "allowed" ? "已允许" : "已拒绝"}
+            {RESOLVED_TEXT[props.item.resolved ?? "expired"]}
           </div>
         }
       >

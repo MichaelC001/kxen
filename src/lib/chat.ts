@@ -78,7 +78,7 @@ export async function sessionAbort(sessionId: string): Promise<boolean> {
 export { onLlmDelta } from "./delta";
 export type { RunStats, ToolEvent } from "./delta";
 
-export async function approvalRespond(id: string, allow: boolean): Promise<void> {
+export async function approvalRespond(id: string, allow: boolean): Promise<{ resolved: boolean }> {
   return client.rpc("approval.respond", { id, allow });
 }
 

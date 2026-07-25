@@ -1,5 +1,5 @@
 // 通知中心：铃铛 + 未读计数 + 下拉面板（时间/文本/清空）。未读基线存 localStorage。
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Bell, Trash2 } from "lucide-solid";
 import EmptyLine from "./EmptyLine";
 import { client } from "../lib/client";
@@ -35,6 +35,10 @@ export default function NotificationCenter() {
     const timer = setInterval(() => void reload(), 5000);
     return () => clearInterval(timer);
   });
+
+  // bus lag 丢帧后服务端下发 resync：不等下一轮轮询，立即按真源重拉
+  const offResync = client.onResync(() => void reload());
+  onCleanup(offResync);
 
   const openPanel = () => {
     setOpen(!open());

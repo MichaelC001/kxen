@@ -107,6 +107,13 @@ pub(crate) struct TeamState {
     pub(crate) bus: EventBus,
 }
 
+/// config.json 唯一写路径：manager 状态变更（spawn/verdict/shutdown）与 member_loop 状态机共用，
+/// 各写一份内联序列化会在字段演进时漂移（一处改了另一处漏改）。
+pub(crate) fn persist_config(state: &TeamState) {
+    let config = serde_json::json!({ "session_id": state.session_id, "members": *crate::core::shared::lock(&state.members) });
+    let _ = std::fs::write(state.dir.join("config.json"), serde_json::to_string_pretty(&config).unwrap_or_default());
+}
+
 /// 成员 + 任务的可读清单（lead/teammate 的 list 动作输出）
 pub(crate) fn render_list(state: &TeamState) -> String {
     let members = crate::core::shared::lock(&state.members);

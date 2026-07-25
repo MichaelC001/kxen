@@ -225,7 +225,7 @@ async fn agent_failure_marks_parallel_item_and_envelope() {
     let out = run_ok(script).await;
     assert!(out.contains(r#""total":33,"failed":1"#), "{out}");
     assert!(out.contains("budget exhausted"), "{out}");
-    assert!(out.contains("34 agents (2 failed)"), "{out}");
+    assert!(out.contains("34 agents (execution:32, 2 failed)"), "{out}");
     assert!(out.contains("failures: job: workflow agent budget exhausted"), "{out}");
     assert!(out.contains("ghost-legacy: workflow agent budget exhausted"), "{out}");
 }

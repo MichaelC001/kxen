@@ -35,7 +35,7 @@ impl TeamManager {
             prompt: prompt.clone(),
             approved: !plan_approval,
         });
-        self.persist_config(state);
+        super::types::persist_config(state);
         Self::start_member_loop(state, name, role, prompt, model_ref, !plan_approval);
         Ok(format!("teammate spawned (model {model_name})"))
     }
@@ -79,7 +79,7 @@ impl TeamManager {
             // 审批结果落盘：崩溃重启后 restore 按 approved 初值续跑，不要求重批
             member.approved = approve;
         }
-        self.persist_config(state);
+        super::types::persist_config(state);
         // 结构化前缀替代旧子串语义：member_loop 只认 starts_with 精确匹配，
         // lead 手写/转述 "Plan approved" 不再误批；from=lead + 前缀双条件，正文不再内嵌 [lead]
         let text = if approve {
@@ -100,7 +100,7 @@ impl TeamManager {
         if let Some(m) = lock(&state.members).iter_mut().find(|m| m.name == name) {
             m.status = MemberStatus::Shutdown;
         }
-        self.persist_config(state);
+        super::types::persist_config(state);
         Ok(format!("shutdown requested: {name}"))
     }
 }

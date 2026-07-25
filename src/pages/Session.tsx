@@ -216,7 +216,13 @@ export default function Session() {
         </Show>
         <span class="ml-auto flex items-center gap-1">
           <Show when={rewind.note()}>
-            <span class="text-2xs text-[var(--err)]">{rewind.note()}</span>
+            <button
+              class="pressable text-2xs text-[var(--err)]"
+              title="点击关闭"
+              onClick={() => rewind.dismissNote()}
+            >
+              {rewind.note()}
+            </button>
           </Show>
           <Show when={exportNote()}>
             <span class="text-2xs text-[var(--ok)]">{exportNote()}</span>

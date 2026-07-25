@@ -1,6 +1,11 @@
 // rewind 确认流：dirty 门禁的"拒绝 -> 确认 -> 带 confirm 重发"序列，其余拒绝不重试。
-import { describe, expect, it } from "vitest";
-import { classifyRewindError, createRewindFlow, rewindErrorText } from "./rewind";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  classifyRewindError,
+  createRewindFlow,
+  createSessionRewind,
+  rewindErrorText,
+} from "./rewind";
 
 // 与 src-tauri/src/ws/session_ops.rs 的门禁文案逐字对齐，漂移即测试红
 const DIRTY = new Error("worktree has uncheckpointed changes, pass confirm=true to rewind anyway");
@@ -112,5 +117,43 @@ describe("classifyRewindError / rewindErrorText", () => {
 
   it("未识别错误保留原始信息便于排查", () => {
     expect(rewindErrorText(new Error("boom"))).toBe("回退失败：boom");
+  });
+});
+
+describe("createSessionRewind 错误尾注", () => {
+  afterEach(() => vi.useRealTimers());
+
+  function noteHarness() {
+    vi.useFakeTimers();
+    const r = createSessionRewind({
+      sessionId: () => "s1",
+      onDone: () => {},
+      call: () => Promise.reject(ACTIVE_RUN),
+    });
+    return { note: r.note, dismiss: r.dismissNote, fire: (mid: string) => r.flow.request(mid) };
+  }
+
+  it("报错上尾注，4s 自动消失", async () => {
+    const h = noteHarness();
+    await h.fire("m-1");
+    expect(h.note()).toContain("正在运行");
+    vi.advanceTimersByTime(3999);
+    expect(h.note()).not.toBe("");
+    vi.advanceTimersByTime(1);
+    expect(h.note()).toBe("");
+  });
+
+  it("点击关闭立即消，且旧计时器不再清掉后续文案", async () => {
+    const h = noteHarness();
+    await h.fire("m-1");
+    expect(h.note()).not.toBe("");
+    h.dismiss();
+    expect(h.note()).toBe("");
+    // 再次报错：新文案不被第一次的计时器抢清
+    await h.fire("m-2");
+    vi.advanceTimersByTime(3999);
+    expect(h.note()).not.toBe("");
+    vi.advanceTimersByTime(1);
+    expect(h.note()).toBe("");
   });
 });

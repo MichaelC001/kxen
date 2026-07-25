@@ -11,6 +11,7 @@ import {
   type GoalInfo,
   type TaskInfo,
 } from "../lib/chat";
+import { client } from "../lib/client";
 import { activeSessionId } from "../lib/state";
 import Markdown from "./Markdown";
 import DockWorktree from "./DockWorktree";
@@ -236,6 +237,7 @@ export default function Dock() {
   const [tasks, setTasks] = createSignal<TaskInfo[]>([]);
   const [openDiff, setOpenDiff] = createSignal<{ path: string; text: string } | null>(null);
   let unlisten: (() => void) | undefined;
+  let offResync: (() => void) | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
 
   const reloadGoal = async () => setGoal(await goalFocus());
@@ -251,6 +253,11 @@ export default function Dock() {
       void reloadGoal();
       void reloadTasks();
     });
+    // goal.update/task.update 丢帧后 topic 流不自愈：resync 信号按真源重拉
+    offResync = client.onResync(() => {
+      void reloadGoal();
+      void reloadTasks();
+    });
     timer = setInterval(() => {
       void reloadDiff();
       void reloadTasks();
@@ -258,6 +265,7 @@ export default function Dock() {
   });
   onCleanup(() => {
     unlisten?.();
+    offResync?.();
     if (timer) clearInterval(timer);
   });
 

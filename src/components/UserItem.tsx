@@ -25,6 +25,10 @@ export default function UserItem(props: {
         ]);
       }}
     >
+      {/* 通知类消息的来源小标（teammate 报告 / 后台任务完成），与普通用户口信区分 */}
+      <Show when={props.item.source}>
+        <div class="text-2xs text-[var(--text-faint)]">{props.item.source}</div>
+      </Show>
       <Show when={props.item.images?.length}>
         <div class="flex flex-wrap justify-end gap-2">
           <For each={props.item.images}>

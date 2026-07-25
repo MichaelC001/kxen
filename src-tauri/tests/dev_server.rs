@@ -16,7 +16,13 @@ fn params(command: &str, timeout_ms: u64) -> DevServerParams {
 }
 
 fn pid_alive(pid: u32) -> bool {
-    std::process::Command::new("kill").args(["-0", &pid.to_string()]).status().map(|s| s.success()).unwrap_or(false)
+    // stderr 丢弃：进程已退时探测命中 ESRCH 会打 "No such process"，与 task.rs 的 kill_quiet 同一处理
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// readiness timeout 后已启动的进程必须不在（睡眠型假 server，永不 ready）。

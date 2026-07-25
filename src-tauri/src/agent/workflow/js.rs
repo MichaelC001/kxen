@@ -103,18 +103,28 @@ pub(crate) fn wrap_script(script: &str) -> String {
 }
 
 /// 完成信封：追加在脚本 return 文本之后，主模型一眼看到哪路挂了（此前失败/空结果被静默吞掉）。
-/// 无失败不列 failures 段；无 meta.phases 时 phases 只报已执行数。
+/// 无失败不列 failures 段；无 meta.phases 时 phases 只报已执行数；agents 计数按 role 细分（计数降序，同数按名）。
 pub(crate) fn envelope(
     wf_name: &str,
-    agents_ok: u32,
+    ok_by_role: &std::collections::HashMap<String, u32>,
     failures: &[(String, String)],
     phases_done: u32,
     phases_total: Option<u32>,
     elapsed: Duration,
 ) -> String {
-    let mut out = format!("\n\n---\n[{wf_name}] {} agents", agents_ok + failures.len() as u32);
+    let agents_total = ok_by_role.values().sum::<u32>() + failures.len() as u32;
+    let mut out = format!("\n\n---\n[{wf_name}] {agents_total} agents");
+    let mut roles: Vec<_> = ok_by_role.iter().collect();
+    roles.sort_by(|(ra, na), (rb, nb)| nb.cmp(na).then(ra.cmp(rb)));
+    let mut detail = roles.iter().map(|(r, n)| format!("{r}:{n}")).collect::<Vec<_>>().join(" ");
     if !failures.is_empty() {
-        out.push_str(&format!(" ({} failed)", failures.len()));
+        if !detail.is_empty() {
+            detail.push_str(", ");
+        }
+        detail.push_str(&format!("{} failed", failures.len()));
+    }
+    if !detail.is_empty() {
+        out.push_str(&format!(" ({detail})"));
     }
     match phases_total {
         Some(total) => out.push_str(&format!(", phases {phases_done}/{total}")),
@@ -144,10 +154,11 @@ mod tests {
 
     #[test]
     fn envelope_full_and_minimal() {
+        let ok: std::collections::HashMap<String, u32> = [("research".to_string(), 3), ("execution".to_string(), 2)].into_iter().collect();
         let failures = vec![("env契约".to_string(), "boom".to_string())];
-        let out = envelope("wf", 5, &failures, 3, Some(10), Duration::from_millis(12_400));
-        assert_eq!(out, "\n\n---\n[wf] 6 agents (1 failed), phases 3/10, 12.4s\nfailures: env契约: boom");
-        let clean = envelope("workflow", 0, &[], 0, None, Duration::from_millis(500));
+        let out = envelope("wf", &ok, &failures, 3, Some(10), Duration::from_millis(12_400));
+        assert_eq!(out, "\n\n---\n[wf] 6 agents (research:3 execution:2, 1 failed), phases 3/10, 12.4s\nfailures: env契约: boom");
+        let clean = envelope("workflow", &Default::default(), &[], 0, None, Duration::from_millis(500));
         assert_eq!(clean, "\n\n---\n[workflow] 0 agents, phases 0, 0.5s");
         assert!(!clean.contains("failures:"));
     }

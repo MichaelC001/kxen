@@ -98,26 +98,29 @@ impl TaskRegistry {
     /// 进程组终止：SIGTERM -> 800ms 宽限 -> SIGKILL 升级（spawn 时 process_group(0) 组长，组覆盖孙进程）。
     pub async fn kill(&self, id: &str) -> bool {
         let Some(task) = self.get(id) else { return false };
-        // 只给仍在运行的任务打标记：已自行退出的保持 Exited/Failed 原判定
+        // 只给仍在运行的任务终止：已自行退出的保持 Exited/Failed 原判定，也不发任何信号。
+        // stderr 一律丢弃：信号即发即弃没人读 stderr，而 waiter 回收与发信号天然有竞态窗口，
+        // 窗口内 kill 必打 "No such process"——检查缩窗、丢弃收尾，两类噪音一起灭
+        let kill_quiet = |args: [&str; 2]| {
+            std::process::Command::new("kill").args(args).stderr(std::process::Stdio::null()).status().map(|s| s.success()).unwrap_or(false)
+        };
         if task.exit_code.lock().expect("exit").is_none() {
             task.killed.store(true, Ordering::Relaxed);
-        }
-        if let Some(pid) = task.pid {
-            let _ = std::process::Command::new("kill").args(["-TERM", &format!("-{pid}")]).status();
-            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
-            loop {
-                let alive =
-                    std::process::Command::new("kill").args(["-0", &pid.to_string()]).status().map(|s| s.success()).unwrap_or(false);
-                if !alive || std::time::Instant::now() >= deadline {
-                    break;
+            if let Some(pid) = task.pid {
+                let pid = pid.to_string();
+                let alive = || kill_quiet(["-0", &pid]);
+                let _ = kill_quiet(["-TERM", &format!("-{pid}")]);
+                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
+                while alive() && std::time::Instant::now() < deadline {
+                    tokio::time::sleep(std::time::Duration::from_millis(60)).await;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+                // SIGKILL 前复查：宽限内已退出的进程（探测不到或 exit_code 已写）跳过补刀
+                if alive() && task.exit_code.lock().expect("exit").is_none() {
+                    let _ = kill_quiet(["-KILL", &format!("-{pid}")]);
+                }
             }
         }
         let taken = lock(&task.child).take();
-        if let Some(pid) = task.pid {
-            let _ = std::process::Command::new("kill").args(["-KILL", &format!("-{pid}")]).status();
-        }
         if let Some(mut child) = taken {
             let _ = child.kill().await;
         }
@@ -201,5 +204,23 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         assert_eq!(task.status(), TaskStatus::Failed, "自行非零退出保持 Failed，不得误报 Killed");
+    }
+
+    #[tokio::test]
+    async fn kill_on_exited_task_keeps_status_and_skips_signals() {
+        let registry = Arc::new(TaskRegistry::new());
+        let id = crate::tools::exec::spawn_task(vec!["true".into()], "true", "/tmp", &registry, None).await.expect("spawn");
+        let task = registry.get(&id).expect("task");
+        for _ in 0..100 {
+            if task.status() != TaskStatus::Running {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(task.status(), TaskStatus::Exited);
+        // 已退出的任务再 kill：killed 标记不打、信号不发（对死进程 kill 只打 No such process 噪音），原判定不动
+        assert!(registry.kill(&id).await);
+        assert_eq!(task.status(), TaskStatus::Exited, "已退出任务 kill 后不得变 Killed");
+        assert!(!task.killed.load(Ordering::Relaxed));
     }
 }

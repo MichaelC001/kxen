@@ -10,6 +10,8 @@ export interface MsgItem {
   stats?: RunStats | undefined;
   error?: string | undefined;
   messageId?: string | undefined;
+  /** 通知类 user 消息的来源小标（[teammate x] / [task notification] 前缀，与后端落盘文本同口径） */
+  source?: string | undefined;
 }
 export interface ToolItem {
   kind: "tool";
@@ -27,9 +29,18 @@ export interface ApprovalItem {
   approvalId: string;
   command: string;
   reason: string;
-  resolved?: "allowed" | "denied";
+  // allowed/denied = 用户决定；timeout/cancelled = 后端了结（approval.resolved）；expired = 迟到应答发现服务端已了结
+  resolved?: "allowed" | "denied" | "timeout" | "cancelled" | "expired";
 }
 export type Item = MsgItem | ToolItem | PhaseItem | ApprovalItem;
+
+/** 通知类 user 消息的来源小标：[teammate 名] / [task notification] 前缀（后端落盘口径，见 drain_lead_inbox / drain_to_session）。 */
+export function userSource(text: string): string | undefined {
+  const teammate = /^\[teammate ([^\]]+)\]/.exec(text);
+  if (teammate?.[1]) return `teammate ${teammate[1]}`;
+  if (text.startsWith("[task notification]")) return "task notification";
+  return undefined;
+}
 
 export function toItems(messages: StoredMessage[]): Item[] {
   const items: Item[] = [];
@@ -47,7 +58,13 @@ export function toItems(messages: StoredMessage[]): Item[] {
             messageId: m.id,
           };
         } else {
-          items.push({ kind: "msg", role: m.role, content: p.text, messageId: m.id });
+          items.push({
+            kind: "msg",
+            role: m.role,
+            content: p.text,
+            messageId: m.id,
+            source: m.role === "user" ? userSource(p.text) : undefined,
+          });
         }
       } else if (p.type === "reasoning" && p.text && m.role === "assistant") {
         reasoning += p.text;

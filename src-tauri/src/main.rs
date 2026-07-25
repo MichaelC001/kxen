@@ -62,8 +62,10 @@ impl AppState {
     #[allow(dead_code)]
     fn new() -> Self {
         let path = kxen_app::core::paths::auth_file();
-        // 共享句柄：与 TeamManager SpawnDeps 同一把锁，后台探测写入的凭证两边即时可见
+        // 共享句柄：与 TeamManager SpawnDeps 同一把锁，后台探测写入的凭证两边即时可见；
+        // 登记回写后 run 内刷新（ctx.store 是克隆快照）也即时收敛到各克隆点（auth::shared_store）
         let store = Arc::new(Mutex::new(kxen_app::auth::credential::read_auth_file(&path)));
+        kxen_app::auth::shared_store::register_shared_store(&store);
         let config =
             kxen_app::core::config::Config::load(&kxen_app::core::paths::config_dir().join("config.toml"), None).unwrap_or_default();
         let statusline_items = config.statusline.items.clone();
@@ -75,7 +77,7 @@ impl AppState {
             std::sync::Arc::from(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
         let bus = kxen_app::core::event::EventBus::default();
         let agents = std::sync::Arc::new(kxen_app::agent::activity::AgentRegistry::default());
-        let approvals = std::sync::Arc::new(kxen_app::agent::approval::ApprovalBroker::new());
+        let approvals = std::sync::Arc::new(kxen_app::agent::approval::ApprovalBroker::new().with_bus(bus.clone()));
         let mcp = kxen_app::mcp::McpManager::new();
         let lsp = std::sync::RwLock::new(kxen_app::lsp::LspManager::new(workdir.to_path_buf()));
         // P0-2：team relay 与 AppState 共享同一队列实例（teammate 报告入队 = 用户消息同路续跑）
@@ -195,10 +197,10 @@ pub fn run() {
                         Err(e) => tracing::error!(error = %e, "ws server failed"),
                     }
                 });
-                // 崩溃前排队的消息恢复续跑（队列落盘是承诺，重启不该变无限搁置）
+                // 崩溃前排队的消息恢复续跑；teammate -> lead 与 background late 通知在无活跃 run 时的续跑触发
                 ws::pending::restore_queues(app.handle().clone());
-                // P0-2b：teammate -> lead 无活跃 run 的续跑触发接线
                 ws::pending::wire_team_kick(app.handle());
+                ws::pending::wire_background_kick(app.handle());
                 // 通知落盘：bus 订阅一条，Notification 事件进环形缓冲（通知中心数据源）
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {

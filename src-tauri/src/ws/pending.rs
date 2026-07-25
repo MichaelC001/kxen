@@ -47,3 +47,10 @@ pub(crate) fn wire_team_kick(app: &AppHandle) {
     let handle = app.clone();
     app.state::<Arc<AppState>>().team.relay().set_kick(move |sid| kick_session(handle.clone(), sid));
 }
+
+/// background late 通知的续跑触发接线：notify.close 的 late 闭包入队后拉活，
+/// 与 team kick 同一判活 / 同一 spawn 口（kick_session 复核 active_runs，不并发起第二个 run）
+pub(crate) fn wire_background_kick(app: &AppHandle) {
+    let handle = app.clone();
+    kxen_app::agent::background::set_late_kick(move |sid| kick_session(handle.clone(), sid));
+}
