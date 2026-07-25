@@ -3,11 +3,11 @@
 import { createEffect, createSignal, Show, onCleanup, onMount } from "solid-js";
 import { Send, Square } from "lucide-solid";
 import { commandList, type CommandInfo, type ContextItem } from "../../lib/chat";
-import { activeSessionId, ensureActiveSession } from "../../lib/state";
+import { activeSessionId } from "../../lib/state";
 import { clearDraft, getDraft, setDraft } from "../../lib/drafts";
 import { COMPOSER_INSERT_EVENT } from "../../lib/composer-bus";
 import { buildItems, detectTrigger, type PopupState, type Trigger } from "./triggers";
-import { fsResolveName, resolveAttachPath, resolvePickedPath } from "./attach";
+import { createAttachments } from "./composer-attachments";
 import { createVoicePtt } from "./voice-ptt";
 import { caretRect } from "./caret";
 import { createPasteStore, isLargePaste, normalizePaste } from "./paste";
@@ -176,54 +176,7 @@ export default function TextComposer(props: {
   const pushChip = (chip: Omit<RowChip, "id">) =>
     setRowChips((prev) => [...prev, { id: `chip_${chipSeq++}`, ...chip }]);
 
-  function attachFiles(files: FileList | File[]) {
-    for (const file of files) {
-      if (file.type.startsWith("image/")) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = String(reader.result);
-          images.set(dataUrl, { media_type: file.type, data: dataUrl.split(",")[1] ?? "" });
-          pushChip({
-            kind: "image",
-            ref: dataUrl,
-            label: `图片 ${file.type.split("/")[1] ?? ""}`,
-            preview: dataUrl,
-          });
-        };
-        reader.readAsDataURL(file);
-      } else {
-        void attachOneFile(file);
-      }
-    }
-  }
-
-  /** 普通文件附件：File 只有 basename，反查 workspace 索引存相对路径（子目录可读、同名不串）。 */
-  async function attachOneFile(file: File) {
-    const candidates = await fsResolveName(file.name).catch(() => []);
-    const rel = resolveAttachPath(file.name, file.size, candidates) ?? file.name;
-    pushChip({ kind: "file", ref: rel, label: file.name, title: rel });
-  }
-
-  /** 原生对话框附件：真实绝对路径。授权绑会话（草稿态先落库）；图片读 base64 内联，文件走 context chip。 */
-  async function attachPaths(paths: string[]) {
-    const sid = await ensureActiveSession();
-    for (const path of paths) {
-      const chip = await resolvePickedPath(sid, path);
-      if (!chip) continue;
-      if (chip.kind === "image") {
-        images.set(chip.ref, chip.image);
-        pushChip({
-          kind: "image",
-          ref: chip.ref,
-          label: chip.label,
-          title: chip.title,
-          preview: chip.ref,
-        });
-      } else {
-        pushChip({ kind: "file", ref: chip.ref, label: chip.label, title: chip.title });
-      }
-    }
-  }
+  const { attachFiles, attachPaths } = createAttachments({ images, pushChip });
 
   function onPaste(e: ClipboardEvent) {
     const files = e.clipboardData?.files;

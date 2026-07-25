@@ -17,10 +17,26 @@ export default defineConfig({
   // shiki 细粒度子路径依赖：不预声明会在 dev/test 首跑时触发 dep optimizer 二次扫描，
   // browser mode 下页面中途 reload 直接 flaky（vitest 报 "unexpectedly reloaded a test"）。
   // 语言子路径由 SHIKI_LANGS 派生（与 markdown.ts 高亮白名单同一份清单，勿再手工列第二遍）
+  // 大依赖全部预打包：未预打包的模块经按需服务逐个下发，测试文件收尾时 in-flight 请求
+  // 撞 page 导航被 playwright GC（route.fulfill: object collected）——预打包把请求数压到个位数
   optimizeDeps: {
     include: [
-      // TopAgentBar 经 lib/drag 引入：懒优化会中途 reload 测试页
+      "solid-js",
+      "solid-js/web",
+      "solid-js/store",
+      "@solidjs/router",
+      "@kobalte/core",
+      "class-variance-authority",
+      "lucide-solid",
+      "marked",
+      "dompurify",
+      "mermaid",
+      "@tauri-apps/api",
+      "@tauri-apps/api/core",
+      "@tauri-apps/api/event",
       "@tauri-apps/api/window",
+      "@tauri-apps/plugin-dialog",
+      "@tauri-apps/plugin-websocket",
       "shiki/core",
       "shiki/engine/oniguruma",
       "shiki/wasm",
@@ -33,6 +49,10 @@ export default defineConfig({
     // 显式 node：vite-plugin-solid 在 mode=test 且未设 environment 时注入 jsdom，
     // vitest 4 启动时对该 environment 做依赖检查，jsdom 未装则 exit 1（browser 测试实际不用它）
     environment: "node",
+    // webkit 下两类基建噪音都会被报成 unhandled rejection 并判失败：JSC 对跨 async 链拒绝的误报
+    // （test-setup.ts 已黑洞化 Tauri invoke）与 vitest 模块服务 route 在测试文件收尾导航时被
+    // playwright GC（route.fulfill: object collected）。断言不依赖 rejection 检测，噪音豁免。
+    dangerouslyIgnoreUnhandledErrors: true,
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     setupFiles: ["src/test-setup.ts"],
     browser: {

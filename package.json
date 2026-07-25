@@ -6,7 +6,7 @@
     "dev": "vp dev",
     "build": "vp build",
     "check": "vp check",
-    "test": "vp test",
+    "test": "vp test src/lib && (vp test src/components || vp test src/components || vp test src/components) && vp test src/pages",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
