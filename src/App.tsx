@@ -4,6 +4,7 @@ import RightColumn from "./components/RightColumn";
 import StatusBar from "./components/StatusBar";
 import CommandPalette from "./components/CommandPalette";
 import ContextMenu from "./components/ContextMenu";
+import FlashHost from "./components/FlashHost";
 import TopAgentBar from "./components/TopAgentBar";
 import AgentFocusView from "./components/AgentFocusView";
 import Session from "./pages/Session";
@@ -75,6 +76,7 @@ function Layout(props: { children?: import("solid-js").JSX.Element }) {
       <main class="flex-1 min-w-0 flex">{props.children}</main>
       <CommandPalette />
       <ContextMenu />
+      <FlashHost />
     </div>
   );
 }
