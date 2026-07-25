@@ -173,10 +173,10 @@ describe("refreshAgents / refreshSessions 引用稳定合并", () => {
 
 describe("mountSessionEvents 事件驱动刷新", () => {
   const fireStream = () => {
-    for (const cb of [...mocks.streamHandlers]) cb({ session_id: "a", running: true });
+    for (const cb of mocks.streamHandlers) cb({ session_id: "a", running: true });
   };
   const fireResync = () => {
-    for (const cb of [...mocks.resyncHandlers]) cb();
+    for (const cb of mocks.resyncHandlers) cb();
   };
 
   it("session.update 连发帧去抖为一次 refreshSessions", async () => {
