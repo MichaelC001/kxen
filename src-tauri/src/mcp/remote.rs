@@ -1,8 +1,8 @@
-//! streamable HTTP transport（MCP 2025-03-26 形态的常见实现）：单端点 POST JSON-RPC，
+//! streamable HTTP transport（MCP 2025-03-26 形态）：单端点 POST JSON-RPC，
 //! 响应可为 application/json（单帧）或 text/event-stream（SSE 帧流，读到本请求应答为止）。
 //! 会话：server 下发 Mcp-Session-Id 后续请求回带；close 时按规范发 DELETE 结束会话。
-//! 不做 GET 流（server 主动推送通道）：roots/list 等反向请求只在 POST 响应流内应答，
-//! 仅依赖 GET 流推送的 server 暂不支持（当前罕见）。
+//! standalone GET 流（server 主动推送通道）在 remote_get.rs：initialize 拿到 session 后后台拉起，
+//! GET 只收 server 推送，不替代 POST 通道（工具调用仍走 POST 内联读应答）。
 
 use super::oauth;
 use super::oauth_store::BearerAuth;
@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 // Guard 定义上移到 mcp 根（oauth 等 pub 接口要暴露它）；此处 re-export 保持既有路径可用。
 pub use super::Guard;
 
-enum PostOutcome {
+pub(super) enum PostOutcome {
     /// 202 Accepted：通知/应答帧无 body
     Accepted,
     /// json 单帧或 SSE 流读到的全部 JSON-RPC 消息
@@ -32,15 +32,21 @@ enum PostReject {
 }
 
 pub struct StreamableHttpTransport {
-    client: reqwest::Client,
-    url: String,
+    pub(super) client: reqwest::Client,
+    pub(super) url: String,
     headers: Vec<(String, String)>,
     /// OAuth Bearer 供应（config 显式配了 Authorization 时为 None：显式配置被拒只报失败，不回落）
-    auth: Option<Arc<BearerAuth>>,
+    pub(super) auth: Option<Arc<BearerAuth>>,
     /// config headers 显式带 Authorization（大小写不敏感）：401/403 不回落 OAuth
-    explicit_auth: bool,
+    pub(super) explicit_auth: bool,
     session: Mutex<Option<String>>,
-    roots: Value,
+    pub(super) roots: Value,
+    /// GET 流 response 帧的路由表：等待方是 request_inner 里在飞的请求（POST 内联读不到应答时兜底）
+    pub(super) pending: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Value>>>>,
+    /// standalone GET 流任务：首个 session 到手拉起一次；close 时 abort
+    get_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// GET 流任务由普通 &self 方法里拉起，拿不到 Arc<Self>，靠 Weak 升级（new_cyclic 注入）
+    self_weak: std::sync::Weak<Self>,
     next_id: AtomicU64,
 }
 
@@ -62,7 +68,7 @@ impl StreamableHttpTransport {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| e.to_string())?;
-        Ok(Arc::new(Self {
+        Ok(Arc::new_cyclic(|self_weak| Self {
             client,
             url: url.to_string(),
             headers: pairs,
@@ -70,12 +76,16 @@ impl StreamableHttpTransport {
             explicit_auth,
             session: Mutex::new(None),
             roots,
+            pending: Arc::new(Mutex::new(HashMap::new())),
+            get_task: Mutex::new(None),
+            self_weak: self_weak.clone(),
             next_id: AtomicU64::new(1),
         }))
     }
 
-    fn decorate(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        let mut req = req.header(reqwest::header::ACCEPT, "application/json, text/event-stream");
+    /// accept 因通道而异：POST 要双形态，standalone GET 只收 SSE（remote_get 复用本方法）。
+    pub(super) fn decorate(&self, req: reqwest::RequestBuilder, accept: &'static str) -> reqwest::RequestBuilder {
+        let mut req = req.header(reqwest::header::ACCEPT, accept);
         for (k, v) in &self.headers {
             req = req.header(k, v);
         }
@@ -92,13 +102,15 @@ impl StreamableHttpTransport {
     /// 单发一帧并按 content-type 读尽响应；401/403 单独成 Auth 交给 post 决定 refresh 重试。
     async fn post_once(&self, frame: &Value) -> Result<PostOutcome, PostReject> {
         let resp = self
-            .decorate(self.client.post(&self.url))
+            .decorate(self.client.post(&self.url), "application/json, text/event-stream")
             .json(frame)
             .send()
             .await
             .map_err(|e| PostReject::Other(format!("mcp http post {}: {e}", self.url)))?;
         if let Some(sid) = resp.headers().get("mcp-session-id").and_then(|v| v.to_str().ok()) {
             *self.session.lock().expect("mcp session") = Some(sid.to_string());
+            // 规范里 session 由 initialize 响应下发：首个 session 到手即具备开 GET 流的前提
+            self.ensure_get_stream();
         }
         let status = resp.status();
         if status == reqwest::StatusCode::ACCEPTED {
@@ -137,7 +149,7 @@ impl StreamableHttpTransport {
 
     /// 401/403 自愈链：显式 Authorization 被拒 -> 直接报失败不回落；有 OAuth token ->
     /// refresh 后整帧重试一次，refresh 被拒或重试仍 401/403 才抛 AUTH_REQUIRED 让上层标 needs_auth。
-    async fn post(&self, frame: Value, timeout: std::time::Duration) -> Result<PostOutcome, String> {
+    pub(super) async fn post(&self, frame: Value, timeout: std::time::Duration) -> Result<PostOutcome, String> {
         let work = async {
             let reject = match self.post_once(&frame).await {
                 Ok(out) => return Ok(out),
@@ -168,9 +180,16 @@ impl StreamableHttpTransport {
     async fn request_inner(&self, method: &str, params: Value, timeout: std::time::Duration) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let frame = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
-        match self.post(frame, timeout).await? {
-            PostOutcome::Accepted => Err(format!("mcp http request {method} got 202 without body")),
-            PostOutcome::Messages(messages) => {
+        // 挂上路由表：response 若经 GET 流推回（规范允许 server 用 standalone 流应答），可投递到本等待方
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending.lock().expect("mcp pending").insert(id, tx);
+        let start = std::time::Instant::now();
+        let outcome = self.post(frame, timeout).await;
+        let result = match outcome {
+            Err(e) => Err(e),
+            Ok(PostOutcome::Accepted) => Err(format!("mcp http request {method} got 202 without body")),
+            Ok(PostOutcome::Messages(messages)) => {
+                let mut found = None;
                 for msg in messages {
                     // server 反向请求（method+id 同帧）：只懂 roots/list，答完继续等自己的响应
                     if msg.get("method").is_some() {
@@ -182,12 +201,25 @@ impl StreamableHttpTransport {
                         continue;
                     }
                     if msg.get("id").and_then(|i| i.as_u64()) == Some(id) {
-                        return Ok(msg);
+                        found = Some(msg);
+                        break;
                     }
                 }
-                Err(format!("mcp http request {method} got no matching response"))
+                match found {
+                    Some(msg) => Ok(msg),
+                    // POST 流内无本请求应答：GET 流活着时等它推回（只耗剩余超时）；无 GET 流维持立即报错
+                    None => match self.get_stream_alive() {
+                        true => match tokio::time::timeout(timeout.saturating_sub(start.elapsed()), rx).await {
+                            Ok(Ok(v)) => Ok(v),
+                            _ => Err(format!("mcp http request {method} got no matching response")),
+                        },
+                        false => Err(format!("mcp http request {method} got no matching response")),
+                    },
+                }
             }
-        }
+        };
+        self.pending.lock().expect("mcp pending").remove(&id);
+        result
     }
 
     async fn notify_inner(&self, method: &str, params: Value) -> Result<(), String> {
@@ -196,12 +228,30 @@ impl StreamableHttpTransport {
     }
 
     async fn close_inner(&self) {
+        // 先停 GET 流：session DELETE 之后它的重连只会吃 404，白绕一轮退避
+        if let Some(task) = self.get_task.lock().expect("mcp get task").take() {
+            task.abort();
+        }
         // 按规范：client 不再需要会话时发 DELETE；无会话或失败都静默（shutdown 路径不可失败）
         let Some(session) = self.session.lock().expect("mcp session").take() else {
             return;
         };
         let req = self.client.delete(&self.url).header("mcp-session-id", session);
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), self.decorate(req).send()).await;
+        let _ =
+            tokio::time::timeout(std::time::Duration::from_secs(5), self.decorate(req, "application/json, text/event-stream").send()).await;
+    }
+
+    /// 首个 session 到手即拉起 standalone GET 流（每 transport 只起一次；remote_get.rs 实现）。
+    fn ensure_get_stream(&self) {
+        let mut slot = self.get_task.lock().expect("mcp get task");
+        if slot.is_none() {
+            *slot = Some(super::remote_get::spawn(self.self_weak.clone()));
+        }
+    }
+
+    /// GET 流任务在跑（连着或退避中）：request_inner 据此决定要不要等 GET 流推回应答。
+    fn get_stream_alive(&self) -> bool {
+        self.get_task.lock().expect("mcp get task").as_ref().is_some_and(|t| !t.is_finished())
     }
 }
 

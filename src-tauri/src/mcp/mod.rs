@@ -9,6 +9,7 @@ pub mod oauth;
 pub mod oauth_flow;
 pub mod oauth_store;
 mod remote;
+mod remote_get;
 mod remote_sse;
 mod sse;
 pub mod tools;
