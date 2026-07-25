@@ -7,11 +7,12 @@ use std::time::Duration;
 /// 对象/数组分节，空字符串字段显式标 [EMPTY]（JSON 空字段会被主模型静默吞掉，必须给显式信号）。
 pub(crate) const FORMAT_RESULT_JS: &str = r#"
 globalThis.__kxenFormatResult = (v) => {
+  const EMPTY = '[EMPTY] empty result (likely a failed agent - rerun or report it)';
   const fmt = (x) => {
-    if (typeof x === 'string') return x.trim() === '' ? '[EMPTY] agent returned nothing (likely failed - rerun or report)' : x;
+    if (typeof x === 'string') return x.trim() === '' ? EMPTY : x;
     return JSON.stringify(x, null, 2);
   };
-  if (typeof v === 'string') return v;
+  if (typeof v === 'string') return fmt(v);
   if (Array.isArray(v)) return v.map((item, i) => '## result ' + (i + 1) + '\n\n' + fmt(item)).join('\n\n');
   if (typeof v === 'object') return Object.entries(v).map(([k, x]) => '## ' + k + '\n\n' + fmt(x)).join('\n\n');
   return JSON.stringify(v, null, 2);

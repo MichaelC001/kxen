@@ -111,7 +111,7 @@ async fn object_result_is_markdown_sections() {
     let out = run_ok("return { summary: 'ok', failed: '', count: 2 }").await;
     assert_eq!(
         body(&out),
-        "## summary\n\nok\n\n## failed\n\n[EMPTY] agent returned nothing (likely failed - rerun or report)\n\n## count\n\n2"
+        "## summary\n\nok\n\n## failed\n\n[EMPTY] empty result (likely a failed agent - rerun or report it)\n\n## count\n\n2"
     );
 }
 
@@ -245,4 +245,22 @@ async fn cancel_flag_interrupts() {
     cancel.store(true, Ordering::Relaxed);
     let err = run_script("while (true) {}", test_deps(), mpsc::unbounded_channel().0, cancel, None).await.unwrap_err();
     assert!(!err.is_empty());
+}
+
+#[tokio::test]
+async fn unknown_role_errors_clearly() {
+    // 未知 role 显式报错（含可选清单）并进信封 failures，不再静默降级只读
+    let out = run("const [r] = await parallel([() => agent('impl46', 'hi')]); return String(r.error ?? r);")
+        .await
+        .expect("workflow should complete despite the failed branch");
+    assert!(out.contains("unknown agent role 'impl46'"), "{out}");
+    assert!(out.contains("thinking/planning/execution/review/research"), "{out}");
+    assert!(out.contains("failures:"), "{out}");
+}
+
+#[tokio::test]
+async fn top_level_empty_string_is_flagged() {
+    // 顶层空字符串与成员空值同等对待：空结果必须显式标记，不能被静默吞掉
+    let out = run_ok("return '';").await;
+    assert!(body(&out).contains("[EMPTY]"), "{out}");
 }

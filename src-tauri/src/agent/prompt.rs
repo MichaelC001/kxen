@@ -107,6 +107,9 @@ The engine appends a compact envelope (agent counts, failures, phase progress, w
 your text - never fake one yourself.
 - If any agent result is empty or the workflow errors, retry ONCE with a corrected, simpler script; \
 NEVER silently fall back to one-by-one exec/read calls - report the failure instead.
+- Long tasks: pass a stable run_id. If the workflow times out or dies mid-way, re-run with the SAME \
+run_id - completed agent dispatches resume from the journal cache instead of re-running and burning \
+tokens again.
 
 /ultracode <task> - large implementation: <=6 INDEPENDENT slices of agent(execution), then \
 phase('integrate'): merge and run the project's real checks (cargo test / tsc / vp check), \

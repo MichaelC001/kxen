@@ -100,6 +100,16 @@ pub fn role_agent(role: &str) -> RoleAgent {
     RoleAgent { name: format!("kxen-{role}"), role: role.to_string(), permission, prompt: duty, max_turns }
 }
 
+const BUILTIN_ROLES: &[&str] = &["thinking", "planning", "execution", "review", "research"];
+
+/// role 是否存在：内建集合，或已信任项目的 .agents/agents/<role>.md。
+fn role_exists(role: &str, workdir: &std::path::Path) -> bool {
+    BUILTIN_ROLES.contains(&role)
+        || (crate::core::ids::validate_id(role).is_ok()
+            && crate::core::trust::is_trusted(workdir)
+            && workdir.join(".agents/agents").join(format!("{role}.md")).is_file())
+}
+
 /// 角色解析：项目 .agents/agents/<role>.md 优先（frontmatter permission/max_turns），缺省回落内建预设。
 pub fn role_agent_for(role: &str, workdir: &std::path::Path) -> RoleAgent {
     // role 名来自模型工具参数：先过 id 白名单（拒 ../ 路径穿越），非法名直接回落内建预设
@@ -145,6 +155,12 @@ fn parse_frontmatter(text: &str) -> (std::collections::HashMap<String, String>, 
 /// agent 派发：角色 -> mrm 路由 model -> 独立子 loop -> 结果回传。
 /// kind 区分来源（agent 工具 / workflow 的 agent()），统一进活动注册表供 UI 多窗格展示。
 pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: crate::agent::activity::AgentKind) -> Result<String, String> {
+    // 未知 role 显式报错：静默回落只读会把实现类任务做成"跑完但没改"，比直接报错更难被发现
+    if !role_exists(role, &deps.workdir) {
+        return Err(format!(
+            "unknown agent role '{role}' (builtin: thinking/planning/execution/review/research; custom: .agents/agents/<role>.md in a trusted project)"
+        ));
+    }
     let agent = role_agent_for(role, &deps.workdir);
     // 原子 acquire：resolve 与占槽一体，杜绝并发派发时同 provider 超发；grant 持槽整轮
     let grant = deps.mrm.acquire_role(role, &deps.store).await.ok_or_else(|| format!("no available model for role {role}"))?;
@@ -317,6 +333,17 @@ mod tests {
             let agent = role_agent_for(bad, &dir);
             assert!(!agent.prompt.contains("escaped payload"), "穿越名 {bad:?} 不得读出文件");
         }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn role_exists_gate() {
+        setup();
+        let dir = role_fixture("exists");
+        assert!(role_exists("execution", &dir) && role_exists("review", &dir), "内建 role 永远存在");
+        assert!(!role_exists("sentry", &dir) && !role_exists("../escape", &dir), "未信任与穿越名不存在");
+        crate::core::trust::trust(&dir);
+        assert!(role_exists("sentry", &dir) && !role_exists("nonexistent", &dir));
         std::fs::remove_dir_all(&dir).ok();
     }
 }
