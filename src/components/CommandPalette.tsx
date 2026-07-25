@@ -5,7 +5,7 @@ import { commandList, type CommandInfo } from "../lib/chat";
 import { fmtCtx, modelsCatalog, type ProviderCatalog } from "../lib/models";
 import { activeSessionId, sessions, switchSession } from "../lib/state";
 import { sessionSetModel } from "../lib/session-model";
-import { insertComposerText } from "../lib/composer-bus";
+import { insertComposerText, interruptComposer } from "../lib/composer-bus";
 
 interface Row {
   kind: "command" | "session" | "model";
@@ -25,6 +25,8 @@ export default function CommandPalette() {
   const onKey = (e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
+      // 打开面板即打断语音 PTT：焦点被面板 input 抢走后空格 keyup 丢失，PTT 永远收不到松开
+      if (!open()) interruptComposer();
       setOpen(!open());
       if (!open()) {
         setQuery("");

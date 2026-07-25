@@ -143,6 +143,7 @@ export default function TextComposer(props: {
     sessionId: () => activeSessionId(),
     onStarted: setActiveVoice,
   });
+  onCleanup(voiceCtl.dispose);
 
   function checkTrigger() {
     if (debounceTimer) clearTimeout(debounceTimer);

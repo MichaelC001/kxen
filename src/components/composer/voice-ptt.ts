@@ -1,5 +1,6 @@
 // 语音 PTT 状态机：长按空格 >=400ms 进语音（激活期/激活后空格一律 preventDefault 防连打），
 // 松开提交；startSession 可注入（测试替身），默认走 RPC 引擎。
+import { COMPOSER_INTERRUPT_EVENT } from "../../lib/composer-bus";
 import { startVoiceSession, type VoiceSession } from "../../lib/voice";
 
 export interface VoiceController {
@@ -14,6 +15,8 @@ export interface VoiceController {
   starting: () => boolean;
   onSpaceDown: (e: KeyboardEvent) => void;
   onSpaceUp: (e: KeyboardEvent) => void;
+  /** 卸载时摘除 window 级监听（blur/visibilitychange/浮层打断）与错误消退计时，防重挂载后重复挂听。 */
+  dispose: () => void;
 }
 
 type StartSession = (
@@ -22,6 +25,13 @@ type StartSession = (
   onError: (msg: string) => void,
   sessionId: string,
 ) => Promise<VoiceSession>;
+
+// 权限类错误只报原因用户不知道去哪修：补下一步指引；后端已带指引（含「系统设置」）的不重复追加
+function withVoiceHint(msg: string): string {
+  if (!/权限|授权|permission|麦克风|microphone/i.test(msg)) return msg;
+  if (/系统设置|settings/i.test(msg)) return msg;
+  return `${msg}（前往 系统设置 > 隐私与安全性 开启麦克风/语音识别后重试）`;
+}
 
 export function createVoicePtt(opts: {
   getText: () => string;
@@ -35,6 +45,8 @@ export function createVoicePtt(opts: {
   sessionId?: () => string;
   /** 启动成功回调：回传实际引擎（降级链可能落到非主引擎）。 */
   onStarted?: (engine: string) => void;
+  /** 错误自动消退毫秒数（测试注入小值），缺省 5000：常驻红字会被当成「一直坏着」。 */
+  errTtlMs?: number;
 }): VoiceController {
   const startSession: StartSession = opts.startSession ?? startVoiceSession;
   let session: VoiceSession | null = null;
@@ -48,12 +60,31 @@ export function createVoicePtt(opts: {
   let pttTimer: ReturnType<typeof setTimeout> | undefined;
   let pttActive = false;
   let spaceCountAtDown = 0;
+  let errTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function clearPttTimer() {
+    if (pttTimer) {
+      clearTimeout(pttTimer);
+      pttTimer = undefined;
+    }
+  }
+
+  // 错误统一入口：空串即清；非空到时自动消退
+  function reportError(msg: string) {
+    if (errTimer) clearTimeout(errTimer);
+    if (!msg) {
+      opts.setError("");
+      return;
+    }
+    opts.setError(withVoiceHint(msg));
+    errTimer = setTimeout(() => opts.setError(""), opts.errTtlMs ?? 5000);
+  }
 
   async function start() {
     if (session || starting) return;
     starting = true;
     cancelled = false;
-    opts.setError("");
+    reportError("");
     base = opts.getText();
     partialLen = 0;
     try {
@@ -69,7 +100,7 @@ export function createVoicePtt(opts: {
           opts.afterChange();
         },
         (msg) => {
-          opts.setError(msg);
+          reportError(msg);
           void stop();
         },
         opts.sessionId?.() ?? "",
@@ -77,16 +108,18 @@ export function createVoicePtt(opts: {
       if (cancelled) {
         // 启动落定前已被取消（启动中 toggle/send/切会话）：自停；
         // 停失败必须上报——引擎停不掉会一直占麦
-        s.stop().catch((e) => opts.setError(e instanceof Error ? e.message : String(e)));
+        s.stop().catch((e) => reportError(e instanceof Error ? e.message : String(e)));
         return;
       }
       session = s;
       opts.setRecording(true);
       opts.onStarted?.(s.engine);
     } catch (e) {
-      opts.setError(e instanceof Error ? e.message : String(e));
-      // 失败复位：PTT 不留激活态（继续按住只剩普通空格键，keyup 自然结束）
+      reportError(e instanceof Error ? e.message : String(e));
+      // 失败复位：PTT 不留激活态（继续按住只剩普通空格键，keyup 自然结束）；
+      // 激活计时一并清——repeat 分支靠 pttTimer 判激活期，留着会把继续按住的 repeat 空格全吞掉
       pttActive = false;
+      clearPttTimer();
     } finally {
       starting = false;
     }
@@ -100,6 +133,9 @@ export function createVoicePtt(opts: {
   async function stop(mode: "merge" | "discard" = "merge") {
     cancelled = true;
     pttActive = false;
+    // 停 PTT 必须废掉未决的激活计时：否则计时随后触发 launch，
+    // 面板打断/启动中取消等「概念上已结束」的路径会莫名重新开录
+    clearPttTimer();
     // 启动中取消：等启动落定（cancelled 已置，start 落定后自停，session 保持 null）
     if (starting) await startFlight;
     const s = session;
@@ -109,7 +145,7 @@ export function createVoicePtt(opts: {
     partialLen = 0;
     if (!s) return;
     const finalText = await s.stop().catch((e) => {
-      opts.setError(e instanceof Error ? e.message : String(e));
+      reportError(e instanceof Error ? e.message : String(e));
       return null;
     });
     // discard（切会话）：终稿属旧会话，落进当前输入框就是串台
@@ -119,6 +155,24 @@ export function createVoicePtt(opts: {
     opts.setText(base + finalText + tail);
     opts.afterChange();
   }
+
+  // 失焦/切后台视同 keyup：窗口失焦后空格 keyup 丢失，pttActive 卡 true 会把之后所有空格吞掉
+  function releasePtt() {
+    clearPttTimer();
+    if (pttActive) {
+      pttActive = false;
+      void stop();
+    }
+  }
+  const onWindowBlur = () => releasePtt();
+  const onVisibility = () => {
+    if (document.hidden) releasePtt();
+  };
+  // 浮层（Cmd-K 面板）打开：焦点被抢后空格 keyup 落进浮层 input，PTT 永远收不到松开
+  const onInterrupt = () => void stop();
+  window.addEventListener("blur", onWindowBlur);
+  document.addEventListener("visibilitychange", onVisibility);
+  window.addEventListener(COMPOSER_INTERRUPT_EVENT, onInterrupt);
 
   return {
     toggle: () => {
@@ -154,14 +208,13 @@ export function createVoicePtt(opts: {
     },
     onSpaceUp: (e) => {
       if (e.key !== " ") return;
-      if (pttTimer) {
-        clearTimeout(pttTimer);
-        pttTimer = undefined;
-      }
-      if (pttActive) {
-        pttActive = false;
-        void stop();
-      }
+      releasePtt();
+    },
+    dispose: () => {
+      window.removeEventListener("blur", onWindowBlur);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener(COMPOSER_INTERRUPT_EVENT, onInterrupt);
+      if (errTimer) clearTimeout(errTimer);
     },
   };
 }
