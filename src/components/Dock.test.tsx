@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   goalFocus: vi.fn(async (_sid?: string): Promise<unknown> => null),
   goalList: vi.fn(async (): Promise<unknown[]> => []),
+  goalTransit: vi.fn(async (_id: string, _action: string): Promise<unknown> => ({})),
   taskList: vi.fn(async () => [] as unknown[]),
   agentDiffStatus: vi.fn(async () => [] as unknown[]),
   onTopic: vi.fn(async (_topics: string[], _handler: unknown) => () => {}),
@@ -18,7 +19,7 @@ vi.mock("../lib/chat", async (importOriginal) => {
     ...orig,
     goalFocus: h.goalFocus,
     goalList: h.goalList,
-    goalTransit: vi.fn(async () => true),
+    goalTransit: h.goalTransit,
     taskList: h.taskList,
     taskKill: vi.fn(async () => true),
     agentDiffStatus: h.agentDiffStatus,
@@ -63,6 +64,7 @@ afterEach(() => {
   h.goalFocus.mockResolvedValue(null);
   h.goalList.mockClear();
   h.goalList.mockResolvedValue([]);
+  h.goalTransit.mockClear();
   h.taskList.mockClear();
   h.resync.clear();
   setActiveSessionId("");
@@ -102,6 +104,43 @@ describe("Dock goal 口径与终态呈现", () => {
     expect(h.goalList).not.toHaveBeenCalled();
     expect(document.body.textContent ?? "").toContain("预算耗尽");
     dispose();
+  });
+
+  it("budget_limited 给「提高预算并继续」（不给裸恢复），点击走 goal.adjust 后重拉", async () => {
+    setActiveSessionId("s4");
+    h.goalFocus.mockResolvedValue(goal({ id: "g4", status: "budget_limited" }));
+    const dispose = render(() => <Dock />, document.body);
+    await new Promise((r) => setTimeout(r, 0));
+    const btn = [...document.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("提高预算并继续"),
+    ) as HTMLButtonElement | undefined;
+    expect(btn).toBeTruthy();
+    expect(document.body.textContent ?? "").not.toContain("恢复"); // 裸 resume 下一轮立刻再超限
+    btn?.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.goalTransit).toHaveBeenCalledWith("g4", "adjust");
+    expect(h.goalFocus).toHaveBeenCalledTimes(2); // 首拉 + act 后重拉
+    dispose();
+  });
+
+  it("空态给「填入 /write-goal 创建」按钮：点击经 composer-bus 注入 composer", async () => {
+    const seen: string[] = [];
+    const onInsert = (e: Event) => seen.push((e as CustomEvent<string>).detail);
+    window.addEventListener("kxen:composer-insert", onInsert);
+    try {
+      const dispose = render(() => <Dock />, document.body);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(document.body.textContent ?? "").not.toContain("会话里说 write-goal");
+      const btn = [...document.querySelectorAll("button")].find((b) =>
+        b.textContent?.includes("填入 /write-goal 创建"),
+      ) as HTMLButtonElement | undefined;
+      expect(btn).toBeTruthy();
+      btn?.click();
+      expect(seen).toEqual(["/write-goal "]);
+      dispose();
+    } finally {
+      window.removeEventListener("kxen:composer-insert", onInsert);
+    }
   });
 
   it("焦点为空回落最近更新的 goal：终态徽标 + evidence 折叠 + 无操作按钮", async () => {

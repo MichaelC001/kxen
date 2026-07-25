@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   workspaceSwitch: vi.fn(async (_path: string) => {}),
   onTopic: vi.fn((_topics: string[], _handler: unknown) => () => {}),
   nav: vi.fn(),
+  resync: new Set<() => void>(),
 }));
 
 vi.mock("../lib/chat", async (importOriginal) => {
@@ -22,6 +23,17 @@ vi.mock("../lib/chat", async (importOriginal) => {
     onTopic: h.onTopic,
   };
 });
+
+vi.mock("../lib/client", () => ({
+  client: {
+    // state.ts switchSession 的 session.foreground 上报也要 rpc：桩成空实现
+    rpc: vi.fn(async () => null),
+    onResync: (cb: () => void) => {
+      h.resync.add(cb);
+      return () => h.resync.delete(cb);
+    },
+  },
+}));
 
 // <A> 依赖 Router 上下文：测试无路由装配，桩成普通锚
 vi.mock("@solidjs/router", () => ({
@@ -81,7 +93,23 @@ afterEach(() => {
   setActiveSessionId("");
   for (const m of flash.msgs()) flash.dismiss(m.id);
   h.workspaceSwitch.mockReset();
+  h.workspacesOverview.mockClear();
   h.nav.mockClear();
+  h.resync.clear();
+});
+
+describe("Workspaces resync 自愈", () => {
+  it("resync 信号触发重拉，卸载后注销回调（goal.update/task.update 丢帧不自愈的对账）", async () => {
+    const dispose = render(() => <Workspaces />, document.body);
+    await flush();
+    expect(h.workspacesOverview).toHaveBeenCalledTimes(1); // onMount 首拉
+    expect(h.resync.size).toBe(1);
+    for (const cb of h.resync) cb();
+    await flush();
+    expect(h.workspacesOverview).toHaveBeenCalledTimes(2);
+    dispose();
+    expect(h.resync.size).toBe(0);
+  });
 });
 
 describe("Workspaces 看板落点", () => {

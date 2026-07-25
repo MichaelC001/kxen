@@ -1,4 +1,4 @@
-//! goal RPC 方法（goal.{list,create,activate,pause,resume,complete,cancel,get}）。
+//! goal RPC 方法（goal.{list,create,activate,pause,resume,complete,cancel,get,adjust}）。
 //! 状态迁移成功后 publish GoalUpdate（Dock goal 面板实时刷新，此前变体只有定义无发布点）。
 
 use kxen_app::core::event::Event;
@@ -65,6 +65,8 @@ pub fn call(method: &str, params: Value, bus: &kxen_app::core::event::EventBus) 
         "goal.pause" => transit(params, bus, |g| g.pause()),
         "goal.resume" => transit(params, bus, |g| g.resume()),
         "goal.cancel" => transit(params, bus, |g| g.cancel()),
+        // 预算耗尽后的唯一自助出口：提高预算并 resume（Dock「提高预算并继续」按钮）
+        "goal.adjust" => transit(params, bus, |g| g.adjust_budget_and_resume()),
         "goal.complete" => {
             let evidence = params.get("evidence").and_then(Value::as_str).ok_or("missing evidence")?.to_string();
             transit(params, bus, |g| g.complete(&evidence))

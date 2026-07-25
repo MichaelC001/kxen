@@ -21,6 +21,7 @@ export default function NotificationCenter() {
   const [open, setOpen] = createSignal(false);
   const [items, setItems] = createSignal<Notice[]>([]);
   let root: HTMLDivElement | undefined;
+  let timer: ReturnType<typeof setInterval> | undefined;
   onClickOutside(
     () => root,
     () => setOpen(false),
@@ -36,9 +37,10 @@ export default function NotificationCenter() {
 
   onMount(() => {
     void reload();
-    const timer = setInterval(() => void reload(), 5000);
-    return () => clearInterval(timer);
+    timer = setInterval(() => void reload(), 5000);
   });
+  // Solid 忽略 onMount 返回值（React 写法）：轮询 timer 必须挂 onCleanup，否则卸载后泄漏
+  onCleanup(() => timer && clearInterval(timer));
 
   // bus lag 丢帧后服务端下发 resync：不等下一轮轮询，立即按真源重拉
   const offResync = client.onResync(() => void reload());

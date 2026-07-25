@@ -122,6 +122,9 @@ export async function agentDiffFile(sessionId: string, path: string): Promise<st
 
 // ---------------- goal ----------------
 
+/** goal RPC 动作；adjust 不是裸迁移：预算提到 2x 已用后 resume（budget_limited 唯一自助出口）。 */
+export type GoalAction = "activate" | "pause" | "resume" | "cancel" | "adjust";
+
 export interface GoalInfo {
   id: string;
   status: string;
@@ -145,10 +148,7 @@ export async function goalFocus(sessionId?: string): Promise<GoalInfo | null> {
   return client.rpc<GoalInfo | null>("goal.focus", sessionId ? { session_id: sessionId } : {});
 }
 
-export async function goalTransit(
-  id: string,
-  action: "activate" | "pause" | "resume" | "cancel",
-): Promise<GoalInfo> {
+export async function goalTransit(id: string, action: GoalAction): Promise<GoalInfo> {
   return client.rpc<GoalInfo>(`goal.${action}`, { id });
 }
 

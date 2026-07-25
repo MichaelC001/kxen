@@ -9,6 +9,7 @@ import {
   taskKill,
   taskList,
   type AgentDiffEntry,
+  type GoalAction,
   type GoalInfo,
   type TaskInfo,
 } from "../lib/chat";
@@ -17,18 +18,9 @@ import { createAction } from "../lib/async-guard";
 import { activeSessionId } from "../lib/state";
 import Markdown from "./Markdown";
 import DockWorktree from "./DockWorktree";
-import { FileDiff, SquareTerminal, Target } from "lucide-solid";
-
-const GOAL_STATUS: Record<string, { text: string; cls: string }> = {
-  draft: { text: "草稿", cls: "text-[var(--text-dim)]" },
-  queued: { text: "排队", cls: "text-[var(--text-dim)]" },
-  active: { text: "进行中", cls: "text-[var(--accent-hover)]" },
-  paused: { text: "已暂停", cls: "text-[var(--warn)]" },
-  blocked: { text: "阻塞", cls: "text-[var(--err)]" },
-  budget_limited: { text: "预算耗尽", cls: "text-[var(--err)]" },
-  complete: { text: "已完成", cls: "text-[var(--ok)]" },
-  canceled: { text: "已取消", cls: "text-[var(--text-faint)]" },
-};
+import DockGoal from "./DockGoal";
+import DockSection from "./DockSection";
+import { FileDiff, SquareTerminal } from "lucide-solid";
 
 const TASK_STATUS: Record<string, string> = {
   running: "text-[var(--ok)]",
@@ -40,28 +32,10 @@ const TASK_STATUS: Record<string, string> = {
 /** 展开日志 tail 的任务 id（dock 单例，模块级信号即可）。 */
 const [openTask, setOpenTask] = createSignal("");
 
-function Section(props: {
-  title: string;
-  icon: (p: { size: number; class?: string }) => import("solid-js").JSX.Element;
-  children: import("solid-js").JSX.Element;
-}) {
-  const Icon = props.icon;
-  return (
-    <div class="border-b border-[var(--border)] px-3 py-3">
-      <div class="text-2xs uppercase tracking-wider text-[var(--text-faint)] mb-2 flex items-center gap-1.5">
-        <Icon size={11} class="text-[var(--text-faint)]" />
-        {props.title}
-      </div>
-      {props.children}
-    </div>
-  );
-}
-
 /** 右 dock：会话上下文（目标 / 改动 / 后台任务）。 */
 function DockSections(props: {
   goal: GoalInfo | null;
-  badge: () => { text: string; cls: string };
-  act: (action: "activate" | "pause" | "resume" | "cancel") => void;
+  act: (action: GoalAction) => void;
   acting: () => boolean;
   changes: AgentDiffEntry[];
   openDiff: { path: string; text: string } | null;
@@ -69,10 +43,6 @@ function DockSections(props: {
   tasks: TaskInfo[];
   reloadTasks: () => void;
 }) {
-  const goal = () => props.goal;
-  const badge = props.badge;
-  const act = props.act;
-  const acting = props.acting;
   const reloadTasks = props.reloadTasks;
   const changes = () => props.changes;
   const openDiff = () => props.openDiff;
@@ -80,81 +50,9 @@ function DockSections(props: {
   const tasks = () => props.tasks;
   return (
     <>
-      <Section title="目标" icon={Target}>
-        <Show
-          when={goal()}
-          fallback={
-            <div class="text-xs text-[var(--text-faint)]">
-              无焦点 goal。会话里说 write-goal 创建。
-            </div>
-          }
-        >
-          {(g) => (
-            <div class="space-y-1.5">
-              <div class="flex items-center gap-1.5">
-                <span class={`text-xs font-medium ${badge().cls}`}>{badge().text}</span>
-                <span class="text-2xs text-[var(--text-faint)]">
-                  turns {g().turns_used}
-                  {g().budget.turns ? `/${g().budget.turns}` : ""}
-                </span>
-              </div>
-              <div class="text-xs leading-snug">{g().objective}</div>
-              <div class="text-2xs text-[var(--text-dim)]">判据：{g().completion_criteria}</div>
-              <Show when={g().block_reason}>
-                <div class="text-2xs text-[var(--err)]">阻塞：{g().block_reason}</div>
-              </Show>
-              <Show when={g().verification_evidence}>
-                <details class="text-2xs text-[var(--text-dim)]">
-                  <summary class="cursor-pointer select-none">验证证据</summary>
-                  <div class="mt-0.5 whitespace-pre-wrap break-words">
-                    {g().verification_evidence}
-                  </div>
-                </details>
-              </Show>
-              <div class="flex gap-1.5 pt-0.5">
-                <Show when={g().status === "active"}>
-                  <button
-                    class="pressable px-2 py-0.5 rounded text-2xs border border-[var(--border)] text-[var(--warn)] disabled:opacity-50"
-                    disabled={acting()}
-                    onClick={() => act("pause")}
-                  >
-                    暂停
-                  </button>
-                </Show>
-                <Show when={["paused", "blocked", "budget_limited"].includes(g().status)}>
-                  <button
-                    class="pressable px-2 py-0.5 rounded text-2xs bg-[var(--accent)] text-white disabled:opacity-50"
-                    disabled={acting()}
-                    onClick={() => act("resume")}
-                  >
-                    恢复
-                  </button>
-                </Show>
-                <Show when={["draft", "queued"].includes(g().status)}>
-                  <button
-                    class="pressable px-2 py-0.5 rounded text-2xs bg-[var(--accent)] text-white disabled:opacity-50"
-                    disabled={acting()}
-                    onClick={() => act("activate")}
-                  >
-                    激活
-                  </button>
-                </Show>
-                <Show when={!["complete", "canceled"].includes(g().status)}>
-                  <button
-                    class="pressable px-2 py-0.5 rounded text-2xs border border-[var(--border)] text-[var(--err)] disabled:opacity-50"
-                    disabled={acting()}
-                    onClick={() => act("cancel")}
-                  >
-                    取消
-                  </button>
-                </Show>
-              </div>
-            </div>
-          )}
-        </Show>
-      </Section>
+      <DockGoal goal={props.goal} act={props.act} acting={props.acting} />
 
-      <Section title="改动" icon={FileDiff}>
+      <DockSection title="会话改动" icon={FileDiff}>
         <Show
           when={changes().length > 0}
           fallback={<div class="text-xs text-[var(--text-faint)]">本会话暂无 agent 改动</div>}
@@ -193,9 +91,9 @@ function DockSections(props: {
             </For>
           </div>
         </Show>
-      </Section>
+      </DockSection>
 
-      <Section title="后台任务" icon={SquareTerminal}>
+      <DockSection title="后台任务" icon={SquareTerminal}>
         <Show
           when={tasks().length > 0}
           fallback={<div class="text-xs text-[var(--text-faint)]">无后台任务</div>}
@@ -244,7 +142,7 @@ function DockSections(props: {
             </For>
           </div>
         </Show>
-      </Section>
+      </DockSection>
     </>
   );
 }
@@ -298,7 +196,7 @@ export default function Dock() {
     if (timer) clearInterval(timer);
   });
 
-  const act = (action: "activate" | "pause" | "resume" | "cancel") => {
+  const act = (action: GoalAction) => {
     const g = goal();
     if (!g) return;
     void goalAction.run(
@@ -319,13 +217,10 @@ export default function Dock() {
     setOpenDiff({ path, text });
   };
 
-  const badge = () => GOAL_STATUS[goal()?.status ?? ""] ?? { text: "", cls: "" };
-
   return (
     <aside class="w-full h-full overflow-y-auto">
       <DockSections
         goal={goal()}
-        badge={badge}
         act={act}
         acting={goalAction.pending}
         changes={changes()}

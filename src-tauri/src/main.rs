@@ -1,6 +1,7 @@
 mod cron_dispatch;
 mod doctor;
 mod goal_rpc;
+mod os_notify;
 mod ws;
 
 use kxen_app::llm::ModelRef;
@@ -220,11 +221,11 @@ pub fn run() {
                                 let state = handle.state::<Arc<AppState>>();
                                 let fg = state.foreground_session.read().expect("foreground").clone();
                                 if !sid.is_empty() && sid != fg {
-                                    use tauri_plugin_notification::NotificationExt;
                                     let title = kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), sid)
                                         .map(|m| m.title)
                                         .unwrap_or_else(|_| sid.to_string());
-                                    let _ = handle.notification().builder().title("kxen 会话完成").body(&title).show();
+                                    // 点击通知聚焦主窗口并跳来源会话（os_notify 说明为什么不用插件 API）
+                                    os_notify::notify_session_done(&handle, sid, &title);
                                 }
                             }
                         }

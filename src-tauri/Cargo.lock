@@ -2131,6 +2131,7 @@ dependencies = [
  "globset",
  "ignore",
  "keyring",
+ "notify-rust",
  "objc2",
  "objc2-foundation",
  "regex",

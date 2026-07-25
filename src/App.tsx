@@ -21,6 +21,7 @@ import {
 import { startAgentsPolling } from "./lib/agents-poll";
 import { mountShortcuts } from "./lib/shortcuts";
 import { openMenu } from "./lib/context-menu";
+import { mountOsNotificationJump } from "./lib/os-notify";
 import { useNavigate } from "@solidjs/router";
 import { onCleanup, onMount, Show } from "solid-js";
 
@@ -65,12 +66,18 @@ function Layout(props: { children?: import("solid-js").JSX.Element }) {
   const navigate = useNavigate();
   setNavigator(navigate);
   let unmount: (() => void) | undefined;
+  let unlistenOs: (() => void) | undefined;
   onMount(() => {
     unmount = mountShortcuts();
     window.addEventListener("contextmenu", onGlobalContextMenu);
+    void mountOsNotificationJump()
+      .then((u) => (unlistenOs = u))
+      // 非 Tauri 环境（vitest / 纯浏览器 dev）无 event bridge：降级为无点击回跳
+      .catch(() => {});
   });
   onCleanup(() => {
     unmount?.();
+    unlistenOs?.();
     window.removeEventListener("contextmenu", onGlobalContextMenu);
   });
   return (

@@ -177,6 +177,27 @@ impl Goal {
         self.transit(GoalStatus::Complete)
     }
 
+    /// 提高预算并恢复（BudgetLimited 唯一入口，goal.adjust RPC）：各已设维度提到 max(原限, 2x 已用)，
+    /// 保证 resume 后下一轮不会立刻再次超限（裸 resume 是无效操作的根因：已用量 >= 限额不变）。
+    pub fn adjust_budget_and_resume(&mut self) -> Result<(), GoalError> {
+        if self.status != GoalStatus::BudgetLimited {
+            return Err(GoalError::InvalidTransition { from: self.status, to: GoalStatus::Active });
+        }
+        // elapsed 先算：budget 可变借用期间不能再不可变借用 self
+        let elapsed = self.wall_elapsed_ms(now_ms()).unwrap_or(0);
+        let b = &mut self.contract.budget;
+        if let Some(t) = b.turns {
+            b.turns = Some(t.max(self.turns_used.saturating_mul(2)));
+        }
+        if let Some(t) = b.tokens {
+            b.tokens = Some(t.max(self.tokens_used.saturating_mul(2)));
+        }
+        if let Some(w) = b.wall_clock_ms {
+            b.wall_clock_ms = Some(w.max(elapsed.saturating_mul(2)));
+        }
+        self.resume()
+    }
+
     /// 记录一轮推进；预算与阻塞三次规则在此。
     pub fn record_turn(&mut self, tokens: u64, blocked_reason: Option<&str>, terminal: bool) -> Result<(), GoalError> {
         if self.status != GoalStatus::Active {

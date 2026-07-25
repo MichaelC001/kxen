@@ -1,9 +1,10 @@
 // 工作看板：workspace = 并行任务运行单元，一列一个 workspace。
-// 列内分区：运行中会话 / 隔离树 / goal / 排队与 cron 计数；8s 轮询 + goal/task 事件即时刷新。
+// 列内分区：运行中会话 / 隔离树 / goal / 排队与 cron 计数；8s 轮询 + goal/task 事件即时刷新 + resync 对账。
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { A } from "@solidjs/router";
 import { ArrowLeft, FolderGit2, GitBranch, Play, Target } from "lucide-solid";
 import { onTopic, workspacesOverview, workspaceSwitch, type WorkspaceOverview } from "../lib/chat";
+import { client } from "../lib/client";
 import { newSession, sessions, switchSession } from "../lib/state";
 import { flashErr } from "../lib/flash";
 import { formatError } from "../lib/error-text";
@@ -21,6 +22,7 @@ const TONE_CLASS: Record<GoalTone, string> = {
 export default function Workspaces() {
   const [cards, setCards] = createSignal<WorkspaceOverview[]>([]);
   let unlisten: (() => void) | undefined;
+  let offResync: (() => void) | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
 
   const reload = async () => {
@@ -31,10 +33,13 @@ export default function Workspaces() {
   onMount(async () => {
     await reload();
     unlisten = onTopic(["goal.update", "task.update"], () => void reload());
+    // goal.update/task.update 丢帧后 topic 流不自愈：resync 信号按真源重拉（同 Dock 模式）
+    offResync = client.onResync(() => void reload());
     timer = setInterval(() => void reload(), 8000);
   });
   onCleanup(() => {
     unlisten?.();
+    offResync?.();
     if (timer) clearInterval(timer);
   });
 

@@ -1,4 +1,4 @@
-import { createSignal, Show, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, Show, onCleanup, onMount } from "solid-js";
 import { GitBranch, Target, ListTodo } from "lucide-solid";
 import NotificationCenter from "./NotificationCenter";
 import { statusline, type StatuslineReport } from "../lib/chat";
@@ -6,7 +6,7 @@ import { displayName, fmtCtx, modelOf, modelsCatalog, type ProviderCatalog } fro
 import { goalStatusMeta } from "../lib/board";
 import { activeSessionId } from "../lib/state";
 
-/** 底部状态栏：固定段 + config 开关，3s 轮询 + 事件驱动。 */
+/** 底部状态栏：固定段 + config 开关，3s 轮询 + 会话切换即时刷新。 */
 export default function StatusBar() {
   const [report, setReport] = createSignal<StatuslineReport | null>(null);
   const [cat, setCat] = createSignal<ProviderCatalog[]>([]);
@@ -17,12 +17,17 @@ export default function StatusBar() {
     if (r) setReport(r);
   };
 
-  onMount(async () => {
-    await reload();
+  onMount(() => {
     void modelsCatalog().then(setCat);
     timer = setInterval(() => void reload(), 3000);
   });
   onCleanup(() => timer && clearInterval(timer));
+
+  // 会话切换即时换 tokens/ctx/model（否则最长 3s 显示上一会话数据）；首跑兼代 onMount 首拉
+  createEffect(() => {
+    activeSessionId();
+    void reload();
+  });
 
   const has = (item: string) => report()?.items.includes(item) ?? false;
   // "provider/model-id" -> models.dev 显示名（查不到回退原串）

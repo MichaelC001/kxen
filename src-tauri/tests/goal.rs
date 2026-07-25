@@ -48,6 +48,31 @@ fn budget_limited() {
 }
 
 #[test]
+fn adjust_budget_and_resume() {
+    // turns 预算 5 打满：adjust 后限额提到 2x 已用 = 10，状态回 Active，续跑不再立刻超限
+    let mut g = Goal::create(contract(), "g4".into()).unwrap();
+    g.activate().unwrap();
+    for _ in 0..5 {
+        g.record_turn(0, None, false).unwrap();
+    }
+    assert_eq!(g.status, GoalStatus::BudgetLimited);
+    g.adjust_budget_and_resume().unwrap();
+    assert_eq!(g.status, GoalStatus::Active);
+    assert_eq!(g.contract.budget.turns, Some(10));
+    assert_eq!(g.contract.budget.tokens, Some(1000)); // 未打满的维度不动
+    g.record_turn(0, None, false).unwrap();
+    assert_eq!(g.status, GoalStatus::Active, "提高后的额度内续跑不得再次超限");
+}
+
+#[test]
+fn adjust_rejects_non_budget_limited() {
+    let mut g = Goal::create(contract(), "g5".into()).unwrap();
+    g.activate().unwrap();
+    assert!(g.adjust_budget_and_resume().is_err(), "非 BudgetLimited 不得走 adjust");
+    assert_eq!(g.contract.budget.turns, Some(5));
+}
+
+#[test]
 fn persist_roundtrip() {
     let dir = std::env::temp_dir().join(format!("kxen-goal-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

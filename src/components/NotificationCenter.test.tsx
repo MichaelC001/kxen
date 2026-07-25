@@ -33,6 +33,24 @@ afterEach(() => {
   setActiveSessionId("");
 });
 
+describe("NotificationCenter 轮询生命周期", () => {
+  it("卸载后停止轮询（onCleanup 清 timer，React 式 onMount 返回值无效）", async () => {
+    vi.useFakeTimers();
+    try {
+      const dispose = render(() => <NotificationCenter />, document.body);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(listCalls()).toBe(1); // onMount 首拉
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(listCalls()).toBe(2);
+      dispose();
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(listCalls()).toBe(2); // 卸载后 timer 已清，不再轮询
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("NotificationCenter resync 自愈", () => {
   it("resync 信号触发重拉，卸载后注销回调", async () => {
     const dispose = render(() => <NotificationCenter />, document.body);
