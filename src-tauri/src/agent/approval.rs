@@ -130,16 +130,21 @@ impl ApprovalBroker {
 
 /// 共享审批请求：登记 + 发事件 + 挂起等用户决定（ApprovalOutcome::Allow = 放行）。
 /// payload 双写 reason 与 message：前端审批卡读 message，旧消费方读 reason。
+/// 空归属（worktree 删除等 workspace 级审批）不带 session_id，与 publish_resolved 同款：
+/// stream ACL 会把空串算成 topic `session:`，无人订阅则全连接丢帧，审批卡永远渲染不出（300s 超时）。
 pub async fn request_approval(appr: &crate::tools::exec::ApprovalCtx<'_>, command: &str, reason: &str) -> ApprovalOutcome {
     let (id, rx) = appr.broker.register(appr.session_id);
-    appr.bus.publish(crate::core::event::Event::LlmDelta(serde_json::json!({
+    let mut payload = serde_json::json!({
         "kind": "approval",
         "approval_id": id,
         "command": command,
         "reason": reason,
         "message": reason,
-        "session_id": appr.session_id,
-    })));
+    });
+    if !appr.session_id.is_empty() {
+        payload.as_object_mut().expect("approval payload").insert("session_id".into(), serde_json::json!(appr.session_id));
+    }
+    appr.bus.publish(crate::core::event::Event::LlmDelta(payload));
     appr.broker.wait(&id, rx, appr.cancel).await
 }
 
@@ -282,5 +287,37 @@ mod tests {
         let event = sub.try_recv().expect("超时必须发 approval.resolved");
         let payload = resolved_payload(&event).expect("必须是 approval.resolved 帧");
         assert!(payload.get("session_id").is_none(), "空归属审批的 resolved 帧不带 session_id");
+    }
+
+    #[tokio::test]
+    async fn request_approval_omits_session_id_when_empty() {
+        // worktree 删除走 ApprovalCtx::new(..., None)：请求帧空串 session_id 会被 ACL 算成 `session:` 全连接丢帧
+        let bus = crate::core::event::EventBus::new(16);
+        let mut sub = bus.subscribe();
+        let broker = ApprovalBroker::with_timeout(std::time::Duration::from_millis(50));
+        let ctx = crate::tools::exec::ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "" };
+        let outcome = request_approval(&ctx, "git worktree remove wt1", "r").await;
+        assert_eq!(outcome, ApprovalOutcome::Timeout);
+        let event = sub.try_recv().expect("必须发 approval 请求帧");
+        let crate::core::event::Event::LlmDelta(payload) = event else {
+            panic!("必须是 LlmDelta 帧");
+        };
+        assert_eq!(payload["kind"], serde_json::json!("approval"));
+        assert!(payload.get("session_id").is_none(), "空归属审批请求帧不带 session_id");
+    }
+
+    #[tokio::test]
+    async fn request_approval_keeps_session_id_when_present() {
+        let bus = crate::core::event::EventBus::new(16);
+        let mut sub = bus.subscribe();
+        let broker = ApprovalBroker::with_timeout(std::time::Duration::from_millis(50));
+        let ctx = crate::tools::exec::ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "s1" };
+        let outcome = request_approval(&ctx, "cmd", "r").await;
+        assert_eq!(outcome, ApprovalOutcome::Timeout);
+        let event = sub.try_recv().expect("必须发 approval 请求帧");
+        let crate::core::event::Event::LlmDelta(payload) = event else {
+            panic!("必须是 LlmDelta 帧");
+        };
+        assert_eq!(payload["session_id"], serde_json::json!("s1"), "会话归属审批照常带 session_id");
     }
 }

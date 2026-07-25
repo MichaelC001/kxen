@@ -112,7 +112,8 @@ pub async fn list(repo: &Path) -> Result<Vec<WorktreeInfo>, String> {
     if let Some(p) = path {
         infos.push((p, branch));
     }
-    let prefix = repo.join(".kxen").join("worktrees");
+    // 前缀过滤按主仓库根算：切进隔离树后入参是 worktree 路径，直接 join 会让过滤全部落空（看板变空）
+    let prefix = main_repo_root(repo).await?.join(".kxen").join("worktrees");
     Ok(infos
         .into_iter()
         .filter_map(|(p, branch)| {
@@ -120,6 +121,18 @@ pub async fn list(repo: &Path) -> Result<Vec<WorktreeInfo>, String> {
             Some(WorktreeInfo { name, path: p, branch })
         })
         .collect())
+}
+
+/// 主仓库根解析：worktree 内执行 git 时 --git-common-dir 指向主树的 .git，取其父目录。
+/// 非常规布局（bare / 自定义 gitdir）取不到 .git 尾段，回退入参。
+async fn main_repo_root(repo: &Path) -> Result<PathBuf, String> {
+    let out = git(repo, &["rev-parse", "--git-common-dir"]).await?;
+    let raw = out.trim();
+    let git_dir = canon(&if Path::new(raw).is_absolute() { PathBuf::from(raw) } else { repo.join(raw) });
+    Ok(match git_dir.file_name() {
+        Some(name) if name == ".git" => git_dir.parent().map(Path::to_path_buf).unwrap_or_else(|| repo.to_path_buf()),
+        _ => repo.to_path_buf(),
+    })
 }
 
 /// 当前树相对 worktree 分支的 diff --stat（完成回主树的预览）。

@@ -84,6 +84,21 @@ fn name_validation() {
     }
 }
 
+/// 切进隔离树后 list 仍按主仓库根解析：active_workspace 是 worktree 路径时看板不得变空
+#[tokio::test]
+async fn list_resolves_main_root_from_inside_worktree() {
+    let repo = init_repo("root");
+    let info = create(&repo, "r1").await.unwrap();
+    // 入参是 worktree 路径（切进树后的 active_workspace 形态）：结果与主仓库一致
+    let trees = list(&info.path).await.unwrap();
+    assert_eq!(trees.len(), 1, "从 worktree 内 list 不得变空");
+    assert_eq!(trees[0].name, "r1");
+    assert_eq!(trees[0].path, info.path);
+    // 主仓库视角结果相同
+    assert_eq!(list(&repo).await.unwrap().len(), 1);
+    std::fs::remove_dir_all(&repo).ok();
+}
+
 #[tokio::test]
 async fn remove_and_diff_reject_bad_names() {
     let repo = init_repo("bad");
