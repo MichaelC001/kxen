@@ -55,7 +55,7 @@ async fn main() {
         }),
     };
 
-    let messages = vec![
+    let mut messages = vec![
         Message::system(
             "You are a coding agent with tools. Protocol: read outputs lines as `LINE#HASH  content` (e.g. `    3#a1b2  fn main()`); for edits use anchors mode with that exact anchor string. exec runs shell commands. Finish the task with as few tool calls as possible, then reply with a short summary and stop.",
         ),
@@ -65,7 +65,7 @@ async fn main() {
         )),
     ];
 
-    let outcome = run_turn(&mut ctx, messages).await;
+    let outcome = run_turn(&mut ctx, &mut messages).await;
     println!("\nfinal text: {}", outcome.final_text);
     println!("note.txt content: {}", std::fs::read_to_string(workdir.join("note.txt")).unwrap_or_default());
 }

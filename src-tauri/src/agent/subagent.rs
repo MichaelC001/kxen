@@ -233,8 +233,8 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         },
     };
 
-    let messages = vec![Message::system(crate::agent::prompt::subagent_prompt(&agent.name, &agent.prompt)), Message::user(prompt)];
-    let outcome = run_turn(&mut child, messages).await;
+    let mut messages = vec![Message::system(crate::agent::prompt::subagent_prompt(&agent.name, &agent.prompt)), Message::user(prompt)];
+    let outcome = run_turn(&mut child, &mut messages).await;
     deps.agents.set_status(
         &session_id,
         &name,

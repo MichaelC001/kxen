@@ -9,6 +9,7 @@ use tokio::sync::Notify;
 use super::TeamState;
 use super::manager::TeamManager;
 use super::member_loop::teammate_loop;
+use super::member_wake::{PLAN_VERDICT_APPROVED, PLAN_VERDICT_REJECTED};
 use super::types::{Member, MemberStatus};
 
 impl TeamManager {
@@ -79,10 +80,12 @@ impl TeamManager {
             member.approved = approve;
         }
         self.persist_config(state);
+        // 结构化前缀替代旧子串语义：member_loop 只认 starts_with 精确匹配，
+        // lead 手写/转述 "Plan approved" 不再误批；from=lead + 前缀双条件，正文不再内嵌 [lead]
         let text = if approve {
-            "[lead] Plan approved. Proceed with implementation.".to_string()
+            format!("{PLAN_VERDICT_APPROVED} Plan approved. Proceed with implementation.")
         } else {
-            format!("[lead] Plan rejected. Revise and resubmit. Feedback: {feedback}")
+            format!("{PLAN_VERDICT_REJECTED} Plan rejected. Revise and resubmit. Feedback: {feedback}")
         };
         self.send(state, "lead", name, &text)?;
         Ok(if approve { format!("approved {name}") } else { format!("rejected {name} with feedback") })

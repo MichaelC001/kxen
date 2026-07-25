@@ -23,12 +23,17 @@ impl NotifyRouter {
 
     /// 后台任务完成钩子（run 内外都可能到达）。guard 持锁跨过 send/调用：
     /// 与 close 的切换互斥，先送后进 drain 兜底、先切则直投，不丢通知。
-    pub fn notify(&self, text: String) {
+    /// 返回 true = 进了 run 的通道（等逐轮 drain）；false = 走了 late 闭包（relay 据此归 pending 路径）。
+    pub fn notify(&self, text: String) -> bool {
         let late = crate::core::shared::lock(&self.late);
         match &*late {
-            Some(f) => f(text),
+            Some(f) => {
+                f(text);
+                false
+            }
             None => {
                 let _ = self.tx.send(text);
+                true
             }
         }
     }

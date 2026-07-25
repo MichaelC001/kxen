@@ -1,5 +1,6 @@
 //! 代理活动注册表：teammate / subagent / workflow 三类子代理的统一视图。
-//! 每个 session 一份名单 + 每代理 200 条转录 ring buffer（内存态，不持久化）。
+//! 每个 session 一份名单 + 每代理 200 条转录 ring buffer；
+//! teammate 转录写穿落盘（重启重放回内存），subagent/workflow 一次性派发纯内存。
 
 use crate::llm::ModelRef;
 use serde::Serialize;
@@ -43,6 +44,10 @@ pub struct AgentRegistry {
     /// 子代理独立取消句柄 (session_id, name)：subagent/workflow 派发时挂载，agents.stop 按名停单个
     ///（teammate 不走这里，它的 token 在 TeamState.cancels，由 team shutdown 通道取消）。
     cancels: Mutex<HashMap<(String, String), crate::agent::cancel::CancelToken>>,
+    /// teammate 转录写穿根目录（data_dir/teams，TeamManager 构造时注入）：
+    /// 内存 ring 重启即失，teammate 是常驻代理，transcript 由 <root>/<session>/transcripts/<name>.jsonl 兜底；
+    /// subagent/workflow 一次性派发，不持久化。None = 纯内存（测试默认）。
+    team_root: Mutex<Option<std::path::PathBuf>>,
 }
 
 impl AgentRegistry {
@@ -60,8 +65,62 @@ impl AgentRegistry {
             model: model.clone(),
             status: ActivityStatus::Working,
             started_at: now_ms(),
-            transcript: VecDeque::new(),
+            // 重启重放：teammate 从磁盘 JSONL 注水内存 ring（无文件 = 空，spawn 与 restore 同路）
+            transcript: self.rehydrate(session_id, name, kind),
         });
+    }
+
+    /// 接线写穿根目录（TeamManager 构造时注入；锁序恒为 sessions -> team_root，无环）
+    pub fn set_team_root(&self, root: std::path::PathBuf) {
+        *crate::core::shared::lock(&self.team_root) = Some(root);
+    }
+
+    /// 写穿目标路径：session/name 拼进文件路径，先过 ids 白名单（防目录穿越）
+    fn transcript_path(&self, session_id: &str, name: &str) -> Option<std::path::PathBuf> {
+        if crate::core::ids::validate_id(session_id).is_err() || crate::core::ids::validate_id(name).is_err() {
+            tracing::warn!(session_id, name, "transcript persist skipped: invalid id");
+            return None;
+        }
+        crate::core::shared::lock(&self.team_root)
+            .as_ref()
+            .map(|root| root.join(session_id).join("transcripts").join(format!("{name}.jsonl")))
+    }
+
+    /// 重启重放：读磁盘 JSONL 最后 TRANSCRIPT_CAP 条注水内存 ring（teammate 限定；坏行剔除）
+    fn rehydrate(&self, session_id: &str, name: &str, kind: AgentKind) -> VecDeque<serde_json::Value> {
+        let mut out = VecDeque::new();
+        if kind != AgentKind::Teammate {
+            return out;
+        }
+        let Some(path) = self.transcript_path(session_id, name) else { return out };
+        let Ok(text) = std::fs::read_to_string(path) else { return out };
+        for line in text.lines() {
+            match serde_json::from_str::<serde_json::Value>(line) {
+                Ok(v) => {
+                    if out.len() >= TRANSCRIPT_CAP {
+                        out.pop_front();
+                    }
+                    out.push_back(v);
+                }
+                Err(e) => tracing::warn!(error = %e, "dropping malformed transcript line"),
+            }
+        }
+        out
+    }
+
+    /// 追加写一行 JSONL；落盘失败只告警不丢内存态（transcript 是观测面，不该拖死 agent loop）
+    fn persist_line(&self, session_id: &str, name: &str, payload: &serde_json::Value) {
+        use std::io::Write;
+        let Some(path) = self.transcript_path(session_id, name) else { return };
+        let Some(parent) = path.parent() else { return };
+        let Ok(line) = serde_json::to_string(payload) else { return };
+        let result = std::fs::create_dir_all(parent).and_then(|()| {
+            let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
+            writeln!(f, "{line}")
+        });
+        if let Err(e) = result {
+            tracing::warn!(error = %e, "transcript persist failed");
+        }
     }
 
     /// 前缀定名注册（subagent/workflow 派发口）：「查重名 -> 生成唯一名 -> 插入」同一把锁内完成，
@@ -92,10 +151,14 @@ impl AgentRegistry {
         }
     }
 
-    /// 追加一条转录（事件 payload），超过 cap 淘汰最旧。
+    /// 追加一条转录（事件 payload），超过 cap 淘汰最旧；teammate 同步写穿落盘。
+    /// 文件 append 在 sessions 锁内做：多线程推同一 (session, agent) 时行序不交错。
     pub fn push_transcript(&self, session_id: &str, name: &str, payload: serde_json::Value) {
         let mut map = crate::core::shared::lock(&self.sessions);
         if let Some(agent) = map.get_mut(session_id).and_then(|list| list.iter_mut().find(|a| a.name == name)) {
+            if agent.kind == AgentKind::Teammate {
+                self.persist_line(session_id, name, &payload);
+            }
             if agent.transcript.len() >= TRANSCRIPT_CAP {
                 agent.transcript.pop_front();
             }
@@ -159,6 +222,38 @@ mod tests {
         assert_eq!(name, "review-1");
         assert_eq!(reg.register_unique("s1", "review", AgentKind::Subagent, &model), "review-2");
         assert_eq!(reg.list("s1").len(), 3);
+    }
+
+    /// teammate 转录写穿 + 重启重放：每条 JSONL 落盘；新 registry（模拟重启）register 注水内存
+    #[test]
+    fn teammate_transcript_write_through_and_rehydrate() {
+        let dir = std::env::temp_dir().join(format!("kxen-transcript-{}", std::process::id()));
+        let root = dir.join("teams");
+        let model = ModelRef::new("p", "m");
+        let reg = AgentRegistry::default();
+        reg.set_team_root(root.clone());
+        reg.register("s1", "w", AgentKind::Teammate, &model);
+        reg.push_transcript("s1", "w", serde_json::json!({ "kind": "text", "text": "hello" }));
+        reg.push_transcript("s1", "w", serde_json::json!({ "kind": "text", "text": "world" }));
+        reg.register("s1", "sub", AgentKind::Subagent, &model);
+        reg.push_transcript("s1", "sub", serde_json::json!({ "kind": "text", "text": "ephemeral" }));
+        let file = root.join("s1/transcripts/w.jsonl");
+        assert_eq!(std::fs::read_to_string(&file).unwrap().lines().count(), 2, "teammate 每条必须写穿一行");
+        assert!(!root.join("s1/transcripts/sub.jsonl").exists(), "subagent 一次性派发不得落盘");
+        // 重放：新 registry（模拟重启）register 同名 teammate 从磁盘注水
+        let reg2 = AgentRegistry::default();
+        reg2.set_team_root(root.clone());
+        reg2.register("s1", "w", AgentKind::Teammate, &model);
+        let t = reg2.transcript("s1", "w");
+        assert_eq!(t.len(), 2);
+        assert_eq!(t[0]["text"], "hello");
+        assert_eq!(t[1]["text"], "world");
+        // 非法 name 过 ids 白名单：不得拼出穿越路径产生新文件
+        reg2.register("s1", "../escape", AgentKind::Teammate, &model);
+        reg2.push_transcript("s1", "../escape", serde_json::json!({ "x": 1 }));
+        let names: Vec<_> = std::fs::read_dir(root.join("s1/transcripts")).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names.len(), 1, "非法 name 不得产生新文件: {names:?}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

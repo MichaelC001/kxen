@@ -155,6 +155,8 @@ pub(crate) async fn run_llm(
     // 后台 agent 完成通知路由：run 存活期由 run loop 逐轮 drain 注入 messages；
     // run 收尾 close 后（含 run 结束后才完成的派发）通知直投 pending queue，由队列续跑消化
     let notify = std::sync::Arc::new(kxen_app::agent::background::NotifyRouter::new());
+    // P0-2a：注册给 team relay，teammate -> lead 报告经本 run 的 router 就地注入（run 收尾摘除）
+    state.team.relay().register(&session_id, &notify);
 
     let mut ctx = kxen_app::agent::agent_loop::AgentContext {
         registry,
@@ -235,7 +237,7 @@ pub(crate) async fn run_llm(
             bus.publish(kxen_app::core::event::Event::LlmDelta(payload));
         }),
     };
-    let outcome = kxen_app::agent::agent_loop::run_turn(&mut ctx, messages).await;
+    let outcome = kxen_app::agent::agent_loop::run_turn(&mut ctx, &mut messages).await;
     // 通知路由收尾：通道残留与此后到达的通知全部入队。本 run 的收尾 pop（下方）立即消化残留；
     // 晚到的由下一个 run 的收尾 pop 消化——不新起 spawn 路径，复用队列既有续跑（最小接线）
     notify.close({
@@ -245,6 +247,8 @@ pub(crate) async fn run_llm(
             state.pending_messages.enqueue(&sid, text, vec![], vec![]);
         })
     });
+    // P0-2a 摘除：此后 teammate -> lead 报告走 pending queue 续跑路（relay 查无 router）
+    state.team.relay().unregister(&session_id, &notify);
     kxen_app::core::shared::lock(&state.session_involved).insert(session_id.clone(), ctx.tracker.files());
     kxen_app::core::shared::lock(&state.active_runs).remove(&session_id);
     // run 收尾清掉本 session 挂起的审批：等待方按 deny 唤醒，防 pending 泄漏（session 删除同理可达）

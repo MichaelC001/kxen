@@ -106,3 +106,31 @@ pub(crate) struct TeamState {
     pub(crate) deps: SpawnDeps,
     pub(crate) bus: EventBus,
 }
+
+/// 成员 + 任务的可读清单（lead/teammate 的 list 动作输出）
+pub(crate) fn render_list(state: &TeamState) -> String {
+    let members = crate::core::shared::lock(&state.members);
+    let tasks = crate::core::shared::lock(&state.tasks);
+    let mut out = String::from("teammates:");
+    for m in members.iter() {
+        out.push_str(&format!("\n- {} ({}, model {}) [{:?}]", m.name, m.role, m.model.model, m.status));
+    }
+    if members.is_empty() {
+        out.push_str(" (none)");
+    }
+    out.push_str("\ntasks:");
+    for t in tasks.iter() {
+        out.push_str(&format!(
+            "\n- #{} {} [{:?}]{}{}",
+            t.id,
+            t.title,
+            t.status,
+            t.assignee.as_deref().map(|a| format!(" -> {a}")).unwrap_or_default(),
+            if t.depends_on.is_empty() { String::new() } else { format!(" (deps: {:?})", t.depends_on) }
+        ));
+    }
+    if tasks.is_empty() {
+        out.push_str(" (none)");
+    }
+    out
+}

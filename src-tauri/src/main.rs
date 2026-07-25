@@ -32,7 +32,7 @@ pub struct AppState {
     /// session_id -> 进行中 run 的取消令牌（session.abort 用；run 结束自行移除）
     pub active_runs: std::sync::Mutex<std::collections::HashMap<String, kxen_app::agent::cancel::CancelToken>>,
     /// session 排队消息（落盘持久化：崩溃重启可恢复续跑；run 结束按序接续，防并发 run 交叉写历史）
-    pub pending_messages: kxen_app::core::pending_queue::PendingQueues,
+    pub pending_messages: std::sync::Arc<kxen_app::core::pending_queue::PendingQueues>,
     /// stream_id -> session_id（rpc.cancelStream 路由用）
     pub run_streams: std::sync::Mutex<std::collections::HashMap<String, String>>,
     /// session_id -> (input, output) tokens 累计（状态栏用量段）
@@ -78,6 +78,9 @@ impl AppState {
         let approvals = std::sync::Arc::new(kxen_app::agent::approval::ApprovalBroker::new());
         let mcp = kxen_app::mcp::McpManager::new();
         let lsp = std::sync::RwLock::new(kxen_app::lsp::LspManager::new(workdir.to_path_buf()));
+        // P0-2：team relay 与 AppState 共享同一队列实例（teammate 报告入队 = 用户消息同路续跑）
+        let pending_messages =
+            std::sync::Arc::new(kxen_app::core::pending_queue::PendingQueues::new(kxen_app::core::paths::sessions_dir()));
         let team = kxen_app::agent::team::TeamManager::new(
             kxen_app::core::paths::data_dir().join("teams"),
             kxen_app::agent::team::SpawnDeps {
@@ -95,6 +98,7 @@ impl AppState {
             },
             bus.clone(),
             kxen_app::core::paths::sessions_dir(),
+            Some(pending_messages.clone()),
         );
         Self {
             auth_store: store,
@@ -111,7 +115,7 @@ impl AppState {
             team,
             agents,
             active_runs: std::sync::Mutex::new(std::collections::HashMap::new()),
-            pending_messages: kxen_app::core::pending_queue::PendingQueues::new(kxen_app::core::paths::sessions_dir()),
+            pending_messages,
             run_streams: std::sync::Mutex::new(std::collections::HashMap::new()),
             mrm,
             session_tokens: std::sync::Mutex::new(kxen_app::core::usage::load()),
@@ -193,6 +197,8 @@ pub fn run() {
                 });
                 // 崩溃前排队的消息恢复续跑（队列落盘是承诺，重启不该变无限搁置）
                 ws::pending::restore_queues(app.handle().clone());
+                // P0-2b：teammate -> lead 无活跃 run 的续跑触发接线
+                ws::pending::wire_team_kick(app.handle());
                 // 通知落盘：bus 订阅一条，Notification 事件进环形缓冲（通知中心数据源）
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {

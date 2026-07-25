@@ -10,7 +10,7 @@ use super::execute::execute_tool;
 use super::helpers::{is_read_only_tool, result_display, result_text, summarize_args};
 use super::usage::{UsageAcc, goal_wall_over, record_goal_turn};
 
-pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> AgentOutcome {
+pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> AgentOutcome {
     let base_tools = match ctx.allowed_tools {
         Some(allowed) => {
             crate::agent::tools_spec::core_tools().into_iter().filter(|t| allowed.contains(&t.function.name.as_str())).collect()
@@ -89,12 +89,12 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
         }
 
         // auto-compaction：预估 tokens 超窗口 80% 先蒸馏旧历史（窗口取 catalog，非 200k 硬编码）
-        if crate::agent::compact::needs_compact(&messages, &ctx.model) {
+        if crate::agent::compact::needs_compact(messages, &ctx.model) {
             if let Some(bus) = &ctx.bus {
                 bus.publish(crate::core::event::Event::Notification("上下文超阈值，已自动压缩历史".into()));
             }
-            let (compacted, summary) = crate::agent::compact::compact_messages(&ctx.model, &ctx.store, &messages, 6).await;
-            messages = compacted;
+            let (compacted, summary) = crate::agent::compact::compact_messages(&ctx.model, &ctx.store, messages, 6).await;
+            *messages = compacted;
             if let Some(summary) = summary {
                 (ctx.on_event)(AgentEvent::Compacted { summary });
             }
@@ -131,7 +131,7 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
                 }
                 None => None,
             };
-            let mut stream = LlmClient::stream_with_tools(&ctx.model, &messages, &tools, &ctx.store);
+            let mut stream = LlmClient::stream_with_tools(&ctx.model, messages, &tools, &ctx.store);
             let mut failed: Option<String> = None;
             // wall 检查节流（P2-07）：focus_for 读盘，逐 delta 查太贵
             let mut last_wall_check = std::time::Instant::now();
@@ -241,6 +241,10 @@ pub async fn run_turn(ctx: &mut AgentContext, mut messages: Vec<Message>) -> Age
                 (ctx.on_event)(AgentEvent::Error { message: msg.clone() });
                 final_text = msg;
                 break;
+            }
+            // 末轮文本入历史（P0-1）：teammate 跨 wake 续上下文要前轮 assistant 结论
+            if !text.is_empty() {
+                messages.push(Message::assistant(text.clone()));
             }
             final_text = text;
             (ctx.on_event)(AgentEvent::Done { turns, stats: stats(ttft, &usage_acc) });

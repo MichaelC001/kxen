@@ -34,6 +34,14 @@ pub(super) fn claim_task(state: &Arc<TeamState>, who: &str) -> Result<String, St
     Ok(format!("claimed task #{id}: {title}"))
 }
 
+/// 可 claim 任务存在性（P1-3 超时自醒用）：与 claim_task 同谓词但只读——
+/// 实际 claim 由模型走 team_task 工具，这里只决定要不要唤醒提示，不新造调度。
+pub(super) fn has_claimable(state: &Arc<TeamState>) -> bool {
+    let tasks = lock(&state.tasks);
+    let done: Vec<u64> = tasks.iter().filter(|t| t.status == TeamTaskStatus::Completed).map(|t| t.id).collect();
+    tasks.iter().any(|t| t.status == TeamTaskStatus::Pending && t.assignee.is_none() && t.depends_on.iter().all(|d| done.contains(&d)))
+}
+
 pub(super) async fn complete_task(state: &Arc<TeamState>, who: &str, id: u64) -> Result<String, String> {
     let title = {
         let mut tasks = lock(&state.tasks);
@@ -185,7 +193,7 @@ mod tests {
 
     fn state(tag: &str) -> (Arc<TeamState>, PathBuf) {
         let dir = std::env::temp_dir().join(format!("kxen-task-{tag}-{}", std::process::id()));
-        let mgr = crate::agent::team::TeamManager::new(dir.clone(), deps(), EventBus::default(), dir.join("sessions"));
+        let mgr = crate::agent::team::TeamManager::new(dir.clone(), deps(), EventBus::default(), dir.join("sessions"), None);
         (mgr.state_for("s1"), dir)
     }
 

@@ -31,14 +31,29 @@ fn lock_for(path: &Path) -> Arc<Mutex<()>> {
         .clone()
 }
 
+/// 单条文本上限：inbox 是落盘 mailbox，无 cap 时失控/恶意写入可让单条无限膨胀
+///（drain 后整条进 LLM 历史，超限文本还会爆上下文）。截断保留前缀并标注原始长度。
+/// append 侧不做文件总量 cap：inbox 读后即焚（drain 即清空），总量已被消费节奏自然限制。
+pub(super) const INBOX_TEXT_CAP: usize = 4000;
+
 pub(super) fn append_inbox(dir: &Path, to: &str, from: &str, text: &str) -> Result<(), String> {
     use std::io::Write;
     let path = dir.join("inboxes").join(format!("{to}.json"));
-    let entry = json!({ "from": from, "text": text, "at": now_ms() });
+    let entry = json!({ "from": from, "text": cap_text(text), "at": now_ms() });
     let lock = lock_for(&path);
     let _guard = lock.lock().map_err(|e| e.to_string())?;
     let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&path).map_err(|e| e.to_string())?;
     writeln!(file, "{}", entry).map_err(|e| e.to_string())
+}
+
+/// 按 char 计数截断（不劈 UTF-8 边界），超限标注原始长度让收信方知道看的是残篇
+fn cap_text(text: &str) -> String {
+    let total = text.chars().count();
+    if total <= INBOX_TEXT_CAP {
+        return text.to_string();
+    }
+    let kept: String = text.chars().take(INBOX_TEXT_CAP).collect();
+    format!("{kept}...[truncated, original {total} chars]")
 }
 
 /// 读 + 校验 + 清空（坏行报错剔除，valid 照常送达——对齐 Claude Code v2.1.207+ 行为）。
@@ -68,6 +83,23 @@ pub(super) fn drain_inbox(dir: &Path, name: &str) -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 单条 cap：超限截断并标注原始长度，未超限原样通过
+    #[test]
+    fn append_caps_oversized_text() {
+        let dir = std::env::temp_dir().join(format!("kxen-inbox-cap-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("inboxes")).unwrap();
+        let big = "x".repeat(9000);
+        append_inbox(&dir, "a", "w", &big).unwrap();
+        append_inbox(&dir, "a", "w", "short").unwrap();
+        let got = drain_inbox(&dir, "a");
+        assert_eq!(got.len(), 2);
+        assert!(got[0].1.len() < INBOX_TEXT_CAP + 64, "截断后必须贴近 cap: {}", got[0].1.len());
+        assert!(got[0].1.ends_with("original 9000 chars]"), "截断必须标注原始长度");
+        assert!(got[0].1.starts_with(&"x".repeat(100)), "前缀内容必须保留");
+        assert_eq!(got[1].1, "short", "未超限文本原样通过");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     /// 并发 append/drain 零丢失零重复：每条消息恰好被 drain 到一次。
     #[test]

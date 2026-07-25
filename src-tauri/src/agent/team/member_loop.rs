@@ -9,7 +9,11 @@ use std::sync::Arc;
 use tokio::sync::Notify;
 
 use super::TeamState;
-use super::inbox::{append_inbox, drain_inbox};
+use super::inbox::append_inbox;
+use super::member_wake::{
+    CLAIM_NUDGE, IDLE_TIMEOUT, IdleWake, first_prompt, idle_wait, inbox_has_plan_approval, inbox_text, push_inbox_transcript,
+    round_messages, strip_system,
+};
 use super::types::MemberStatus;
 
 pub(super) async fn teammate_loop(
@@ -22,9 +26,10 @@ pub(super) async fn teammate_loop(
     cancel: CancelToken,
     notify: Arc<Notify>,
 ) {
-    // 原始任务简报常驻：loop 每轮 messages 重建（无跨轮历史），唤醒只带新消息会丢任务上下文
-    let base_prompt = prompt;
-    let mut wake_prompt: Option<String> = None;
+    // P0-1 跨 wake 历史：run_turn 就地累积（assistant 调用 + 工具结果 + 末轮文本），wake 只 append 新 inbox；
+    // system 不进历史（roster 每轮实时重建），装配时 prepend 新鲜副本
+    let mut history: Vec<Message> = Vec::new();
+    let mut first_round = true;
     // approved 初值由调用方给：spawn 按 !plan_approval，restore 按落盘记录（崩溃前已批的不重批）
     let mut approved = approved;
     loop {
@@ -35,12 +40,14 @@ pub(super) async fn teammate_loop(
         // 阶段 ctx：plan_approval 未批准前只读
         let allowed: Option<&'static [&'static str]> = if approved { None } else { Some(READONLY_TEAM_TOOLS) };
         let mut ctx = build_ctx(&state, &name, &role, &model, allowed, cancel.clone());
-        let user_content = match &wake_prompt {
-            None => base_prompt.clone(),
-            Some(wake) => format!("Original task:\n{base_prompt}\n\n---\nNew messages:\n{wake}"),
-        };
-        let messages = vec![Message::system(teammate_system(&state, &name, &role, approved)), Message::user(user_content)];
-        let outcome = run_turn(&mut ctx, messages).await;
+        if first_round {
+            first_round = false;
+            // 首轮从 brief 建起（restore 场景并入残存 inbox 与本人未完成 claim，P1-2）
+            history.push(Message::user(first_prompt(&state, &name, &prompt)));
+        }
+        let mut messages = round_messages(teammate_system(&state, &name, &role, approved), &history);
+        let outcome = run_turn(&mut ctx, &mut messages).await;
+        history = strip_system(messages);
 
         if !approved {
             // 计划出炉：递交 lead 审批（经 manager.send：observer 抄送 + 前端通知）
@@ -84,27 +91,19 @@ pub(super) async fn teammate_loop(
             set_status(&state, &name, MemberStatus::Idle);
         }
 
-        // idle：听 inbox 唤醒
-        loop {
-            notify.notified().await;
-            if cancel.is_cancelled() {
-                break;
-            }
-            let inbox = drain_inbox(&state.dir, &name);
-            if inbox.is_empty() {
-                continue;
-            }
-            // 审批结果修改 approved 状态
-            for (from, text) in &inbox {
-                if from == &"lead" && text.contains("Plan approved") {
+        // idle：听 inbox 唤醒（P1-3：5min 超时自醒；shutdown 经 cancel 即刻醒）
+        match idle_wait(&state, &name, &notify, &cancel, IDLE_TIMEOUT, approved).await {
+            IdleWake::Cancel => break,
+            IdleWake::Nudge => history.push(Message::user(CLAIM_NUDGE)),
+            IdleWake::Inbox(inbox) => {
+                // 审批结果修改 approved 状态
+                if inbox_has_plan_approval(&inbox) {
                     approved = true;
                 }
+                // P1-4：来信入 transcript（AgentFocusView 可见）
+                push_inbox_transcript(&state, &name, &inbox);
+                history.push(Message::user(inbox_text(&inbox)));
             }
-            wake_prompt = Some(inbox.iter().map(|(from, text)| format!("[{from}] {text}")).collect::<Vec<_>>().join("\n"));
-            break;
-        }
-        if cancel.is_cancelled() {
-            break;
         }
     }
     set_status(&state, &name, MemberStatus::Shutdown);

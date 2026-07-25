@@ -25,3 +25,25 @@ pub(crate) fn restore_queues(app: AppHandle) {
         }
     });
 }
+
+/// P0-2b 续跑触发：teammate -> lead 报告入队且无活跃 run 时弹队首起 run。
+/// spawn 前一刻复核 active_runs：入队与本回调之间用户消息恰好起 run 时让位
+///（该 run 收尾 pop 会消化队列），不并发起第二个 run（并发 run 交叉写 JSONL 历史）。
+pub(crate) fn kick_session(app: AppHandle, sid: String) {
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<Arc<AppState>>();
+        if kxen_app::core::shared::lock(&state.active_runs).contains_key(&sid) {
+            return;
+        }
+        let Some(q) = state.pending_messages.pop(&sid) else { return };
+        let stream_id = super::protocol::stream_id("run");
+        kxen_app::core::shared::lock(&state.run_streams).insert(stream_id.clone(), sid.clone());
+        tokio::spawn(super::llm_task::run_llm(stream_id, sid, q.text, q.context, q.images, app.clone()));
+    });
+}
+
+/// P0-2 桥接：relay 的 kick 回调在本层注入（kxen_app 够不着 run_llm 的 spawn 口）
+pub(crate) fn wire_team_kick(app: &AppHandle) {
+    let handle = app.clone();
+    app.state::<Arc<AppState>>().team.relay().set_kick(move |sid| kick_session(handle.clone(), sid));
+}

@@ -82,7 +82,7 @@ fn team_deps(fallback: &Path) -> SpawnDeps {
 #[test]
 fn team_dir_is_removed_on_session_delete() {
     let root = tmp_dir("team");
-    let mgr = TeamManager::new(root.clone(), team_deps(&root), EventBus::default(), root.join("no-sessions"));
+    let mgr = TeamManager::new(root.clone(), team_deps(&root), EventBus::default(), root.join("no-sessions"), None);
     // state_for 惰性建目录（team.json 落盘前的最小团队形态）
     assert!(mgr.list_json("s1").is_object());
     assert!(root.join("s1").is_dir());

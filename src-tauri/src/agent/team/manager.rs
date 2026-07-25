@@ -1,6 +1,7 @@
 // ---------------- TeamManager ----------------
 
 use crate::core::event::EventBus;
+use crate::core::pending_queue::PendingQueues;
 use crate::core::shared::lock;
 use crate::llm::ModelRef;
 use serde_json::{Value, json};
@@ -10,6 +11,7 @@ use std::sync::Arc;
 
 use super::TeamState;
 use super::inbox::{append_inbox, drain_inbox};
+use super::relay::{LeadPath, LeadRelay};
 use super::tasks::{claim_task, complete_task, create_task};
 use super::types::SpawnDeps;
 
@@ -20,13 +22,23 @@ pub struct TeamManager {
     bus: EventBus,
     /// session metadata 目录：session_workdir 的真相源（session.create 记录的 directory）
     sessions_dir: PathBuf,
+    /// lead 唤醒双路（P0-2）：teammate 报告 -> 活跃 run 的 NotifyRouter / pending queue 续跑
+    relay: LeadRelay,
 }
 
 impl TeamManager {
-    pub fn new(root: PathBuf, deps: SpawnDeps, bus: EventBus, sessions_dir: PathBuf) -> Arc<Self> {
-        let mgr = Arc::new(Self { root, sessions: std::sync::Mutex::new(HashMap::new()), deps, bus, sessions_dir });
+    pub fn new(root: PathBuf, deps: SpawnDeps, bus: EventBus, sessions_dir: PathBuf, pending: Option<Arc<PendingQueues>>) -> Arc<Self> {
+        let relay = LeadRelay::new(pending);
+        // teammate 转录写穿接线：registry 是全局共享组件，team 根目录只有 manager 知道
+        deps.agents.set_team_root(root.clone());
+        let mgr = Arc::new(Self { root, sessions: std::sync::Mutex::new(HashMap::new()), deps, bus, sessions_dir, relay });
         mgr.restore();
         mgr
+    }
+
+    /// lead 唤醒路由（llm_task 注册/摘除活跃 run 的 NotifyRouter；binary crate 注入续跑 kick）
+    pub fn relay(&self) -> &LeadRelay {
+        &self.relay
     }
 
     /// member 工作目录唯一解析口：session metadata 的 directory 是真相源
@@ -186,7 +198,7 @@ impl TeamManager {
                 crate::core::ids::validate_id(name)?;
                 self.shutdown(&state, name)
             }
-            "list" => Ok(self.render_list(&state)),
+            "list" => Ok(super::types::render_list(&state)),
             "task_create" => {
                 let title = args.get("title").and_then(Value::as_str).ok_or("missing title")?;
                 let depends_on: Vec<u64> = args
@@ -214,11 +226,25 @@ impl TeamManager {
         }
     }
 
-    /// 追加 inbox + 唤醒（from 是 lead 或 teammate 名）。
+    /// 人类用户经 FocusView 直发 teammate（RPC team.message）：from="user"。
+    /// 与 lead LLM 工具的 message（from="lead"）分两条入口——teammate 按 from 区分权威指令与用户口信，
+    /// 合走 lead_action 则模型可在工具参数里自选 from 冒充用户（或用户流量被伪装成 lead）。
+    pub fn user_message(self: &Arc<Self>, session_id: &str, name: &str, text: &str) -> Result<String, String> {
+        crate::core::ids::validate_id(session_id)?;
+        crate::core::ids::validate_id(name)?;
+        let state = self.state_for(session_id);
+        self.send(&state, "user", name, text)?;
+        Ok(format!("sent to {name}"))
+    }
+
+    /// 追加 inbox + 唤醒（from 是 lead / user / teammate 名）。
     pub(crate) fn send(&self, state: &Arc<TeamState>, from: &str, to: &str, text: &str) -> Result<(), String> {
         if to == "lead" {
-            // lead 的信件：bus 推给前端 + 写入 lead inbox 等下次 run 注入
-            append_inbox(&state.dir, "lead", from, text)?;
+            // P0-2 双路唤醒 lead：活跃 run 经 NotifyRouter 就地注入 / 无 run 投 pending queue 续跑；
+            // 两路均未配（测试降级）才退回 lead.json 等下次 run drain，防双路投递重复注入
+            if self.relay.deliver(&state.session_id, format!("[teammate {from}] {text}")) == LeadPath::Inbox {
+                append_inbox(&state.dir, "lead", from, text)?;
+            }
             self.bus.publish(crate::core::event::Event::Notification(format!(
                 "teammate {from}: {}",
                 text.chars().take(120).collect::<String>()
@@ -252,10 +278,18 @@ impl TeamManager {
         }
     }
 
-    /// lead inbox 排空（run_llm 每轮注入用）。
+    /// lead inbox 排空（run_llm 每轮注入用）。P1-1：排出的信件同步落盘为 user 消息——
+    /// 只进内存的注入在重启/压缩后蒸发，lead 对 teammate 报告过目即忘。
     pub fn drain_lead_inbox(self: &Arc<Self>, session_id: &str) -> Vec<(String, String)> {
         let state = self.state_for(session_id);
-        drain_inbox(&state.dir, "lead")
+        let inbox = drain_inbox(&state.dir, "lead");
+        for (from, note) in &inbox {
+            // 文本与 llm_task 注入 messages 的口径一致（[teammate {from}] 前缀）
+            let part = crate::core::session::Part::Text { text: format!("[teammate {from}] {note}") };
+            let msg = crate::core::session::new_message(session_id, crate::core::session::Role::User, vec![part]);
+            let _ = crate::core::session::append_message(&self.sessions_dir, &msg);
+        }
+        inbox
     }
 
     /// teammate 工具入口（send_message / team_task）。
@@ -281,7 +315,7 @@ impl TeamManager {
                 let reason = args.get("reason").and_then(Value::as_str).unwrap_or("no reason given");
                 super::tasks::fail_task(&state, from, id, reason)
             }
-            "list" => Ok(self.render_list(&state)),
+            "list" => Ok(super::types::render_list(&state)),
             other => Err(format!("unknown teammate action: {other}")),
         }
     }
@@ -291,33 +325,6 @@ impl TeamManager {
         let members = lock(&state.members).clone();
         let tasks = lock(&state.tasks).clone();
         json!({ "members": members, "tasks": tasks })
-    }
-
-    fn render_list(&self, state: &Arc<TeamState>) -> String {
-        let members = lock(&state.members);
-        let tasks = lock(&state.tasks);
-        let mut out = String::from("teammates:");
-        for m in members.iter() {
-            out.push_str(&format!("\n- {} ({}, model {}) [{:?}]", m.name, m.role, m.model.model, m.status));
-        }
-        if members.is_empty() {
-            out.push_str(" (none)");
-        }
-        out.push_str("\ntasks:");
-        for t in tasks.iter() {
-            out.push_str(&format!(
-                "\n- #{} {} [{:?}]{}{}",
-                t.id,
-                t.title,
-                t.status,
-                t.assignee.as_deref().map(|a| format!(" -> {a}")).unwrap_or_default(),
-                if t.depends_on.is_empty() { String::new() } else { format!(" (deps: {:?})", t.depends_on) }
-            ));
-        }
-        if tasks.is_empty() {
-            out.push_str(" (none)");
-        }
-        out
     }
 
     pub(super) fn persist_config(&self, state: &Arc<TeamState>) {

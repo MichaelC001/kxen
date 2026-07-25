@@ -55,14 +55,14 @@ async fn main() {
         }),
     };
 
-    let messages = vec![
+    let mut messages = vec![
         Message::system(
             "You are a coding agent with tools including `agent` (dispatch subagents by role). For code review tasks, dispatch the review role subagent instead of doing it yourself, then summarize its findings.",
         ),
         Message::user(format!("Review {} for bugs. Use the agent tool with role review.", workdir.join("calc.py").display())),
     ];
 
-    let outcome = run_turn(&mut ctx, messages).await;
+    let outcome = run_turn(&mut ctx, &mut messages).await;
     println!("\nfinal: {}", outcome.final_text);
 }
 

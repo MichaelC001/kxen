@@ -272,7 +272,8 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
             let text = params.get("text").and_then(Value::as_str).ok_or("missing text")?;
             let state = app.state::<Arc<AppState>>();
-            state.team.lead_action(session_id, &json!({ "action": "message", "name": name, "text": text })).await.map(Value::String)
+            // 人类用户直发落 from="user"（lead LLM 工具的 message 仍 from="lead"），teammate 得以区分来源
+            state.team.user_message(session_id, name, text).map(Value::String)
         }
         "agents.list" => {
             let session_id = params.get("session_id").and_then(Value::as_str).unwrap_or("");

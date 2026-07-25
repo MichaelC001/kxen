@@ -60,7 +60,7 @@ fn workdir_binds_session_workspace_and_never_drifts_on_switch() {
     // 时刻 1：app 活跃 workspace = A，建会话 sa（session.create 记录 directory = A）
     let sa = kxen_app::core::session::create(&f.sessions, f.ws_a.to_str().unwrap()).unwrap();
     let store = Arc::new(Mutex::new(AuthStore::default()));
-    let mgr = TeamManager::new(f.base.join("teams"), deps(&f.fallback, store), EventBus::default(), f.sessions.clone());
+    let mgr = TeamManager::new(f.base.join("teams"), deps(&f.fallback, store), EventBus::default(), f.sessions.clone(), None);
     assert_eq!(&*mgr.session_workdir(&sa.id), f.ws_a.as_path());
 
     // 时刻 2：switch 到 B（AppState 只改 active_workspace；lib 侧真相源是 session metadata）
