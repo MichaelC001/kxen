@@ -239,9 +239,10 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
                 .unwrap_or_default();
+            let locale = params.get("locale").and_then(Value::as_str);
             let path = kxen_app::core::paths::config_dir().join("config.toml");
             let mut doc = read_toml(&path)?;
-            kxen_app::core::config::merge_voice_engine(&mut doc, engine, &fallback);
+            kxen_app::core::config::merge_voice_engine(&mut doc, engine, &fallback, locale);
             write_toml(&path, &doc)?;
             Ok(json!({ "engine": engine }))
         }

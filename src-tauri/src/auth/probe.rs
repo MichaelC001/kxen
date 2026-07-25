@@ -19,15 +19,35 @@ pub struct ProbeRule {
     pub provider: &'static str,
     pub display: &'static str,
     probe: fn() -> Option<CredentialKind>,
+    /// 探测的官方源位置（设置页未导入条目的悬停提示，告诉用户去哪补凭证）
+    pub source: &'static str,
     /// 环境变量覆盖（开发期暂存，免官方源访问）
     env_override: Option<&'static str>,
 }
 
 pub const RULES: &[ProbeRule] = &[
-    ProbeRule { provider: "anthropic", display: "Claude Pro/Max", probe: probe_claude, env_override: Some("KXEN_CLAUDE_OAUTH") },
-    ProbeRule { provider: "openai", display: "ChatGPT Plus/Pro (codex)", probe: probe_codex, env_override: None },
-    ProbeRule { provider: "xai", display: "SuperGrok (grok-build)", probe: probe_grok, env_override: None },
-    ProbeRule { provider: "kimi-for-coding", display: "Kimi Code", probe: probe_kimi, env_override: None },
+    ProbeRule {
+        provider: "anthropic",
+        display: "Claude Pro/Max",
+        probe: probe_claude,
+        source: "macOS Keychain（Claude Code-credentials）或 ~/.claude/.credentials.json",
+        env_override: Some("KXEN_CLAUDE_OAUTH"),
+    },
+    ProbeRule {
+        provider: "openai",
+        display: "ChatGPT Plus/Pro (codex)",
+        probe: probe_codex,
+        source: "~/.codex/auth.json",
+        env_override: None,
+    },
+    ProbeRule { provider: "xai", display: "SuperGrok (grok-build)", probe: probe_grok, source: "~/.grok/auth.json", env_override: None },
+    ProbeRule {
+        provider: "kimi-for-coding",
+        display: "Kimi Code",
+        probe: probe_kimi,
+        source: "~/.kimi-code/credentials/kimi-code.json",
+        env_override: None,
+    },
 ];
 
 /// 单规则探测带 5s 超时：keychain ACL 弹窗会无限阻塞调用线程（macOS 未签名二进制），
@@ -79,6 +99,7 @@ pub fn probe_all(store: &mut AuthStore, allow_keychain: bool) -> Vec<(&'static s
                         provider: rule.provider,
                         display: rule.display,
                         probe: probe_claude_file_only,
+                        source: rule.source,
                         env_override: None,
                     })
                 } else {

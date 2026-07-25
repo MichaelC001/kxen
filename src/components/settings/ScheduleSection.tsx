@@ -2,6 +2,8 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import { Pause, Play, Trash2 } from "lucide-solid";
 import { relTime } from "../../lib/time";
+import { flashErr } from "../../lib/flash";
+import { formatError } from "../../lib/error-text";
 import {
   scheduleList,
   scheduleRemove,
@@ -9,18 +11,32 @@ import {
   type ScheduleJob,
 } from "../../lib/schedule";
 
+const errText = (e: unknown) => formatError(e instanceof Error ? e.message : String(e));
+
 export default function ScheduleSection() {
   const [jobs, setJobs] = createSignal<ScheduleJob[]>([]);
-  const reload = async () => setJobs(await scheduleList().catch(() => []));
+  const reload = async () => {
+    const list = await scheduleList().catch((e: unknown) => {
+      flashErr(`加载定时任务失败：${errText(e)}`); // 失败保留旧数据，不伪装空清单
+      return null;
+    });
+    if (list) setJobs(list);
+  };
   onMount(() => void reload());
 
   const toggle = async (job: ScheduleJob) => {
-    await scheduleSetEnabled(job.id, !job.enabled).catch(() => {});
-    void reload();
+    const ok = await scheduleSetEnabled(job.id, !job.enabled).catch((e: unknown) => {
+      flashErr(`${job.enabled ? "暂停" : "恢复"}失败：${errText(e)}`);
+      return null;
+    });
+    if (ok !== null) void reload();
   };
   const remove = async (job: ScheduleJob) => {
-    await scheduleRemove(job.id).catch(() => {});
-    void reload();
+    const ok = await scheduleRemove(job.id).catch((e: unknown) => {
+      flashErr(`删除失败：${errText(e)}`);
+      return null;
+    });
+    if (ok !== null) void reload();
   };
 
   const fmtFire = (ms: number) => {
@@ -51,7 +67,8 @@ export default function ScheduleSection() {
                   <span class="text-2xs text-[var(--text-faint)]">已暂停</span>
                 </Show>
                 <span class="ml-auto text-2xs text-[var(--text-faint)]">
-                  下次 {fmtFire(job.next_fire)}
+                  {/* 暂停的 job next_fire 是暂停前的陈旧值（恢复时才重算），不显示免误导 */}
+                  {job.enabled ? `下次 ${fmtFire(job.next_fire)}` : ""}
                 </span>
                 <button
                   class="pressable px-2 py-0.5 rounded border border-[var(--border)] text-xs text-[var(--text)] flex items-center gap-1"
@@ -68,7 +85,9 @@ export default function ScheduleSection() {
                   删除
                 </button>
               </div>
-              <div class="mt-1 text-xs text-[var(--text-dim)] truncate">{job.prompt}</div>
+              <div class="mt-1 text-xs text-[var(--text-dim)] truncate" title={job.prompt}>
+                {job.prompt}
+              </div>
               <div class="mt-1 flex items-center gap-3 text-2xs text-[var(--text-faint)]">
                 <span class="truncate">会话 {job.session_id}</span>
                 <Show when={job.history[0]} fallback={<span>尚未执行</span>}>

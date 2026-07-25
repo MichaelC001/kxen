@@ -28,8 +28,31 @@ export interface VerifyOutcome {
   detail: string;
 }
 
-export function providerVerify(provider: string, account?: string): Promise<VerifyOutcome> {
-  return client.rpc("provider.verify", account ? { provider, account } : { provider });
+export function providerVerify(
+  provider: string,
+  account?: string,
+  probe?: {
+    access: string;
+    kind: "oauth" | "api";
+    refresh?: string;
+    expires?: number;
+    region?: string | undefined;
+  },
+): Promise<VerifyOutcome> {
+  // probe 存在 = 添加账号面板的「测试连接」：候选凭证只进后端内存克隆，不落 auth.json
+  return client.rpc("provider.verify", {
+    provider,
+    ...(account ? { account } : {}),
+    ...(probe
+      ? {
+          access: probe.access,
+          kind: probe.kind,
+          refresh: probe.refresh ?? "",
+          expires: probe.expires ?? 0,
+          ...(probe.region ? { region: probe.region } : {}),
+        }
+      : {}),
+  });
 }
 
 export interface ModelsResult {
@@ -114,6 +137,11 @@ export function setAccountRegion(
   return client.rpc("provider.set_region", { provider, account, ...(region ? { region } : {}) });
 }
 
+export interface ReprobeIssue {
+  text: string; // 中文短句（如「ChatGPT Plus/Pro (codex)：未找到官方凭证」）
+  hint: string; // 探测的官方源路径（常驻条目悬停 title）
+}
+
 export interface ReprobeResult {
   report: {
     entries: Array<{ provider: string; display: string; status: string; detail: string }>;
@@ -121,7 +149,7 @@ export interface ReprobeResult {
     config_dir: string;
   };
   outcomes: string[]; // 全量短句（后端已映射中文）
-  issues: string[]; // 需用户处理的条目（官方源无凭证），前端常驻展示
+  issues: ReprobeIssue[]; // 需用户处理的条目（官方源无凭证），前端常驻展示
 }
 
 export function providerReprobe(): Promise<ReprobeResult> {

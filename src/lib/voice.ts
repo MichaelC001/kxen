@@ -21,8 +21,13 @@ export function voiceEngines(): Promise<VoiceOverview> {
   return client.rpc("voice.engines");
 }
 
-export function setVoiceEngine(engine: string, fallback: string[] = []): Promise<void> {
-  return client.rpc("voice.set_engine", { engine, fallback });
+export function setVoiceEngine(
+  engine: string,
+  fallback: string[] = [],
+  locale?: string,
+): Promise<void> {
+  // fallback 空数组 = 显式清空降级链（后端 merge 语义）；locale 不传则后端保留旧值
+  return client.rpc("voice.set_engine", { engine, fallback, ...(locale ? { locale } : {}) });
 }
 
 export function setVoiceProviderKey(provider: string, key: string): Promise<void> {

@@ -17,6 +17,7 @@ export default function McpSection() {
   onCleanup(() => timers.forEach((t) => clearInterval(t)));
 
   const refreshMcp = async () => {
+    // 轮询场景失败保留旧快照（状态点不闪烁）；重启/授权等用户动作路径已各自显错
     const list = await mcpStatus().catch(() => null);
     if (list) setMcpServers(list);
   };

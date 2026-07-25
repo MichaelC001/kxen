@@ -49,6 +49,20 @@ pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Res
             let model = params.get("model").and_then(Value::as_str);
             let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
+            // 带 access = 添加账号面板的「测试连接」：临时凭证只进内存克隆，不落 auth.json
+            let store = match params.get("access").and_then(Value::as_str) {
+                Some(access) => kxen_app::llm::verify::store_with_temp_cred(
+                    &store,
+                    provider,
+                    account.unwrap_or("default"),
+                    params.get("kind").and_then(Value::as_str).unwrap_or("api"),
+                    access,
+                    params.get("refresh").and_then(Value::as_str).unwrap_or(""),
+                    params.get("expires").and_then(Value::as_u64).unwrap_or(0),
+                    params.get("region").and_then(Value::as_str),
+                ),
+                None => store,
+            };
             serde_json::to_value(kxen_app::llm::verify::verify_provider(&store, provider, account, model).await).map_err(|e| e.to_string())
         }
         "provider.models" => {
@@ -229,17 +243,21 @@ async fn reprobe(app: &AppHandle) -> Result<Value, String> {
 
 /// reprobe 结果上屏：(lines 全量短句, issues 需用户处理的条目)。
 /// Debug 串（"Fresh"）不透出前端；display 用规则里的中文名而非 provider key。
-fn summarize_reprobe(outcomes: &[(&'static str, kxen_app::auth::ProbeOutcome, &'static str)]) -> (Vec<String>, Vec<String>) {
+/// issues 带探测源路径：常驻条目悬停 title 告诉用户去哪个文件补凭证。
+fn summarize_reprobe(outcomes: &[(&'static str, kxen_app::auth::ProbeOutcome, &'static str)]) -> (Vec<String>, Vec<Value>) {
     let text = |o: &kxen_app::auth::ProbeOutcome| match o {
         kxen_app::auth::ProbeOutcome::Imported => "已从官方源导入",
         kxen_app::auth::ProbeOutcome::Fresh => "已是最新",
         kxen_app::auth::ProbeOutcome::Missing => "未找到官方凭证",
     };
     let lines: Vec<String> = outcomes.iter().map(|(_, o, display)| format!("{display}：{}", text(o))).collect();
-    let issues: Vec<String> = outcomes
+    let issues: Vec<Value> = outcomes
         .iter()
         .filter(|(_, o, _)| matches!(o, kxen_app::auth::ProbeOutcome::Missing))
-        .map(|(_, o, display)| format!("{display}：{}", text(o)))
+        .map(|(p, o, display)| {
+            let hint = kxen_app::auth::probe::RULES.iter().find(|r| r.provider == *p).map(|r| r.source).unwrap_or("");
+            json!({ "text": format!("{display}：{}", text(o)), "hint": hint })
+        })
         .collect();
     (lines, issues)
 }
@@ -288,7 +306,11 @@ mod tests {
             lines,
             vec!["Claude Pro/Max：已是最新", "ChatGPT Plus/Pro (codex)：未找到官方凭证", "SuperGrok (grok-build)：已从官方源导入"]
         );
-        assert_eq!(issues, vec!["ChatGPT Plus/Pro (codex)：未找到官方凭证"], "只有 Missing 进常驻清单");
+        assert_eq!(
+            issues,
+            vec![json!({ "text": "ChatGPT Plus/Pro (codex)：未找到官方凭证", "hint": "~/.codex/auth.json" })],
+            "只有 Missing 进常驻清单，且带探测源路径供悬停提示"
+        );
     }
 
     #[test]

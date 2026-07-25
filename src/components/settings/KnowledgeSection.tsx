@@ -16,6 +16,10 @@ import {
 } from "../../lib/knowledge";
 import { badgeChip } from "../../lib/variants";
 import { activeSessionId } from "../../lib/state";
+import { flashErr, flashOk } from "../../lib/flash";
+import { formatError } from "../../lib/error-text";
+
+const errText = (e: unknown) => formatError(e instanceof Error ? e.message : String(e));
 
 const SCOPES: { id: KnowledgeScope; label: string; hint: string }[] = [
   { id: "project", label: "项目", hint: ".agents/ · 入 git 共享" },
@@ -49,9 +53,9 @@ export default function KnowledgeSection() {
   const [noteType, setNoteType] = createSignal("convention");
   const [desc, setDesc] = createSignal("");
   const [content, setContent] = createSignal("");
-  const [saved, setSaved] = createSignal("");
 
   const reload = async () => {
+    // 首屏两源独立降级：单源失败只缺对应区块；用户操作路径各自显错
     const [list, prev] = await Promise.all([
       knowledgeList().catch(() => []),
       knowledgeInjectionPreview(activeSessionId() || undefined).catch(() => null),
@@ -61,36 +65,51 @@ export default function KnowledgeSection() {
   };
   onMount(() => void reload());
 
-  const flash = (msg: string) => {
-    setSaved(msg);
-    setTimeout(() => setSaved(""), 2000);
-  };
-
   const add = async () => {
     if (!desc().trim() || !content().trim()) return;
-    await knowledgeAdd(scope(), noteType(), desc().trim(), content().trim());
+    try {
+      await knowledgeAdd(scope(), noteType(), desc().trim(), content().trim());
+    } catch (e) {
+      flashErr(`写入知识库失败：${errText(e)}`);
+      return;
+    }
     setDesc("");
     setContent("");
     await reload();
-    flash("已写入知识库");
+    flashOk("已写入知识库");
   };
 
   const toggle = async (e: KnowledgeEntry) => {
-    await knowledgeSetEnabled(e.scope, e.slug, !e.enabled);
+    try {
+      await knowledgeSetEnabled(e.scope, e.slug, !e.enabled);
+    } catch (err) {
+      flashErr(`启停失败：${errText(err)}`);
+      return;
+    }
     await reload();
   };
 
   const move = async (e: KnowledgeEntry, to: KnowledgeScope) => {
     if (to === e.scope) return;
-    await knowledgeMove(e.scope, e.slug, to);
+    try {
+      await knowledgeMove(e.scope, e.slug, to);
+    } catch (err) {
+      flashErr(`移动失败：${errText(err)}`);
+      return;
+    }
     await reload();
-    flash(`已晋升到 ${to === "project" ? "项目" : "个人"}`);
+    flashOk(`已晋升到 ${to === "project" ? "项目" : "个人"}`);
   };
 
   const remove = async (e: KnowledgeEntry) => {
-    await knowledgeRemove(e.scope, e.slug);
+    try {
+      await knowledgeRemove(e.scope, e.slug);
+    } catch (err) {
+      flashErr(`删除失败：${errText(err)}`);
+      return;
+    }
     await reload();
-    flash("已删除（废纸篓可恢复）");
+    flashOk("已删除（废纸篓可恢复）");
   };
 
   const byScope = (s: KnowledgeScope) => entries().filter((e) => e.scope === s);
@@ -122,9 +141,6 @@ export default function KnowledgeSection() {
           注入预览
         </button>
       </div>
-      <Show when={saved()}>
-        <div class="text-xs text-[var(--ok)]">{saved()}</div>
-      </Show>
 
       <Show when={showPreview()}>
         <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-3 max-h-72 overflow-auto">

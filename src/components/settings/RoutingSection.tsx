@@ -49,8 +49,11 @@ export default function RoutingSection() {
   const [testing, setTesting] = createSignal("");
   const [testResult, setTestResult] = createSignal<Record<string, TestDispatchResult>>({});
   const [saved, setSaved] = createSignal("");
+  // model 被编辑过的角色：非法值（空/含空白）的行内提示只对编辑过的行显示，缺省空绑定不吵
+  const [modelTouched, setModelTouched] = createSignal<Record<string, boolean>>({});
 
   const reload = async () => {
+    // 首屏五源独立降级：单源失败只缺对应区块，不拖垮整页；用户操作路径各自显错
     const [cfg, stats, accs, catalog, list] = await Promise.all([
       configGet().catch(() => null),
       mrmStats().catch(() => null),
@@ -88,7 +91,7 @@ export default function RoutingSection() {
     };
     const next = { ...cur, ...patch };
     if (patch.provider !== undefined && patch.provider !== cur.provider) next.account = null;
-    await configSetRole(role, next.provider, next.model, next.fallback ?? "", next.account ?? "");
+    // 输入受控需要即时回显：先落地本地态；非法 model（空/含空白）不下发，行内提示接管
     setRoles((prev) => ({
       ...prev,
       [role]: {
@@ -98,7 +101,15 @@ export default function RoutingSection() {
         fallback: next.fallback ?? null,
       },
     }));
+    if (!next.model.trim() || /\s/.test(next.model)) return;
+    await configSetRole(role, next.provider, next.model, next.fallback ?? "", next.account ?? "");
     flash(`${ROLE_LABELS[role] ?? role} 已保存并热生效`);
+  };
+
+  // a<->b 互指降级会循环空转：提示引导用户自拆环，不硬拦（配置是显式选择，拦截反而挡合法中间态）
+  const cycleWith = (role: string) => {
+    const f = roles()[role]?.fallback;
+    return f && roles()[f]?.fallback === role ? f : null;
   };
 
   const tryDispatch = async (role: string) => {
@@ -189,7 +200,10 @@ export default function RoutingSection() {
                     class="flex-1 bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs font-mono"
                     value={binding().model}
                     placeholder="model id（可下拉搜索）"
-                    onChange={(e) => void update(role, { model: e.currentTarget.value })}
+                    onChange={(e) => {
+                      setModelTouched((p) => ({ ...p, [role]: true }));
+                      void update(role, { model: e.currentTarget.value });
+                    }}
                   />
                   <datalist id={`models-${role}`}>
                     <For each={cat().find((p) => p.provider === binding().provider)?.models ?? []}>
@@ -213,6 +227,24 @@ export default function RoutingSection() {
                     <span class="text-2xs text-[var(--text-faint)]" title="降级目标角色">
                       → {binding().fallback}
                     </span>
+                  </Show>
+                  <Show
+                    when={
+                      modelTouched()[role] &&
+                      (!binding().model.trim() || /\s/.test(binding().model))
+                    }
+                  >
+                    <span class="text-2xs text-[var(--warn)]">model 为空或含空白，未保存</span>
+                  </Show>
+                  <Show when={cycleWith(role)}>
+                    {(f) => (
+                      <span
+                        class="text-2xs text-[var(--warn)]"
+                        title="两角色互指降级会循环空转，只保留一个方向"
+                      >
+                        与{ROLE_LABELS[f()] ?? f()}互指降级
+                      </span>
+                    )}
                   </Show>
                   <button
                     class="pressable flex items-center gap-1 px-2 py-1 rounded text-2xs border border-[var(--border)]"

@@ -15,6 +15,7 @@ import {
   type AccountInfo,
   type ModelsResult,
   type ProviderInfo,
+  type ReprobeIssue,
   type VerifyOutcome,
 } from "../../lib/provider";
 import { GUIDES } from "../../lib/provider-guides";
@@ -29,11 +30,14 @@ interface Row extends AccountInfo {
   modelsResult?: ModelsResult;
 }
 
+// 实测结果与拉模型条数是时点探测：切分区重挂载后需用户重新点按获取，
+// 不缓存陈旧探测结果上屏（缓存会误导，探测本身一键可重发）。
+
 export default function ProvidersSection() {
   const [rows, setRows] = createSignal<Row[]>([]);
   const [providers, setProviders] = createSignal<ProviderInfo[]>([]);
   const [reprobing, setReprobing] = createSignal(false);
-  const [issues, setIssues] = createSignal<string[]>([]);
+  const [issues, setIssues] = createSignal<ReprobeIssue[]>([]);
   const [adding, setAdding] = createSignal(false);
   const [guideFor, setGuideFor] = createSignal("");
   // 待确认删除的行 id（账号被角色占用时先出确认条）
@@ -94,7 +98,7 @@ export default function ProvidersSection() {
       flashOk(`已更新 ${row.id} 区域`);
       await load();
     } catch (e) {
-      flashErr(`改区域失败：${e instanceof Error ? e.message : String(e)}`);
+      flashErr(`改区域失败：${formatError(e instanceof Error ? e.message : String(e))}`);
     }
   };
 
@@ -113,7 +117,7 @@ export default function ProvidersSection() {
       await load();
       verifyAll(); // 重新导入 = 用户主动动作，导入后逐个验证一次
     } catch (e) {
-      flashErr(`重新导入失败：${e instanceof Error ? e.message : String(e)}`);
+      flashErr(`重新导入失败：${formatError(e instanceof Error ? e.message : String(e))}`);
     } finally {
       setReprobing(false);
     }
@@ -132,7 +136,7 @@ export default function ProvidersSection() {
       flashOk(`已删除 ${row.id}`);
       await load();
     } catch (e) {
-      flashErr(`删除失败：${e instanceof Error ? e.message : String(e)}`);
+      flashErr(`删除失败：${formatError(e instanceof Error ? e.message : String(e))}`);
     }
   };
 
@@ -178,7 +182,16 @@ export default function ProvidersSection() {
       <Show when={issues().length > 0}>
         <div class="rounded border border-[var(--warn)]/50 bg-[var(--warn)]/5 px-3 py-2 text-xs space-y-0.5">
           <div class="text-[var(--warn)]">以下订阅未导入（官方源无凭证）：</div>
-          <For each={issues()}>{(i) => <div class="text-[var(--text-dim)]">{i}</div>}</For>
+          <For each={issues()}>
+            {(i) => (
+              <div
+                class="text-[var(--text-dim)]"
+                title={i.hint ? `探测位置：${i.hint}` : undefined}
+              >
+                {i.text}
+              </div>
+            )}
+          </For>
         </div>
       </Show>
 
@@ -278,7 +291,9 @@ export default function ProvidersSection() {
                   </div>
                 </div>
                 <Show when={r.verify && !r.verify.ok}>
-                  <div class="mt-1.5 text-xs text-[var(--err)] break-all">{r.verify?.detail}</div>
+                  <div class="mt-1.5 text-xs text-[var(--err)] break-all">
+                    {formatError(r.verify?.detail ?? "")}
+                  </div>
                 </Show>
                 <Show when={r.modelsResult}>
                   {(m) => (

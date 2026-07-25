@@ -12,6 +12,31 @@ pub struct VerifyOutcome {
     pub detail: String,
 }
 
+/// 「测试连接」的临时凭证注入：克隆 store 写入候选凭证（不落盘），
+/// verify_provider 按既有账号键链路解析，候选凭证零持久化风险。
+#[allow(clippy::too_many_arguments)]
+pub fn store_with_temp_cred(
+    store: &crate::auth::credential::AuthStore,
+    provider: &str,
+    account: &str,
+    kind: &str,
+    access: &str,
+    refresh: &str,
+    expires: u64,
+    region: Option<&str>,
+) -> crate::auth::credential::AuthStore {
+    use crate::auth::credential::CredentialKind;
+    let mut cloned = store.clone();
+    let cred = if kind == "oauth" {
+        CredentialKind::Oauth { access: access.into(), refresh: refresh.into(), expires, account_id: None }
+    } else {
+        // OAuth 订阅厂商全是单区域（credential.rs region()），region 只对 Api 凭证有意义
+        CredentialKind::Api { key: access.into(), region: region.map(String::from) }
+    };
+    cloned.insert(crate::auth::credential::account_id(provider, account), cred);
+    cloned
+}
+
 /// 发一条真实 ping：首个有效 delta 即判活；Error/超时即判死（带原始错误文案）。
 pub async fn verify_provider(
     store: &crate::auth::credential::AuthStore,
@@ -56,5 +81,28 @@ pub async fn verify_provider(
         Ok(Ok(())) => VerifyOutcome { ok: true, latency_ms, detail: "live ok".into() },
         Ok(Err(e)) => VerifyOutcome { ok: false, latency_ms, detail: e },
         Err(_) => VerifyOutcome { ok: false, latency_ms, detail: "timeout (20s)".into() },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::credential::CredentialKind;
+
+    #[test]
+    fn temp_cred_lands_in_clone_only() {
+        let mut store = crate::auth::credential::AuthStore::new();
+        store.insert("kimi:work".into(), CredentialKind::Api { key: "old".into(), region: None });
+        let probed = store_with_temp_cred(&store, "kimi", "work", "api", "new-key", "", 0, Some("intl"));
+        assert!(
+            matches!(&probed["kimi:work"], CredentialKind::Api { key, region } if key == "new-key" && region.as_deref() == Some("intl")),
+            "临时凭证必须按账号键覆盖克隆体并带区域"
+        );
+        assert!(matches!(&store["kimi:work"], CredentialKind::Api { key, .. } if key == "old"), "原 store 不得被污染");
+        let probed = store_with_temp_cred(&store, "anthropic", "default", "oauth", "tok", "ref", 123, None);
+        assert!(
+            matches!(&probed["anthropic"], CredentialKind::Oauth { access, refresh, expires, .. } if access == "tok" && refresh == "ref" && *expires == 123),
+            "oauth 形态必须保留 refresh/expires"
+        );
     }
 }

@@ -156,17 +156,19 @@ impl Config {
     }
 }
 
-/// voice.set_engine 的局部更新：在既有 [voice] 表上只覆盖 engine/fallback，
-/// locale/transcribe_model 等其他键保留；空 fallback 维持旧语义（不动既有链）。
-pub fn merge_voice_engine(doc: &mut toml::Table, engine: &str, fallback: &[String]) {
+/// voice.set_engine 的局部更新：覆盖 engine/fallback（空数组 = 清空降级链；
+/// 前端两个调用点都显式传当前链，旧的「空 = 不动」语义已无人依赖），
+/// locale 仅 Some 时覆盖；transcribe_model 等其他键保留。
+pub fn merge_voice_engine(doc: &mut toml::Table, engine: &str, fallback: &[String], locale: Option<&str>) {
     let entry = doc.entry("voice").or_insert_with(|| toml::Value::Table(toml::Table::new()));
     if !entry.is_table() {
         *entry = toml::Value::Table(toml::Table::new());
     }
     let voice = entry.as_table_mut().expect("voice table");
     voice.insert("engine".into(), toml::Value::String(engine.into()));
-    if !fallback.is_empty() {
-        voice.insert("fallback".into(), toml::Value::Array(fallback.iter().map(|f| toml::Value::String(f.clone())).collect()));
+    voice.insert("fallback".into(), toml::Value::Array(fallback.iter().map(|f| toml::Value::String(f.clone())).collect()));
+    if let Some(l) = locale {
+        voice.insert("locale".into(), toml::Value::String(l.into()));
     }
 }
 
@@ -179,22 +181,25 @@ mod tests {
         let mut doc: toml::Table =
             toml::from_str("[voice]\nengine = \"apple\"\nfallback = [\"openai\"]\nlocale = \"en-US\"\ntranscribe_model = \"whisper-1\"\n")
                 .expect("fixture toml");
-        merge_voice_engine(&mut doc, "openai", &["xai".to_string()]);
+        merge_voice_engine(&mut doc, "openai", &["xai".to_string()], None);
         let voice = doc["voice"].as_table().expect("voice table");
         assert_eq!(voice["engine"].as_str(), Some("openai"));
         assert_eq!(voice["fallback"].as_array().map(Vec::len), Some(1));
-        assert_eq!(voice["locale"].as_str(), Some("en-US"), "locale 不得丢");
+        assert_eq!(voice["locale"].as_str(), Some("en-US"), "locale 不传不得丢");
         assert_eq!(voice["transcribe_model"].as_str(), Some("whisper-1"), "transcribe_model 不得丢");
 
-        // 空 fallback 维持旧语义：不动既有链
-        merge_voice_engine(&mut doc, "apple", &[]);
+        // locale 传入即覆盖
+        merge_voice_engine(&mut doc, "apple", &["xai".to_string()], Some("zh-CN"));
+        assert_eq!(doc["voice"]["locale"].as_str(), Some("zh-CN"));
+
+        // 空 fallback = 显式清空降级链（前端总是显式传当前链）
+        merge_voice_engine(&mut doc, "apple", &[], None);
         let voice = doc["voice"].as_table().expect("voice table");
-        assert_eq!(voice["engine"].as_str(), Some("apple"));
-        assert_eq!(voice["fallback"].as_array().map(Vec::len), Some(1), "空 fallback 不得清掉既有链");
+        assert_eq!(voice["fallback"].as_array().map(Vec::len), Some(0), "空数组必须清链");
 
         // 无 [voice] 表时新建
         let mut empty = toml::Table::new();
-        merge_voice_engine(&mut empty, "apple", &[]);
+        merge_voice_engine(&mut empty, "apple", &[], None);
         assert_eq!(empty["voice"]["engine"].as_str(), Some("apple"));
     }
 }

@@ -27,19 +27,21 @@ const SECTIONS = [
 
 export default function Settings() {
   const [section, setSection] = createSignal<(typeof SECTIONS)[number]>("通用");
-  const [saved] = createSignal("");
   const [sendPolicy, setSendPolicy] = createSignal("queue");
 
   onMount(async () => {
+    // 首屏读取失败保持缺省 queue 不阻塞页面；用户改动时的保存路径才显错
     const cfg = await configGet().catch(() => null);
     if (cfg?.send_when_running) setSendPolicy(cfg.send_when_running);
   });
 
   const setPolicy = async (p: string) => {
+    const prev = sendPolicy();
     setSendPolicy(p);
-    await client
-      .rpc("config.set_send_policy", { policy: p })
-      .catch((e: unknown) => flashErr(`保存失败：${e instanceof Error ? e.message : String(e)}`));
+    await client.rpc("config.set_send_policy", { policy: p }).catch((e: unknown) => {
+      setSendPolicy(prev); // 乐观更新失败回滚，不留假状态
+      flashErr(`保存失败：${e instanceof Error ? e.message : String(e)}`);
+    });
   };
 
   const exportDiag = async () => {
@@ -75,10 +77,6 @@ export default function Settings() {
         </nav>
 
         <div class="flex-1 min-w-0 space-y-4">
-          <Show when={saved()}>
-            <div class="text-xs text-[var(--ok)]">{saved()}</div>
-          </Show>
-
           <Show when={section() === "通用"}>
             <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] divide-y divide-[var(--border)]">
               <div class="flex items-center justify-between px-4 py-3">

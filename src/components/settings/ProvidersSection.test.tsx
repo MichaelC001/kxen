@@ -48,7 +48,7 @@ const h = vi.hoisted(() => ({
   reprobe: vi.fn(async () => ({
     report: { entries: [], data_dir: "", config_dir: "" },
     outcomes: [] as string[],
-    issues: [] as string[],
+    issues: [] as { text: string; hint: string }[],
   })),
   removeAccount: vi.fn(async (_p: string, _a: string) => {}),
   removeCustom: vi.fn(async (_n: string) => {}),
@@ -125,11 +125,11 @@ describe("ProvidersSection reprobe", () => {
     dispose();
   });
 
-  it("outcomes 中文短句上屏，未导入条目常驻展示", async () => {
+  it("outcomes 中文短句上屏，未导入条目常驻展示且带探测路径 title", async () => {
     h.reprobe.mockResolvedValue({
       report: { entries: [], data_dir: "", config_dir: "" },
       outcomes: ["Claude Pro/Max：已是最新", "ChatGPT Plus/Pro (codex)：未找到官方凭证"],
-      issues: ["ChatGPT Plus/Pro (codex)：未找到官方凭证"],
+      issues: [{ text: "ChatGPT Plus/Pro (codex)：未找到官方凭证", hint: "~/.codex/auth.json" }],
     });
     const dispose = render(() => <ProvidersSection />, document.body);
     await flush();
@@ -143,6 +143,11 @@ describe("ProvidersSection reprobe", () => {
       expect(document.body.textContent).toContain("ChatGPT Plus/Pro (codex)：未找到官方凭证"),
     );
     expect(document.body.textContent).toContain("以下订阅未导入");
+    // 常驻条目悬停 title 给探测源全路径
+    const issueEl = [...document.body.querySelectorAll<HTMLElement>("div")].find(
+      (d) => d.title === "探测位置：~/.codex/auth.json",
+    );
+    expect(issueEl).toBeTruthy();
     dispose();
   });
 });
@@ -226,6 +231,26 @@ describe("ProvidersSection 删除", () => {
     ); // custom 无修复指引（原空框问题）
     btnByTitle("删除自定义提供商").click();
     await vi.waitFor(() => expect(h.removeCustom).toHaveBeenCalledWith("relay"));
+    dispose();
+  });
+});
+
+describe("ProvidersSection 实测失败", () => {
+  it("detail 过 formatError：提取尾部 JSON 的 message，不裸渲整串", async () => {
+    h.accounts.mockResolvedValue([{ ...KIMI_WORK }]);
+    h.list.mockResolvedValue([KIMI]);
+    h.verify.mockResolvedValue({
+      ok: false,
+      latency_ms: 0,
+      detail:
+        'kimi HTTP 401 Unauthorized: {"error":{"type":"authentication_error","message":"invalid api key"}}',
+    });
+    const dispose = render(() => <ProvidersSection />, document.body);
+    await vi.waitFor(() => expect(document.body.textContent).toContain("kimi:work"));
+
+    btnByText("实测").click();
+    await vi.waitFor(() => expect(document.body.textContent).toContain("invalid api key"));
+    expect(document.body.textContent).not.toContain('{"error"'); // 不裸渲 JSON
     dispose();
   });
 });
