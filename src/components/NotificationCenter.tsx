@@ -1,14 +1,18 @@
 // 通知中心：铃铛 + 未读计数 + 下拉面板（时间/文本/清空）。未读基线存 localStorage。
+// 带来源会话的条目可点击跳回来源会话（session_id 由后端 Notification 事件携带）。
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Bell, Trash2 } from "lucide-solid";
 import EmptyLine from "./EmptyLine";
 import { client } from "../lib/client";
 import { onClickOutside } from "../lib/dismiss";
 import { relTime } from "../lib/time";
+import { flashErr } from "../lib/flash";
+import { sessions, switchSession } from "../lib/state";
 
 interface Notice {
   at: number;
   text: string;
+  session_id?: string | null;
 }
 
 const READ_KEY = "kxen-notif-read-at";
@@ -56,6 +60,16 @@ export default function NotificationCenter() {
     await reload();
   };
 
+  // 跳来源会话：通知到达后会话可能已被删除，悬空切换会让主区变空白
+  const jump = (sid: string) => {
+    if (!sessions().some((s) => s.id === sid)) {
+      flashErr("来源会话已删除");
+      return;
+    }
+    switchSession(sid);
+    setOpen(false);
+  };
+
   return (
     <div class="relative" ref={(el) => (root = el)}>
       <button
@@ -94,7 +108,20 @@ export default function NotificationCenter() {
             {(n) => (
               <div class="px-3 py-2 border-b border-[var(--border)] last:border-0">
                 <div class="text-2xs text-[var(--text-faint)]">{relTime(n.at)}</div>
-                <div class="text-xs leading-snug break-words">{n.text}</div>
+                <Show
+                  when={n.session_id}
+                  fallback={<div class="text-xs leading-snug break-words">{n.text}</div>}
+                >
+                  {(sid) => (
+                    <button
+                      class="w-full text-left text-xs leading-snug break-words hover:text-[var(--accent-hover)]"
+                      title="跳到来源会话"
+                      onClick={() => jump(sid())}
+                    >
+                      {n.text}
+                    </button>
+                  )}
+                </Show>
               </div>
             )}
           </For>

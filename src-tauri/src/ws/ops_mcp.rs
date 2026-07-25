@@ -31,6 +31,7 @@ async fn mcp_auth(params: &Value, app: &AppHandle) -> Result<Value, String> {
     let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
     let state = app.state::<Arc<AppState>>();
     let session = state.mcp.begin_auth(name).await?;
+    state.mcp.set_auth_error(name, None); // 新一次发起：清掉上一轮的失败原因
     let url = session.authorize_url.clone();
     let opened = open_browser(&url);
     if !opened {
@@ -42,14 +43,16 @@ async fn mcp_auth(params: &Value, app: &AppHandle) -> Result<Value, String> {
     tokio::spawn(async move {
         match mcp.finish_auth(&session).await {
             Ok(()) => {
+                mcp.set_auth_error(&server, None);
                 let note = match mcp.restart(&server).await {
                     Ok(()) => format!("MCP server {server} 认证完成，已重连"),
                     Err(e) => format!("MCP server {server} 认证完成，但重连失败: {e}"),
                 };
-                bus.publish(kxen_app::core::event::Event::Notification(note));
+                bus.publish(kxen_app::core::event::Event::notify(note, None));
             }
             Err(e) => {
-                bus.publish(kxen_app::core::event::Event::Notification(format!("MCP server {server} 认证失败: {e}")));
+                mcp.set_auth_error(&server, Some(e.clone()));
+                bus.publish(kxen_app::core::event::Event::notify(format!("MCP server {server} 认证失败: {e}"), None));
             }
         }
     });

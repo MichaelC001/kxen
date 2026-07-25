@@ -3,7 +3,8 @@ import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
-  goalFocus: vi.fn(async () => null),
+  goalFocus: vi.fn(async (_sid?: string): Promise<unknown> => null),
+  goalList: vi.fn(async (): Promise<unknown[]> => []),
   taskList: vi.fn(async () => [] as unknown[]),
   agentDiffStatus: vi.fn(async () => [] as unknown[]),
   onTopic: vi.fn(async (_topics: string[], _handler: unknown) => () => {}),
@@ -16,6 +17,7 @@ vi.mock("../lib/chat", async (importOriginal) => {
   return {
     ...orig,
     goalFocus: h.goalFocus,
+    goalList: h.goalList,
     goalTransit: vi.fn(async () => true),
     taskList: h.taskList,
     taskKill: vi.fn(async () => true),
@@ -39,12 +41,31 @@ vi.mock("./Markdown", () => ({ default: () => null }));
 vi.mock("./DockWorktree", () => ({ default: () => null }));
 
 import Dock from "./Dock";
+import { setActiveSessionId } from "../lib/state";
+
+function goal(over: Record<string, unknown>) {
+  return {
+    id: "g1",
+    status: "active",
+    objective: "obj",
+    completion_criteria: "crit",
+    budget: {},
+    turns_used: 1,
+    tokens_used: 0,
+    consecutive_blocks: 0,
+    ...over,
+  };
+}
 
 afterEach(() => {
   document.body.innerHTML = "";
   h.goalFocus.mockClear();
+  h.goalFocus.mockResolvedValue(null);
+  h.goalList.mockClear();
+  h.goalList.mockResolvedValue([]);
   h.taskList.mockClear();
   h.resync.clear();
+  setActiveSessionId("");
 });
 
 describe("Dock resync 自愈", () => {
@@ -60,5 +81,47 @@ describe("Dock resync 自愈", () => {
     expect(h.taskList).toHaveBeenCalledTimes(2);
     dispose();
     expect(h.resync.size).toBe(0);
+  });
+});
+
+describe("Dock goal 口径与终态呈现", () => {
+  it("goalFocus 带活跃会话 id（与 StatusBar 同口径）", async () => {
+    setActiveSessionId("s1");
+    const dispose = render(() => <Dock />, document.body);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.goalFocus).toHaveBeenCalledWith("s1");
+    dispose();
+  });
+
+  it("焦点命中活态 goal 时不回落 goalList，snake_case 状态命中徽标", async () => {
+    setActiveSessionId("s2");
+    h.goalFocus.mockResolvedValue(goal({ id: "g2", status: "budget_limited" }));
+    const dispose = render(() => <Dock />, document.body);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.goalFocus).toHaveBeenCalledWith("s2");
+    expect(h.goalList).not.toHaveBeenCalled();
+    expect(document.body.textContent ?? "").toContain("预算耗尽");
+    dispose();
+  });
+
+  it("焦点为空回落最近更新的 goal：终态徽标 + evidence 折叠 + 无操作按钮", async () => {
+    setActiveSessionId("s3");
+    h.goalFocus.mockResolvedValue(null);
+    h.goalList.mockResolvedValue([
+      goal({
+        id: "g3",
+        status: "complete",
+        verification_evidence: "cargo test 全绿，pnpm test 全绿",
+      }),
+    ]);
+    const dispose = render(() => <Dock />, document.body);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.goalList).toHaveBeenCalledTimes(1);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("已完成");
+    expect(text).toContain("obj");
+    expect(document.querySelector("summary")?.textContent).toContain("验证证据");
+    expect(text).not.toContain("取消");
+    dispose();
   });
 });

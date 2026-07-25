@@ -88,7 +88,7 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
         // auto-compaction：预估 tokens 超窗口 80% 先蒸馏旧历史（窗口取 catalog，非 200k 硬编码）
         if crate::agent::compact::needs_compact(messages, &ctx.model) {
             if let Some(bus) = &ctx.bus {
-                bus.publish(crate::core::event::Event::Notification("上下文超阈值，已自动压缩历史".into()));
+                bus.publish(crate::core::event::Event::notify("上下文超阈值，已自动压缩历史", ctx.session_id.clone()));
             }
             let (compacted, summary) = crate::agent::compact::compact_messages(&ctx.model, &ctx.store, messages, 6).await;
             *messages = compacted;
@@ -208,11 +208,12 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
                 ctx.model.account = Some(acc_name.clone());
             }
             if let Some(bus) = &ctx.bus {
-                bus.publish(crate::core::event::Event::Notification(format!(
+                let note = format!(
                     "请求失败（{err}），{wait}ms 后第 {} 次重试{}",
                     attempt + 1,
                     rotated.map(|a| format!("（换账号 {a}）")).unwrap_or_default()
-                )));
+                );
+                bus.publish(crate::core::event::Event::notify(note, ctx.session_id.clone()));
             }
             tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
             if aborted {

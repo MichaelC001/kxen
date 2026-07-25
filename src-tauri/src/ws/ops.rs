@@ -192,7 +192,7 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
         "notifications.list" => {
             let state = app.state::<Arc<AppState>>();
             let buf = state.notifications.lock().map_err(|e| e.to_string())?;
-            Ok(json!(buf.iter().map(|(at, text)| json!({ "at": at, "text": text })).collect::<Vec<_>>()))
+            Ok(json!(buf.iter().map(|n| json!({ "at": n.at, "text": n.text, "session_id": n.session_id })).collect::<Vec<_>>()))
         }
         "notifications.clear" => {
             let state = app.state::<Arc<AppState>>();

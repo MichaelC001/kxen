@@ -140,8 +140,9 @@ export async function goalList(): Promise<GoalInfo[]> {
   return client.rpc<GoalInfo[]>("goal.list");
 }
 
-export async function goalFocus(): Promise<GoalInfo | null> {
-  return client.rpc<GoalInfo | null>("goal.focus");
+// 焦点必须带会话口径：后端 goal.focus 支持 session_id，不传永远回落全局焦点（与 StatusBar 不一致的根因）
+export async function goalFocus(sessionId?: string): Promise<GoalInfo | null> {
+  return client.rpc<GoalInfo | null>("goal.focus", sessionId ? { session_id: sessionId } : {});
 }
 
 export async function goalTransit(

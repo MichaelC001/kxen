@@ -2,7 +2,8 @@ import { createSignal, Show, onCleanup, onMount } from "solid-js";
 import { GitBranch, Target, ListTodo } from "lucide-solid";
 import NotificationCenter from "./NotificationCenter";
 import { statusline, type StatuslineReport } from "../lib/chat";
-import { displayName, modelsCatalog, type ProviderCatalog } from "../lib/models";
+import { displayName, fmtCtx, modelOf, modelsCatalog, type ProviderCatalog } from "../lib/models";
+import { goalStatusMeta } from "../lib/board";
 import { activeSessionId } from "../lib/state";
 
 /** 底部状态栏：固定段 + config 开关，3s 轮询 + 事件驱动。 */
@@ -37,6 +38,20 @@ export default function StatusBar() {
     const idx = w.indexOf(home);
     return idx === 0 ? `~/${w.slice(home.length).split("/").slice(1).join("/")}` : w;
   };
+  // goal 中文徽标：与看板/Dock 共用 board.ts 状态映射，不再渲染原始英文 status
+  const goalMeta = () => goalStatusMeta(report()?.goal?.status ?? "");
+  const goalToneCls = () =>
+    ({ ok: "text-[var(--ok)]", warn: "text-[var(--warn)]", dim: "text-[var(--text-dim)]" })[
+      goalMeta().tone
+    ];
+  // ctx 窗取 catalog 实测值（models.dev），替代过期的 200k 硬编码文案
+  const ctxWindow = () => {
+    const raw = report()?.model ?? "";
+    const slash = raw.indexOf("/");
+    if (slash <= 0) return "";
+    const m = modelOf(cat(), raw.slice(0, slash), raw.slice(slash + 1));
+    return m ? fmtCtx(m.context) : "";
+  };
 
   return (
     <div class="h-7 shrink-0 flex items-center gap-3 px-3 border-t border-[var(--border)] bg-[var(--bg-raised)] text-xs text-[var(--text-dim)]">
@@ -52,9 +67,9 @@ export default function StatusBar() {
         </span>
       </Show>
       <Show when={has("goal") && report()?.goal}>
-        <span class="flex items-center gap-1 text-[var(--accent-hover)]" title={report()?.goal?.id}>
+        <span class={`flex items-center gap-1 ${goalToneCls()}`} title={report()?.goal?.id}>
           <Target size={11} />
-          {report()?.goal?.status}
+          {goalMeta().label}
         </span>
       </Show>
       <Show when={has("tasks") && (report()?.tasks_running ?? 0) > 0}>
@@ -67,11 +82,15 @@ export default function StatusBar() {
         <NotificationCenter />
         <Show when={has("tokens")}>
           <span title="本会话 tokens（input/output）">
-            {report()?.tokens.input}/{report()?.tokens.output}
+            {(report()?.tokens.input ?? 0).toLocaleString("en-US")}/
+            {(report()?.tokens.output ?? 0).toLocaleString("en-US")}
           </span>
         </Show>
         <Show when={has("ctx")}>
-          <span class="flex items-center gap-1.5" title="上下文占用（最近 run input / 200k 窗）">
+          <span
+            class="flex items-center gap-1.5"
+            title={`上下文占用（最近 run input / ${ctxWindow() || "?"} 窗）`}
+          >
             <span class="ctx-bar">
               <span
                 class="ctx-bar-fill"

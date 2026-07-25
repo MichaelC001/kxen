@@ -92,7 +92,9 @@ export interface PendingApproval {
 /** 等待中的审批（broker 300s 窗口内仍在等应答）：会话重载时恢复等待卡。
  *  RPC 失败按空列表降级（与 sessionPendingList 同口径）——恢复是增强，不能阻断时间线加载。 */
 export async function approvalPending(sessionId: string): Promise<PendingApproval[]> {
-  return client.rpc<PendingApproval[]>("approval.pending", { session_id: sessionId }).catch(() => []);
+  return client
+    .rpc<PendingApproval[]>("approval.pending", { session_id: sessionId })
+    .catch(() => []);
 }
 
 export async function sessionPendingList(sessionId: string): Promise<string[]> {

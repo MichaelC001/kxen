@@ -8,7 +8,15 @@ pub enum Event {
     ToolCall { name: &'static str, summary: String },
     TaskUpdate { id: String, status: &'static str },
     GoalUpdate { id: String, status: &'static str },
-    Notification(String),
+    // session_id 记录来源会话：通知中心条目点击可跳转回来源，系统级通知为 None（不可点）
+    Notification { text: String, session_id: Option<String> },
+}
+
+impl Event {
+    /// 通知发布统一入口：裸构造容易漏填 session_id，跳转能力就此丢失
+    pub fn notify(text: impl Into<String>, session_id: Option<String>) -> Self {
+        Self::Notification { text: text.into(), session_id }
+    }
 }
 
 #[derive(Clone)]

@@ -85,7 +85,7 @@ pub fn gate_async(workdir: &Path, broker: &std::sync::Arc<crate::agent::approval
         let outcome = broker.wait(&id, rx, None).await;
         if matches!(outcome, crate::agent::approval::ApprovalOutcome::Allow) {
             trust(&dir);
-            bus.publish(crate::core::event::Event::Notification(format!("已信任项目 {}", dir.display())));
+            bus.publish(crate::core::event::Event::notify(format!("已信任项目 {}", dir.display()), None));
         }
     });
 }

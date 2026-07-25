@@ -250,10 +250,10 @@ impl TeamManager {
             if self.relay.deliver(&state.session_id, format!("[teammate {from}] {text}")) == LeadPath::Inbox {
                 append_inbox(&state.dir, "lead", from, text)?;
             }
-            self.bus.publish(crate::core::event::Event::Notification(format!(
-                "teammate {from}: {}",
-                text.chars().take(120).collect::<String>()
-            )));
+            self.bus.publish(crate::core::event::Event::notify(
+                format!("teammate {from}: {}", text.chars().take(120).collect::<String>()),
+                Some(state.session_id.clone()),
+            ));
             self.fanout_observers(state, from, "lead", text);
             return Ok(());
         }

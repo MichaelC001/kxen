@@ -42,7 +42,7 @@ pub(super) fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Valu
         "items": items,
         "workdir": state.active_workspace.read().expect("workspace").to_string_lossy(),
         "git_branch": git_branch,
-        "goal": focus.map(|g| json!({ "id": g.id, "status": format!("{:?}", g.status).to_lowercase() })),
+        "goal": focus.map(|g| json!({ "id": g.id, "status": g.status.as_str() })),
         "tasks_running": tasks_running,
         "tokens": { "input": tokens.0, "output": tokens.1 },
         "ctx_pct": ctx_pct,

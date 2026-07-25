@@ -57,7 +57,7 @@ fn map_event(event: kxen_app::core::event::Event) -> (&'static str, Value) {
         Event::ToolCall { name, summary } => ("llm.delta", serde_json::json!({ "tool": name, "summary": summary })),
         Event::TaskUpdate { id, status } => ("task.update", serde_json::json!({ "id": id, "status": status })),
         Event::GoalUpdate { id, status } => ("goal.update", serde_json::json!({ "id": id, "status": status })),
-        Event::Notification(text) => ("notification", serde_json::json!({ "text": text })),
+        Event::Notification { text, session_id } => ("notification", serde_json::json!({ "text": text, "session_id": session_id })),
     }
 }
 

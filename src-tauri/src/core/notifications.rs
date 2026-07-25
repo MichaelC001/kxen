@@ -8,9 +8,12 @@ use std::path::{Path, PathBuf};
 pub const CAP: usize = 50;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Notice {
-    at: u64,
-    text: String,
+pub struct Notice {
+    pub at: u64,
+    pub text: String,
+    /// 来源会话（None = 系统级通知，通知中心条目不可点击跳转）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 fn store_file() -> PathBuf {
@@ -18,31 +21,31 @@ fn store_file() -> PathBuf {
 }
 
 /// 启动恢复：文件缺失/损坏一律空缓冲（通知非关键数据，不值得为排障阻塞启动）
-pub fn load() -> VecDeque<(u64, String)> {
+pub fn load() -> VecDeque<Notice> {
     load_from(&store_file())
 }
 
 /// 新通知从头部进，超 CAP 截尾（最新在前，与通知中心展示序一致）
-pub fn push(buf: &mut VecDeque<(u64, String)>, at: u64, text: String) {
-    buf.push_front((at, text));
+pub fn push(buf: &mut VecDeque<Notice>, at: u64, text: String, session_id: Option<String>) {
+    buf.push_front(Notice { at, text, session_id });
     buf.truncate(CAP);
 }
 
 /// 原子写（tmp + rename）：崩溃窗口最多丢一轮通知，不留半截 JSON
-pub fn persist(buf: &VecDeque<(u64, String)>) {
+pub fn persist(buf: &VecDeque<Notice>) {
     persist_to(&store_file(), buf);
 }
 
-fn load_from(path: &Path) -> VecDeque<(u64, String)> {
+fn load_from(path: &Path) -> VecDeque<Notice> {
     let Ok(text) = std::fs::read_to_string(path) else { return VecDeque::new() };
     let Ok(notes) = serde_json::from_str::<Vec<Notice>>(&text) else { return VecDeque::new() };
-    let mut buf: VecDeque<(u64, String)> = notes.into_iter().map(|n| (n.at, n.text)).collect();
+    let mut buf: VecDeque<Notice> = notes.into_iter().collect();
     buf.truncate(CAP);
     buf
 }
 
-fn persist_to(path: &Path, buf: &VecDeque<(u64, String)>) {
-    let notes: Vec<Notice> = buf.iter().map(|(at, text)| Notice { at: *at, text: text.clone() }).collect();
+fn persist_to(path: &Path, buf: &VecDeque<Notice>) {
+    let notes: Vec<Notice> = buf.iter().cloned().collect();
     let Ok(json) = serde_json::to_string_pretty(&notes) else { return };
     let tmp = path.with_extension("json.tmp");
     if std::fs::write(&tmp, json).is_ok() {
@@ -63,13 +66,16 @@ mod tests {
         let path = tmp("rt");
         let mut buf = VecDeque::new();
         for i in 0..60 {
-            push(&mut buf, i, format!("n{i}"));
+            push(&mut buf, i, format!("n{i}"), (i % 2 == 0).then(|| format!("s{i}")));
         }
         assert_eq!(buf.len(), CAP, "内存侧 cap 必须生效");
         persist_to(&path, &buf);
         let loaded = load_from(&path);
         assert_eq!(loaded.len(), CAP);
-        assert_eq!(loaded.front().unwrap().1, "n59", "最新一条在头部");
+        let head = loaded.front().unwrap();
+        assert_eq!(head.text, "n59", "最新一条在头部");
+        assert_eq!(head.session_id, None, "奇数项无来源会话");
+        assert_eq!(loaded[1].session_id.as_deref(), Some("s58"), "session_id 必须随落盘往返");
         let _ = std::fs::remove_file(&path);
     }
 

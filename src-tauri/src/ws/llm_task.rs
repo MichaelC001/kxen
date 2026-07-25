@@ -91,7 +91,7 @@ pub(crate) async fn run_llm(
         }
     };
     for f in &context_failures {
-        state.bus.publish(kxen_app::core::event::Event::Notification(format!("引用读取失败：{f}")));
+        state.bus.publish(kxen_app::core::event::Event::notify(format!("引用读取失败：{f}"), Some(session_id.clone())));
     }
 
     // 用户消息落盘：展示文本与注入上下文分 part 存（UI 只显示 Text，模型历史两者皆见）

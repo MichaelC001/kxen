@@ -5,6 +5,9 @@ import { Send, Square } from "lucide-solid";
 import { commandList, type CommandInfo, type ContextItem } from "../../lib/chat";
 import { activeSessionId } from "../../lib/state";
 import { clearDraft, getDraft, setDraft } from "../../lib/drafts";
+import { createInFlight } from "../../lib/async-guard";
+import { flashErr } from "../../lib/flash";
+import { formatError } from "../../lib/error-text";
 import { COMPOSER_INSERT_EVENT } from "../../lib/composer-bus";
 import { buildItems, detectTrigger, type PopupState, type Trigger } from "./triggers";
 import { createAttachments } from "./composer-attachments";
@@ -67,6 +70,8 @@ export default function TextComposer(props: {
     if (!ta) return;
     ta.value = v;
     setText(v);
+    // 程序化改文本（语音上屏/触发词删除/草稿恢复）与键盘输入同等待遇：落每会话草稿，切会话不丢
+    setDraft(activeSessionId(), v);
     const pos = caret ?? v.length;
     ta.setSelectionRange(pos, pos);
     autogrow();
@@ -77,6 +82,8 @@ export default function TextComposer(props: {
     const pos = ta.selectionStart;
     ta.setRangeText(insert, pos, ta.selectionEnd, "end");
     setText(ta.value);
+    // 同 setValue：光标处插入（弹层 apply/总线插入）也落草稿
+    setDraft(activeSessionId(), ta.value);
     autogrow();
   }
 
@@ -115,6 +122,9 @@ export default function TextComposer(props: {
 
   createEffect(() => {
     props.focusTick();
+    // 切会话：停掉在录/启动中的语音，终稿 discard——base 属旧会话，落进新会话输入框是串台；
+    // 旧会话已上屏的 partial 不走终稿，草稿已随 setValue 持续落盘，不丢
+    void voiceCtl.stop("discard");
     // 每会话草稿：切走前已持续落盘，切回恢复；row chip 不跨会话保留
     const d = getDraft(activeSessionId());
     setRowChips([]);
@@ -229,13 +239,18 @@ export default function TextComposer(props: {
       Date.now() >= imeLockUntil
     ) {
       e.preventDefault();
-      void send();
+      sendGuarded();
       return;
     }
     voiceCtl.onSpaceDown(e);
   }
 
   async function send() {
+    // 录音中发送：先等语音收尾（终稿并入输入框），连终稿一起发。
+    // 旧实现不 await：发出去的是旧 partial，终稿随后倒灌已清空的输入框。
+    // 仅启动中（权限弹窗未决）取消不等待：此刻没有终稿可等，发送不能被弹窗卡住。
+    if (recording()) await voiceCtl.stop();
+    else if (voiceCtl.starting()) void voiceCtl.stop();
     const value = pastes.expand(text()).trim();
     // err chip 只是装配失败的告示（可点 X 移除），不进发送载荷：仅剩 err chip 时按空输入处理
     const payloadChips = rowChips().filter((c) => c.kind !== "err");
@@ -259,13 +274,21 @@ export default function TextComposer(props: {
       .filter((c) => c.kind === "image")
       .map((c) => images.get(c.ref))
       .filter((i): i is { media_type: string; data: string } => !!i);
-    if (recording()) voiceCtl.stop();
     props.onSend(value, context, imageParts);
-    clearDraft(activeSessionId());
     pastes.clear();
     setValue("", 0);
+    // setValue 现在会落草稿，清草稿必须在其后，否则空串又写回去
+    clearDraft(activeSessionId());
     setRowChips([]);
   }
+
+  // 等语音终稿期间连按 Enter/连点发送键不得双发：in-flight 去重共享同一 Promise
+  const sendDedupe = createInFlight();
+  const sendGuarded = () => {
+    void sendDedupe("send", send).catch((e) => {
+      flashErr(`发送失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+    });
+  };
 
   return (
     <div class="relative">
@@ -313,7 +336,7 @@ export default function TextComposer(props: {
           <button
             class={sendBtn({ intent: props.streaming() ? "danger" : "primary" })}
             classList={{ "send-ready": !props.streaming() }}
-            onClick={() => (props.streaming() ? props.onStop() : void send())}
+            onClick={() => (props.streaming() ? props.onStop() : sendGuarded())}
             title={props.streaming() ? "停止" : "发送"}
           >
             {props.streaming() ? <Square size={13} /> : <Send size={14} />}

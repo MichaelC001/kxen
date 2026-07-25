@@ -32,16 +32,16 @@ async fn lagged_consumer_skips_and_keeps_receiving() {
     let bus = EventBus::new(4);
     let mut rx = bus.subscribe();
     for i in 0..6 {
-        bus.publish(Event::Notification(format!("n{i}")));
+        bus.publish(Event::notify(format!("n{i}"), None));
     }
     let first = rx.recv().await;
     assert!(matches!(recv_verdict(first), RecvVerdict::Skip), "溢出必须先判 Skip");
     // lag 之后仍能收到后续事件：循环存活
-    bus.publish(Event::Notification("after".into()));
+    bus.publish(Event::notify("after", None));
     let mut survived = false;
     for _ in 0..8 {
-        if let RecvVerdict::Event(Event::Notification(t)) = recv_verdict(rx.recv().await) {
-            if t == "after" {
+        if let RecvVerdict::Event(Event::Notification { text, .. }) = recv_verdict(rx.recv().await) {
+            if text == "after" {
                 survived = true;
                 break;
             }

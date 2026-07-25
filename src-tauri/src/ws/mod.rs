@@ -264,7 +264,7 @@ mod tests {
         let bus = EventBus::new(4);
         let mut rx = bus.subscribe();
         for i in 0..6 {
-            bus.publish(Event::Notification(format!("n{i}")));
+            bus.publish(Event::notify(format!("n{i}"), None));
         }
         let lagged = rx.recv().await;
         let Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) = lagged else {
@@ -280,11 +280,11 @@ mod tests {
         assert_eq!(v["result"]["topic"], "sys.resync");
         assert_eq!(v["result"]["payload"]["dropped"], n);
         // lag 后订阅仍活：后续事件照常到达（连接不需要重开）
-        bus.publish(Event::Notification("after".into()));
+        bus.publish(Event::notify("after", None));
         let mut survived = false;
         for _ in 0..8 {
-            if let Ok(Event::Notification(t)) = rx.recv().await {
-                if t == "after" {
+            if let Ok(Event::Notification { text, .. }) = rx.recv().await {
+                if text == "after" {
                     survived = true;
                     break;
                 }

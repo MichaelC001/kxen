@@ -236,7 +236,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
                 let policy = if cfg.send_when_running.is_empty() { "queue" } else { cfg.send_when_running.as_str() };
                 if policy != "interrupt" {
                     let n = state.pending_messages.enqueue(&p.session_id, p.text, p.context, p.images);
-                    state.bus.publish(kxen_app::core::event::Event::Notification(format!("运行中，消息已排队（第 {n} 条）")));
+                    state.bus.publish(kxen_app::core::event::Event::notify(format!("运行中，消息已排队（第 {n} 条）"), Some(p.session_id)));
                     return Ok(json!({ "queued": true }));
                 }
                 if let Some(token) = kxen_app::core::shared::lock(&state.active_runs).get(&p.session_id).cloned() {

@@ -13,7 +13,7 @@ fn dir() -> std::path::PathBuf {
 fn to_json(goal: &Goal) -> Value {
     json!({
         "id": goal.id,
-        "status": format!("{:?}", goal.status).to_lowercase(),
+        "status": goal.status.as_str(),
         "objective": goal.contract.objective,
         "completion_criteria": goal.contract.completion_criteria,
         "constraints": goal.contract.constraints,
@@ -98,4 +98,40 @@ fn transit(
     goal.save(&dir()).map_err(|e| e.to_string())?;
     publish(bus, &goal);
     Ok(to_json(&goal))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kxen_app::core::goal::GoalStatus;
+
+    fn bare_goal() -> Goal {
+        Goal::create(
+            GoalContract { objective: "o".into(), completion_criteria: "c".into(), constraints: None, budget: GoalBudget::default() },
+            "goal-t1".into(),
+        )
+        .expect("create")
+    }
+
+    /// 状态串唯一口径 = GoalStatus::as_str()（snake_case）：旧 Debug lowercase 会产出
+    /// budgetlimited，与 GoalUpdate 事件的 budget_limited 并存，前端配色板对不上。
+    #[test]
+    fn to_json_status_matches_as_str() {
+        let mut g = bare_goal();
+        for status in [
+            GoalStatus::Draft,
+            GoalStatus::Queued,
+            GoalStatus::Active,
+            GoalStatus::Paused,
+            GoalStatus::Blocked,
+            GoalStatus::BudgetLimited,
+            GoalStatus::Complete,
+            GoalStatus::Canceled,
+        ] {
+            g.status = status;
+            assert_eq!(to_json(&g)["status"], json!(status.as_str()), "{status:?} 必须走 as_str");
+        }
+        g.status = GoalStatus::BudgetLimited;
+        assert_eq!(to_json(&g)["status"], json!("budget_limited"), "snake_case 回归点");
+    }
 }

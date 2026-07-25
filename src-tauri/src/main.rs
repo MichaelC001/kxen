@@ -51,7 +51,7 @@ pub struct AppState {
     /// session_id -> 最近一轮 run 的 involved 文件（injection_preview 的真实 glob 命中数据源）
     pub session_involved: std::sync::Mutex<std::collections::HashMap<String, Vec<std::path::PathBuf>>>,
     /// 通知环形缓冲（teammate/cron/系统事件，顶栏通知中心数据源，50 条）
-    pub notifications: std::sync::Mutex<std::collections::VecDeque<(u64, String)>>,
+    pub notifications: std::sync::Mutex<std::collections::VecDeque<kxen_app::core::notifications::Notice>>,
     /// 前台聚焦会话（OS 通知只发非前台会话的完成事件）
     pub foreground_session: std::sync::RwLock<String>,
     /// 原生对话框附件授权清单（选择即授权；context 边界守卫与 read_attachment 的唯一放行依据）
@@ -228,20 +228,18 @@ pub fn run() {
                                 }
                             }
                         }
-                        if let kxen_app::core::event::Event::Notification(text) = event {
+                        if let kxen_app::core::event::Event::Notification { text, session_id } = event {
                             // notification hook（全部 Notification 事件的单一收口点；Ask 档走审批）
                             let state = handle.state::<Arc<AppState>>();
                             let hooks = state.hooks.clone();
                             // broker/bus 克隆进任务（借用无法跨 spawn 的 'static 边界）
                             let broker = state.approvals.clone();
                             let bus = state.bus.clone();
-                            let text2 = text.clone();
+                            let (text2, sid) = (text.clone(), session_id.clone());
                             tauri::async_runtime::spawn(async move {
                                 let appr = kxen_app::tools::exec::ApprovalCtx::new(Some(broker.as_ref()), Some(&bus), None, None);
-                                if let Err(e) = hooks
-                                    .run_named_with_approval("notification", &text2, &serde_json::json!({ "text": text2 }), appr.as_ref())
-                                    .await
-                                {
+                                let payload = &serde_json::json!({ "text": text2, "session_id": sid });
+                                if let Err(e) = hooks.run_named_with_approval("notification", &text2, payload, appr.as_ref()).await {
                                     tracing::warn!(error = %e, "notification hook failed");
                                 }
                             });
@@ -251,7 +249,7 @@ pub fn run() {
                                 .unwrap_or(0);
                             let state = handle.state::<Arc<AppState>>();
                             let mut buf = state.notifications.lock().expect("notifications");
-                            kxen_app::core::notifications::push(&mut buf, now, text);
+                            kxen_app::core::notifications::push(&mut buf, now, text, session_id);
                             kxen_app::core::notifications::persist(&buf);
                         }
                     }
@@ -292,9 +290,8 @@ pub fn run() {
                                 // 并发 run 会交叉写 JSONL 历史：投入队列由 run 结束续跑消化
                                 cron_dispatch::CronDispatch::Enqueue => {
                                     let n = state.pending_messages.enqueue(&job.session_id, text, vec![], vec![]);
-                                    state.bus.publish(kxen_app::core::event::Event::Notification(format!(
-                                        "cron 触发时会话运行中，已排队（第 {n} 条）"
-                                    )));
+                                    let note = format!("cron 触发时会话运行中，已排队（第 {n} 条）");
+                                    state.bus.publish(kxen_app::core::event::Event::notify(note, Some(job.session_id.clone())));
                                 }
                             }
                         }

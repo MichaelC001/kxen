@@ -3,6 +3,7 @@ import {
   agentDiffFile,
   agentDiffStatus,
   goalFocus,
+  goalList,
   goalTransit,
   onTopic,
   taskKill,
@@ -12,6 +13,7 @@ import {
   type TaskInfo,
 } from "../lib/chat";
 import { client } from "../lib/client";
+import { createAction } from "../lib/async-guard";
 import { activeSessionId } from "../lib/state";
 import Markdown from "./Markdown";
 import DockWorktree from "./DockWorktree";
@@ -23,7 +25,7 @@ const GOAL_STATUS: Record<string, { text: string; cls: string }> = {
   active: { text: "进行中", cls: "text-[var(--accent-hover)]" },
   paused: { text: "已暂停", cls: "text-[var(--warn)]" },
   blocked: { text: "阻塞", cls: "text-[var(--err)]" },
-  budgetlimited: { text: "预算耗尽", cls: "text-[var(--err)]" },
+  budget_limited: { text: "预算耗尽", cls: "text-[var(--err)]" },
   complete: { text: "已完成", cls: "text-[var(--ok)]" },
   canceled: { text: "已取消", cls: "text-[var(--text-faint)]" },
 };
@@ -60,6 +62,7 @@ function DockSections(props: {
   goal: GoalInfo | null;
   badge: () => { text: string; cls: string };
   act: (action: "activate" | "pause" | "resume" | "cancel") => void;
+  acting: () => boolean;
   changes: AgentDiffEntry[];
   openDiff: { path: string; text: string } | null;
   toggleDiff: (path: string) => void;
@@ -69,6 +72,7 @@ function DockSections(props: {
   const goal = () => props.goal;
   const badge = props.badge;
   const act = props.act;
+  const acting = props.acting;
   const reloadTasks = props.reloadTasks;
   const changes = () => props.changes;
   const openDiff = () => props.openDiff;
@@ -99,37 +103,51 @@ function DockSections(props: {
               <Show when={g().block_reason}>
                 <div class="text-2xs text-[var(--err)]">阻塞：{g().block_reason}</div>
               </Show>
+              <Show when={g().verification_evidence}>
+                <details class="text-2xs text-[var(--text-dim)]">
+                  <summary class="cursor-pointer select-none">验证证据</summary>
+                  <div class="mt-0.5 whitespace-pre-wrap break-words">
+                    {g().verification_evidence}
+                  </div>
+                </details>
+              </Show>
               <div class="flex gap-1.5 pt-0.5">
                 <Show when={g().status === "active"}>
                   <button
-                    class="pressable px-2 py-0.5 rounded text-2xs border border-[var(--border)] text-[var(--warn)]"
-                    onClick={() => void act("pause")}
+                    class="pressable px-2 py-0.5 rounded text-2xs border border-[var(--border)] text-[var(--warn)] disabled:opacity-50"
+                    disabled={acting()}
+                    onClick={() => act("pause")}
                   >
                     暂停
                   </button>
                 </Show>
-                <Show when={["paused", "blocked", "budgetlimited"].includes(g().status)}>
+                <Show when={["paused", "blocked", "budget_limited"].includes(g().status)}>
                   <button
-                    class="pressable px-2 py-0.5 rounded text-2xs bg-[var(--accent)] text-white"
-                    onClick={() => void act("resume")}
+                    class="pressable px-2 py-0.5 rounded text-2xs bg-[var(--accent)] text-white disabled:opacity-50"
+                    disabled={acting()}
+                    onClick={() => act("resume")}
                   >
                     恢复
                   </button>
                 </Show>
                 <Show when={["draft", "queued"].includes(g().status)}>
                   <button
-                    class="pressable px-2 py-0.5 rounded text-2xs bg-[var(--accent)] text-white"
-                    onClick={() => void act("activate")}
+                    class="pressable px-2 py-0.5 rounded text-2xs bg-[var(--accent)] text-white disabled:opacity-50"
+                    disabled={acting()}
+                    onClick={() => act("activate")}
                   >
                     激活
                   </button>
                 </Show>
-                <button
-                  class="pressable px-2 py-0.5 rounded text-2xs border border-[var(--border)] text-[var(--err)]"
-                  onClick={() => void act("cancel")}
-                >
-                  取消
-                </button>
+                <Show when={!["complete", "canceled"].includes(g().status)}>
+                  <button
+                    class="pressable px-2 py-0.5 rounded text-2xs border border-[var(--border)] text-[var(--err)] disabled:opacity-50"
+                    disabled={acting()}
+                    onClick={() => act("cancel")}
+                  >
+                    取消
+                  </button>
+                </Show>
               </div>
             </div>
           )}
@@ -240,7 +258,18 @@ export default function Dock() {
   let offResync: (() => void) | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
 
-  const reloadGoal = async () => setGoal(await goalFocus());
+  // goalAction：act 期间禁用按钮（连点产生并发 transit 裸 rejection 的根因），失败走 flashErr
+  const goalAction = createAction();
+
+  // 焦点带会话口径（与 StatusBar 一致）；焦点为空回落最近更新的 goal，complete/canceled 终态也有呈现
+  const reloadGoal = async () => {
+    try {
+      const focused = await goalFocus(activeSessionId() || undefined);
+      setGoal(focused ?? (await goalList())[0] ?? null);
+    } catch {
+      // 事件/轮询驱动：本轮失败保留旧值，下一轮重拉
+    }
+  };
   const reloadDiff = async () => {
     const sid = activeSessionId();
     setChanges(sid ? await agentDiffStatus(sid) : []);
@@ -269,11 +298,16 @@ export default function Dock() {
     if (timer) clearInterval(timer);
   });
 
-  const act = async (action: "activate" | "pause" | "resume" | "cancel") => {
+  const act = (action: "activate" | "pause" | "resume" | "cancel") => {
     const g = goal();
     if (!g) return;
-    await goalTransit(g.id, action);
-    await reloadGoal();
+    void goalAction.run(
+      async () => {
+        await goalTransit(g.id, action);
+        await reloadGoal();
+      },
+      { errPrefix: "goal 操作失败" },
+    );
   };
 
   const toggleDiff = async (path: string) => {
@@ -293,6 +327,7 @@ export default function Dock() {
         goal={goal()}
         badge={badge}
         act={act}
+        acting={goalAction.pending}
         changes={changes()}
         openDiff={openDiff()}
         toggleDiff={toggleDiff}

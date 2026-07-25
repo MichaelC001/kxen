@@ -31,6 +31,30 @@ const chatMock = vi.hoisted(() => {
   return chatMock;
 });
 
+// 语音走 mocked startVoiceSession：partial/终稿/启动取消全可控（真实后端在 E2E 覆盖）
+const voiceMock = vi.hoisted(() => ({
+  started: 0,
+  stopped: 0,
+  partial: null as null | ((t: string) => void),
+  stopImpl: () => Promise.resolve(null as string | null),
+}));
+
+vi.mock("../../lib/voice", () => ({
+  startVoiceSession: async (_e: unknown, onPartial: (t: string) => void) => {
+    voiceMock.started++;
+    voiceMock.partial = onPartial;
+    return {
+      engine: "apple",
+      stop: () => {
+        voiceMock.stopped++;
+        return voiceMock.stopImpl();
+      },
+    };
+  },
+  voiceEngines: async () => ({ engine: "apple", fallback: [], locale: "zh-CN", engines: [] }),
+  setVoiceEngine: async () => {},
+}));
+
 vi.mock("../../lib/chat", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../../lib/chat")>();
   return {
@@ -60,8 +84,14 @@ vi.mock("../../lib/chat", async (importOriginal) => {
 afterEach(() => {
   chatMock.deferred = false;
   chatMock.resolvers.length = 0;
+  voiceMock.started = 0;
+  voiceMock.stopped = 0;
+  voiceMock.partial = null;
+  voiceMock.stopImpl = () => Promise.resolve(null);
   clearDraft("");
   clearDraft("s-created");
+  clearDraft("s1");
+  clearDraft("s2");
   setActiveSessionId("");
   // 失败用例没跑到 dispose 时清场：残留 composer 会让下一个用例的 ta() 抓到旧 textarea
   document.body.innerHTML = "";
@@ -221,6 +251,66 @@ describe("TextComposer (webkit)", () => {
     expect(getDraft("")).toBe("");
     expect(getDraft("s-created")).toBe(" wip");
     expect(ta().value).toBe(" wip");
+    dispose();
+  });
+
+  it("录音中发送：等终稿并入后连发，终稿不倒灌已清空输入框", async () => {
+    let sent = "";
+    const { dispose, ta } = mount((t) => (sent = t));
+    await new Promise((r) => setTimeout(r, 100));
+    const el = ta();
+    el.focus();
+    await userEvent.keyboard("hello");
+    // 长按空格进语音
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 500));
+    expect(voiceMock.started).toBe(1);
+    voiceMock.partial?.("世界");
+    expect(el.value).toBe("hello世界");
+    // 终稿 80ms 后才回：发送必须等它并入，而不是发旧 partial
+    voiceMock.stopImpl = () => new Promise((res) => setTimeout(() => res("终稿"), 80));
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    // 发送键按下瞬间：还在等终稿，不得先把旧 partial 发出去
+    expect(sent).toBe("");
+    await new Promise((r) => setTimeout(r, 200));
+    expect(voiceMock.stopped).toBe(1);
+    expect(sent).toBe("hello终稿");
+    expect(el.value).toBe("");
+    // 旧实现的倒灌回归点：终稿事件已随发送消费，输入框不得再被回填
+    await new Promise((r) => setTimeout(r, 150));
+    expect(el.value).toBe("");
+    dispose();
+  });
+
+  it("语音 partial 落草稿；切会话停录音、迟到终稿不串台，切回恢复", async () => {
+    const { dispose, setTick, ta } = mount();
+    await new Promise((r) => setTimeout(r, 100));
+    setActiveSessionId("s1");
+    setTick(1);
+    await new Promise((r) => setTimeout(r, 50));
+    const el = ta();
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 500));
+    expect(voiceMock.started).toBe(1);
+    voiceMock.partial?.("你好");
+    expect(el.value).toBe("你好");
+    // 语音上屏与键盘输入同等待遇：持续落本会话草稿
+    expect(getDraft("s1")).toBe("你好");
+    // 终稿延迟 80ms：切会话时 voice.stop 才回——discard 不得进新会话输入框
+    voiceMock.stopImpl = () => new Promise((res) => setTimeout(() => res("迟到终稿"), 80));
+    setActiveSessionId("s2");
+    setTick(2);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(voiceMock.stopped).toBe(1);
+    expect(ta().value).toBe("");
+    expect(getDraft("s2")).toBe("");
+    // 切回 s1：已上屏 partial 从草稿恢复
+    setActiveSessionId("s1");
+    setTick(3);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(ta().value).toBe("你好");
     dispose();
   });
 });
