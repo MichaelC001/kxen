@@ -45,7 +45,9 @@ export default function Session() {
   const [workdir, setWorkdir] = createSignal("");
   let unlisten: (() => void) | undefined;
   let listRef: HTMLDivElement | undefined;
-  let prevSid = "";
+  // null 哨兵 = 组件首跑（含路由卸载重挂载）：强制重载时间线；
+  // 仅 ""（草稿->激活首发）才跳过重载保住乐观上屏，否则重挂载 items 永远空（时间线空白的根因）
+  let prevSid: string | null = null;
   const [pendingQueue, setPendingQueue] = createSignal<string[]>([]);
 
   const streaming = () => streamingSid() === activeSessionId() && activeSessionId() !== "";
