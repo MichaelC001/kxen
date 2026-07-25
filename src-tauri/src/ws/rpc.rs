@@ -262,6 +262,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let allow = params.get("allow").and_then(Value::as_bool).ok_or("missing allow")?;
             Ok(json!({ "resolved": app.state::<Arc<AppState>>().approvals.respond(id, allow) }))
         }
+        "approval.pending" => super::session_ops::approval_pending(&params, &app.state::<Arc<AppState>>()),
         "team.list" => {
             let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let state = app.state::<Arc<AppState>>();

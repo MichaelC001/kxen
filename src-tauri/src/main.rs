@@ -77,7 +77,7 @@ impl AppState {
             std::sync::Arc::from(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
         let bus = kxen_app::core::event::EventBus::default();
         let agents = std::sync::Arc::new(kxen_app::agent::activity::AgentRegistry::default());
-        let approvals = std::sync::Arc::new(kxen_app::agent::approval::ApprovalBroker::new().with_bus(bus.clone()));
+        let approvals = std::sync::Arc::new(kxen_app::agent::approval::production_broker(bus.clone()));
         let mcp = kxen_app::mcp::McpManager::new();
         let lsp = std::sync::RwLock::new(kxen_app::lsp::LspManager::new(workdir.to_path_buf()));
         // P0-2：team relay 与 AppState 共享同一队列实例（teammate 报告入队 = 用户消息同路续跑）

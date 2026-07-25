@@ -5,7 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const chatMock = vi.hoisted(() => ({ approvalRespond: vi.fn() }));
 vi.mock("./chat", () => ({ approvalRespond: chatMock.approvalRespond }));
 
-import { applyApprovalEvent, applyApprovalResolved, respondApproval } from "./approvals";
+import {
+  applyApprovalEvent,
+  applyApprovalResolved,
+  pendingApprovalItems,
+  respondApproval,
+} from "./approvals";
 import type { ApprovalItem, Item } from "./items";
 
 function setup() {
@@ -59,5 +64,53 @@ describe("respondApproval", () => {
     const a = setup();
     await respondApproval(a.setItems, "a1", true);
     expect(a.card().resolved).toBe("expired");
+  });
+});
+
+describe("会话重载恢复等待卡（approval.pending）", () => {
+  it("pendingApprovalItems：快照还原为未决等待卡", () => {
+    const items = pendingApprovalItems([
+      { id: "a1", command: "rm -rf x", reason: "危险", session_id: "s1" },
+      { id: "a2", command: "git push", reason: "r2", session_id: "s1" },
+    ]);
+    expect(items).toEqual([
+      { kind: "approval", approvalId: "a1", command: "rm -rf x", reason: "危险" },
+      { kind: "approval", approvalId: "a2", command: "git push", reason: "r2" },
+    ]);
+  });
+
+  it("恢复后仍可走原有应答/了结流", async () => {
+    chatMock.approvalRespond.mockResolvedValue({ resolved: true });
+    const [items, setItems] = createSignal<Item[]>(
+      pendingApprovalItems([{ id: "a1", command: "c", reason: "r", session_id: "s1" }]),
+    );
+    await respondApproval(setItems, "a1", false);
+    const card = items()[0] as ApprovalItem;
+    expect(card.resolved).toBe("denied");
+  });
+
+  it("恢复卡与迟到实时事件去重：同 id 只留一张", () => {
+    const [items, setItems] = createSignal<Item[]>(
+      pendingApprovalItems([{ id: "a1", command: "c", reason: "r", session_id: "s1" }]),
+    );
+    applyApprovalEvent(setItems, {
+      kind: "approval",
+      name: "approval",
+      approvalId: "a1",
+      command: "c",
+      reason: "r",
+    });
+    expect(items().filter((it) => it.kind === "approval" && it.approvalId === "a1")).toHaveLength(
+      1,
+    );
+    // 不同 id 的实时事件照常追加
+    applyApprovalEvent(setItems, {
+      kind: "approval",
+      name: "approval",
+      approvalId: "a9",
+      command: "x",
+      reason: "y",
+    });
+    expect(items()).toHaveLength(2);
   });
 });

@@ -54,6 +54,14 @@ pub enum Part {
         media_type: String,
         data: String,
     },
+    /// 审批决定落盘（allow/deny/timeout/cancel）：刷新/重载后时间线仍有审批痕迹（灰色已决历史卡）。
+    /// 不回放给模型（flatten_stored 只取 Text/Context）；落盘角色固定 Assistant——
+    /// User 会被 rewind 检查点定位当成 turn 起点（最近 user 消息语义），审批消息不是 turn。
+    Approval {
+        command: String,
+        reason: String,
+        decision: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,7 +124,8 @@ pub fn create(dir: &Path, directory: &str) -> std::io::Result<Session> {
     Ok(session)
 }
 
-/// 就地更新元信息（重命名 / 置顶 / 手动排序）。
+/// 就地更新元信息（重命名 / 置顶 / 手动排序）。不 bump updated_at：
+/// meta 变更不算消息活动（否则重命名/置顶/拖拽后该行时间戳跳「刚刚」顶到列表最前）；真活动由 append_message 维护。
 pub fn update_meta(
     dir: &Path,
     id: &str,
@@ -134,7 +143,6 @@ pub fn update_meta(
     if let Some(so) = sort_order {
         session.sort_order = so;
     }
-    session.updated_at = now_ms();
     save_meta(dir, &session)?;
     Ok(session)
 }

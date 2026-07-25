@@ -1,5 +1,5 @@
 // 审批事件处理：approval 事件入时间线 + 用户应答回写（Session.tsx 拆出，350 门禁）。
-import { approvalRespond } from "./chat";
+import { approvalRespond, type PendingApproval } from "./chat";
 import type { ToolEvent } from "./delta";
 import type { Item } from "./items";
 
@@ -7,15 +7,20 @@ type SetItems = (fn: (prev: Item[]) => Item[]) => void;
 
 export function applyApprovalEvent(setItems: SetItems, event: ToolEvent): void {
   if (!event.approvalId) return;
-  setItems((prev) => [
-    ...prev,
-    {
-      kind: "approval",
-      approvalId: event.approvalId!,
-      command: event.command ?? "",
-      reason: event.reason ?? "",
-    },
-  ]);
+  setItems((prev) =>
+    // 重载恢复（approval.pending）与实时事件可能撞车：同 id 只留一张卡
+    prev.some((it) => it.kind === "approval" && it.approvalId === event.approvalId)
+      ? prev
+      : [
+          ...prev,
+          {
+            kind: "approval",
+            approvalId: event.approvalId!,
+            command: event.command ?? "",
+            reason: event.reason ?? "",
+          },
+        ],
+  );
 }
 
 export async function respondApproval(
@@ -45,4 +50,15 @@ export function applyApprovalResolved(setItems: SetItems, id: string, outcome: s
       it.kind === "approval" && it.approvalId === id && !it.resolved ? { ...it, resolved } : it,
     ),
   );
+}
+
+/** approval.pending 快照 -> 等待中审批卡（会话重载恢复）。
+ *  已决的审批由 toItems 从落盘 Part 渲染，pending 只含未决——两者互补不重叠。 */
+export function pendingApprovalItems(list: PendingApproval[]): Item[] {
+  return list.map((a) => ({
+    kind: "approval",
+    approvalId: a.id,
+    command: a.command,
+    reason: a.reason,
+  }));
 }

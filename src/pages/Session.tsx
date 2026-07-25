@@ -1,5 +1,6 @@
 import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import {
+  approvalPending,
   onLlmDelta,
   sessionAbort,
   sessionExport,
@@ -10,7 +11,7 @@ import {
 } from "../lib/chat";
 import { createConverge } from "../lib/converge";
 import { createDeltaBatcher } from "../lib/delta-batch";
-import { respondApproval as respondApprovalImpl } from "../lib/approvals";
+import { pendingApprovalItems, respondApproval as respondApprovalImpl } from "../lib/approvals";
 import { applyStreamEvent, appendRawItem } from "../lib/session-events";
 import { editResend as editResendImpl, forkAt, rerun as rerunImpl } from "../lib/session-actions";
 import { createSendFlow } from "../lib/send";
@@ -85,9 +86,10 @@ export default function Session() {
     const fromDraft = prevSid === "";
     prevSid = id;
     if (fromDraft) return;
-    void sessionMessages(id).then((messages) => {
+    void Promise.all([sessionMessages(id), approvalPending(id)]).then(([messages, pend]) => {
       if (activeSessionId() === id) {
-        setItems(toItems(messages));
+        // 落盘决定由 toItems 渲染为已决历史卡；仍在等的审批（broker 300s 窗口内）恢复为等待卡
+        setItems([...toItems(messages), ...pendingApprovalItems(pend)]);
         scroll();
       }
     });

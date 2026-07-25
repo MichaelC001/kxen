@@ -39,6 +39,14 @@ export interface ApprovalItem {
 }
 export type Item = MsgItem | ToolItem | PhaseItem | ApprovalItem;
 
+/** 落盘 decision（allow/deny/timeout/cancel）-> 卡片已决态；未知值按 expired 兜底（不冒充用户决定）。 */
+const DECISION_RESOLVED: Record<string, NonNullable<ApprovalItem["resolved"]>> = {
+  allow: "allowed",
+  deny: "denied",
+  timeout: "timeout",
+  cancel: "cancelled",
+};
+
 /** 通知类 user 消息的来源小标：[teammate 名] / [task notification] 前缀（后端落盘口径，见 drain_lead_inbox / drain_to_session）。 */
 export function userSource(text: string): string | undefined {
   const teammate = /^\[teammate ([^\]]+)\]/.exec(text);
@@ -92,6 +100,15 @@ export function toItems(messages: StoredMessage[]): Item[] {
           call: typeof p.input === "string" ? p.input : JSON.stringify(p.input),
           args: p.args == null ? undefined : JSON.stringify(p.args, null, 2),
           result: p.output || undefined,
+        });
+      } else if (p.type === "approval" && p.command !== undefined) {
+        // 落盘的审批决定：渲染为灰色已决历史卡（approvalId 空 = 无活体审批，按钮不出现）
+        items.push({
+          kind: "approval",
+          approvalId: "",
+          command: p.command,
+          reason: p.reason ?? "",
+          resolved: DECISION_RESOLVED[p.decision ?? ""] ?? "expired",
         });
       }
     }

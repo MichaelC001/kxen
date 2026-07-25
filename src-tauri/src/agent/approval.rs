@@ -1,5 +1,7 @@
 //! 审批 broker：工具执行挂起等用户决定（允许/拒绝/超时），RPC 应答唤醒。
 //! 中断（abort）一律视为拒绝——审批等待绝不卡住取消路径。
+//! 决定（allow/deny/timeout/cancel）落盘为会话 Part::Approval：刷新/切会话后审批痕迹可回放；
+//! 测试移至 tests/approval_broker.rs（350 行门禁）。
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -19,6 +21,18 @@ const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300)
 struct PendingEntry {
     tx: oneshot::Sender<bool>,
     session_id: String,
+    /// 请求原文随 entry 存：决定落盘与 pending 恢复时只剩 id 可查
+    command: String,
+    reason: String,
+}
+
+/// 等待中审批快照（approval.pending RPC：前端重载会话时恢复等待卡）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PendingApproval {
+    pub id: String,
+    pub command: String,
+    pub reason: String,
+    pub session_id: String,
 }
 
 pub struct ApprovalBroker {
@@ -26,6 +40,8 @@ pub struct ApprovalBroker {
     timeout: std::time::Duration,
     /// 了结事件出口：超时/清场/中断时向 bus 发 approval.resolved，前端审批卡据此置失效
     bus: Option<crate::core::event::EventBus>,
+    /// 决定落盘目录（None = 不落盘：测试与无主会话场景的默认）
+    sessions_dir: Option<std::path::PathBuf>,
 }
 
 // 手动 Default：derive 会把 Duration 置零（0 秒超时 = 所有审批立即超时拒绝）。
@@ -41,11 +57,16 @@ impl ApprovalBroker {
     }
 
     pub fn with_timeout(timeout: std::time::Duration) -> Self {
-        Self { pending: Mutex::new(HashMap::new()), timeout, bus: None }
+        Self { pending: Mutex::new(HashMap::new()), timeout, bus: None, sessions_dir: None }
     }
 
     pub fn with_bus(mut self, bus: crate::core::event::EventBus) -> Self {
         self.bus = Some(bus);
+        self
+    }
+
+    pub fn with_sessions_dir(mut self, dir: std::path::PathBuf) -> Self {
+        self.sessions_dir = Some(dir);
         self
     }
 
@@ -60,39 +81,79 @@ impl ApprovalBroker {
         bus.publish(crate::core::event::Event::LlmDelta(payload));
     }
 
+    /// 决定落盘（Part::Approval）：审批痕迹随会话 JSONL 持久，前端重载渲染为历史卡。
+    /// 空 session_id（workspace 信任门）无所属会话不落盘；写失败只记日志——痕迹不能反卡审批链路。
+    fn persist_decision(&self, session_id: &str, command: &str, reason: &str, decision: &str) {
+        let Some(dir) = &self.sessions_dir else { return };
+        if session_id.is_empty() {
+            return;
+        }
+        let msg = crate::core::session::new_message(
+            session_id,
+            crate::core::session::Role::Assistant,
+            vec![crate::core::session::Part::Approval { command: command.into(), reason: reason.into(), decision: decision.into() }],
+        );
+        if let Err(e) = crate::core::session::append_message(dir, &msg) {
+            tracing::warn!(session = session_id, error = %e, "approval decision persist failed");
+        }
+    }
+
     /// 登记一条审批：返回 (id, 等待句柄)。session_id 记归属，cancel_session 按会话清场。
-    pub fn register(&self, session_id: &str) -> (String, oneshot::Receiver<bool>) {
+    pub fn register(&self, session_id: &str, command: &str, reason: &str) -> (String, oneshot::Receiver<bool>) {
         let id = crate::core::ids::new_id("appr");
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().expect("approvals").insert(id.clone(), PendingEntry { tx, session_id: session_id.to_string() });
+        self.pending.lock().expect("approvals").insert(
+            id.clone(),
+            PendingEntry { tx, session_id: session_id.to_string(), command: command.to_string(), reason: reason.to_string() },
+        );
         (id, rx)
     }
 
-    /// 用户应答（RPC 通道）：id 存在则送达并返回 true。
+    /// 等待中审批快照：会话重载时前端拉取恢复等待卡（broker 仍在等应答，卡片不该随刷新消失）。
+    pub fn list_pending(&self) -> Vec<PendingApproval> {
+        self.pending
+            .lock()
+            .expect("approvals")
+            .iter()
+            .map(|(id, e)| PendingApproval {
+                id: id.clone(),
+                command: e.command.clone(),
+                reason: e.reason.clone(),
+                session_id: e.session_id.clone(),
+            })
+            .collect()
+    }
+
+    /// 用户应答（RPC 通道）：id 存在则送达并返回 true。应答即落盘（allow/deny）——
+    /// 发送失败（等待方已随 run 消失）也照落：用户确实做过决定，痕迹按决定记。
     pub fn respond(&self, id: &str, allow: bool) -> bool {
-        self.pending.lock().expect("approvals").remove(id).map(|e| e.tx.send(allow).is_ok()).unwrap_or(false)
+        let entry = self.pending.lock().expect("approvals").remove(id);
+        let Some(e) = entry else { return false };
+        let delivered = e.tx.send(allow).is_ok();
+        self.persist_decision(&e.session_id, &e.command, &e.reason, if allow { "allow" } else { "deny" });
+        delivered
     }
 
     /// 会话清场：摘走该 session 全部 pending（tx 随 entry drop，等待方收关闭信号按 deny），
     /// 并向 bus 发 approval.resolved(cancelled)——前端等待中的审批卡据此置失效，不再永远等应答。
+    /// 每条被清审批落盘 cancel：取消也是决定，历史里要能看到「审批被中断」。
     pub fn cancel_session(&self, session_id: &str) -> usize {
-        let ids: Vec<String> = {
+        let entries: Vec<(String, PendingEntry)> = {
             let mut map = self.pending.lock().expect("approvals");
             let ids: Vec<String> = map.iter().filter(|(_, e)| e.session_id == session_id).map(|(id, _)| id.clone()).collect();
-            for id in &ids {
-                map.remove(id);
-            }
-            ids
+            ids.into_iter().filter_map(|id| map.remove(&id).map(|e| (id, e))).collect()
         };
-        for id in &ids {
+        for (id, e) in &entries {
             self.publish_resolved(id, session_id, "cancelled");
+            self.persist_decision(session_id, &e.command, &e.reason, "cancel");
         }
-        ids.len()
+        entries.len()
     }
 
     /// 等待决定：abort 优先（视为拒绝）；超时自动 Timeout。
     /// 返回前兜底摘除：respond/cancel_session 已摘则无操作，其余路径（超时）防泄漏。
     /// 超时与中断各发一条 approval.resolved；cancel_session 的已由其代发（entry 不在 = 有人代发，不重复）。
+    /// 落盘同口径：entry 还在 = 本函数了结（timeout/cancel），entry 不在 = respond/cancel_session 已落。
     pub async fn wait(&self, id: &str, rx: oneshot::Receiver<bool>, cancel: Option<&crate::agent::cancel::CancelToken>) -> ApprovalOutcome {
         // 唤醒源三态：用户应答 / 发送方 drop（cancel_session 清场）/ abort 令牌
         enum Wake {
@@ -121,11 +182,26 @@ impl ApprovalBroker {
             Err(_) => (ApprovalOutcome::Timeout, Some("timeout")),
         };
         let entry = self.pending.lock().expect("approvals").remove(id);
-        if let (Some(outcome_str), Some(entry)) = (lapsed, entry) {
-            self.publish_resolved(id, &entry.session_id, outcome_str);
+        if let Some(entry) = entry {
+            let decision = match (outcome, lapsed) {
+                (ApprovalOutcome::Timeout, _) => Some("timeout"),
+                (ApprovalOutcome::Deny, Some("cancelled")) => Some("cancel"),
+                _ => None,
+            };
+            if let Some(d) = decision {
+                self.persist_decision(&entry.session_id, &entry.command, &entry.reason, d);
+            }
+            if let Some(outcome_str) = lapsed {
+                self.publish_resolved(id, &entry.session_id, outcome_str);
+            }
         }
         outcome
     }
+}
+
+/// 生产装配（main.rs 贴 350 行门禁，broker 构造收口此处）：bus + 决定落盘目录。
+pub fn production_broker(bus: crate::core::event::EventBus) -> ApprovalBroker {
+    ApprovalBroker::new().with_bus(bus).with_sessions_dir(crate::core::paths::sessions_dir())
 }
 
 /// 共享审批请求：登记 + 发事件 + 挂起等用户决定（ApprovalOutcome::Allow = 放行）。
@@ -133,7 +209,7 @@ impl ApprovalBroker {
 /// 空归属（worktree 删除等 workspace 级审批）不带 session_id，与 publish_resolved 同款：
 /// stream ACL 会把空串算成 topic `session:`，无人订阅则全连接丢帧，审批卡永远渲染不出（300s 超时）。
 pub async fn request_approval(appr: &crate::tools::exec::ApprovalCtx<'_>, command: &str, reason: &str) -> ApprovalOutcome {
-    let (id, rx) = appr.broker.register(appr.session_id);
+    let (id, rx) = appr.broker.register(appr.session_id, command, reason);
     let mut payload = serde_json::json!({
         "kind": "approval",
         "approval_id": id,
@@ -146,178 +222,4 @@ pub async fn request_approval(appr: &crate::tools::exec::ApprovalCtx<'_>, comman
     }
     appr.bus.publish(crate::core::event::Event::LlmDelta(payload));
     appr.broker.wait(&id, rx, appr.cancel).await
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn timeout_yields_timeout_outcome() {
-        let broker = ApprovalBroker::with_timeout(std::time::Duration::from_millis(50));
-        let (id, rx) = broker.register("s1");
-        let outcome = broker.wait(&id, rx, None).await;
-        assert_eq!(outcome, ApprovalOutcome::Timeout);
-        assert_eq!(broker.cancel_session("s1"), 0, "wait 兜底已摘除，不得泄漏");
-    }
-
-    #[tokio::test]
-    async fn abort_wakes_as_deny() {
-        let broker = ApprovalBroker::with_timeout(std::time::Duration::from_secs(60));
-        let (id, rx) = broker.register("s1");
-        let token = crate::agent::cancel::CancelToken::new();
-        let t2 = token.clone();
-        let waiter = tokio::spawn(async move { broker.wait(&id, rx, Some(&t2)).await });
-        tokio::task::yield_now().await;
-        token.cancel();
-        let outcome = tokio::time::timeout(std::time::Duration::from_secs(1), waiter).await.unwrap().unwrap();
-        assert_eq!(outcome, ApprovalOutcome::Deny, "abort 一律按拒绝，绝不卡住取消路径");
-    }
-
-    #[tokio::test]
-    async fn cancel_session_only_clears_own_session() {
-        let broker = ApprovalBroker::with_timeout(std::time::Duration::from_secs(60));
-        let (id_a, rx_a) = broker.register("s1");
-        let (id_b, _rx_b) = broker.register("s2");
-        assert_eq!(broker.cancel_session("s1"), 1);
-        assert_eq!(broker.cancel_session("s1"), 0, "重复清场幂等");
-        // s1 的等待方收到关闭信号：按 deny
-        let outcome = broker.wait(&id_a, rx_a, None).await;
-        assert_eq!(outcome, ApprovalOutcome::Deny);
-        // s2 不受影响：正常应答放行
-        assert!(broker.respond(&id_b, true));
-        assert_eq!(broker.cancel_session("s2"), 0, "respond 已消费，map 里不再残留");
-    }
-
-    #[tokio::test]
-    async fn respond_allow_then_map_is_empty() {
-        let broker = ApprovalBroker::new();
-        let (id, rx) = broker.register("s1");
-        assert!(broker.respond(&id, true));
-        let outcome = broker.wait(&id, rx, None).await;
-        assert_eq!(outcome, ApprovalOutcome::Allow);
-        // 全部消费后 pending map 必须空（二次应答不得命中幽灵 id）
-        assert!(!broker.respond(&id, true));
-        let total: usize = broker.cancel_session("s1") + broker.cancel_session("s2");
-        assert_eq!(total, 0);
-    }
-
-    fn resolved_payload(event: &crate::core::event::Event) -> Option<&serde_json::Value> {
-        match event {
-            crate::core::event::Event::LlmDelta(v) if v.get("kind").and_then(serde_json::Value::as_str) == Some("approval.resolved") => {
-                Some(v)
-            }
-            _ => None,
-        }
-    }
-
-    #[tokio::test]
-    async fn timeout_publishes_resolved_event() {
-        let bus = crate::core::event::EventBus::new(16);
-        let mut sub = bus.subscribe();
-        let broker = ApprovalBroker::with_timeout(std::time::Duration::from_millis(50)).with_bus(bus);
-        let (id, rx) = broker.register("s1");
-        let outcome = broker.wait(&id, rx, None).await;
-        assert_eq!(outcome, ApprovalOutcome::Timeout);
-        let event = sub.try_recv().expect("超时必须发 approval.resolved");
-        let payload = resolved_payload(&event).expect("必须是 approval.resolved 帧");
-        assert_eq!(payload["approval_id"], serde_json::json!(id));
-        assert_eq!(payload["outcome"], serde_json::json!("timeout"));
-        assert_eq!(payload["session_id"], serde_json::json!("s1"));
-        assert!(sub.try_recv().is_err(), "同一条审批只发一次 resolved");
-    }
-
-    #[tokio::test]
-    async fn cancel_session_publishes_resolved_and_wait_does_not_repeat() {
-        let bus = crate::core::event::EventBus::new(16);
-        let mut sub = bus.subscribe();
-        let broker = ApprovalBroker::with_timeout(std::time::Duration::from_secs(60)).with_bus(bus);
-        let (id, rx) = broker.register("s1");
-        assert_eq!(broker.cancel_session("s1"), 1);
-        let event = sub.try_recv().expect("清场必须发 approval.resolved");
-        let payload = resolved_payload(&event).expect("必须是 approval.resolved 帧");
-        assert_eq!(payload["approval_id"], serde_json::json!(id));
-        assert_eq!(payload["outcome"], serde_json::json!("cancelled"));
-        // 等待方收关闭信号按 deny 唤醒，且不重复发事件
-        let outcome = broker.wait(&id, rx, None).await;
-        assert_eq!(outcome, ApprovalOutcome::Deny);
-        assert!(sub.try_recv().is_err(), "cancel_session 代发后 wait 不得重复发");
-    }
-
-    #[tokio::test]
-    async fn abort_publishes_cancelled() {
-        let bus = crate::core::event::EventBus::new(16);
-        let mut sub = bus.subscribe();
-        let broker = ApprovalBroker::with_timeout(std::time::Duration::from_secs(60)).with_bus(bus);
-        let (id, rx) = broker.register("s1");
-        let token = crate::agent::cancel::CancelToken::new();
-        let t2 = token.clone();
-        let waiter = tokio::spawn(async move { broker.wait(&id, rx, Some(&t2)).await });
-        tokio::task::yield_now().await;
-        token.cancel();
-        let outcome = tokio::time::timeout(std::time::Duration::from_secs(1), waiter).await.unwrap().unwrap();
-        assert_eq!(outcome, ApprovalOutcome::Deny);
-        let event = sub.try_recv().expect("abort 必须发 approval.resolved");
-        let payload = resolved_payload(&event).expect("必须是 approval.resolved 帧");
-        assert_eq!(payload["outcome"], serde_json::json!("cancelled"));
-        assert_eq!(payload["session_id"], serde_json::json!("s1"));
-    }
-
-    #[tokio::test]
-    async fn respond_does_not_publish() {
-        let bus = crate::core::event::EventBus::new(16);
-        let mut sub = bus.subscribe();
-        let broker = ApprovalBroker::with_timeout(std::time::Duration::from_secs(60)).with_bus(bus);
-        let (id, rx) = broker.register("s1");
-        assert!(broker.respond(&id, false));
-        let outcome = broker.wait(&id, rx, None).await;
-        assert_eq!(outcome, ApprovalOutcome::Deny);
-        assert!(sub.try_recv().is_err(), "用户正常应答不发 resolved（前端已乐观上屏）");
-    }
-
-    #[tokio::test]
-    async fn workspace_approval_resolved_has_no_session_id() {
-        // workspace 信任门 register("")：resolved 帧不得带 session_id，否则被 stream ACL 当无人订阅的会话帧丢弃
-        let bus = crate::core::event::EventBus::new(16);
-        let mut sub = bus.subscribe();
-        let broker = ApprovalBroker::with_timeout(std::time::Duration::from_millis(50)).with_bus(bus);
-        let (_id, rx) = broker.register("");
-        let outcome = broker.wait(&_id, rx, None).await;
-        assert_eq!(outcome, ApprovalOutcome::Timeout);
-        let event = sub.try_recv().expect("超时必须发 approval.resolved");
-        let payload = resolved_payload(&event).expect("必须是 approval.resolved 帧");
-        assert!(payload.get("session_id").is_none(), "空归属审批的 resolved 帧不带 session_id");
-    }
-
-    #[tokio::test]
-    async fn request_approval_omits_session_id_when_empty() {
-        // worktree 删除走 ApprovalCtx::new(..., None)：请求帧空串 session_id 会被 ACL 算成 `session:` 全连接丢帧
-        let bus = crate::core::event::EventBus::new(16);
-        let mut sub = bus.subscribe();
-        let broker = ApprovalBroker::with_timeout(std::time::Duration::from_millis(50));
-        let ctx = crate::tools::exec::ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "" };
-        let outcome = request_approval(&ctx, "git worktree remove wt1", "r").await;
-        assert_eq!(outcome, ApprovalOutcome::Timeout);
-        let event = sub.try_recv().expect("必须发 approval 请求帧");
-        let crate::core::event::Event::LlmDelta(payload) = event else {
-            panic!("必须是 LlmDelta 帧");
-        };
-        assert_eq!(payload["kind"], serde_json::json!("approval"));
-        assert!(payload.get("session_id").is_none(), "空归属审批请求帧不带 session_id");
-    }
-
-    #[tokio::test]
-    async fn request_approval_keeps_session_id_when_present() {
-        let bus = crate::core::event::EventBus::new(16);
-        let mut sub = bus.subscribe();
-        let broker = ApprovalBroker::with_timeout(std::time::Duration::from_millis(50));
-        let ctx = crate::tools::exec::ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "s1" };
-        let outcome = request_approval(&ctx, "cmd", "r").await;
-        assert_eq!(outcome, ApprovalOutcome::Timeout);
-        let event = sub.try_recv().expect("必须发 approval 请求帧");
-        let crate::core::event::Event::LlmDelta(payload) = event else {
-            panic!("必须是 LlmDelta 帧");
-        };
-        assert_eq!(payload["session_id"], serde_json::json!("s1"), "会话归属审批照常带 session_id");
-    }
 }

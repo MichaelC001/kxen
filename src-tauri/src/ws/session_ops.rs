@@ -172,6 +172,18 @@ pub(super) fn session_update_meta(params: &Value) -> Result<Value, String> {
     Ok(json!(session))
 }
 
+/// approval.pending RPC：等待中审批快照（带 session_id 则按会话过滤）。
+/// 刷新/切会话后前端据此恢复等待中的审批卡（broker 300s 窗口内仍在等应答）。
+pub(super) fn approval_pending(params: &Value, state: &crate::AppState) -> Result<Value, String> {
+    let sid = params.get("session_id").and_then(Value::as_str);
+    let all = state.approvals.list_pending();
+    let filtered: Vec<_> = match sid {
+        Some(sid) => all.into_iter().filter(|a| a.session_id == sid).collect(),
+        None => all,
+    };
+    Ok(json!(filtered))
+}
+
 /// session.delete RPC：统一清理入口（rpc.rs 迁入）。
 /// 清理顺序是安全依赖链，不可调换：
 /// 1. 先清 pending 队列 + cancel active run token——断粮：run 收尾的续跑逻辑读不到下一条，

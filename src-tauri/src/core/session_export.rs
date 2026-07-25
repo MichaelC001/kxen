@@ -30,6 +30,9 @@ pub fn export_markdown(dir: &Path, id: &str) -> std::io::Result<String> {
                     // 不嵌 base64（数 MB 文本的 markdown 不可读）：占位注明类型与解码后近似大小
                     body.push_str(&format!("[图片 {media_type}，约 {} KB]\n", data.len() * 3 / 4 / 1024));
                 }
+                Part::Approval { command, decision, .. } => {
+                    body.push_str(&format!("\n> 审批 {decision}: {command}\n"));
+                }
                 Part::Reasoning { .. } | Part::Context { .. } => {}
             }
         }

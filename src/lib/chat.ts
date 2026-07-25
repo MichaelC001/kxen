@@ -82,6 +82,19 @@ export async function approvalRespond(id: string, allow: boolean): Promise<{ res
   return client.rpc("approval.respond", { id, allow });
 }
 
+export interface PendingApproval {
+  id: string;
+  command: string;
+  reason: string;
+  session_id: string;
+}
+
+/** 等待中的审批（broker 300s 窗口内仍在等应答）：会话重载时恢复等待卡。
+ *  RPC 失败按空列表降级（与 sessionPendingList 同口径）——恢复是增强，不能阻断时间线加载。 */
+export async function approvalPending(sessionId: string): Promise<PendingApproval[]> {
+  return client.rpc<PendingApproval[]>("approval.pending", { session_id: sessionId }).catch(() => []);
+}
+
 export async function sessionPendingList(sessionId: string): Promise<string[]> {
   return client.rpc<string[]>("session.pending_list", { id: sessionId }).catch(() => []);
 }
@@ -152,7 +165,7 @@ export async function sessionUpdateMeta(
 }
 
 export interface StoredPart {
-  type: "text" | "context" | "tool_call" | "reasoning" | "image";
+  type: "text" | "context" | "tool_call" | "reasoning" | "image" | "approval";
   text?: string;
   name?: string;
   input?: unknown;
@@ -160,6 +173,9 @@ export interface StoredPart {
   args?: unknown;
   media_type?: string;
   data?: string; // args=tool 精确 arguments；media_type/data=image 块
+  command?: string; // approval 块：被审批的命令
+  reason?: string; // approval 块：审批原因
+  decision?: string; // approval 块：allow/deny/timeout/cancel
 }
 
 export interface StoredMessage {

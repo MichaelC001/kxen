@@ -74,8 +74,8 @@ pub fn gate_async(workdir: &Path, broker: &std::sync::Arc<crate::agent::approval
     let bus = bus.clone();
     let dir = workdir.to_path_buf();
     tokio::spawn(async move {
-        // 无会话归属（workspace 级审批）：register("") 记空归属，cancel_session 不误伤
-        let (id, rx) = broker.register("");
+        // 无会话归属（workspace 级审批）：register("") 记空归属，cancel_session 不误伤，决定不落盘
+        let (id, rx) = broker.register("", &dir.display().to_string(), "信任此项目？（.agents 知识与项目配置将注入模型上下文）");
         bus.publish(crate::core::event::Event::LlmDelta(serde_json::json!({
             "kind": "approval",
             "approval_id": id,

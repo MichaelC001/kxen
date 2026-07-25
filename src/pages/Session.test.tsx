@@ -18,6 +18,10 @@ const h = vi.hoisted(() => ({
     ],
   ),
   sessionPendingList: vi.fn(async (_id: string): Promise<string[]> => []),
+  // 时间线加载链并行拉等待中审批：不桩则打到真 RPC（无后端挂起，Promise.all 永不回 = 时间线空白）
+  approvalPending: vi.fn(
+    async (_id: string): Promise<import("../lib/chat").PendingApproval[]> => [],
+  ),
   statusline: vi.fn(async () => null),
   onLlmDelta: vi.fn(async () => () => {}),
 }));
@@ -29,6 +33,7 @@ vi.mock("../lib/chat", async (importOriginal) => {
     ...orig,
     sessionMessages: h.sessionMessages,
     sessionPendingList: h.sessionPendingList,
+    approvalPending: h.approvalPending,
     statusline: h.statusline,
     onLlmDelta: h.onLlmDelta,
   };
