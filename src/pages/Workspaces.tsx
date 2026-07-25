@@ -165,6 +165,17 @@ function Column(props: {
                 <span class="font-mono flex-1 truncate text-left text-[var(--text)]">
                   {t.branch}
                 </span>
+                <Show when={t.running > 0}>
+                  <span
+                    class="w-1.5 h-1.5 rounded-full bg-[var(--ok)] shrink-0 animate-pulse"
+                    title="有绑定会话运行中"
+                  />
+                </Show>
+                <Show when={t.sessions > 0}>
+                  <span class="text-2xs tabular-nums text-[var(--text-faint)] shrink-0">
+                    {t.sessions} 会话
+                  </span>
+                </Show>
                 <Show when={(t.dirty ?? 0) > 0}>
                   <span class="text-2xs tabular-nums text-[var(--warn)] shrink-0">
                     {t.dirty} 改

@@ -1,6 +1,7 @@
 // worktree 看板：隔离树 = 并行工作单元（分支 + 脏文件计数 + 切换工作区 + 清理）。
+// 创建两个动作：「创建并进入」一键起隔离会话（建树 -> 切目录 -> 草稿态新会话），「仅创建」只建树。
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { Check, GitBranch, Plus, Trash2 } from "lucide-solid";
+import { Check, GitBranch, Trash2 } from "lucide-solid";
 import {
   statusline,
   workspaceSwitch,
@@ -10,6 +11,7 @@ import {
   worktreeStatus,
   type WorktreeInfo,
 } from "../lib/chat";
+import { newSession } from "../lib/state";
 import { createAction } from "../lib/async-guard";
 import { flashErr, flashOk } from "../lib/flash";
 import EmptyLine from "./EmptyLine";
@@ -61,17 +63,32 @@ export default function DockWorktree() {
   });
   onCleanup(() => timer && clearInterval(timer));
 
-  const create = async () => {
+  const create = async (enter: boolean) => {
     const n = name().trim();
     if (!n) return;
+    let r: WorktreeInfo;
     try {
-      const r = await worktreeCreate(n);
-      setName("");
-      await reload();
-      flashOk(`已创建 ${r.branch}`);
+      r = await worktreeCreate(n);
     } catch (e) {
       flashErr(`创建失败：${e instanceof Error ? e.message : String(e)}`);
+      return;
     }
+    if (enter) {
+      // 切换失败中止：树已建（不回滚），但不进草稿态——否则新会话跑在旧目录（同 SessionTree quickNew 门）
+      try {
+        await workspaceSwitch(r.path);
+      } catch (e) {
+        flashErr(`已创建 ${r.branch}，但切换失败：${e instanceof Error ? e.message : String(e)}`);
+        await reload();
+        return;
+      }
+      await newSession();
+      flashOk(`已进入 ${r.branch}`);
+    } else {
+      flashOk(`已创建 ${r.branch}`);
+    }
+    setName("");
+    await reload();
   };
 
   const doRemove = (r: PendingRemove) =>
@@ -188,13 +205,21 @@ export default function DockWorktree() {
           placeholder="新隔离树名（a-z0-9-）"
           value={name()}
           onInput={(e) => setName(e.currentTarget.value)}
-          onKeyDown={(e) => e.key === "Enter" && void create()}
+          onKeyDown={(e) => e.key === "Enter" && void create(true)}
         />
         <button
-          class="pressable px-1.5 py-1 rounded border border-[var(--border)]"
-          onClick={() => void create()}
+          class="pressable px-1.5 py-1 rounded border border-[var(--border)] text-2xs text-[var(--text-dim)]"
+          title="仅创建 worktree（不切换工作区）"
+          onClick={() => void create(false)}
         >
-          <Plus size={12} />
+          仅创建
+        </button>
+        <button
+          class="pressable px-1.5 py-1 rounded bg-[var(--accent)] text-[var(--accent-contrast)] text-2xs"
+          title="创建 worktree 并直接在其中起新会话"
+          onClick={() => void create(true)}
+        >
+          创建并进入
         </button>
       </div>
     </div>

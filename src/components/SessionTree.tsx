@@ -15,6 +15,7 @@ import { createInFlight } from "../lib/async-guard";
 import { flashErr } from "../lib/flash";
 import { formatError } from "../lib/error-text";
 import { sortGroup } from "../lib/order";
+import { groupName, promotedName } from "../lib/group-name";
 import SessionRow from "./SessionRow";
 import EmptyLine from "./EmptyLine";
 
@@ -24,16 +25,6 @@ interface Group {
   path: string;
   name: string;
   sessions: SessionMeta[];
-}
-
-/** 分组名取 basename；撞名时上提一级（parent/name），否则两个同名项目分组无法区分。 */
-function baseName(p: string): string {
-  return p.split("/").filter(Boolean).pop() ?? p;
-}
-
-function parentName(p: string): string {
-  const segs = p.split("/").filter(Boolean);
-  return segs.length >= 2 ? `${segs[segs.length - 2]}/${segs[segs.length - 1]}` : (segs[0] ?? p);
 }
 
 export default function SessionTree() {
@@ -73,23 +64,23 @@ export default function SessionTree() {
     });
     const out: Group[] = dirs.map((d) => ({
       path: d,
-      name: baseName(d),
+      name: groupName(d),
       sessions: sortGroup(byDir.get(d)!),
     }));
     for (const w of recents()) {
       if (!byDir.has(w.path)) {
         out.push({
           path: w.path,
-          name: baseName(w.path),
+          name: groupName(w.path),
           sessions: [],
         });
       }
     }
-    // 撞名分组名上提一级（parent/name）：同名 basename 的两个项目否则无法区分
+    // 撞名分组名上提一级：同名 basename 的两个项目否则无法区分（worktree 上提为 仓库/树名）
     const tally = new Map<string, number>();
     for (const g of out) tally.set(g.name, (tally.get(g.name) ?? 0) + 1);
     for (const g of out) {
-      if ((tally.get(g.name) ?? 0) > 1) g.name = parentName(g.path);
+      if ((tally.get(g.name) ?? 0) > 1) g.name = promotedName(g.path);
     }
     return out;
   };

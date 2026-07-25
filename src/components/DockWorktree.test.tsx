@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
   status: vi.fn(async (_path: string) => [] as { path: string; status: string }[]),
   switch: vi.fn(async (_path: string) => {}),
   statusline: vi.fn(async (_id: string) => ({ workdir: "/repo" })),
+  nav: vi.fn(),
 }));
 
 vi.mock("../lib/chat", async (importOriginal) => {
@@ -30,6 +31,7 @@ vi.mock("../lib/chat", async (importOriginal) => {
 
 import DockWorktree from "./DockWorktree";
 import { flash } from "../lib/flash";
+import { setActiveSessionId, setNavigator } from "../lib/state";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -50,6 +52,7 @@ function btnByText(text: string): HTMLButtonElement {
 }
 
 beforeEach(() => {
+  setNavigator(h.nav);
   h.list.mockResolvedValue([WT1]);
   h.status.mockResolvedValue([]);
   h.statusline.mockResolvedValue({ workdir: "/repo" });
@@ -59,6 +62,7 @@ beforeEach(() => {
 
 afterEach(() => {
   document.body.innerHTML = "";
+  setActiveSessionId("");
   for (const m of flash.msgs()) flash.dismiss(m.id);
   vi.clearAllMocks();
 });
@@ -205,5 +209,98 @@ describe("DockWorktree 自动刷新", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("DockWorktree 创建并进入", () => {
+  const WT2 = { name: "wt2", path: "/repo/.kxen/worktrees/wt2", branch: "kxen/wt2" };
+
+  const typeName = (n: string) => {
+    const input = document.body.querySelector<HTMLInputElement>(
+      "input[placeholder='新隔离树名（a-z0-9-）']",
+    )!;
+    input.value = n;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+
+  it("RPC 调用序列：worktreeCreate -> workspaceSwitch(树路径) -> newSession 草稿态", async () => {
+    const order: string[] = [];
+    h.create.mockImplementation(async (n: string) => {
+      order.push(`create:${n}`);
+      return WT2;
+    });
+    h.switch.mockImplementation(async (p: string) => {
+      order.push(`switch:${p}`);
+    });
+    h.nav.mockImplementation(() => order.push("nav:/"));
+    const dispose = render(() => <DockWorktree />, document.body);
+    await vi.waitFor(() => expect(document.body.textContent).toContain("kxen/wt1"));
+
+    typeName("wt2");
+    btnByText("创建并进入").click();
+    await vi.waitFor(() =>
+      expect(order).toEqual(["create:wt2", "switch:/repo/.kxen/worktrees/wt2", "nav:/"]),
+    );
+    expect(flash.msgs().some((m) => m.kind === "err")).toBe(false);
+    expect(flash.msgs().some((m) => m.kind === "ok" && m.text.includes("已进入 kxen/wt2"))).toBe(
+      true,
+    );
+    dispose();
+  });
+
+  it("切换失败：树已建（不回滚）但不进草稿态，flashErr 说明两段结果", async () => {
+    h.create.mockResolvedValue(WT2);
+    h.switch.mockRejectedValue(new Error("directory not found"));
+    const dispose = render(() => <DockWorktree />, document.body);
+    await vi.waitFor(() => expect(document.body.textContent).toContain("kxen/wt1"));
+
+    typeName("wt2");
+    btnByText("创建并进入").click();
+    await vi.waitFor(() => {
+      const err = flash.msgs().find((m) => m.kind === "err");
+      expect(err?.text).toContain("已创建 kxen/wt2"); // 已创建事实不掩盖
+      expect(err?.text).toContain("切换失败");
+      expect(err?.text).toContain("directory not found");
+    });
+    expect(h.nav).not.toHaveBeenCalled(); // 不进草稿态：新会话不会跑在旧目录
+    dispose();
+  });
+
+  it("创建失败：不发 switch 不进草稿态", async () => {
+    h.create.mockRejectedValue(new Error("invalid worktree name"));
+    const dispose = render(() => <DockWorktree />, document.body);
+    await vi.waitFor(() => expect(document.body.textContent).toContain("kxen/wt1"));
+
+    typeName("wt2");
+    btnByText("创建并进入").click();
+    await vi.waitFor(() =>
+      expect(
+        flash
+          .msgs()
+          .some(
+            (m) => m.kind === "err" && m.text.includes("创建失败") && m.text.includes("invalid"),
+          ),
+      ).toBe(true),
+    );
+    expect(h.switch).not.toHaveBeenCalled();
+    expect(h.nav).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("仅创建：不切换不进草稿态，flashOk 已创建", async () => {
+    h.create.mockResolvedValue(WT2);
+    const dispose = render(() => <DockWorktree />, document.body);
+    await vi.waitFor(() => expect(document.body.textContent).toContain("kxen/wt1"));
+
+    typeName("wt2");
+    btnByText("仅创建").click();
+    await vi.waitFor(() =>
+      expect(flash.msgs().some((m) => m.kind === "ok" && m.text.includes("已创建 kxen/wt2"))).toBe(
+        true,
+      ),
+    );
+    expect(h.switch).not.toHaveBeenCalled();
+    expect(h.nav).not.toHaveBeenCalled();
+    dispose();
   });
 });

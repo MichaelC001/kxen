@@ -56,6 +56,9 @@ async fn gather_worktrees(
                     branch: t.branch,
                     path: t.path.to_string_lossy().into_owned(),
                     dirty,
+                    // 绑定计数由 overview 聚合填充：采集层拿不到会话列表
+                    sessions: 0,
+                    running: 0,
                 });
             }
             (key, out)

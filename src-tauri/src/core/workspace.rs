@@ -58,6 +58,10 @@ pub struct WorktreeDigest {
     pub path: String,
     /// 脏文件数（status 失败为 None，前端不展示计数）
     pub dirty: Option<usize>,
+    /// 绑定到该树的会话数（overview 聚合时按 directory 前缀匹配填充，采集层不知会话置 0）
+    pub sessions: usize,
+    /// 其中运行中会话数
+    pub running: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -108,6 +112,11 @@ pub fn overview(
                 .filter(|s| running.contains(&s.id))
                 .map(|s| RunningSession { id: s.id.clone(), title: s.title.clone(), queued: queued.get(&s.id).copied().unwrap_or(0) })
                 .collect();
+            let mut trees = worktrees.get(&w.path).cloned().unwrap_or_default();
+            for t in &mut trees {
+                t.sessions = sessions.iter().filter(|s| bound_to(&s.directory, &t.path)).count();
+                t.running = sessions.iter().filter(|s| bound_to(&s.directory, &t.path) && running.contains(&s.id)).count();
+            }
             WorkspaceOverview {
                 sessions: mine.len(),
                 running: running_sessions.len(),
@@ -121,7 +130,7 @@ pub fn overview(
                     .filter(|g| live(g) && g.session_id.as_deref().is_some_and(|sid| mine_ids.contains(sid)))
                     .max_by_key(|g| g.updated_at)
                     .map(|g| GoalDigest { id: g.id.clone(), objective: g.contract.objective.clone(), status: g.status.as_str().into() }),
-                worktrees: worktrees.get(&w.path).cloned().unwrap_or_default(),
+                worktrees: trees,
                 running_sessions,
                 path: w.path,
             }
@@ -133,6 +142,12 @@ pub fn overview(
 fn live(g: &crate::core::goal::Goal) -> bool {
     use crate::core::goal::GoalStatus::*;
     matches!(g.status, Active | Paused | Blocked | BudgetLimited)
+}
+
+/// 绑定判定：会话目录落在 worktree 树下（含根部）即算绑定；
+/// 用 "path/" 做段边界，防 `exp` 误吞同前缀的 `exp2`。
+fn bound_to(dir: &str, tree_path: &str) -> bool {
+    dir == tree_path || dir.starts_with(&format!("{tree_path}/"))
 }
 
 fn dirty_count(path: &str) -> Option<usize> {
@@ -241,7 +256,14 @@ mod tests {
         let mut worktrees: HashMap<String, Vec<WorktreeDigest>> = HashMap::new();
         worktrees.insert(
             "/a".to_string(),
-            vec![WorktreeDigest { name: "exp".into(), branch: "kxen/exp".into(), path: "/a/.kxen/worktrees/exp".into(), dirty: Some(3) }],
+            vec![WorktreeDigest {
+                name: "exp".into(),
+                branch: "kxen/exp".into(),
+                path: "/a/.kxen/worktrees/exp".into(),
+                dirty: Some(3),
+                sessions: 0,
+                running: 0,
+            }],
         );
 
         let cards = overview(ws, &sessions, &running, &queued, &goals, &cron, &worktrees);
@@ -265,6 +287,32 @@ mod tests {
         assert_eq!(a.worktrees.len(), 1);
         assert_eq!(a.worktrees[0].branch, "kxen/exp");
         assert_eq!(a.worktrees[0].dirty, Some(3));
+        assert_eq!(a.worktrees[0].sessions, 0, "无会话 directory 落在该树下");
+        assert_eq!(a.worktrees[0].running, 0);
         assert!(b.worktrees.is_empty());
+    }
+
+    #[test]
+    fn overview_worktree_binding() {
+        let ws = vec![Workspace { path: "/a".into(), last_used: 100 }];
+        let tree = "/a/.kxen/worktrees/exp";
+        let sessions = vec![
+            session("s1", tree, 500),                         // 根部精确匹配
+            session("s2", "/a/.kxen/worktrees/exp/sub", 600), // 子目录前缀匹配
+            session("s3", "/a/.kxen/worktrees/exp2", 700),    // 同前缀不同树：不算绑定
+            session("s4", "/a", 800),                         // 主仓会话：不算绑定
+        ];
+        let running: HashSet<String> = ["s2".to_string()].into_iter().collect();
+        let mut worktrees: HashMap<String, Vec<WorktreeDigest>> = HashMap::new();
+        worktrees.insert(
+            "/a".to_string(),
+            vec![WorktreeDigest { name: "exp".into(), branch: "kxen/exp".into(), path: tree.into(), dirty: None, sessions: 0, running: 0 }],
+        );
+
+        let cards = overview(ws, &sessions, &running, &HashMap::new(), &[], &[], &worktrees);
+        let t = &cards[0].worktrees[0];
+        assert_eq!(t.sessions, 2, "根部 + 子目录算绑定");
+        assert_eq!(t.running, 1, "运行中只数绑定会话里的 s2");
+        assert_eq!(cards[0].sessions, 1, "绑定到树的会话不计入主仓会话数");
     }
 }

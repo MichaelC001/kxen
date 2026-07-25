@@ -159,3 +159,44 @@ describe("Workspaces 看板落点", () => {
     dispose();
   });
 });
+
+describe("Workspaces 隔离树绑定", () => {
+  it("绑定树的行显示会话数与运行中点，未绑定树不显示", async () => {
+    h.workspacesOverview.mockResolvedValue([
+      {
+        ...CARD,
+        running_sessions: [], // 清空运行中区： isolate animate-pulse 只来自隔离树行
+        worktrees: [
+          {
+            name: "exp",
+            branch: "kxen/exp",
+            path: "/a/.kxen/worktrees/exp",
+            dirty: 2,
+            sessions: 3,
+            running: 1,
+          },
+          {
+            name: "idle",
+            branch: "kxen/idle",
+            path: "/a/.kxen/worktrees/idle",
+            dirty: null,
+            sessions: 0,
+            running: 0,
+          },
+        ],
+      },
+    ]);
+    const dispose = render(() => <Workspaces />, document.body);
+    await flush();
+
+    const bound = btnByText("kxen/exp");
+    expect(bound?.textContent).toContain("3 会话");
+    expect(bound?.querySelector(".animate-pulse")).toBeTruthy(); // 运行中点
+    expect(bound?.textContent).toContain("2 改"); // 原有脏计数不丢
+
+    const idle = btnByText("kxen/idle");
+    expect(idle?.textContent).not.toContain("会话");
+    expect(idle?.querySelector(".animate-pulse")).toBeFalsy();
+    dispose();
+  });
+});

@@ -58,6 +58,10 @@ export interface WorktreeDigest {
   branch: string;
   path: string;
   dirty: number | null;
+  /** 绑定到该树的会话数（directory 前缀匹配，后端 overview 算好） */
+  sessions: number;
+  /** 其中运行中会话数 */
+  running: number;
 }
 
 export interface GoalDigest {
