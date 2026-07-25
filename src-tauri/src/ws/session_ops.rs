@@ -64,15 +64,35 @@ fn message_preview(m: &kxen_app::core::session::Message) -> String {
 /// - 同 workspace 有活跃 run：rewind 改写文件会与运行中的 agent 打架
 /// - message id 不在本 session：拒绝（不得跨会话定位）
 /// - 工作区有未进检查点改动且无 confirm：rewind 会丢弃，须显式确认
-pub(super) fn rewind_gate(active_in_workspace: bool, dirty_count: usize, confirm: bool, target: Option<RewindTarget>) -> Result<(), RewindBlock> {
+pub(super) fn rewind_gate(
+    active_in_workspace: bool,
+    dirty_count: usize,
+    confirm: bool,
+    target: Option<RewindTarget>,
+) -> Result<(), RewindBlock> {
     if active_in_workspace {
-        return Err(RewindBlock { code: "active_run", message: "同 workspace 有会话正在运行，先 abort 再 rewind".into(), dirty_count: None, target });
+        return Err(RewindBlock {
+            code: "active_run",
+            message: "同 workspace 有会话正在运行，先 abort 再 rewind".into(),
+            dirty_count: None,
+            target,
+        });
     }
     let Some(target) = target else {
-        return Err(RewindBlock { code: "not_in_session", message: "message not found in this session".into(), dirty_count: None, target: None });
+        return Err(RewindBlock {
+            code: "not_in_session",
+            message: "message not found in this session".into(),
+            dirty_count: None,
+            target: None,
+        });
     };
     if dirty_count > 0 && !confirm {
-        return Err(RewindBlock { code: "dirty", message: "工作区有未进检查点的改动，回退将丢弃".into(), dirty_count: Some(dirty_count), target: Some(target) });
+        return Err(RewindBlock {
+            code: "dirty",
+            message: "工作区有未进检查点的改动，回退将丢弃".into(),
+            dirty_count: Some(dirty_count),
+            target: Some(target),
+        });
     }
     Ok(())
 }
@@ -91,8 +111,11 @@ pub(super) fn session_rewind(params: &Value, state: &crate::AppState) -> Result<
     let dir = kxen_app::core::paths::sessions_dir();
     let meta = kxen_app::core::session::load_meta(&dir, session_id).map_err(|e| e.to_string())?;
     let messages = kxen_app::core::session::load_messages(&dir, session_id);
-    let target =
-        messages.iter().find(|m| m.id == message_id).map(|m| RewindTarget { id: m.id.clone(), role: role_name(m.role), preview: message_preview(m) });
+    let target = messages.iter().find(|m| m.id == message_id).map(|m| RewindTarget {
+        id: m.id.clone(),
+        role: role_name(m.role),
+        preview: message_preview(m),
+    });
     // 同 workspace（按 session 归属目录判定）任何 session 有 active run 即拒绝
     let active_in_workspace = kxen_app::core::shared::lock(&state.active_runs)
         .keys()
@@ -258,7 +281,13 @@ mod tests {
     #[test]
     fn checkpoint_label_maps_to_nearest_user_message() {
         use kxen_app::core::session::{Message, Part, Role};
-        let msg = |id: &str, role: Role| Message { id: id.into(), session_id: "s".into(), role, parts: vec![Part::Text { text: "t".into() }], created_at: 0 };
+        let msg = |id: &str, role: Role| Message {
+            id: id.into(),
+            session_id: "s".into(),
+            role,
+            parts: vec![Part::Text { text: "t".into() }],
+            created_at: 0,
+        };
         let msgs = vec![msg("u1", Role::User), msg("a1", Role::Assistant), msg("u2", Role::User), msg("a2", Role::Assistant)];
         // user 消息：自身即 turn 起点
         assert_eq!(checkpoint_label(&msgs, 2), Some("u2"));

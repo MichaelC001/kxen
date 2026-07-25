@@ -107,15 +107,16 @@ pub fn has_checkpoints(workdir: &Path) -> bool {
     repo_dir(workdir).join("HEAD").exists()
 }
 
-/// shadow 仓库是否有未提交改动（rewind 前提示用户确认的数据源）。
+/// shadow 仓库未进检查点的改动文件数（rewind 确认框展示「会丢弃几个文件」的数据源）。
 /// 与 commit 同一组排除（node_modules/target）：否则可再生目录会让判定永远为脏。
-pub fn is_dirty(workdir: &Path) -> bool {
+pub fn dirty_count(workdir: &Path) -> usize {
     if !has_checkpoints(workdir) {
-        return false;
+        return 0;
     }
     let mut args = vec!["status", "--porcelain", "--", "."];
     args.extend(EXCLUDES);
-    git(workdir, &args).map(|out| !String::from_utf8_lossy(&out.stdout).trim().is_empty()).unwrap_or(false)
+    // porcelain 一文件一行，空仓库输出空串
+    git(workdir, &args).map(|out| String::from_utf8_lossy(&out.stdout).lines().filter(|l| !l.trim().is_empty()).count()).unwrap_or(0)
 }
 
 /// checkpoint 屏障：用户消息落盘后、run_turn 前等 shadow git commit 完成。
@@ -154,6 +155,20 @@ mod tests {
         git(&dir, &["config", "gpg.program", "/bin/false"]).unwrap();
         std::fs::write(dir.join("a.txt"), "v2\n").unwrap();
         commit(&dir, "msg_2").unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn dirty_count_tracks_uncheckpointed_files() {
+        let dir = std::env::temp_dir().join(format!("kxen-ckpt-dirty-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), "v1\n").unwrap();
+        commit(&dir, "msg_1").unwrap();
+        assert_eq!(dirty_count(&dir), 0);
+        std::fs::write(dir.join("a.txt"), "v2\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "new\n").unwrap();
+        assert_eq!(dirty_count(&dir), 2);
         std::fs::remove_dir_all(&dir).ok();
     }
 

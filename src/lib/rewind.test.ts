@@ -1,16 +1,24 @@
-// rewind 确认流：dirty 门禁的"拒绝 -> 确认 -> 带 confirm 重发"序列，其余拒绝不重试。
+// rewind 确认流：dirty 门禁的「拒绝 -> 确认 -> 带 confirm 重发」序列，其余拒绝不重试。
+// fixture 与 src-tauri/src/ws/session_ops.rs 的 RewindBlock 序列化对齐（code 驱动，漂移即测试红）。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   classifyRewindError,
   createRewindFlow,
   createSessionRewind,
+  parseRewindError,
   rewindErrorText,
+  rewindPendingInfo,
+  type RewindPendingInfo,
 } from "./rewind";
 
-// 与 src-tauri/src/ws/session_ops.rs 的门禁文案逐字对齐，漂移即测试红
-const DIRTY = new Error("worktree has uncheckpointed changes, pass confirm=true to rewind anyway");
-const ACTIVE_RUN = new Error("workspace has an active run, rewind refused");
-const NOT_IN_SESSION = new Error("message not found: m-1");
+const block = (code: string, extra: Record<string, unknown> = {}) =>
+  new Error(JSON.stringify({ code, message: `mock ${code} 人话`, ...extra }));
+const DIRTY = block("dirty", {
+  dirty_count: 2,
+  target: { id: "m-9", role: "user", preview: "帮我改一下" },
+});
+const ACTIVE_RUN = block("active_run");
+const NOT_IN_SESSION = block("not_in_session");
 
 type Call = { sid: string; mid: string; confirm: boolean };
 
@@ -19,6 +27,7 @@ function harness(rejectOnce?: Error, rejectAlways?: Error) {
   const done: string[] = [];
   const errors: string[] = [];
   const pendings: (string | null)[] = [];
+  const infos: (RewindPendingInfo | null)[] = [];
   const flow = createRewindFlow({
     sessionId: () => "s1",
     call: (sid, mid, confirm) => {
@@ -27,14 +36,15 @@ function harness(rejectOnce?: Error, rejectAlways?: Error) {
       return err ? Promise.reject(err) : Promise.resolve();
     },
     onPendingChange: (id) => pendings.push(id),
+    onPendingInfo: (info) => infos.push(info),
     onDone: () => done.push("done"),
     onError: (t) => errors.push(t),
   });
-  return { flow, calls, done, errors, pendings };
+  return { flow, calls, done, errors, pendings, infos };
 }
 
 describe("createRewindFlow", () => {
-  it("dirty 拒绝后进待确认，用户确认带 confirm=true 重发同一消息", async () => {
+  it("dirty 拒绝后进待确认并带上下文，用户确认带 confirm=true 重发同一消息", async () => {
     const h = harness(DIRTY);
     await h.flow.request("m-9");
     // 第一次不带 confirm，被拒后挂起等待用户决定，不算完成也不算错误
@@ -42,6 +52,10 @@ describe("createRewindFlow", () => {
     expect(h.flow.pending()).toBe("m-9");
     expect(h.done).toEqual([]);
     expect(h.errors).toEqual([]);
+    // 确认框上下文：dirty 文件数 + 目标消息摘要来自 RewindBlock 载荷
+    expect(h.infos).toEqual([
+      { messageId: "m-9", dirtyCount: 2, targetRole: "user", targetPreview: "帮我改一下" },
+    ]);
 
     await h.flow.confirm();
     expect(h.calls).toEqual([
@@ -49,6 +63,10 @@ describe("createRewindFlow", () => {
       { sid: "s1", mid: "m-9", confirm: true },
     ]);
     expect(h.flow.pending()).toBeNull();
+    expect(h.infos).toEqual([
+      { messageId: "m-9", dirtyCount: 2, targetRole: "user", targetPreview: "帮我改一下" },
+      null,
+    ]);
     expect(h.done).toEqual(["done"]);
     expect(h.errors).toEqual([]);
   });
@@ -76,12 +94,13 @@ describe("createRewindFlow", () => {
     expect(h.errors).toEqual(["这条消息不在当前会话中，无法回退到此处"]);
   });
 
-  it("取消待确认：清空 pending 且不再重发", async () => {
+  it("取消待确认：清空 pending 与上下文且不再重发", async () => {
     const h = harness(DIRTY);
     await h.flow.request("m-9");
     expect(h.flow.pending()).toBe("m-9");
     h.flow.cancel();
     expect(h.flow.pending()).toBeNull();
+    expect(h.infos.at(-1)).toBeNull();
     await h.flow.confirm();
     expect(h.calls).toHaveLength(1);
     expect(h.done).toEqual([]);
@@ -108,11 +127,30 @@ describe("createRewindFlow", () => {
 });
 
 describe("classifyRewindError / rewindErrorText", () => {
-  it("按后端文案子串归类三种门禁", () => {
+  it("按 code 归类三种门禁，文案子串不再参与归类", () => {
     expect(classifyRewindError(DIRTY)).toBe("dirty");
     expect(classifyRewindError(ACTIVE_RUN)).toBe("active_run");
     expect(classifyRewindError(NOT_IN_SESSION)).toBe("not_in_session");
+    // 旧的手写英文 fixture 形态（纯文案）一律 unknown：归类只看结构化 code
+    expect(
+      classifyRewindError(new Error("worktree has uncheckpointed changes, pass confirm=true")),
+    ).toBe("unknown");
+    expect(classifyRewindError(new Error("workspace has an active run, rewind refused"))).toBe(
+      "unknown",
+    );
     expect(classifyRewindError(new Error("rpc timeout: session.rewind"))).toBe("unknown");
+  });
+
+  it("结构化但 code 未识别：归类 unknown，兜底文案取载荷里的人话", () => {
+    const err = block("rate_limited");
+    expect(classifyRewindError(err)).toBe("unknown");
+    expect(rewindErrorText(err)).toBe("回退失败：mock rate_limited 人话");
+  });
+
+  it("parseRewindError：非结构化错误返回 null，结构化载荷字段可读", () => {
+    expect(parseRewindError(new Error("boom"))).toBeNull();
+    expect(parseRewindError(DIRTY)?.dirty_count).toBe(2);
+    expect(parseRewindError(DIRTY)?.target?.preview).toBe("帮我改一下");
   });
 
   it("未识别错误保留原始信息便于排查", () => {
@@ -155,5 +193,29 @@ describe("createSessionRewind 错误尾注", () => {
     expect(h.note()).not.toBe("");
     vi.advanceTimersByTime(1);
     expect(h.note()).toBe("");
+  });
+});
+
+describe("createSessionRewind 确认框上下文通道", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("dirty 挂起时 RewindConfirm 通道带上下文，确认后清空", async () => {
+    vi.useFakeTimers();
+    let reject = true;
+    const r = createSessionRewind({
+      sessionId: () => "s1",
+      onDone: () => {},
+      call: () => (reject ? Promise.reject(DIRTY) : Promise.resolve()),
+    });
+    await r.flow.request("m-9");
+    expect(rewindPendingInfo()).toEqual({
+      messageId: "m-9",
+      dirtyCount: 2,
+      targetRole: "user",
+      targetPreview: "帮我改一下",
+    });
+    reject = false;
+    await r.flow.confirm();
+    expect(rewindPendingInfo()).toBeNull();
   });
 });
