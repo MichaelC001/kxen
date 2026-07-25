@@ -14,6 +14,7 @@ mod ops_workspace;
 pub mod pending;
 pub mod protocol;
 mod rpc;
+mod run_finalize;
 pub mod session_ops;
 mod settings;
 mod stream;
