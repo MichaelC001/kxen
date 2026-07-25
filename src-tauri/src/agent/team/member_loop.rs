@@ -232,7 +232,7 @@ fn set_status(state: &Arc<TeamState>, name: &str, status: MemberStatus) {
     let activity_status = match status {
         MemberStatus::Working => crate::agent::activity::ActivityStatus::Working,
         MemberStatus::Idle => crate::agent::activity::ActivityStatus::Idle,
-        MemberStatus::AwaitingPlanApproval => crate::agent::activity::ActivityStatus::Working,
+        MemberStatus::AwaitingPlanApproval => crate::agent::activity::ActivityStatus::AwaitingPlanApproval,
         MemberStatus::Failed => crate::agent::activity::ActivityStatus::Failed,
         MemberStatus::Shutdown => crate::agent::activity::ActivityStatus::Shutdown,
     };
@@ -323,6 +323,27 @@ mod tests {
         refresh_store_credentials(&state, &ModelRef::new("openai", "m")).await;
         let cred = lock(&state.deps.store).get("openai").cloned().unwrap();
         assert!(matches!(cred, CredentialKind::Oauth { ref access, .. } if access == "a2"), "空 refresh 不可刷必须原样保留");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// AwaitingPlanApproval 透传 ActivityStatus：前端据此亮「待批准」warn，压成 Working 会误显示「工作中」
+    #[test]
+    fn awaiting_plan_approval_maps_through_to_activity() {
+        let (state, dir) = state("awaiting");
+        lock(&state.members).push(crate::agent::team::Member {
+            name: "w".into(),
+            role: "execution".into(),
+            model: ModelRef::new("p", "m"),
+            status: MemberStatus::Idle,
+            plan_approval: true,
+            prompt: String::new(),
+            approved: false,
+        });
+        state.deps.agents.register("s1", "w", crate::agent::activity::AgentKind::Teammate, &ModelRef::new("p", "m"));
+        set_status(&state, "w", MemberStatus::AwaitingPlanApproval);
+        let list = state.deps.agents.list("s1");
+        assert!(matches!(list[0].status, crate::agent::activity::ActivityStatus::AwaitingPlanApproval));
+        assert_eq!(serde_json::to_value(list[0].status).unwrap(), "awaiting_plan_approval", "前端契约为 snake_case");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

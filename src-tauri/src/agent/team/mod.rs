@@ -246,6 +246,29 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// P1：user/lead 直发 teammate 即时落收件人转录（kind=user，[from] 前缀与 peer 格式一致，teammate 写穿落盘）；
+    /// peer 互发不在 send 时落转录（wake 侧 [inbox from] 补登，双写会同信双行）。
+    #[tokio::test]
+    async fn direct_message_echoes_into_recipient_transcript() {
+        let (mgr, dir) = manager("echo");
+        let state = mgr.state_for("s1");
+        push_member(&state, "w", "execution");
+        push_member(&state, "p", "execution");
+        let model = crate::llm::ModelRef::new("p", "m");
+        state.deps.agents.register("s1", "w", crate::agent::activity::AgentKind::Teammate, &model);
+        mgr.user_message("s1", "w", "hello teammate").unwrap();
+        mgr.lead_action("s1", &serde_json::json!({ "action": "message", "name": "w", "text": "lead speaking" })).await.unwrap();
+        mgr.send(&state, "p", "w", "peer ping").unwrap();
+        let t = state.deps.agents.transcript("s1", "w");
+        assert_eq!(t.len(), 2, "peer 互发不得在 send 时落转录: {t:?}");
+        assert_eq!(t[0]["kind"], "user");
+        assert_eq!(t[0]["text"], "[user] hello teammate");
+        assert_eq!(t[1]["text"], "[lead] lead speaking");
+        let file = dir.join("s1/transcripts/w.jsonl");
+        assert_eq!(std::fs::read_to_string(&file).unwrap().lines().count(), 2, "teammate 转录必须写穿落盘（重启重放仍可见）");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// plan verdict 落结构化前缀：approve -> [plan-verdict:approved]（侦测命中），reject -> [plan-verdict:rejected]
     #[tokio::test]
     async fn plan_verdict_carries_structured_prefix() {

@@ -35,7 +35,51 @@ export async function initSessions(): Promise<void> {
 }
 
 export async function refreshSessions(): Promise<void> {
-  setSessions(await sessionList());
+  const next = await sessionList();
+  setSessions((prev) => mergeKeyed(prev, next, (s) => s.id, sameSession));
+}
+
+/** 轮询合并的引用稳定化：<For> 按引用追踪，整列换新会每 3s 全量重建 DOM
+ *  （churn/闪烁/AgentPane 订阅反复挂卸/SessionRow 行内编辑态被销毁）。
+ *  逐项比对无变化复用旧对象；全列同序同引用直接回原数组（同引用 set 不触发传播）。 */
+function mergeKeyed<T>(
+  prev: T[],
+  next: T[],
+  key: (t: T) => string,
+  same: (a: T, b: T) => boolean,
+): T[] {
+  const byKey = new Map(prev.map((p) => [key(p), p]));
+  const merged = next.map((n) => {
+    const old = byKey.get(key(n));
+    return old && same(old, n) ? old : n;
+  });
+  const identical = merged.length === prev.length && merged.every((m, i) => prev[i] === m);
+  return identical ? prev : merged;
+}
+
+function sameAgent(a: AgentActivity, b: AgentActivity): boolean {
+  return (
+    a.kind === b.kind &&
+    a.status === b.status &&
+    a.started_at === b.started_at &&
+    a.model.provider === b.model.provider &&
+    a.model.model === b.model.model
+  );
+}
+
+function sameSession(a: SessionMeta, b: SessionMeta): boolean {
+  return (
+    a.title === b.title &&
+    a.directory === b.directory &&
+    a.created_at === b.created_at &&
+    a.updated_at === b.updated_at &&
+    a.pinned === b.pinned &&
+    a.sort_order === b.sort_order &&
+    a.running === b.running &&
+    a.model?.provider === b.model?.provider &&
+    a.model?.model === b.model?.model &&
+    (a.model?.account ?? null) === (b.model?.account ?? null)
+  );
 }
 
 /** 路由导航 hook（App 装配时注入；state 不直接依赖 router）。 */
@@ -90,12 +134,13 @@ export async function deleteSession(id: string): Promise<void> {
   else await newSession();
 }
 
-/** 刷新子代理名单（3s 轮询 + 事件驱动调用方）。 */
+/** 刷新子代理名单（3s 轮询 + 事件驱动调用方）：mergeKeyed 保引用，无变化不触发下游重算。 */
 export async function refreshAgents(): Promise<void> {
   const sid = activeSessionId();
   if (!sid) {
     setAgents([]);
     return;
   }
-  setAgents(await agentsList(sid).catch(() => []));
+  const next = await agentsList(sid).catch(() => []);
+  setAgents((prev) => mergeKeyed(prev, next, (a) => a.name, sameAgent));
 }

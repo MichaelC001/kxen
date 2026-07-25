@@ -32,7 +32,7 @@ export interface AgentActivity {
   name: string;
   kind: "teammate" | "subagent" | "workflow";
   model: { provider: string; model: string };
-  status: "working" | "idle" | "done" | "failed" | "shutdown";
+  status: "working" | "idle" | "awaiting_plan_approval" | "done" | "failed" | "shutdown";
   started_at: number;
 }
 

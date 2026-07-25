@@ -137,8 +137,14 @@ pub(super) fn inbox_has_plan_approval(inbox: &[(String, String)]) -> bool {
 
 /// P1-4：来信入 transcript + bus（复用 text 事件形态，AgentFocusView 按 kind=text 渲染可见）。
 /// 展示侧与 LLM 侧同 cap：极端刷信不撑大 transcript JSONL 单行。
+/// user/lead 来信跳过：send() 已即时落转录（[from] 格式），wake 再登一遍会同信双行；
+/// 只影响展示侧，LLM 历史（inbox_text）仍收全量来信。
 pub(super) fn push_inbox_transcript(state: &Arc<TeamState>, name: &str, inbox: &[(String, String)]) {
-    let text = join_capped(inbox.iter().map(|(from, t)| format!("[inbox {from}] {t}")));
+    let fresh: Vec<&(String, String)> = inbox.iter().filter(|(from, _)| from != "user" && from != "lead").collect();
+    if fresh.is_empty() {
+        return;
+    }
+    let text = join_capped(fresh.iter().map(|(from, t)| format!("[inbox {from}] {t}")));
     let payload = json!({ "kind": "text", "text": text, "agent": name, "session_id": state.session_id });
     state.deps.agents.push_transcript(&state.session_id, name, payload.clone());
     state.bus.publish(crate::core::event::Event::LlmDelta(payload));
@@ -214,16 +220,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// P1-4：来信产生 text 形态 transcript 事件（AgentFocusView 可见）
+    /// P1-4：来信产生 text 形态 transcript 事件（AgentFocusView 可见）；
+    /// user/lead 来信跳过补登（send() 已即时落转录，再登会同信双行）。
     #[tokio::test]
     async fn inbox_messages_land_in_transcript() {
         let (state, dir) = state("transcript");
         state.deps.agents.register("s1", "w", crate::agent::activity::AgentKind::Teammate, &crate::llm::ModelRef::new("p", "m"));
-        push_inbox_transcript(&state, "w", &[("lead".into(), "hello".into())]);
+        push_inbox_transcript(&state, "w", &[("peer".into(), "hello".into())]);
+        push_inbox_transcript(&state, "w", &[("user".into(), "hi".into()), ("lead".into(), "go".into())]);
         let t = state.deps.agents.transcript("s1", "w");
-        assert_eq!(t.len(), 1);
+        assert_eq!(t.len(), 1, "user/lead 来信不得重复补登: {t:?}");
         assert_eq!(t[0]["kind"], "text");
-        assert!(t[0]["text"].as_str().unwrap().contains("[inbox lead] hello"));
+        assert!(t[0]["text"].as_str().unwrap().contains("[inbox peer] hello"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -233,13 +241,13 @@ mod tests {
         let (state, dir) = state("transcript-cap");
         state.deps.agents.register("s1", "w", crate::agent::activity::AgentKind::Teammate, &crate::llm::ModelRef::new("p", "m"));
         let big = "y".repeat(5000);
-        let inbox: Vec<(String, String)> = (0..10).map(|_| ("lead".to_string(), big.clone())).collect();
+        let inbox: Vec<(String, String)> = (0..10).map(|_| ("peer".to_string(), big.clone())).collect();
         push_inbox_transcript(&state, "w", &inbox);
         let t = state.deps.agents.transcript("s1", "w");
         assert_eq!(t.len(), 1);
         let text = t[0]["text"].as_str().unwrap();
-        // 每行 "[inbox lead] " + 5000 字符 = 5013：3 条入列（15041），第 4 条起省略
-        assert_eq!(text.matches("[inbox lead]").count(), 3, "超 cap 尾部必须省略");
+        // 每行 "[inbox peer] " + 5000 字符 = 5013：3 条入列（15041），第 4 条起省略
+        assert_eq!(text.matches("[inbox peer]").count(), 3, "超 cap 尾部必须省略");
         assert!(text.contains("7 message(s) omitted"), "必须标注省略条数: {text}");
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -261,6 +261,16 @@ impl TeamManager {
             return Err(format!("teammate not found: {to}"));
         }
         append_inbox(&state.dir, to, from, text)?;
+        // user/lead 直发即时落收件人转录（kind=user，[from] 前缀与 peer 消息格式一致）：等 wake drain
+        // 才可见则发送后长时间无回显。只写转录不发 bus：FocusView 发送成功已本地 echo，再发事件同信双行
+        //（wake 侧 push_inbox_transcript 对 user/lead 来信跳过补登，同理防双行）。
+        if matches!(from, "user" | "lead") {
+            state.deps.agents.push_transcript(
+                &state.session_id,
+                to,
+                json!({ "kind": "user", "text": format!("[{from}] {text}"), "agent": to, "session_id": state.session_id }),
+            );
+        }
         if let Some(n) = lock(&state.notifies).get(to) {
             n.notify_one();
         }

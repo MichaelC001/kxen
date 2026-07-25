@@ -3,16 +3,22 @@ import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TopAgentBar from "./TopAgentBar";
 import { activeAgentFocus, setActiveAgentFocus, setActiveSessionId, setAgents } from "../lib/state";
+import { flash } from "../lib/flash";
 import type { AgentActivity } from "../lib/team";
 
-const stopCalls = vi.hoisted(() => [] as Array<{ sid: string; name: string }>);
+const stopMock = vi.hoisted(() => ({
+  calls: [] as Array<{ sid: string; name: string }>,
+  result: true,
+  error: null as Error | null,
+}));
 vi.mock("../lib/team", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../lib/team")>();
   return {
     ...orig,
     agentsStop: async (sid: string, name: string) => {
-      stopCalls.push({ sid, name });
-      return true;
+      stopMock.calls.push({ sid, name });
+      if (stopMock.error) throw stopMock.error;
+      return stopMock.result;
     },
   };
 });
@@ -38,7 +44,10 @@ afterEach(() => {
   setAgents([]);
   setActiveAgentFocus("");
   setActiveSessionId("");
-  stopCalls.length = 0;
+  stopMock.calls.length = 0;
+  stopMock.result = true;
+  stopMock.error = null;
+  for (const m of flash.msgs()) flash.dismiss(m.id);
   document.body.innerHTML = "";
 });
 
@@ -85,7 +94,7 @@ describe("TopAgentBar (webkit)", () => {
     expect(stops().length).toBe(1);
     stops()[0]!.click();
     await new Promise((r) => setTimeout(r, 0));
-    expect(stopCalls).toEqual([{ sid: "s1", name: "builder" }]);
+    expect(stopMock.calls).toEqual([{ sid: "s1", name: "builder" }]);
     expect(activeAgentFocus()).toBe("main");
     dispose();
   });
@@ -97,8 +106,50 @@ describe("TopAgentBar (webkit)", () => {
     const { dispose, stops } = mount();
     stops()[0]!.click();
     await new Promise((r) => setTimeout(r, 0));
-    expect(stopCalls.map((c) => c.name)).toEqual(["builder"]);
+    expect(stopMock.calls.map((c) => c.name)).toEqual(["builder"]);
     expect(activeAgentFocus()).toBe("reviewer");
+    dispose();
+  });
+
+  it("agents.stop 返回 false：不切窗 + flashErr + chip 还原可点", async () => {
+    setAgents([run("builder", "working")]);
+    setActiveSessionId("s1");
+    setActiveAgentFocus("builder");
+    stopMock.result = false;
+    const { dispose, stops, chip } = mount();
+    stops()[0]!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(stopMock.calls).toEqual([{ sid: "s1", name: "builder" }]);
+    expect(activeAgentFocus()).toBe("builder");
+    expect(flash.msgs().some((m) => m.kind === "err" && m.text.includes("builder"))).toBe(true);
+    expect(chip(1).disabled).toBe(false);
+    dispose();
+  });
+
+  it("agents.stop 异常：不切窗 + flashErr", async () => {
+    setAgents([run("builder", "working")]);
+    setActiveSessionId("s1");
+    setActiveAgentFocus("builder");
+    stopMock.error = new Error("io boom");
+    const { dispose, stops } = mount();
+    stops()[0]!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(activeAgentFocus()).toBe("builder");
+    expect(flash.msgs().some((m) => m.kind === "err" && m.text.includes("io boom"))).toBe(true);
+    dispose();
+  });
+
+  it("点击停止乐观置灰：RPC 成功后靠轮询收敛摘灰", async () => {
+    setAgents([run("builder", "working")]);
+    setActiveSessionId("s1");
+    const { dispose, stops, chip } = mount();
+    stops()[0]!.click();
+    expect(chip(1).disabled).toBe(true); // 乐观态立即生效（不等 RPC 返回）
+    await new Promise((r) => setTimeout(r, 0));
+    expect(chip(1).disabled).toBe(true); // 轮询未回仍置灰
+    setAgents([run("builder", "shutdown")]); // 模拟轮询带回新状态
+    await new Promise((r) => setTimeout(r, 0));
+    expect(chip(1).disabled).toBe(false);
     dispose();
   });
 });

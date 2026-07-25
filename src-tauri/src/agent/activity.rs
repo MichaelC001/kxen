@@ -22,6 +22,9 @@ pub enum AgentKind {
 pub enum ActivityStatus {
     Working,
     Idle,
+    /// teammate 计划待 lead 批准（MemberStatus::AwaitingPlanApproval 透传）：
+    /// 压成 Working 会让前端误显示「工作中」，看不出在等人批准
+    AwaitingPlanApproval,
     Done,
     Failed,
     Shutdown,

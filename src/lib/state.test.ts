@@ -1,12 +1,14 @@
 // deleteSession 善后（P0-6）：活跃会话被删后 activeSessionId 不得悬死指向死会话。
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionMeta } from "./chat";
+import type { AgentActivity } from "./team";
 
 const mocks = vi.hoisted(() => ({
   sessionDelete: vi.fn<(id: string) => Promise<void>>(() => Promise.resolve()),
   sessionList: vi.fn<() => Promise<SessionMeta[]>>(() => Promise.resolve([])),
   sessionCreate: vi.fn(),
   rpc: vi.fn(() => Promise.resolve()),
+  agentsList: vi.fn<(sid: string) => Promise<AgentActivity[]>>(() => Promise.resolve([])),
 }));
 vi.mock("./chat", () => ({
   sessionDelete: mocks.sessionDelete,
@@ -14,11 +16,21 @@ vi.mock("./chat", () => ({
   sessionCreate: mocks.sessionCreate,
 }));
 vi.mock("./client", () => ({ client: { rpc: mocks.rpc } }));
-vi.mock("./team", () => ({ agentsList: vi.fn(() => Promise.resolve([])) }));
+vi.mock("./team", () => ({ agentsList: mocks.agentsList }));
 vi.mock("./session-model", () => ({ applyDraftModel: vi.fn(() => Promise.resolve()) }));
 vi.mock("./drafts", () => ({ migrateNewDraft: vi.fn() }));
 
-import { activeSessionId, deleteSession, setActiveSessionId, setSessions } from "./state";
+import {
+  activeSessionId,
+  agents,
+  deleteSession,
+  refreshAgents,
+  refreshSessions,
+  sessions,
+  setActiveSessionId,
+  setAgents,
+  setSessions,
+} from "./state";
 
 function meta(id: string, directory: string): SessionMeta {
   return { id, title: id, directory, created_at: 0, updated_at: 0 };
@@ -27,7 +39,9 @@ function meta(id: string, directory: string): SessionMeta {
 beforeEach(() => {
   mocks.sessionDelete.mockClear();
   mocks.sessionList.mockReset().mockResolvedValue([]);
+  mocks.agentsList.mockReset().mockResolvedValue([]);
   setSessions([]);
+  setAgents([]);
   setActiveSessionId("");
 });
 
@@ -70,5 +84,47 @@ describe("deleteSession 善后切换", () => {
     setActiveSessionId("a");
     mocks.sessionDelete.mockRejectedValueOnce(new Error("io boom"));
     await expect(deleteSession("a")).rejects.toThrow("io boom");
+  });
+});
+
+describe("refreshAgents / refreshSessions 引用稳定合并", () => {
+  function agent(name: string, status: AgentActivity["status"]): AgentActivity {
+    return { name, kind: "teammate", model: { provider: "p", model: "m" }, status, started_at: 0 };
+  }
+
+  it("轮询内容无变化：item 与数组引用都稳定（<For> 不重建，同引用 set 不传播）", async () => {
+    setActiveSessionId("s1");
+    mocks.agentsList.mockResolvedValue([agent("w", "working")]);
+    await refreshAgents();
+    const first = agents();
+    mocks.agentsList.mockResolvedValue([agent("w", "working")]); // 全新对象同内容
+    await refreshAgents();
+    expect(agents()).toBe(first);
+    expect(agents()[0]).toBe(first[0]);
+  });
+
+  it("仅状态变化项换新引用，其余复用旧对象", async () => {
+    setActiveSessionId("s1");
+    mocks.agentsList.mockResolvedValue([agent("w", "working"), agent("r", "working")]);
+    await refreshAgents();
+    const [w1, r1] = agents();
+    mocks.agentsList.mockResolvedValue([agent("w", "working"), agent("r", "done")]);
+    await refreshAgents();
+    expect(agents()[0]).toBe(w1);
+    expect(agents()[1]).not.toBe(r1);
+    expect(agents()[1]!.status).toBe("done");
+  });
+
+  it("refreshSessions 同款保引用（SessionRow 行内编辑态不被 refresh 销毁）", async () => {
+    mocks.sessionList.mockResolvedValue([meta("a", "/p")]);
+    await refreshSessions();
+    const first = sessions();
+    mocks.sessionList.mockResolvedValue([meta("a", "/p")]);
+    await refreshSessions();
+    expect(sessions()).toBe(first);
+    mocks.sessionList.mockResolvedValue([{ ...meta("a", "/p"), title: "改名" }]);
+    await refreshSessions();
+    expect(sessions()[0]).not.toBe(first[0]);
+    expect(sessions()[0]!.title).toBe("改名");
   });
 });

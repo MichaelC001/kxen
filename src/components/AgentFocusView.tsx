@@ -4,13 +4,19 @@ import { onTopic } from "../lib/chat";
 import { agentsTranscript, teamMessage, type TranscriptEntry } from "../lib/team";
 import { KIND_BADGE, STATUS_TEXT } from "../lib/agent-display";
 import { formatError } from "../lib/error-text";
+import { createAction, createSeqGuard } from "../lib/async-guard";
 import { activeSessionId, agents, setActiveAgentFocus } from "../lib/state";
 
 /** 选中 agent 时的 PrimaryContent：状态头 + 全量转录 +（teammate 可对话输入）。
  *  由 RightColumn 的窄栏 FocusView 迁出 —— 转录是主内容，不再塞进右栏。 */
 export default function AgentFocusView(props: { name: string }) {
   const [entries, setEntries] = createSignal<TranscriptEntry[]>([]);
+  const [loadFailed, setLoadFailed] = createSignal(false);
+  const [retryTick, setRetryTick] = createSignal(0);
   const [draft, setDraft] = createSignal("");
+  const sendAction = createAction();
+  // 转录加载竞态守卫：慢响应晚于切换/重试落地即丢弃，旧 agent 的数据不得覆盖新窗格
+  const guard = createSeqGuard();
   let unlisten: (() => void) | undefined;
   let listRef: HTMLDivElement | undefined;
 
@@ -19,10 +25,22 @@ export default function AgentFocusView(props: { name: string }) {
 
   createEffect(() => {
     const name = props.name;
-    void agentsTranscript(activeSessionId(), name).then((t) => {
-      setEntries(t);
-      scroll();
-    });
+    const sid = activeSessionId();
+    retryTick(); // 「点击重试」的触发点：tick 变化重跑本 effect
+    // 切换即清空：旧 agent 的转录不得在新窗格残留到加载完成
+    setEntries([]);
+    setLoadFailed(false);
+    const id = guard.next();
+    agentsTranscript(sid, name)
+      .then((t) => {
+        if (!guard.isCurrent(id)) return;
+        setEntries(t);
+        scroll();
+      })
+      .catch(() => {
+        if (!guard.isCurrent(id)) return;
+        setLoadFailed(true);
+      });
   });
 
   onMount(async () => {
@@ -41,11 +59,21 @@ export default function AgentFocusView(props: { name: string }) {
   });
   onCleanup(() => unlisten?.());
 
-  const send = async () => {
+  const send = () => {
     const text = draft().trim();
     if (!text) return;
     setDraft("");
-    await teamMessage(activeSessionId(), props.name, text);
+    void sendAction.run(() => teamMessage(activeSessionId(), props.name, text), {
+      errPrefix: `发送给 ${props.name} 失败`,
+      // 失败恢复草稿：pending 期间输入框禁用，恢复不会覆盖用户新输入
+      onErr: () => setDraft(text),
+      onOk: () => {
+        // 本地即时 echo：后端 send() 只落转录不发事件，live 视图靠这条；
+        // kind=user 隔开流式 text delta（否则回复首帧会被合并规则拼进 echo 行）
+        setEntries((prev) => [...prev.slice(-199), { kind: "user", text: `[user] ${text}` }]);
+        scroll();
+      },
+    });
   };
 
   return (
@@ -79,6 +107,11 @@ export default function AgentFocusView(props: { name: string }) {
             if (e.kind === "error") {
               return <div class="text-2xs text-[var(--err)]">{formatError(e.message ?? "")}</div>;
             }
+            if (e.kind === "user") {
+              return (
+                <div class="text-xs whitespace-pre-wrap text-[var(--accent-hover)]">{e.text}</div>
+              );
+            }
             if (e.kind === "text" || e.kind === "reasoning") {
               return (
                 <div
@@ -92,7 +125,15 @@ export default function AgentFocusView(props: { name: string }) {
             return null;
           }}
         </For>
-        <Show when={entries().length === 0}>
+        <Show when={loadFailed()}>
+          <button
+            class="text-2xs text-[var(--err)] hover:underline"
+            onClick={() => setRetryTick((n) => n + 1)}
+          >
+            加载失败，点击重试
+          </button>
+        </Show>
+        <Show when={!loadFailed() && entries().length === 0}>
           <div class="text-2xs text-[var(--text-faint)]">等待输出…</div>
         </Show>
       </div>
@@ -103,12 +144,13 @@ export default function AgentFocusView(props: { name: string }) {
       >
         <div class="shrink-0 p-2 border-t border-[var(--border)]">
           <input
-            class="w-full bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs"
+            class="w-full bg-transparent border border-[var(--border)] rounded px-2 py-1 text-xs disabled:opacity-50"
             placeholder={`对 ${props.name} 说话…`}
             value={draft()}
+            disabled={sendAction.pending()}
             onInput={(e) => setDraft(e.currentTarget.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") void send();
+              if (e.key === "Enter") send();
             }}
           />
         </div>
