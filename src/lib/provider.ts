@@ -105,13 +105,23 @@ export function removeAccount(provider: string, account: string): Promise<void> 
   return client.rpc("provider.remove_account", { provider, account });
 }
 
+/** 改账号区域（多区域厂商）；region 缺省 = 清掉回落 registry 首条区域。 */
+export function setAccountRegion(
+  provider: string,
+  account: string,
+  region?: string,
+): Promise<void> {
+  return client.rpc("provider.set_region", { provider, account, ...(region ? { region } : {}) });
+}
+
 export interface ReprobeResult {
   report: {
     entries: Array<{ provider: string; display: string; status: string; detail: string }>;
     data_dir: string;
     config_dir: string;
   };
-  outcomes: string[];
+  outcomes: string[]; // 全量短句（后端已映射中文）
+  issues: string[]; // 需用户处理的条目（官方源无凭证），前端常驻展示
 }
 
 export function providerReprobe(): Promise<ReprobeResult> {

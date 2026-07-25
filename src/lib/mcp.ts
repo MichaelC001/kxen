@@ -9,6 +9,7 @@ export interface McpServerStatus {
   tools: number;
   resources: number;
   prompts: string[]; // prompt 名称列表
+  last_auth_error: string | null; // 最近一次交互授权失败原因（成功/新一次发起后为 null）
 }
 
 export function mcpStatus(): Promise<McpServerStatus[]> {

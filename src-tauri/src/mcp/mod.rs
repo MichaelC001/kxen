@@ -54,6 +54,8 @@ pub struct ServerStatus {
     pub resources: usize,
     /// prompt 名称列表（设置页直接展示）
     pub prompts: Vec<String>,
+    /// 最近一次交互授权的失败原因：设置页轮询 status 靠它即时复位按钮（不等前端超时兜底）
+    pub last_auth_error: Option<String>,
 }
 
 struct Entry {
@@ -61,6 +63,8 @@ struct Entry {
     client: Option<Arc<McpClient>>,
     /// 授权缺失标记：连接或调用吃到 AUTH_REQUIRED 时置位，成功建连清除
     needs_auth: bool,
+    /// 交互授权结果：失败落原因，新一次发起/成功时清除
+    last_auth_error: Option<String>,
 }
 
 pub struct McpManager {
@@ -112,7 +116,10 @@ impl McpManager {
         }
         for config in configs {
             let name = config.name().to_string();
-            self.servers.lock().expect("mcp").insert(name.clone(), Entry { config: config.clone(), client: None, needs_auth: false });
+            self.servers
+                .lock()
+                .expect("mcp")
+                .insert(name.clone(), Entry { config: config.clone(), client: None, needs_auth: false, last_auth_error: None });
             let roots = self.roots.lock().expect("mcp").clone();
             let connect = match guard {
                 remote::Guard::Enforced => McpClient::connect(&name, &config, &roots).await,
@@ -136,6 +143,13 @@ impl McpManager {
     fn mark_needs_auth(&self, server: &str, on: bool) {
         if let Some(e) = self.servers.lock().expect("mcp").get_mut(server) {
             e.needs_auth = on;
+        }
+    }
+
+    /// 交互授权结果落状态：新一次发起/成功传 None 清除，失败传原因（status 透出给设置页）。
+    pub fn set_auth_error(&self, server: &str, err: Option<String>) {
+        if let Some(e) = self.servers.lock().expect("mcp").get_mut(server) {
+            e.last_auth_error = err;
         }
     }
 
@@ -175,6 +189,7 @@ impl McpManager {
                 tools: e.client.as_ref().map(|c| c.tools.len()).unwrap_or(0),
                 resources: e.client.as_ref().map(|c| c.resources.len()).unwrap_or(0),
                 prompts: e.client.as_ref().map(|c| c.prompts.iter().map(|p| p.name.clone()).collect()).unwrap_or_default(),
+                last_auth_error: e.last_auth_error.clone(),
             })
             .collect()
     }
@@ -294,6 +309,22 @@ mod tests {
         assert!(capped.contains("truncated"), "截断必须带标记");
         assert!(capped.chars().count() > OUTPUT_CAP, "标记本身在 cap 之外");
         assert!(!capped.contains('\u{fffd}'), "不得出半个 UTF-8 的替换符");
+    }
+
+    #[test]
+    fn auth_error_roundtrips_into_status() {
+        let m = McpManager::new();
+        let cfg = ServerConfig::Stdio(config::StdioConfig { name: "s".into(), command: "true".into(), args: vec![], env: HashMap::new() });
+        m.servers
+            .lock()
+            .expect("mcp")
+            .insert("s".to_string(), Entry { config: cfg, client: None, needs_auth: true, last_auth_error: None });
+        m.set_auth_error("s", Some("callback timeout".into()));
+        let st = m.status().into_iter().find(|s| s.name == "s").expect("server s");
+        assert_eq!(st.last_auth_error.as_deref(), Some("callback timeout"), "失败原因必须透出到 status");
+        m.set_auth_error("s", None);
+        assert!(m.status()[0].last_auth_error.is_none(), "新一次发起/成功后必须清掉");
+        m.set_auth_error("ghost", Some("x".into())); // 不存在的 server 不得 panic
     }
 
     #[tokio::test]

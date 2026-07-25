@@ -10,68 +10,37 @@ import {
   providerReprobe,
   providerVerify,
   removeAccount,
+  removeCustomProvider,
+  setAccountRegion,
   type AccountInfo,
+  type ModelsResult,
   type ProviderInfo,
   type VerifyOutcome,
 } from "../../lib/provider";
+import { GUIDES } from "../../lib/provider-guides";
+import { flashErr, flashOk } from "../../lib/flash";
+import { formatError } from "../../lib/error-text";
 import AddAccountPanel from "./AddAccountPanel";
 
 interface Row extends AccountInfo {
   verify?: VerifyOutcome;
   verifying: boolean;
   usedBy: string[];
-  modelCount?: number;
+  modelsResult?: ModelsResult;
 }
-
-const GUIDES: Record<string, string[]> = {
-  anthropic: [
-    "1. 终端运行 `claude` 重新登录（订阅自动刷新到 Keychain）",
-    "2. kxen 弹 keychain 读取请求时选「始终允许」",
-    "3. 点「重新导入」",
-  ],
-  openai: ["1. 终端运行 `codex login` 重新登录", "2. 点「重新导入」"],
-  xai: ["1. 终端运行 `grok` 触发登录刷新", "2. 点「重新导入」"],
-  "kimi-for-coding": ["1. 终端运行 `kimi` 触发凭证刷新", "2. 点「重新导入」"],
-  openrouter: [
-    "1. 到 openrouter.ai/keys 创建 API Key",
-    "2. 点「添加账号」选 openrouter 粘贴（kind 选 apikey）",
-  ],
-  ollama: [
-    "1. 安装并运行 `ollama serve`",
-    "2. `ollama pull llama3.3` 拉模型",
-    "3. 无需凭证，直接选模型用",
-  ],
-  deepseek: [
-    "1. 到 https://platform.deepseek.com 创建 API Key",
-    "2. 点「添加账号」选 deepseek 粘贴（kind 选 API Key）",
-  ],
-  mistral: [
-    "1. 到 https://console.mistral.ai 创建 API Key",
-    "2. 点「添加账号」选 mistral 粘贴（kind 选 API Key）",
-  ],
-  groq: [
-    "1. 到 https://console.groq.com/keys 创建 API Key",
-    "2. 点「添加账号」选 groq 粘贴（kind 选 API Key）",
-  ],
-  google: [
-    "1. 到 https://aistudio.google.com/apikey 创建 API Key",
-    "2. 点「添加账号」选 google 粘贴（kind 选 API Key）",
-  ],
-  together: [
-    "1. 到 https://api.together.xyz/settings/api-keys 创建 API Key",
-    "2. 点「添加账号」选 together 粘贴（kind 选 API Key）",
-  ],
-};
 
 export default function ProvidersSection() {
   const [rows, setRows] = createSignal<Row[]>([]);
   const [providers, setProviders] = createSignal<ProviderInfo[]>([]);
   const [reprobing, setReprobing] = createSignal(false);
-  const [note, setNote] = createSignal("");
+  const [issues, setIssues] = createSignal<string[]>([]);
   const [adding, setAdding] = createSignal(false);
   const [guideFor, setGuideFor] = createSignal("");
+  // 待确认删除的行 id（账号被角色占用时先出确认条）
+  const [confirmDel, setConfirmDel] = createSignal("");
 
   const specOf = (key: string) => providers().find((p) => p.key === key);
+  const regionsOf = (r: Row) => specOf(r.provider)?.regions ?? [];
   /** 行标签：display + 区域后缀（如「Kimi 中国版」）；存量无 region 账号只有 display。 */
   const labelOf = (r: Row) => {
     const spec = specOf(r.provider);
@@ -107,15 +76,26 @@ export default function ProvidersSection() {
     );
   };
 
-  /** 手动拉取模型清单（端点 /models），条数就地显示。 */
+  /** 手动拉取模型清单（端点 /models）：成功显示条数，失败就地显错（不伪装空清单）。 */
   const fetchModels = async (row: Row) => {
     const account = row.account === "default" ? undefined : row.account;
-    const r = await providerModels(row.provider, account).catch(() => null);
-    setRows((prev) =>
-      prev.map((x) =>
-        x.id === row.id ? { ...x, modelCount: r && r.models.length > 0 ? r.models.length : 0 } : x,
-      ),
-    );
+    const r = await providerModels(row.provider, account).catch((e: unknown) => ({
+      models: [] as string[],
+      source: "error",
+      detail: e instanceof Error ? e.message : String(e),
+    }));
+    setRows((prev) => prev.map((x) => (x.id === row.id ? { ...x, modelsResult: r } : x)));
+  };
+
+  /** 改区域：region 空串 = 清掉回落缺省区域（registry 首条）。 */
+  const changeRegion = async (row: Row, region: string) => {
+    try {
+      await setAccountRegion(row.provider, row.account, region || undefined);
+      flashOk(`已更新 ${row.id} 区域`);
+      await load();
+    } catch (e) {
+      flashErr(`改区域失败：${e instanceof Error ? e.message : String(e)}`);
+    }
   };
 
   const verifyAll = () => rows().forEach((r) => void verifyOne(r));
@@ -125,22 +105,35 @@ export default function ProvidersSection() {
 
   const reprobe = async () => {
     setReprobing(true);
+    setIssues([]);
     try {
       const r = await providerReprobe();
-      setNote(`已重新导入（${r.outcomes.join("，")}）`);
+      setIssues(r.issues ?? []); // 未导入条目常驻，下一次重新导入才清
+      flashOk(`已重新导入（${r.outcomes.join("，")}）`);
       await load();
       verifyAll(); // 重新导入 = 用户主动动作，导入后逐个验证一次
+    } catch (e) {
+      flashErr(`重新导入失败：${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setReprobing(false);
-      setTimeout(() => setNote(""), 4000);
     }
   };
 
-  const remove = async (row: Row) => {
-    await removeAccount(row.provider, row.account);
-    await load();
-    setNote(`已删除 ${row.id}`);
-    setTimeout(() => setNote(""), 3000);
+  const requestRemove = (row: Row) => {
+    if (row.usedBy.length > 0) setConfirmDel(row.id);
+    else void doRemove(row);
+  };
+
+  const doRemove = async (row: Row) => {
+    setConfirmDel("");
+    try {
+      if (row.custom) await removeCustomProvider(row.provider.slice("custom:".length));
+      else await removeAccount(row.provider, row.account);
+      flashOk(`已删除 ${row.id}`);
+      await load();
+    } catch (e) {
+      flashErr(`删除失败：${e instanceof Error ? e.message : String(e)}`);
+    }
   };
 
   const badge = (r: Row) => {
@@ -181,16 +174,19 @@ export default function ProvidersSection() {
           </button>
         </div>
       </div>
-      <Show when={note()}>
-        <div class="text-xs text-[var(--ok)]">{note()}</div>
+
+      <Show when={issues().length > 0}>
+        <div class="rounded border border-[var(--warn)]/50 bg-[var(--warn)]/5 px-3 py-2 text-xs space-y-0.5">
+          <div class="text-[var(--warn)]">以下订阅未导入（官方源无凭证）：</div>
+          <For each={issues()}>{(i) => <div class="text-[var(--text-dim)]">{i}</div>}</For>
+        </div>
       </Show>
 
       <Show when={adding()}>
         <AddAccountPanel
           onDone={(msg) => {
             setAdding(false);
-            setNote(msg);
-            setTimeout(() => setNote(""), 3000);
+            flashOk(msg);
             void load();
           }}
         />
@@ -213,6 +209,22 @@ export default function ProvidersSection() {
                     <div class="text-xs text-[var(--text-faint)]">
                       {r.id}
                       <Show when={r.usedBy.length > 0}> · 被 {r.usedBy.join("/")} 使用</Show>
+                      <Show when={!r.custom && regionsOf(r).length > 1}>
+                        <span>
+                          {" · 区域："}
+                          <select
+                            class="bg-transparent border border-[var(--border)] rounded px-1 py-0 text-2xs text-[var(--text-dim)]"
+                            title="运营区域（账号凭证只对该区域端点有效）"
+                            value={r.region ?? ""}
+                            onChange={(e) => void changeRegion(r, e.currentTarget.value)}
+                          >
+                            <option value="">{`缺省（${regionsOf(r)[0]?.display ?? ""}）`}</option>
+                            <For each={regionsOf(r)}>
+                              {(x) => <option value={x.key}>{x.display}</option>}
+                            </For>
+                          </select>
+                        </span>
+                      </Show>
                     </div>
                   </div>
                   <div class="flex items-center gap-2">
@@ -230,18 +242,35 @@ export default function ProvidersSection() {
                     >
                       拉模型
                     </button>
-                    <Show when={r.account === "default"}>
+                    <Show when={r.custom}>
+                      <button
+                        class="pressable px-1.5 py-1 rounded text-[var(--text-faint)] hover:text-[var(--err)]"
+                        title="删除自定义提供商"
+                        onClick={() => requestRemove(r)}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </Show>
+                    <Show
+                      when={
+                        !r.custom &&
+                        r.account === "default" &&
+                        (GUIDES[r.provider]?.length ?? 0) > 0
+                      }
+                    >
                       <button
                         class="pressable px-2 py-1 rounded text-2xs border border-[var(--border)]"
+                        title="修复指引"
                         onClick={() => setGuideFor(guideFor() === r.provider ? "" : r.provider)}
                       >
                         <Wrench size={11} />
                       </button>
                     </Show>
-                    <Show when={r.account !== "default"}>
+                    <Show when={!r.custom && r.account !== "default"}>
                       <button
                         class="pressable px-1.5 py-1 rounded text-[var(--text-faint)] hover:text-[var(--err)]"
-                        onClick={() => void remove(r)}
+                        title="删除账号"
+                        onClick={() => requestRemove(r)}
                       >
                         <Trash2 size={12} />
                       </button>
@@ -251,9 +280,41 @@ export default function ProvidersSection() {
                 <Show when={r.verify && !r.verify.ok}>
                   <div class="mt-1.5 text-xs text-[var(--err)] break-all">{r.verify?.detail}</div>
                 </Show>
-                <Show when={r.modelCount !== undefined}>
-                  <div class="mt-1 text-2xs text-[var(--text-faint)]">
-                    端点模型：{r.modelCount} 个（已并入 composer 模型选择器）
+                <Show when={r.modelsResult}>
+                  {(m) => (
+                    <Show
+                      when={m().source === "endpoint"}
+                      fallback={
+                        <div class="mt-1 text-2xs text-[var(--err)] break-all">
+                          拉取模型失败：{formatError(m().detail)}
+                        </div>
+                      }
+                    >
+                      <div class="mt-1 text-2xs text-[var(--text-faint)]">
+                        端点模型：{m().models.length} 个（已并入 composer 模型选择器）
+                      </div>
+                    </Show>
+                  )}
+                </Show>
+                <Show when={confirmDel() === r.id}>
+                  <div class="mt-2 rounded border border-[var(--warn)]/50 bg-[var(--warn)]/5 px-3 py-2 text-xs space-y-2">
+                    <div class="text-[var(--warn)]">
+                      {`该账号正被 ${r.usedBy.join(" / ")} 使用，删除后这些角色将失去可用凭证。`}
+                    </div>
+                    <div class="flex gap-2">
+                      <button
+                        class="pressable px-2 py-0.5 rounded text-2xs border border-[var(--err)] text-[var(--err)]"
+                        onClick={() => void doRemove(r)}
+                      >
+                        确认删除
+                      </button>
+                      <button
+                        class="pressable px-2 py-0.5 rounded text-2xs border border-[var(--border)] text-[var(--text-dim)]"
+                        onClick={() => setConfirmDel("")}
+                      >
+                        取消
+                      </button>
+                    </div>
                   </div>
                 </Show>
                 <Show when={guideFor() === r.provider && r.account === "default"}>

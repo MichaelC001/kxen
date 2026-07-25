@@ -194,6 +194,7 @@ mod tests {
                     tools: 5,
                     resources: 2,
                     prompts: vec![],
+                    last_auth_error: None,
                 }],
                 lsp_root: "/tmp/proj".into(),
                 lsp: vec![LspHealth { language: "rust".into(), status: "running".into() }],
