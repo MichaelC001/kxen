@@ -22,26 +22,33 @@ export interface Trigger {
   query: string;
 }
 
-/** 触发 token 检测：光标前最近的 @ / / / #，前界为行首/空白/([{（Zed 边界规则）。 */
+/** 触发 token 检测：光标前最近的 @ / / / #，前界为行首/空白/半全角括号（Zed 边界规则）。 */
 export function detectTrigger(value: string, cursor: number): Trigger | null {
   let i = cursor - 1;
   while (i >= 0) {
     const c = value[i];
-    if (c === "\n") {
-      if (value[i + 1] === "/") {
-        return { kind: "slash", start: i + 1, query: value.slice(i + 2, cursor) };
-      }
-      break;
-    }
+    if (c === "\n") break;
     if (c === "@" || c === "#" || c === "/") {
       const prev = i === 0 ? "" : value[i - 1];
+      // \n 必须算前界否则行首触发符全失效；全角空格/括号是中文输入的天然分隔
       const bounded =
-        i === 0 || prev === " " || prev === "\t" || prev === "(" || prev === "[" || prev === "{";
+        i === 0 ||
+        prev === " " ||
+        prev === "\t" ||
+        prev === "\n" ||
+        prev === "(" ||
+        prev === "[" ||
+        prev === "{" ||
+        prev === "　" ||
+        prev === "（" ||
+        prev === "【" ||
+        prev === "｛";
       if (!bounded) return null;
       const kind = c === "@" ? "at" : c === "/" ? "slash" : "hash";
       return { kind, start: i, query: value.slice(i + 1, cursor) };
     }
-    if (c === " " && i !== cursor - 1) break;
+    // 全角空格同半角：query 不跨空白，否则会把空白后的整段都当 query
+    if ((c === " " || c === "　") && i !== cursor - 1) break;
     i--;
   }
   return null;

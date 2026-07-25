@@ -1,4 +1,5 @@
-// TextComposer 实测：原生键入 / IME Enter 守卫 / slash 任意位置 / 大粘贴折叠 / 图片 chip / 草稿隔离。
+// TextComposer 实测：原生键入 / IME 守卫（发送 + 弹层）/ slash 任意位置 / 行首与全角触发 /
+// 弹层 apply 定界与关闭 / 大粘贴折叠 / 图片 chip / 草稿隔离。
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import "../../styles.css";
@@ -44,6 +45,11 @@ vi.mock("../../lib/chat", async (importOriginal) => {
       },
     ],
     sessionList: async () => [],
+    fsComplete: async (query: string) =>
+      [
+        { path: "src/App.tsx", kind: "file" },
+        { path: "src/components", kind: "dir" },
+      ].filter((e) => e.path.toLowerCase().includes(query.toLowerCase())),
     sessionCreate: async () => {
       if (!chatMock.deferred) return chatMock.meta();
       return new Promise((res) => chatMock.resolvers.push(res));
@@ -57,6 +63,8 @@ afterEach(() => {
   clearDraft("");
   clearDraft("s-created");
   setActiveSessionId("");
+  // 失败用例没跑到 dispose 时清场：残留 composer 会让下一个用例的 ta() 抓到旧 textarea
+  document.body.innerHTML = "";
 });
 
 function mount(onSend: (text: string) => void = () => {}) {
@@ -145,6 +153,137 @@ describe("TextComposer (webkit)", () => {
     ta().focus();
     await userEvent.keyboard("src/comp");
     await new Promise((r) => setTimeout(r, 400));
+    expect(document.querySelector(".composer-popup")).toBeNull();
+    dispose();
+  });
+
+  it("行首触发：换行后的 / 弹层", async () => {
+    const { dispose, ta } = mount();
+    await new Promise((r) => setTimeout(r, 100));
+    ta().focus();
+    await userEvent.keyboard("第一行{Shift>}{Enter}{/Shift}/doc");
+    await new Promise((r) => setTimeout(r, 400));
+    const popup = document.querySelector(".composer-popup");
+    expect(popup).not.toBeNull();
+    expect(popup?.textContent).toContain("/doctor");
+    dispose();
+  });
+
+  it("全角边界触发：（ 后的 / 弹层", async () => {
+    const { dispose, ta } = mount();
+    await new Promise((r) => setTimeout(r, 100));
+    ta().focus();
+    await userEvent.keyboard("（/doc");
+    await new Promise((r) => setTimeout(r, 400));
+    expect(document.querySelector(".composer-popup")?.textContent).toContain("/doctor");
+    dispose();
+  });
+
+  it("行首 @ 触发，Enter apply 成 chip 且文本定界干净", async () => {
+    const { dispose, ta } = mount();
+    await new Promise((r) => setTimeout(r, 100));
+    ta().focus();
+    await userEvent.keyboard("hi{Shift>}{Enter}{/Shift}@App");
+    await new Promise((r) => setTimeout(r, 400));
+    expect(document.querySelector(".composer-popup")?.textContent).toContain("src/App.tsx");
+    ta().dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    expect(ta().value).toBe("hi\n");
+    expect(document.querySelector(".composer-card")?.textContent).toContain("App.tsx");
+    expect(document.querySelector(".composer-popup")).toBeNull();
+    dispose();
+  });
+
+  it("IME 组字中弹层不劫持 Enter/方向键", async () => {
+    const { dispose, ta } = mount();
+    await new Promise((r) => setTimeout(r, 100));
+    const el = ta();
+    el.focus();
+    // query "d" 命中 doctor + ultracode 两条：单条弹层方向键取模恒在 0 号位，没法断言导航
+    await userEvent.keyboard("/d");
+    await new Promise((r) => setTimeout(r, 400));
+    expect(document.querySelector(".composer-popup")).not.toBeNull();
+    // Safari 顺序：compositionend 先（进 50ms 锁窗），commit keydown 后（isComposing=false）
+    el.dispatchEvent(new CompositionEvent("compositionend", { data: "你" }));
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    expect(el.value).toBe("/d"); // apply 被放行，没有发生
+    expect(document.querySelector(".composer-popup")).not.toBeNull();
+    // 锁窗内方向键同样归 IME 候选窗：选中项不动
+    const firstBtn = document.querySelector<HTMLElement>(".composer-popup button")!;
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    expect(firstBtn.classList.contains("bg-[var(--bg-overlay)]")).toBe(true);
+    // 锁窗过后弹层导航恢复
+    await new Promise((r) => setTimeout(r, 60));
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    expect(firstBtn.classList.contains("bg-[var(--bg-overlay)]")).toBe(false);
+    dispose();
+  });
+
+  it("弹层 apply：光标在触发词之前时文本不错乱", async () => {
+    const { dispose, ta } = mount();
+    await new Promise((r) => setTimeout(r, 100));
+    const el = ta();
+    el.focus();
+    await userEvent.keyboard("帮我 /doc");
+    await new Promise((r) => setTimeout(r, 400));
+    expect(document.querySelector(".composer-popup")).not.toBeNull();
+    // 旧实现 slice(0,start)+slice(cursor)：cursor 在触发词前会重复中段
+    el.setSelectionRange(0, 0);
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    expect(el.value).toBe("帮我 /doctor ");
+    expect(document.querySelector(".composer-popup")).toBeNull();
+    dispose();
+  });
+
+  it("textarea 失焦即关弹层", async () => {
+    const { dispose, ta } = mount();
+    await new Promise((r) => setTimeout(r, 100));
+    const el = ta();
+    el.focus();
+    await userEvent.keyboard("/doc");
+    await new Promise((r) => setTimeout(r, 400));
+    expect(document.querySelector(".composer-popup")).not.toBeNull();
+    el.blur();
+    expect(document.querySelector(".composer-popup")).toBeNull();
+    dispose();
+  });
+
+  it("光标移出触发段即关弹层", async () => {
+    const { dispose, ta } = mount();
+    await new Promise((r) => setTimeout(r, 100));
+    const el = ta();
+    el.focus();
+    await userEvent.keyboard("/doc");
+    await new Promise((r) => setTimeout(r, 400));
+    expect(document.querySelector(".composer-popup")).not.toBeNull();
+    // 合成 keydown 无原生光标位移，手动归位再补 keyup（真实 ArrowLeft/Home 的同态路径）
+    el.setSelectionRange(0, 0);
+    el.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowLeft", bubbles: true }));
+    expect(document.querySelector(".composer-popup")).toBeNull();
+    dispose();
+  });
+
+  it("点击弹层条目正常 apply（blur 不抢 click）", async () => {
+    const { dispose, ta } = mount();
+    await new Promise((r) => setTimeout(r, 100));
+    const el = ta();
+    el.focus();
+    await userEvent.keyboard("/doc");
+    await new Promise((r) => setTimeout(r, 400));
+    const btn = [...document.querySelectorAll<HTMLElement>(".composer-popup button")].find((b) =>
+      b.textContent?.includes("/doctor"),
+    )!;
+    await userEvent.click(btn);
+    expect(el.value).toBe("/doctor ");
     expect(document.querySelector(".composer-popup")).toBeNull();
     dispose();
   });

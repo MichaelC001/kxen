@@ -80,8 +80,19 @@ export default function TextComposer(props: {
   /** 删除触发词文本（@xxx / /xxx / #xxx 段），光标归位到删除点。 */
   function removeTriggerText(trigger: Trigger, from?: number) {
     const start = from ?? trigger.start;
-    const cursor = ta?.selectionStart ?? text().length;
-    setValue(text().slice(0, start) + text().slice(cursor), start);
+    // 定界扫触发段（触发符到下个空白）而非光标位置：光标可能已移出触发段，按光标 slice 会重复中段
+    const t = text();
+    let end = trigger.start + 1;
+    while (end < t.length && !" \t\n　".includes(t[end]!)) end++;
+    setValue(t.slice(0, start) + t.slice(end), start);
+  }
+
+  /** 光标移出触发段（触发符到查询词尾）即关弹层：click/方向键/Home/End 等不走 input 的位移。 */
+  function closePopupIfCaretOut() {
+    const p = popup();
+    if (!p || !ta) return;
+    const pos = ta.selectionStart;
+    if (pos <= p.start || pos > p.start + 1 + p.query.length) setPopup(null);
   }
 
   onMount(() => {
@@ -233,6 +244,8 @@ export default function TextComposer(props: {
   function onKeyDown(e: KeyboardEvent) {
     const p = popup();
     if (p) {
+      // IME 组字中弹层放行：Enter/方向键归输入法候选窗（isComposing/keyCode229/锁窗三保险，同发送守卫）
+      if (e.isComposing || e.keyCode === 229 || Date.now() < imeLockUntil) return;
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         const delta = e.key === "ArrowDown" ? 1 : -1;
@@ -318,7 +331,12 @@ export default function TextComposer(props: {
             checkTrigger();
           }}
           onKeyDown={onKeyDown}
-          onKeyUp={(e) => voiceCtl.onSpaceUp(e)}
+          onKeyUp={(e) => {
+            voiceCtl.onSpaceUp(e);
+            closePopupIfCaretOut();
+          }}
+          onClick={closePopupIfCaretOut}
+          onBlur={() => setPopup(null)}
           onPaste={onPaste}
           onCompositionEnd={() => (imeLockUntil = Date.now() + 50)}
         />

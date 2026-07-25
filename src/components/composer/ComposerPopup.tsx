@@ -21,6 +21,8 @@ export default function ComposerPopup(props: {
           <button
             class="w-full flex flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-[var(--bg-overlay)]"
             classList={{ "bg-[var(--bg-overlay)]": i() === props.selected }}
+            // mousedown 阻止默认：textarea 不失焦（blur 会关弹层，随后的 click 就丢了）
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => item.apply()}
           >
             <span class="w-full text-left truncate">{item.label}</span>
