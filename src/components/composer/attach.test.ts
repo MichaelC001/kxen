@@ -122,39 +122,60 @@ describe("baseName", () => {
 describe("resolvePickedPath", () => {
   it("工作区内文件 chip 引用 rel", async () => {
     rpcMock.allow = { path: "/w/src/a.txt", rel: "src/a.txt" };
-    const chip = await resolvePickedPath("s1", "/w/src/a.txt");
-    expect(chip).toEqual({ kind: "file", ref: "src/a.txt", label: "a.txt", title: "src/a.txt" });
+    const r = await resolvePickedPath("s1", "/w/src/a.txt");
+    expect(r).toEqual({
+      ok: true,
+      chip: { kind: "file", ref: "src/a.txt", label: "a.txt", title: "src/a.txt" },
+    });
   });
 
   it("工作区外文件 chip 引用绝对路径", async () => {
     rpcMock.allow = { path: "/etc/hosts", rel: null };
-    const chip = await resolvePickedPath("s1", "/etc/hosts");
-    expect(chip).toEqual({ kind: "file", ref: "/etc/hosts", label: "hosts", title: "/etc/hosts" });
+    const r = await resolvePickedPath("s1", "/etc/hosts");
+    expect(r).toEqual({
+      ok: true,
+      chip: { kind: "file", ref: "/etc/hosts", label: "hosts", title: "/etc/hosts" },
+    });
   });
 
   it("图片走 base64 内联，label 用 basename、title 用绝对路径", async () => {
     rpcMock.allow = { path: "/tmp/pic.png", rel: null };
     rpcMock.read = { kind: "base64", media_type: "image/png", data: "QUJD" };
-    const chip = await resolvePickedPath("s1", "/tmp/pic.png");
-    expect(chip).toEqual({
-      kind: "image",
-      ref: "data:image/png;base64,QUJD",
-      label: "pic.png",
-      title: "/tmp/pic.png",
-      image: { media_type: "image/png", data: "QUJD" },
+    const r = await resolvePickedPath("s1", "/tmp/pic.png");
+    expect(r).toEqual({
+      ok: true,
+      chip: {
+        kind: "image",
+        ref: "data:image/png;base64,QUJD",
+        label: "pic.png",
+        title: "/tmp/pic.png",
+        image: { media_type: "image/png", data: "QUJD" },
+      },
     });
   });
 
-  it("授权失败跳过该文件", async () => {
+  it("授权失败带原因返回（不再静默 null）", async () => {
     rpcMock.allowFail = true;
-    expect(await resolvePickedPath("s1", "/gone.txt")).toBeNull();
+    const r = await resolvePickedPath("s1", "/gone.txt");
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toContain("授权失败");
+    expect(!r.ok && r.reason).toContain("denied"); // 后端原因必须透出
   });
 
-  it("图片读出文本或读取失败均不成 chip", async () => {
+  it("图片读取失败带原因返回（超 2MB cap / 权限等后端文案透出）", async () => {
+    rpcMock.allow = { path: "/tmp/pic.png", rel: null };
+    rpcMock.readFail = true;
+    const r = await resolvePickedPath("s1", "/tmp/pic.png");
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toContain("读取失败");
+    expect(!r.ok && r.reason).toContain("denied");
+  });
+
+  it("图片读出文本视为损坏，带原因返回", async () => {
     rpcMock.allow = { path: "/tmp/pic.png", rel: null };
     rpcMock.read = { kind: "text", text: "not an image" };
-    expect(await resolvePickedPath("s1", "/tmp/pic.png")).toBeNull();
-    rpcMock.readFail = true;
-    expect(await resolvePickedPath("s1", "/tmp/pic.png")).toBeNull();
+    const r = await resolvePickedPath("s1", "/tmp/pic.png");
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toContain("读取失败");
   });
 });

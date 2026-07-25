@@ -11,6 +11,7 @@ import { createAttachments } from "./composer-attachments";
 import { createVoicePtt } from "./voice-ptt";
 import { caretRect } from "./caret";
 import { createPasteStore, isLargePaste, normalizePaste } from "./paste";
+import { listenComposerDragDrop } from "./drag-drop";
 import AttachMenu from "./AttachMenu";
 import ComposerPopup from "./ComposerPopup";
 import MicControl from "./MicControl";
@@ -39,7 +40,8 @@ export default function TextComposer(props: {
   const [recording, setRecording] = createSignal(false),
     [activeVoice, setActiveVoice] = createSignal("");
   const [voiceError, setVoiceError] = createSignal(""),
-    [voiceEngine, setVoiceEngine] = createSignal("apple");
+    [voiceEngine, setVoiceEngine] = createSignal("apple"),
+    [dragOver, setDragOver] = createSignal(false);
   let ta: HTMLTextAreaElement | undefined;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   let imeLockUntil = 0; // Safari compositionend 先于 commit keydown（WebKit #165231），50ms 锁窗吞尾随 Enter
@@ -53,6 +55,7 @@ export default function TextComposer(props: {
       : estimate() > 160_000
         ? "text-[var(--warn)]"
         : "text-[var(--text-faint)]";
+  const cardCls = () => ({ recording: recording(), "drag-over": dragOver() });
 
   function autogrow() {
     if (!ta) return;
@@ -105,6 +108,7 @@ export default function TextComposer(props: {
     };
     window.addEventListener(COMPOSER_INSERT_EVENT, onInsert);
     onCleanup(() => window.removeEventListener(COMPOSER_INSERT_EVENT, onInsert));
+    onCleanup(listenComposerDragDrop(setDragOver, (paths) => void attachPaths(paths)));
     ta?.focus();
   });
   onCleanup(() => debounceTimer && clearTimeout(debounceTimer));
@@ -233,9 +237,11 @@ export default function TextComposer(props: {
 
   async function send() {
     const value = pastes.expand(text()).trim();
-    if (!value && rowChips().length === 0) return;
+    // err chip 只是装配失败的告示（可点 X 移除），不进发送载荷：仅剩 err chip 时按空输入处理
+    const payloadChips = rowChips().filter((c) => c.kind !== "err");
+    if (!value && payloadChips.length === 0) return;
     // 知识注记走 note context（注入模型但不进用户气泡，Part::Context 分流）
-    const context: ContextItem[] = rowChips()
+    const context: ContextItem[] = payloadChips
       .filter((c) => c.kind !== "image")
       .map((c) =>
         c.kind === "knowledge"
@@ -249,7 +255,7 @@ export default function TextComposer(props: {
               ? { type: "dir", path: c.ref }
               : { type: "file", path: c.ref },
       );
-    const imageParts = rowChips()
+    const imageParts = payloadChips
       .filter((c) => c.kind === "image")
       .map((c) => images.get(c.ref))
       .filter((i): i is { media_type: string; data: string } => !!i);
@@ -266,7 +272,7 @@ export default function TextComposer(props: {
       <Show when={popup()}>
         {(p) => <ComposerPopup items={p().items} selected={p().selected} pos={popupPos()} />}
       </Show>
-      <div class="composer-card rounded-xl relative" classList={{ recording: recording() }}>
+      <div class="composer-card rounded-xl relative" classList={cardCls()}>
         <RowChips
           chips={rowChips()}
           onRemove={(id) => setRowChips((prev) => prev.filter((c) => c.id !== id))}

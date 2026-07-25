@@ -1,12 +1,18 @@
 // composer 附件装配（从 TextComposer 拆出，350 行门禁收口）：三种入口统一成 chip。
-// 图片内联 base64；文件存路径引用（工作区外经 fs.allow_path 授权，见 attach.ts）。
+// 图片内联 base64（先经 image-scale 压到长边 1568）；文件存路径引用（工作区外经 fs.allow_path 授权，见 attach.ts）。
+// 失败不静默跳过：push err 态 chip（title 写明原因，可点 X 移除）。
 import { ensureActiveSession } from "../../lib/state";
-import { fsResolveName, resolveAttachPath, resolvePickedPath } from "./attach";
+import { baseName, fsResolveName, resolveAttachPath, resolvePickedPath } from "./attach";
+import { fileToImageDataUrl } from "./image-scale";
 import type { RowChip } from "./RowChips";
 
 export interface AttachDeps {
   images: Map<string, { media_type: string; data: string }>;
   pushChip: (chip: Omit<RowChip, "id">) => void;
+}
+
+function errText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 export function createAttachments(deps: AttachDeps) {
@@ -19,33 +25,48 @@ export function createAttachments(deps: AttachDeps) {
     pushChip({ kind: "file", ref: rel, label: file.name, title: rel });
   }
 
+  /** 粘贴/拖入的图片 File：canvas 压到长边 1568 再 base64（Retina 截图原样 5-10MB 直发扛不住）。 */
+  function attachImageFile(file: File) {
+    void fileToImageDataUrl(file)
+      .then((dataUrl) => {
+        images.set(dataUrl, { media_type: file.type, data: dataUrl.split(",")[1] ?? "" });
+        pushChip({
+          kind: "image",
+          ref: dataUrl,
+          label: `图片 ${file.type.split("/")[1] ?? ""}`,
+          preview: dataUrl,
+        });
+      })
+      .catch((e: unknown) => {
+        pushChip({
+          kind: "err",
+          ref: file.name,
+          label: file.name,
+          title: `图片读取失败：${errText(e)}`,
+        });
+      });
+  }
+
   function attachFiles(files: FileList | File[]) {
     for (const file of files) {
       if (file.type.startsWith("image/")) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = String(reader.result);
-          images.set(dataUrl, { media_type: file.type, data: dataUrl.split(",")[1] ?? "" });
-          pushChip({
-            kind: "image",
-            ref: dataUrl,
-            label: `图片 ${file.type.split("/")[1] ?? ""}`,
-            preview: dataUrl,
-          });
-        };
-        reader.readAsDataURL(file);
+        attachImageFile(file);
       } else {
         void attachOneFile(file);
       }
     }
   }
 
-  /** 原生对话框附件：真实绝对路径。授权绑会话（草稿态先落库）；图片读 base64 内联，文件走 context chip。 */
+  /** 原生对话框/拖放路径附件：真实绝对路径。授权绑会话（草稿态先落库）；图片读 base64 内联，文件走 context chip。 */
   async function attachPaths(paths: string[]) {
     const sid = await ensureActiveSession();
     for (const path of paths) {
-      const chip = await resolvePickedPath(sid, path);
-      if (!chip) continue;
+      const r = await resolvePickedPath(sid, path);
+      if (!r.ok) {
+        pushChip({ kind: "err", ref: path, label: baseName(path), title: r.reason });
+        continue;
+      }
+      const chip = r.chip;
       if (chip.kind === "image") {
         images.set(chip.ref, chip.image);
         pushChip({

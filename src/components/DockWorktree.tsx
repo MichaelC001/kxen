@@ -1,5 +1,5 @@
 // worktree 看板：隔离树 = 并行工作单元（分支 + 脏文件计数 + 切换工作区 + 清理）。
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Check, GitBranch, Plus, Trash2 } from "lucide-solid";
 import {
   statusline,
@@ -53,7 +53,13 @@ export default function DockWorktree() {
       ),
     );
   };
-  onMount(() => void reload());
+  // 脏计数随 agent 跑工具/外部 git 操作变化：onMount 单拉会定格，5s 轮询自愈
+  let timer: ReturnType<typeof setInterval> | undefined;
+  onMount(() => {
+    void reload();
+    timer = setInterval(() => void reload(), 5000);
+  });
+  onCleanup(() => timer && clearInterval(timer));
 
   const create = async () => {
     const n = name().trim();

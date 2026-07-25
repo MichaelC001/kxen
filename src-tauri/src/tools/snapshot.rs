@@ -72,6 +72,19 @@ impl SnapshotStore {
         drop(map);
         Some(unified_diff("", &std::fs::read_to_string(path).unwrap_or_default(), path))
     }
+
+    /// rewind 回滚后清理：磁盘内容已回到基线的条目不再是 agent 改动——
+    /// 被回滚掉的新建文件 before/after 双 None，留着会在面板渲染成「新增 +0 -0」幻影行。
+    pub fn prune_reverted(&self) -> usize {
+        let mut map = self.originals.lock().expect("snapshot");
+        let before_len = map.len();
+        map.retain(|path, orig| match (orig, std::fs::read_to_string(path).ok()) {
+            (None, None) => false,
+            (Some(b), Some(a)) => b != &a,
+            _ => true,
+        });
+        before_len - map.len()
+    }
 }
 
 /// +added/-deleted 行数（LCS 行 diff）。
@@ -131,6 +144,46 @@ mod tests {
         std::fs::write(&b, "new\n").unwrap();
         let status2 = store.status();
         assert!(status2.iter().any(|e| e.status == "created"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn prune_reverted_drops_phantom_rows() {
+        let dir = std::env::temp_dir().join(format!("kxen-snap-prune-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = SnapshotStore::default();
+
+        // 新建后被 rewind 回滚（before None + 磁盘已不存在）：幻影行，清掉
+        let created = dir.join("created.txt");
+        store.record_before(&created);
+        std::fs::write(&created, "new\n").unwrap();
+        std::fs::remove_file(&created).unwrap();
+
+        // 修改后磁盘回到基线：无 diff，清掉
+        let modified = dir.join("modified.txt");
+        std::fs::write(&modified, "v1\n").unwrap();
+        store.record_before(&modified);
+        std::fs::write(&modified, "v1\nv2\n").unwrap();
+        std::fs::write(&modified, "v1\n").unwrap();
+
+        // 仍有实际差异：保留
+        let kept = dir.join("kept.txt");
+        std::fs::write(&kept, "v1\n").unwrap();
+        store.record_before(&kept);
+        std::fs::write(&kept, "v1\nv2\n").unwrap();
+
+        // agent 删除的文件：删除本身也是改动，保留
+        let deleted = dir.join("deleted.txt");
+        std::fs::write(&deleted, "v1\n").unwrap();
+        store.record_before(&deleted);
+        std::fs::remove_file(&deleted).unwrap();
+
+        assert_eq!(store.prune_reverted(), 2);
+        let paths: Vec<String> = store.status().into_iter().map(|e| e.path).collect();
+        assert!(paths.iter().any(|p| p.contains("kept.txt")));
+        assert!(paths.iter().any(|p| p.contains("deleted.txt")));
+        assert!(!paths.iter().any(|p| p.contains("created.txt")));
+        assert!(!paths.iter().any(|p| p.contains("modified.txt")));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

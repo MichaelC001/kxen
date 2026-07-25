@@ -126,6 +126,11 @@ pub(super) fn session_rewind(params: &Value, state: &crate::AppState) -> Result<
     let label = checkpoint_label(&messages, idx).ok_or("no user checkpoint before this message")?;
     let hash = kxen_app::tools::checkpoint::reset_to(std::path::Path::new(&meta.directory), label)?;
     kxen_app::core::session::rewrite_messages(&dir, session_id, &messages[..=idx]).map_err(|e| e.to_string())?;
+    // 截断点之后的 agent 改动已被 reset_to 从磁盘抹掉：快照里对应条目（尤其被回滚的新建文件）
+    // 会变成 before/after 双 None 的「新增 +0 -0」幻影行，按磁盘现状清掉
+    if let Some(store) = kxen_app::core::shared::lock(&state.session_snapshots).get(session_id) {
+        store.prune_reverted();
+    }
     Ok(json!({ "commit": hash, "truncated_to": idx + 1 }))
 }
 

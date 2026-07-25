@@ -183,3 +183,27 @@ describe("DockWorktree 删除三态", () => {
     dispose();
   });
 });
+
+describe("DockWorktree 自动刷新", () => {
+  it("每 5s 轮询重拉（onMount 单拉不再定格），dispose 后停表", async () => {
+    vi.useFakeTimers();
+    try {
+      const dispose = render(() => <DockWorktree />, document.body);
+      await vi.advanceTimersByTimeAsync(0); // 首拉落地
+      const base = h.list.mock.calls.length;
+      expect(base).toBeGreaterThan(0);
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(h.list.mock.calls.length).toBe(base + 1);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(h.list.mock.calls.length).toBe(base + 2);
+
+      dispose();
+      const after = h.list.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(h.list.mock.calls.length).toBe(after); // 停表：不再有轮询
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

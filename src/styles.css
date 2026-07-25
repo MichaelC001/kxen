@@ -446,6 +446,11 @@ code {
   border-color: var(--err);
   box-shadow: 0 0 0 3px rgba(251, 113, 133, 0.18);
 }
+/* 拖文件悬停：与 focus-within 同款高亮，提示可投放 */
+.composer-card.drag-over {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
 .composer-actionbar {
   display: flex;
   align-items: center;

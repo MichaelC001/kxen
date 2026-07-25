@@ -73,25 +73,43 @@ export type PickedChip =
     }
   | { kind: "file"; ref: string; label: string; title: string };
 
-/** 对话框路径 -> chip 数据：登记授权后按图片/文件分流；任一步失败返回 null（调用方跳过该文件）。 */
-export async function resolvePickedPath(
-  sessionId: string,
-  path: string,
-): Promise<PickedChip | null> {
-  const allowed = await fsAllowPath(sessionId, path).catch(() => null);
-  if (!allowed) return null;
+/** 对话框路径解析结果：失败带人话原因（调用方上 err chip，不再静默跳过）。 */
+export type PickedResult = { ok: true; chip: PickedChip } | { ok: false; reason: string };
+
+function errText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** 对话框路径 -> chip 数据：登记授权后按图片/文件分流；任一步失败返回原因（授权/读取/超 2MB cap）。 */
+export async function resolvePickedPath(sessionId: string, path: string): Promise<PickedResult> {
+  let allowed: AllowPathResult;
+  try {
+    allowed = await fsAllowPath(sessionId, path);
+  } catch (e) {
+    return { ok: false, reason: `授权失败：${errText(e)}` };
+  }
   if (isImagePath(path)) {
-    const read = await fsReadAttachment(sessionId, allowed.path).catch(() => null);
-    if (read?.kind !== "base64") return null;
+    let read: AttachmentRead;
+    try {
+      read = await fsReadAttachment(sessionId, allowed.path);
+    } catch (e) {
+      return { ok: false, reason: `读取失败：${errText(e)}` };
+    }
+    if (read.kind !== "base64") {
+      return { ok: false, reason: "读取失败：返回的不是图片数据（文件可能已损坏）" };
+    }
     return {
-      kind: "image",
-      ref: `data:${read.media_type};base64,${read.data}`,
-      label: baseName(path),
-      title: allowed.path,
-      image: { media_type: read.media_type, data: read.data },
+      ok: true,
+      chip: {
+        kind: "image",
+        ref: `data:${read.media_type};base64,${read.data}`,
+        label: baseName(path),
+        title: allowed.path,
+        image: { media_type: read.media_type, data: read.data },
+      },
     };
   }
   // 工作区内引用 rel（与 @ 引用同路径形态），区外引用绝对路径 + title 展示
   const ref = allowed.rel ?? allowed.path;
-  return { kind: "file", ref, label: baseName(path), title: ref };
+  return { ok: true, chip: { kind: "file", ref, label: baseName(path), title: ref } };
 }
