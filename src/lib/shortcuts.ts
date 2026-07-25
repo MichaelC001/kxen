@@ -1,13 +1,7 @@
 // 全局快捷键（Cmd/Ctrl）：N 新会话 / W 关当前会话 / , 设置。Layout 挂载一次。
-import { sessionDelete } from "./chat";
-import {
-  activeSessionId,
-  newSession,
-  refreshSessions,
-  sessions,
-  switchSession,
-  navigate,
-} from "./state";
+import { flashErr } from "./flash";
+import { formatError } from "./error-text";
+import { activeSessionId, deleteSession, newSession, navigate } from "./state";
 
 export function mountShortcuts(): () => void {
   const onKey = (e: KeyboardEvent) => {
@@ -32,14 +26,12 @@ export function mountShortcuts(): () => void {
   return () => window.removeEventListener("keydown", onKey);
 }
 
-/** 关闭当前会话：删除并切到同目录下一条（无则草稿）。 */
+/** 关闭当前会话：删除并切到同目录下一条/草稿（善后逻辑收口在 state.deleteSession）。 */
 async function closeCurrent(): Promise<void> {
   const id = activeSessionId();
   if (!id) return;
-  const dir = sessions().find((s) => s.id === id)?.directory;
-  await sessionDelete(id).catch(() => {});
-  await refreshSessions();
-  const next = sessions().find((s) => s.directory === dir) ?? sessions()[0];
-  if (next) switchSession(next.id);
-  else await newSession();
+  // 失败只提示不动状态：会话其实还在，activeSessionId 保持原样是对的
+  await deleteSession(id).catch((e: unknown) =>
+    flashErr(`删除会话失败：${formatError(e instanceof Error ? e.message : String(e))}`),
+  );
 }

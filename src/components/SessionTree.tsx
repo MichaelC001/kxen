@@ -3,7 +3,6 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { ChevronDown, ChevronRight, FolderOpen, FolderPlus, PenLine, Plus } from "lucide-solid";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
-  sessionDelete,
   sessionUpdateMeta,
   workspaceAdd,
   workspaceList,
@@ -11,7 +10,10 @@ import {
   type SessionMeta,
   type Workspace,
 } from "../lib/chat";
-import { newSession, refreshSessions, sessions, switchSession } from "../lib/state";
+import { deleteSession, newSession, refreshSessions, sessions, switchSession } from "../lib/state";
+import { createInFlight } from "../lib/async-guard";
+import { flashErr } from "../lib/flash";
+import { formatError } from "../lib/error-text";
 import { sortGroup } from "../lib/order";
 import SessionRow from "./SessionRow";
 import EmptyLine from "./EmptyLine";
@@ -30,6 +32,9 @@ export default function SessionTree() {
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
   const [adding, setAdding] = createSignal(false);
   const [newPath, setNewPath] = createSignal("");
+  /** 删除进行中（三态之二）：行禁用 + spinner，finally 必复位防卡死。 */
+  const [deleting, setDeleting] = createSignal<ReadonlySet<string>>(new Set());
+  const dedupeDelete = createInFlight();
   let dragId = "";
 
   const reloadRecents = async () => setRecents(await workspaceList().catch(() => []));
@@ -99,8 +104,19 @@ export default function SessionTree() {
   };
 
   const remove = async (id: string) => {
-    await sessionDelete(id);
-    await refreshSessions();
+    setDeleting((prev) => new Set(prev).add(id));
+    try {
+      // in-flight 去重：确认按钮/右键菜单双触发只删一次；善后切换收口在 state.deleteSession
+      await dedupeDelete(`session.delete:${id}`, () => deleteSession(id));
+    } catch (e) {
+      flashErr(`删除会话失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+    } finally {
+      setDeleting((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
   };
 
   const addAndSwitch = async (path: string) => {
@@ -186,6 +202,7 @@ export default function SessionTree() {
                     {(s) => (
                       <SessionRow
                         session={s}
+                        deleting={deleting().has(s.id)}
                         onOpen={() => void open(group.path, s.id)}
                         onDelete={() => void remove(s.id)}
                         onChanged={() => void refreshSessions()}

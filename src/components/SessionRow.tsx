@@ -1,6 +1,6 @@
 // 会话行：活动点 / 标题(双击重命名) / 相对时间 / hover 操作（置顶、重命名、删除带确认）。
 import { createSignal, Show } from "solid-js";
-import { Check, Pin, PinOff, X } from "lucide-solid";
+import { Check, Pin, PinOff, RefreshCw, X } from "lucide-solid";
 import { sessionUpdateMeta, type SessionMeta } from "../lib/chat";
 import { openMenu } from "../lib/context-menu";
 import { relTime } from "../lib/time";
@@ -8,6 +8,7 @@ import { activeSessionId } from "../lib/state";
 
 export default function SessionRow(props: {
   session: SessionMeta;
+  deleting: boolean;
   onOpen: () => void;
   onDelete: () => void;
   onChanged: () => void;
@@ -44,8 +45,9 @@ export default function SessionRow(props: {
       classList={{
         "bg-[var(--bg-overlay)] text-[var(--text)]": s().id === activeSessionId(),
         "text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60": s().id !== activeSessionId(),
+        "opacity-50 pointer-events-none": props.deleting,
       }}
-      draggable={props.draggable && !renaming()}
+      draggable={props.draggable && !renaming() && !props.deleting}
       onClick={props.onOpen}
       onContextMenu={(e) => {
         openMenu(e, [
@@ -101,58 +103,69 @@ export default function SessionRow(props: {
           {s().title}
         </span>
       </Show>
-      <span class="text-2xs text-[var(--text-faint)] shrink-0 pr-1 group-hover:hidden">
-        {relTime(s().updated_at)}
-      </span>
-      <span class="hidden group-hover:flex items-center shrink-0">
-        <button
-          class="px-1 text-[var(--text-faint)] hover:text-[var(--text)]"
-          title={s().pinned ? "取消置顶" : "置顶"}
-          onClick={(e) => void togglePin(e)}
-        >
-          <Show when={s().pinned} fallback={<Pin size={11} />}>
-            <PinOff size={11} />
-          </Show>
-        </button>
-        <Show
-          when={!confirming()}
-          fallback={
-            <>
-              <button
-                class="px-1 text-[var(--err)]"
-                title="确认删除"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  props.onDelete();
-                }}
-              >
-                <Check size={11} />
-              </button>
-              <button
-                class="px-1 text-[var(--text-faint)]"
-                title="取消"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setConfirming(false);
-                }}
-              >
-                <X size={11} />
-              </button>
-            </>
-          }
-        >
+      <Show
+        when={!props.deleting}
+        fallback={
+          <span class="flex items-center shrink-0 px-1.5" title="删除中…">
+            <RefreshCw size={11} class="animate-spin text-[var(--text-faint)]" />
+          </span>
+        }
+      >
+        <span class="text-2xs text-[var(--text-faint)] shrink-0 pr-1 group-hover:hidden">
+          {relTime(s().updated_at)}
+        </span>
+        <span class="hidden group-hover:flex items-center shrink-0">
           <button
-            class="px-1 text-[var(--text-faint)] hover:text-[var(--err)]"
-            title="删除会话（再点一次确认）"
-            onClick={(e) => {
-              e.stopPropagation();
-              setConfirming(true);
-            }}
+            class="px-1 text-[var(--text-faint)] hover:text-[var(--text)]"
+            title={s().pinned ? "取消置顶" : "置顶"}
+            onClick={(e) => void togglePin(e)}
           >
-            <X size={12} />
+            <Show when={s().pinned} fallback={<Pin size={11} />}>
+              <PinOff size={11} />
+            </Show>
           </button>
-        </Show>
-      </span>
+          <Show
+            when={!confirming()}
+            fallback={
+              <>
+                <button
+                  class="px-1 text-[var(--err)]"
+                  title={s().running ? "会话正在运行，删除将终止" : "确认删除"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.onDelete();
+                  }}
+                >
+                  <Check size={11} />
+                </button>
+                <button
+                  class="px-1 text-[var(--text-faint)]"
+                  title="取消"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirming(false);
+                  }}
+                >
+                  <X size={11} />
+                </button>
+              </>
+            }
+          >
+            <button
+              class="px-1 text-[var(--text-faint)] hover:text-[var(--err)]"
+              title={
+                s().running ? "删除会话（会话正在运行，删除将终止）" : "删除会话（再点一次确认）"
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirming(true);
+              }}
+            >
+              <X size={12} />
+            </button>
+          </Show>
+        </span>
+      </Show>
     </div>
   );
 }

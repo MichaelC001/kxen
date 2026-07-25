@@ -1,6 +1,6 @@
 //! session 域辅助：rewind / send_message 参数 / 会话级模型与 meta 更新（rpc.rs 拆出，350 门禁）。
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 #[derive(Deserialize)]
 pub(super) struct SendMessageParams {
@@ -13,21 +13,74 @@ pub(super) struct SendMessageParams {
     pub images: Vec<kxen_app::llm::types::ImagePart>,
 }
 
+/// rewind 门禁拒绝的结构化错误：rpc_call 的错误通道只有 String，
+/// 序列化进 RPC 错误 message 传输；前端按 code 归类（不再匹配文案子串，文案漂移不再炸确认流）。
+#[derive(Serialize)]
+pub(super) struct RewindBlock {
+    code: &'static str,
+    /// 人话文案：日志与前端兜底展示用（归类只看 code）
+    message: String,
+    /// dirty 拒绝时携带：确认框展示「会丢弃几个文件」
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dirty_count: Option<usize>,
+    /// 回退目标摘要：确认框展示「回到哪条消息」
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<RewindTarget>,
+}
+
+#[derive(Serialize)]
+pub(super) struct RewindTarget {
+    id: String,
+    role: &'static str,
+    preview: String,
+}
+
+impl RewindBlock {
+    fn to_wire(&self) -> String {
+        // 纯数据结构体序列化不会失败；兜底保留人话
+        serde_json::to_string(self).unwrap_or_else(|_| self.message.clone())
+    }
+}
+
+fn role_name(role: kxen_app::core::session::Role) -> &'static str {
+    use kxen_app::core::session::Role;
+    match role {
+        Role::User => "user",
+        Role::Assistant => "assistant",
+        Role::System => "system",
+    }
+}
+
+/// 目标消息摘要：首个文本 part 截 50 字（确认框单行展示）
+fn message_preview(m: &kxen_app::core::session::Message) -> String {
+    let text = m.parts.iter().find_map(|p| match p {
+        kxen_app::core::session::Part::Text { text } => Some(text.as_str()),
+        _ => None,
+    });
+    text.unwrap_or("").chars().take(50).collect()
+}
+
 /// rewind 门禁（纯函数，测试直接覆盖矩阵）：
 /// - 同 workspace 有活跃 run：rewind 改写文件会与运行中的 agent 打架
 /// - message id 不在本 session：拒绝（不得跨会话定位）
-/// - 工作区有未提交改动且无 confirm：rewind 会丢弃，须显式确认
-pub(super) fn rewind_gate(active_in_workspace: bool, dirty: bool, confirm: bool, message_found: bool) -> Result<(), String> {
+/// - 工作区有未进检查点改动且无 confirm：rewind 会丢弃，须显式确认
+pub(super) fn rewind_gate(active_in_workspace: bool, dirty_count: usize, confirm: bool, target: Option<RewindTarget>) -> Result<(), RewindBlock> {
     if active_in_workspace {
-        return Err("同 workspace 有会话正在运行，先 abort 再 rewind".into());
+        return Err(RewindBlock { code: "active_run", message: "同 workspace 有会话正在运行，先 abort 再 rewind".into(), dirty_count: None, target });
     }
-    if !message_found {
-        return Err("message not found in this session".into());
-    }
-    if dirty && !confirm {
-        return Err("工作区有未提交改动，rewind 将丢弃（传 confirm=true 确认）".into());
+    let Some(target) = target else {
+        return Err(RewindBlock { code: "not_in_session", message: "message not found in this session".into(), dirty_count: None, target: None });
+    };
+    if dirty_count > 0 && !confirm {
+        return Err(RewindBlock { code: "dirty", message: "工作区有未进检查点的改动，回退将丢弃".into(), dirty_count: Some(dirty_count), target: Some(target) });
     }
     Ok(())
+}
+
+/// checkpoint 只按 user 消息 id 打（llm_task 在 turn 前提交）：
+/// assistant 消息映射到所属 turn 的起点——之前最近的 user 消息（最近检查点语义），否则 assistant 入口必报 checkpoint not found。
+fn checkpoint_label(messages: &[kxen_app::core::session::Message], idx: usize) -> Option<&str> {
+    messages[..=idx].iter().rev().find(|m| m.role == kxen_app::core::session::Role::User).map(|m| m.id.as_str())
 }
 
 /// 代码回滚到该消息的 shadow 检查点 + 会话截断到该消息（含）。
@@ -38,15 +91,17 @@ pub(super) fn session_rewind(params: &Value, state: &crate::AppState) -> Result<
     let dir = kxen_app::core::paths::sessions_dir();
     let meta = kxen_app::core::session::load_meta(&dir, session_id).map_err(|e| e.to_string())?;
     let messages = kxen_app::core::session::load_messages(&dir, session_id);
-    let message_found = messages.iter().any(|m| m.id == message_id);
+    let target =
+        messages.iter().find(|m| m.id == message_id).map(|m| RewindTarget { id: m.id.clone(), role: role_name(m.role), preview: message_preview(m) });
     // 同 workspace（按 session 归属目录判定）任何 session 有 active run 即拒绝
     let active_in_workspace = kxen_app::core::shared::lock(&state.active_runs)
         .keys()
         .any(|sid| kxen_app::core::session::load_meta(&dir, sid).map(|m| m.directory == meta.directory).unwrap_or(false));
-    let dirty = kxen_app::tools::checkpoint::is_dirty(std::path::Path::new(&meta.directory));
-    rewind_gate(active_in_workspace, dirty, confirm, message_found)?;
+    let dirty_count = kxen_app::tools::checkpoint::dirty_count(std::path::Path::new(&meta.directory));
+    rewind_gate(active_in_workspace, dirty_count, confirm, target).map_err(|b| b.to_wire())?;
     let idx = messages.iter().position(|m| m.id == message_id).expect("rewind_gate 已确认消息存在");
-    let hash = kxen_app::tools::checkpoint::reset_to(std::path::Path::new(&meta.directory), message_id)?;
+    let label = checkpoint_label(&messages, idx).ok_or("no user checkpoint before this message")?;
+    let hash = kxen_app::tools::checkpoint::reset_to(std::path::Path::new(&meta.directory), label)?;
     kxen_app::core::session::rewrite_messages(&dir, session_id, &messages[..=idx]).map_err(|e| e.to_string())?;
     Ok(json!({ "commit": hash, "truncated_to": idx + 1 }))
 }
@@ -102,7 +157,7 @@ pub(super) async fn session_delete(params: &Value, state: &crate::AppState) -> R
     let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
     let sessions_dir = kxen_app::core::paths::sessions_dir();
 
-    // 删除前兜底蒸馏：持久知识落 notes/，任何失败静默照删（OKF：纯 md 可审计，非 silent auto-write）
+    // 删除前兜底蒸馏：持久知识落 notes/，失败（含 8s 超时）记日志照删（OKF：纯 md 可审计，非 silent auto-write）
     let transcript: Vec<String> = kxen_app::core::session::load_messages(&sessions_dir, id)
         .into_iter()
         .map(|m| {
@@ -121,7 +176,13 @@ pub(super) async fn session_delete(params: &Value, state: &crate::AppState) -> R
         let model = effective_session_model(Some(id), state);
         let store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
         let dir = state.active_workspace.read().expect("workspace").clone();
-        let written = kxen_app::knowledge::distill::distill_on_delete(&model, &store, &dir, transcript).await.unwrap_or(0);
+        let written = match kxen_app::knowledge::distill::distill_on_delete(&model, &store, &dir, transcript).await {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!(session = id, error = %e, "session delete: distill failed, proceeding");
+                0
+            }
+        };
         if written > 0 {
             tracing::info!(written, "session distilled before delete");
         }
@@ -174,16 +235,39 @@ mod tests {
 
     #[test]
     fn rewind_gate_matrix() {
+        let target = || Some(RewindTarget { id: "m1".into(), role: "user", preview: "hi".into() });
         // 全绿组合放行
-        assert!(rewind_gate(false, false, false, true).is_ok());
-        assert!(rewind_gate(false, true, true, true).is_ok());
+        assert!(rewind_gate(false, 0, false, target()).is_ok());
+        assert!(rewind_gate(false, 2, true, target()).is_ok());
         // 活跃 run：其余条件再好也拒绝
-        assert!(rewind_gate(true, false, false, true).unwrap_err().contains("正在运行"));
+        assert_eq!(rewind_gate(true, 0, false, target()).unwrap_err().code, "active_run");
         // 消息不在本 session
-        assert!(rewind_gate(false, false, false, false).unwrap_err().contains("not found"));
+        assert_eq!(rewind_gate(false, 0, false, None).unwrap_err().code, "not_in_session");
         // 脏且无确认拒绝；带确认放行
-        assert!(rewind_gate(false, true, false, true).unwrap_err().contains("confirm"));
-        assert!(rewind_gate(false, true, true, true).is_ok());
+        let b = rewind_gate(false, 3, false, target()).unwrap_err();
+        assert_eq!(b.code, "dirty");
+        assert!(rewind_gate(false, 3, true, target()).is_ok());
+        // 序列化即 RPC 载荷：code 归类 + message 人话 + 确认框上下文（文件数 / 目标摘要）同帧
+        let v = serde_json::to_value(&b).unwrap();
+        assert_eq!(v["code"], "dirty");
+        assert_eq!(v["dirty_count"], 3);
+        assert_eq!(v["target"]["id"], "m1");
+        assert!(v["message"].as_str().unwrap().contains("改动"));
+    }
+
+    #[test]
+    fn checkpoint_label_maps_to_nearest_user_message() {
+        use kxen_app::core::session::{Message, Part, Role};
+        let msg = |id: &str, role: Role| Message { id: id.into(), session_id: "s".into(), role, parts: vec![Part::Text { text: "t".into() }], created_at: 0 };
+        let msgs = vec![msg("u1", Role::User), msg("a1", Role::Assistant), msg("u2", Role::User), msg("a2", Role::Assistant)];
+        // user 消息：自身即 turn 起点
+        assert_eq!(checkpoint_label(&msgs, 2), Some("u2"));
+        // assistant 消息：映射到所属 turn 的 user 消息（assistant 入口不再必败）
+        assert_eq!(checkpoint_label(&msgs, 3), Some("u2"));
+        assert_eq!(checkpoint_label(&msgs, 1), Some("u1"));
+        // 首条即 assistant（之前无 user）：无检查点可映射
+        let orphan = vec![msg("a0", Role::Assistant)];
+        assert_eq!(checkpoint_label(&orphan, 0), None);
     }
 
     #[test]
