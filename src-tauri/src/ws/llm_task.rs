@@ -46,6 +46,12 @@ pub(crate) async fn run_llm(
         return;
     }
 
+    // /doctor 环境自检：doctor 报告直出（落盘 + done 事件），不走 LLM
+    if crate::doctor::is_doctor_command(&text) {
+        crate::doctor::reply_with_report(&state, &sessions_dir, &session_id, &stream_id).await;
+        return;
+    }
+
     // 自定义 / 命令展开：kind=Command 条目 $ARGUMENTS 模板 + needs 依赖懒加载（builtin 由模型 playbook 处理）
     let text = if let Some(rest) = text.strip_prefix('/') {
         let mut parts = rest.splitn(2, char::is_whitespace);
