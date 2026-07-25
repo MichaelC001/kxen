@@ -47,7 +47,8 @@ pub struct AppState {
     pub workdir: std::sync::Arc<std::path::Path>,
     /// 当前活跃 workspace（多项目目录，可切换；初始 = workdir）
     pub active_workspace: std::sync::RwLock<std::path::PathBuf>,
-    /// session_id -> agent 改动快照（改动面板数据源；run 间共享，随 app 存活）
+    /// session_id -> agent 改动快照（改动面板数据源；run 间共享，随 app 存活——不落盘的 WHY 见 snapshot 模块 doc；
+    /// session.delete 经 snapshot::drop_session 摘除，不泄漏）
     pub session_snapshots: std::sync::Mutex<std::collections::HashMap<String, kxen_app::tools::snapshot::SnapshotStore>>,
     /// session_id -> 最近一轮 run 的 involved 文件（injection_preview 的真实 glob 命中数据源）
     pub session_involved: std::sync::Mutex<std::collections::HashMap<String, Vec<std::path::PathBuf>>>,

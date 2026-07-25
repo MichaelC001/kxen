@@ -19,6 +19,7 @@ import { activeSessionId } from "../lib/state";
 import Markdown from "./Markdown";
 import DockWorktree from "./DockWorktree";
 import DockGoal from "./DockGoal";
+import DockRepoDiff from "./DockRepoDiff";
 import DockSection from "./DockSection";
 import { FileDiff, SquareTerminal } from "lucide-solid";
 
@@ -229,6 +230,7 @@ export default function Dock() {
         tasks={tasks()}
         reloadTasks={() => void reloadTasks()}
       />
+      <DockRepoDiff />
       <DockWorktree />
     </aside>
   );

@@ -58,6 +58,10 @@ fn map_event(event: kxen_app::core::event::Event) -> (&'static str, Value) {
         Event::TaskUpdate { id, status } => ("task.update", serde_json::json!({ "id": id, "status": status })),
         Event::GoalUpdate { id, status } => ("goal.update", serde_json::json!({ "id": id, "status": status })),
         Event::Notification { text, session_id } => ("notification", serde_json::json!({ "text": text, "session_id": session_id })),
+        // session.update 不带 ACL：侧栏需要全量会话的 run 存亡信号（LlmDelta 的 session ACL 给不了）
+        Event::SessionRun { session_id, running } => {
+            ("session.update", serde_json::json!({ "session_id": session_id, "running": running }))
+        }
     }
 }
 
@@ -139,5 +143,16 @@ mod tests {
         let subscribed = vec![binding(&["llm.delta", "session:s1"])];
         // 无 stream_id：只有 llm.delta 双写的一份
         assert_eq!(event_to_chunks(voice(), &subscribed).len(), 1);
+    }
+
+    /// SessionRun 走 session.update topic 且无会话 ACL：只订 topic 的连接就收到（侧栏不逐会话订阅）
+    #[test]
+    fn session_run_broadcasts_without_acl() {
+        let subs = vec![binding(&["session.update"])];
+        let chunks = event_to_chunks(kxen_app::core::event::Event::session_run("s1", true), &subs);
+        assert_eq!(chunks.len(), 1);
+        let payload = &chunks[0].result["payload"];
+        assert_eq!(payload["session_id"], "s1");
+        assert_eq!(payload["running"], true);
     }
 }

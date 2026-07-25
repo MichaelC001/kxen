@@ -47,3 +47,20 @@ export function createSessionModelLabel(getSid: () => string): () => string {
   });
   return label;
 }
+
+/** 当前 session 生效模型的 ctx 窗（composer token 估算分级用）；后端不可达/目录未命中返回 0，调用方自定回退。 */
+export function createSessionCtxWindow(getSid: () => string): () => number {
+  const [ctx, setCtx] = createSignal(0);
+  createEffect(() => {
+    void currentModel(getSid() || undefined)
+      .then(async (m) => {
+        // 不引 modelOf：session-model.test 的 ./models mock 只出 displayName/modelsCatalog，多一个 import 就炸
+        const hit = (await modelsCatalog().catch(() => []))
+          .find((p) => p.provider === m.provider)
+          ?.models.find((x) => x.id === m.model);
+        setCtx(hit?.context ?? 0);
+      })
+      .catch(() => setCtx(0));
+  });
+  return ctx;
+}

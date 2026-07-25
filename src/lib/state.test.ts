@@ -9,13 +9,29 @@ const mocks = vi.hoisted(() => ({
   sessionCreate: vi.fn(),
   rpc: vi.fn(() => Promise.resolve()),
   agentsList: vi.fn<(sid: string) => Promise<AgentActivity[]>>(() => Promise.resolve([])),
+  streamHandlers: new Set<(p: unknown) => void>(),
+  resyncHandlers: new Set<() => void>(),
 }));
 vi.mock("./chat", () => ({
   sessionDelete: mocks.sessionDelete,
   sessionList: mocks.sessionList,
   sessionCreate: mocks.sessionCreate,
 }));
-vi.mock("./client", () => ({ client: { rpc: mocks.rpc } }));
+vi.mock("./client", () => ({
+  client: {
+    rpc: mocks.rpc,
+    stream: () => ({
+      on: (cb: (p: unknown) => void) => {
+        mocks.streamHandlers.add(cb);
+        return () => mocks.streamHandlers.delete(cb);
+      },
+    }),
+    onResync: (cb: () => void) => {
+      mocks.resyncHandlers.add(cb);
+      return () => mocks.resyncHandlers.delete(cb);
+    },
+  },
+}));
 vi.mock("./team", () => ({ agentsList: mocks.agentsList }));
 vi.mock("./session-model", () => ({ applyDraftModel: vi.fn(() => Promise.resolve()) }));
 vi.mock("./drafts", () => ({ migrateNewDraft: vi.fn() }));
@@ -25,6 +41,7 @@ import {
   agents,
   deleteSession,
   ensureActiveSession,
+  mountSessionEvents,
   refreshAgents,
   refreshSessions,
   sessions,
@@ -41,6 +58,8 @@ beforeEach(() => {
   mocks.sessionDelete.mockClear();
   mocks.sessionList.mockReset().mockResolvedValue([]);
   mocks.agentsList.mockReset().mockResolvedValue([]);
+  mocks.streamHandlers.clear();
+  mocks.resyncHandlers.clear();
   setSessions([]);
   setAgents([]);
   setActiveSessionId("");
@@ -149,5 +168,46 @@ describe("refreshAgents / refreshSessions 引用稳定合并", () => {
     await refreshSessions();
     expect(sessions()[0]).not.toBe(first[0]);
     expect(sessions()[0]!.title).toBe("改名");
+  });
+});
+
+describe("mountSessionEvents 事件驱动刷新", () => {
+  const fireStream = () => {
+    for (const cb of [...mocks.streamHandlers]) cb({ session_id: "a", running: true });
+  };
+  const fireResync = () => {
+    for (const cb of [...mocks.resyncHandlers]) cb();
+  };
+
+  it("session.update 连发帧去抖为一次 refreshSessions", async () => {
+    vi.useFakeTimers();
+    const un = mountSessionEvents();
+    fireStream();
+    fireStream();
+    expect(mocks.sessionList).not.toHaveBeenCalled(); // 去抖窗口内不落
+    await vi.advanceTimersByTimeAsync(300);
+    expect(mocks.sessionList).toHaveBeenCalledTimes(1);
+    un();
+    vi.useRealTimers();
+  });
+
+  it("resync 信号同样触发重拉（断线窗口的 run 存亡对账）", async () => {
+    vi.useFakeTimers();
+    const un = mountSessionEvents();
+    fireResync();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(mocks.sessionList).toHaveBeenCalledTimes(1);
+    un();
+    vi.useRealTimers();
+  });
+
+  it("注销后事件不再触发重拉", async () => {
+    vi.useFakeTimers();
+    const un = mountSessionEvents();
+    un();
+    fireStream();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(mocks.sessionList).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });

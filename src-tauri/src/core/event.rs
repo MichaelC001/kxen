@@ -10,12 +10,20 @@ pub enum Event {
     GoalUpdate { id: String, status: &'static str },
     // session_id 记录来源会话：通知中心条目点击可跳转回来源，系统级通知为 None（不可点）
     Notification { text: String, session_id: Option<String> },
+    // run 开始/结束（session.update topic；侧栏 running 圆点事件源）。
+    // 不走 LlmDelta：那一路带 session_id ACL 只发订阅方，侧栏需要全量会话的存亡信号。
+    SessionRun { session_id: String, running: bool },
 }
 
 impl Event {
     /// 通知发布统一入口：裸构造容易漏填 session_id，跳转能力就此丢失
     pub fn notify(text: impl Into<String>, session_id: Option<String>) -> Self {
         Self::Notification { text: text.into(), session_id }
+    }
+
+    /// run 存亡广播统一入口（唯一构造点：rewind_lock::run_guard）
+    pub fn session_run(session_id: impl Into<String>, running: bool) -> Self {
+        Self::SessionRun { session_id: session_id.into(), running }
     }
 }
 

@@ -1,10 +1,12 @@
-// ModelPicker：catalog 驱动（models.dev 快照）——显示名 + id + ctx + 能力徽章 + 搜索 + 角色分配。
+// ModelPicker：catalog 驱动（models.dev 快照）——显示名 + id + ctx + 能力徽章 + 搜索 + 方向键导航 + 角色分配。
 import { createEffect, createSignal, For, onMount, Show } from "solid-js";
 import { Check, ChevronDown, Search } from "lucide-solid";
 import { configSetRole, currentModel } from "../../lib/chat";
 import { sessionFollowGlobalModel, sessionSetModel } from "../../lib/session-model";
 import { activeSessionId, sessions } from "../../lib/state";
 import { onClickOutside } from "../../lib/dismiss";
+import { flashErr } from "../../lib/flash";
+import { formatError } from "../../lib/error-text";
 import {
   fmtCtx,
   modelOf,
@@ -28,6 +30,8 @@ interface Row {
   model: ModelInfo;
 }
 
+const errText = (e: unknown) => formatError(e instanceof Error ? e.message : String(e));
+
 export default function ModelPicker() {
   const [cur, setCur] = createSignal({ provider: "", model: "" });
   const [globalDef, setGlobalDef] = createSignal({ provider: "", model: "" });
@@ -35,25 +39,46 @@ export default function ModelPicker() {
   const [open, setOpen] = createSignal(false);
   const [query, setQuery] = createSignal("");
   const [roleMsg, setRoleMsg] = createSignal("");
+  // 键盘导航选中位：-1 = 未导航（Enter 落首行）；与 filtered() 同步失效（query 变即复位）
+  const [nav, setNav] = createSignal(-1);
   // 本地选择优先于 sessions 列表推导（set_model 不触发列表刷新，meta 是旧值）
   const [followOverride, setFollowOverride] = createSignal<boolean | null>(null);
   let root: HTMLDivElement | undefined;
+  let searchInput: HTMLInputElement | undefined;
+  let listEl: HTMLDivElement | undefined;
   onClickOutside(
     () => root,
     () => setOpen(false),
   );
 
   onMount(() => {
-    void modelsCatalog().then(setCat);
-    void currentModel().then((m) => setGlobalDef({ provider: m.provider, model: m.model }));
+    void modelsCatalog()
+      .then(setCat)
+      .catch(() => setCat([])); // catalog 内部已兜底 []，这里再兜一层 Promise 拒绝
+    void currentModel()
+      .then((m) => setGlobalDef({ provider: m.provider, model: m.model }))
+      .catch(() => setGlobalDef({ provider: "", model: "" }));
   });
   // 生效模型随活跃会话重取（session 覆盖 > 全局默认）
   createEffect(() => {
     activeSessionId();
     setFollowOverride(null);
-    void currentModel(activeSessionId() || undefined).then((m) =>
-      setCur({ provider: m.provider, model: m.model }),
-    );
+    void currentModel(activeSessionId() || undefined)
+      .then((m) => setCur({ provider: m.provider, model: m.model }))
+      .catch(() => setCur({ provider: "", model: "" }));
+  });
+  // 打开弹层自动聚焦搜索框（挂上即输入），同时复位键盘导航
+  createEffect(() => {
+    if (open()) {
+      setNav(-1);
+      searchInput?.focus();
+    }
+  });
+  // 键盘导航选中项滚进可视区（长列表方向键走到屏外等于没导航）
+  createEffect(() => {
+    const n = nav();
+    if (n >= 0)
+      listEl?.querySelectorAll<HTMLElement>("[data-nav]")[n]?.scrollIntoView({ block: "nearest" });
   });
 
   const rows = (): Row[] =>
@@ -80,29 +105,59 @@ export default function ModelPicker() {
 
   // 切模型只写当前 session 的 metadata（草稿态暂存，落库后回写）；全局默认在设置页改
   const pick = (r: Row) => {
-    void sessionSetModel(activeSessionId(), r.provider, r.model.id);
+    const prev = cur();
+    const prevFollow = followOverride();
+    // 乐观更新：写失败回滚显示，pill 不能亮着一个没生效的模型
     setCur({ provider: r.provider, model: r.model.id });
     setFollowOverride(false);
     setOpen(false);
+    sessionSetModel(activeSessionId(), r.provider, r.model.id).catch((e: unknown) => {
+      setCur(prev);
+      setFollowOverride(prevFollow);
+      flashErr(`切换模型失败：${errText(e)}`);
+    });
   };
 
   // 跟随全局默认：清除 session 覆盖（后端 provider/model 同缺 = 清除），生效模型回到全局默认
   const followGlobal = () => {
     const sid = activeSessionId();
-    void sessionFollowGlobalModel(sid)
-      .then(() => currentModel(sid || undefined))
-      .then((m) => setCur({ provider: m.provider, model: m.model }));
+    const prevFollow = followOverride();
     setFollowOverride(true);
     setOpen(false);
+    sessionFollowGlobalModel(sid)
+      .then(() => currentModel(sid || undefined))
+      .then((m) => setCur({ provider: m.provider, model: m.model }))
+      .catch((e: unknown) => {
+        setFollowOverride(prevFollow); // 清除没写成：跟随态回滚，免得显示与后端脱节
+        flashErr(`跟随全局默认失败：${errText(e)}`);
+      });
   };
 
   const assignRole = (role: string, label: string) => {
     if (!cur().model) return;
-    void configSetRole(role, cur().provider, cur().model).then(() => {
-      setRoleMsg(`${curLabel()} → ${label.replace("设为", "")} ✓`);
-      setTimeout(() => setRoleMsg(""), 1800);
-    });
+    configSetRole(role, cur().provider, cur().model)
+      .then(() => {
+        setRoleMsg(`${curLabel()} → ${label.replace("设为", "")} ✓`);
+        setTimeout(() => setRoleMsg(""), 1800);
+      })
+      .catch((e: unknown) => flashErr(`分配角色失败：${errText(e)}`));
   };
+
+  function onSearchKey(e: KeyboardEvent) {
+    const list = filtered();
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (list.length === 0) return;
+      const d = e.key === "ArrowDown" ? 1 : -1;
+      setNav((n) => (n + d + list.length) % list.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const r = list[nav() < 0 ? 0 : nav()];
+      if (r) pick(r);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+    }
+  }
 
   return (
     <div class="relative" ref={(el) => (root = el)}>
@@ -114,22 +169,24 @@ export default function ModelPicker() {
         </Show>
         <ChevronDown size={12} />
       </button>
-      <Show when={roleMsg()}>
-        <span class="text-2xs text-[var(--ok)]">{roleMsg()}</span>
-      </Show>
 
       <Show when={open()}>
         <div class="composer-popup absolute bottom-full right-0 mb-1.5 w-80 rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] overflow-hidden z-20">
           <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-[var(--border)]">
             <Search size={12} class="text-[var(--text-faint)]" />
             <input
+              ref={(el) => (searchInput = el)}
               class="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-[var(--text-faint)]"
               placeholder="搜索模型（名称 / id）…"
               value={query()}
-              onInput={(e) => setQuery(e.currentTarget.value)}
+              onInput={(e) => {
+                setQuery(e.currentTarget.value);
+                setNav(-1);
+              }}
+              onKeyDown={onSearchKey}
             />
           </div>
-          <div class="max-h-72 overflow-y-auto py-1">
+          <div class="max-h-72 overflow-y-auto py-1" ref={(el) => (listEl = el)}>
             <div
               class="model-row"
               classList={{ "model-row-active": following() }}
@@ -150,11 +207,13 @@ export default function ModelPicker() {
             </div>
             <div class="mx-2 my-1 border-t border-[var(--border)]" />
             <For each={filtered()}>
-              {(r) => (
+              {(r, i) => (
                 <div
                   class="model-row"
+                  data-nav={i()}
                   classList={{
                     "model-row-active": r.model.id === cur().model && r.provider === cur().provider,
+                    "bg-[var(--bg-overlay)]": i() === nav(),
                   }}
                   onClick={() => pick(r)}
                   onContextMenu={(e) => e.preventDefault()}
@@ -202,6 +261,10 @@ export default function ModelPicker() {
                 )}
               </For>
             </div>
+            {/* roleMsg 放 popover 内：原来挂 pill 旁，出现/消失都挤压 actionbar 布局 */}
+            <Show when={roleMsg()}>
+              <div class="text-2xs text-[var(--ok)] mt-1">{roleMsg()}</div>
+            </Show>
           </div>
         </div>
       </Show>

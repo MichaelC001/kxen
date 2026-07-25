@@ -1,5 +1,4 @@
-// ModelPicker「跟随全局默认」：顶部项常驻；选中调 sessionFollowGlobalModel 清除覆盖；
-// 跟随态 = 本地刚选过，或 session meta 无覆盖。
+// ModelPicker：跟随全局默认 / pick 乐观更新失败回滚 / 搜索框自动聚焦 / 方向键导航 / roleMsg 落 popover。
 import { render } from "solid-js/web";
 import "../../styles.css";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +12,20 @@ const smMock = vi.hoisted(() => ({
   applyDraftModel: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("../../lib/session-model", () => smMock);
+
+const chatMock = vi.hoisted(() => ({ configSetRole: vi.fn(() => Promise.resolve()) }));
+vi.mock("../../lib/chat", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../../lib/chat")>();
+  return {
+    ...orig,
+    // 生效模型固定 grok-1：pick 别的行才有「变化 -> 回滚」可观察
+    currentModel: async () => ({ provider: "xai", model: "grok-1" }),
+    configSetRole: chatMock.configSetRole,
+  };
+});
+
+const flashMock = vi.hoisted(() => ({ flashErr: vi.fn(), flashOk: vi.fn() }));
+vi.mock("../../lib/flash", () => flashMock);
 
 vi.mock("../../lib/models", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../../lib/models")>();
@@ -36,6 +49,17 @@ vi.mock("../../lib/models", async (importOriginal) => {
             context: 128000,
             output: 4096,
           },
+          {
+            id: "grok-2",
+            name: "Grok 2",
+            family: "grok",
+            reasoning: true,
+            tool_call: true,
+            attachment: false,
+            modalities_in: ["text"],
+            context: 256000,
+            output: 8192,
+          },
         ],
       },
     ],
@@ -50,6 +74,8 @@ afterEach(() => {
   for (const d of disposers.splice(0)) d();
   smMock.sessionSetModel.mockClear();
   smMock.sessionFollowGlobalModel.mockClear();
+  chatMock.configSetRole.mockClear();
+  flashMock.flashErr.mockClear();
   setActiveSessionId("");
   setSessions([]);
   document.body.innerHTML = "";
@@ -73,6 +99,8 @@ async function openPicker() {
     d();
     host.remove();
   });
+  // 等 currentModel 落地（"模型" -> "Grok 1"）再点：userEvent 按可达名定位，文本中途变了会等不到
+  await new Promise((r) => setTimeout(r, 100));
   await userEvent.click(host.querySelector<HTMLElement>(".model-pill")!);
   await new Promise((r) => setTimeout(r, 50));
 }
@@ -90,7 +118,8 @@ describe("ModelPicker 跟随全局默认 (webkit)", () => {
     setSessions([{ ...SESSION, model: { provider: "xai", model: "grok-1" } }]);
     await openPicker();
     expect(row("跟随全局默认").className).not.toContain("model-row-active");
-    await userEvent.click(row("Grok 1"));
+    // 精确点第一条模型行：跟随行的「当前全局：Grok 1」也含同名文本
+    await userEvent.click(document.querySelector<HTMLElement>("[data-nav='0']")!);
     expect(smMock.sessionSetModel).toHaveBeenCalledWith("s1", "xai", "grok-1");
   });
 
@@ -104,5 +133,59 @@ describe("ModelPicker 跟随全局默认 (webkit)", () => {
     await userEvent.click(document.querySelector<HTMLElement>(".model-pill")!);
     await new Promise((r) => setTimeout(r, 50));
     expect(row("跟随全局默认").className).toContain("model-row-active");
+  });
+
+  it("打开弹层自动聚焦搜索框", async () => {
+    setActiveSessionId("s1");
+    setSessions([{ ...SESSION }]);
+    await openPicker();
+    expect(document.activeElement).toBe(document.querySelector(".composer-popup input"));
+  });
+
+  it("方向键导航高亮 + Enter 选中", async () => {
+    setActiveSessionId("s1");
+    setSessions([{ ...SESSION }]);
+    await openPicker();
+    const input = document.querySelector<HTMLElement>(".composer-popup input")!;
+    const key = (k: string) =>
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }),
+      );
+    key("ArrowDown");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(document.querySelector("[data-nav='0']")!.className).toContain("bg-[var(--bg-overlay)]");
+    key("ArrowDown"); // nav=1 -> grok-2
+    key("Enter");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(smMock.sessionSetModel).toHaveBeenCalledWith("s1", "xai", "grok-2");
+  });
+
+  it("切模型写失败：回滚 pill 显示并 flashErr", async () => {
+    setActiveSessionId("s1");
+    setSessions([{ ...SESSION, model: { provider: "xai", model: "grok-1" } }]);
+    await openPicker();
+    smMock.sessionSetModel.mockRejectedValueOnce(new Error("boom"));
+    await userEvent.click(row("Grok 2"));
+    await new Promise((r) => setTimeout(r, 50));
+    // 回滚到生效模型 grok-1，pill 不亮没写成的 grok-2
+    expect(document.querySelector(".model-pill")!.textContent).toContain("Grok 1");
+    expect(flashMock.flashErr).toHaveBeenCalled();
+  });
+
+  it("角色分配成功提示落在 popover 内（不挤压 actionbar）", async () => {
+    setActiveSessionId("s1");
+    setSessions([{ ...SESSION, model: { provider: "xai", model: "grok-1" } }]);
+    await openPicker();
+    const chip = [...document.querySelectorAll<HTMLElement>(".role-chip")].find(
+      (c) => c.textContent === "主会话模型",
+    )!;
+    await userEvent.click(chip);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(chatMock.configSetRole).toHaveBeenCalledWith("chat", "xai", "grok-1");
+    expect(document.querySelector(".composer-popup")!.textContent).toContain("✓");
+    // pill 旁（popover 外）不得有提示节点
+    const root = document.querySelector(".model-pill")!.parentElement!;
+    const outside = [...root.children].filter((el) => !el.classList.contains("composer-popup"));
+    expect(outside.every((el) => !el.textContent?.includes("✓"))).toBe(true);
   });
 });

@@ -1,10 +1,10 @@
 // TextComposer：Cline 式 textarea 整卡输入（IME/undo/选区全原生免疫）。
-// @//# 触发弹层（任意位置，光标前切片判定）+ 框外 row chip + 大粘贴折叠占位 + 语音 PTT + 每会话草稿。
+// @/# 任意位置 + / 行首触发弹层（光标前切片判定）+ 框外 row chip + 大粘贴折叠占位 + 语音 PTT + 每会话草稿。
 import { createEffect, createSignal, Show, onCleanup, onMount } from "solid-js";
 import { Send, Square } from "lucide-solid";
 import { commandList, type CommandInfo, type ContextItem } from "../../lib/chat";
 import { activeSessionId } from "../../lib/state";
-import { clearDraft, getDraft, setDraft } from "../../lib/drafts";
+import { clearDraft, getDraft, setDraft, stripTruncMark } from "../../lib/drafts";
 import { createInFlight } from "../../lib/async-guard";
 import { flashErr } from "../../lib/flash";
 import { formatError } from "../../lib/error-text";
@@ -13,7 +13,8 @@ import { buildItems, detectTrigger, type PopupState, type Trigger } from "./trig
 import { createAttachments } from "./composer-attachments";
 import { createVoicePtt } from "./voice-ptt";
 import { caretRect } from "./caret";
-import { createPasteStore, isLargePaste, normalizePaste } from "./paste";
+import { createPasteStore, planPaste } from "./paste";
+import { createTokenEstimate } from "./token-estimate";
 import { listenComposerDragDrop } from "./drag-drop";
 import AttachMenu from "./AttachMenu";
 import ComposerPopup from "./ComposerPopup";
@@ -51,13 +52,7 @@ export default function TextComposer(props: {
   const images = new Map<string, { media_type: string; data: string }>();
   const pastes = createPasteStore();
 
-  const estimate = () => Math.ceil(text().length / 4);
-  const estimateCls = () =>
-    estimate() > 190_000
-      ? "text-[var(--err)]"
-      : estimate() > 160_000
-        ? "text-[var(--warn)]"
-        : "text-[var(--text-faint)]";
+  const { estimate, estimateCls } = createTokenEstimate(text, () => activeSessionId());
   const cardCls = () => ({ recording: recording(), "drag-over": dragOver() });
 
   function autogrow() {
@@ -97,12 +92,13 @@ export default function TextComposer(props: {
     setValue(t.slice(0, start) + t.slice(end), start);
   }
 
-  /** 光标移出触发段（触发符到查询词尾）即关弹层：click/方向键/Home/End 等不走 input 的位移。 */
+  /** 光标移出触发段即关弹层：click/方向键/Home/End 等不走 input 的位移也要判。 */
   function closePopupIfCaretOut() {
     const p = popup();
     if (!p || !ta) return;
-    const pos = ta.selectionStart;
-    if (pos <= p.start || pos > p.start + 1 + p.query.length) setPopup(null);
+    // 按光标实时重算触发段（旧实现拿建弹层时的 stale query 长度判界，继续打 query 会误判移出把弹层关了）
+    const t = detectTrigger(text(), ta.selectionStart);
+    if (!t || t.start !== p.start) setPopup(null);
   }
 
   onMount(() => {
@@ -129,7 +125,7 @@ export default function TextComposer(props: {
     const d = getDraft(activeSessionId());
     setRowChips([]);
     setPopup(null);
-    setValue(d);
+    setValue(stripTruncMark(d));
     ta?.focus();
   });
 
@@ -144,6 +140,14 @@ export default function TextComposer(props: {
     onStarted: setActiveVoice,
   });
   onCleanup(voiceCtl.dispose);
+
+  // composer 贴窗口底部，弹窗必须向上展开（bottom 锚定），否则下穿出窗被状态栏裁掉
+  function updatePopupPos() {
+    const r = ta ? caretRect(ta) : null;
+    if (!r) return setPopupPos(null);
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - 264));
+    setPopupPos({ left, bottom: window.innerHeight - r.top + 4 });
+  }
 
   function checkTrigger() {
     if (debounceTimer) clearTimeout(debounceTimer);
@@ -167,23 +171,12 @@ export default function TextComposer(props: {
           setPopup(null);
           ta?.focus();
         },
-        onCloseToken: () => {
-          removeTriggerText(trigger);
-          setPopup(null);
-          ta?.focus();
-        },
       });
-      const rect = ta ? caretRect(ta) : null;
       if (items.length === 0) {
         setPopup(null);
         return;
       }
-      // composer 贴窗口底部，弹窗必须向上展开（bottom 锚定），否则下穿出窗被状态栏裁掉
-      const pos = rect && {
-        left: Math.max(8, Math.min(rect.left, window.innerWidth - 264)),
-        bottom: window.innerHeight - rect.top + 4,
-      };
-      setPopupPos(pos || null);
+      updatePopupPos();
       setPopup({ ...trigger, items, selected: 0 });
     }, 200);
   }
@@ -191,22 +184,24 @@ export default function TextComposer(props: {
   const pushChip = (chip: Omit<RowChip, "id">) =>
     setRowChips((prev) => [...prev, { id: `chip_${chipSeq++}`, ...chip }]);
 
+  const removeChip = (id: string) => {
+    const chip = rowChips().find((c) => c.id === id);
+    // 图片 base64 随 chip 释放：images Map 只增不清会把已删图片带进后续发送
+    if (chip?.kind === "image") images.delete(chip.ref);
+    setRowChips((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  // hover 与键盘选中合一：写同一个 selected，谁后动谁生效
+  const syncSelected = (i: number) =>
+    setPopup((p) => (p && p.selected !== i ? { ...p, selected: i } : p));
+
   const { attachFiles, attachPaths } = createAttachments({ images, pushChip });
 
   function onPaste(e: ClipboardEvent) {
-    const files = e.clipboardData?.files;
-    if (files && files.length > 0) {
-      e.preventDefault();
-      attachFiles(files);
-      return;
-    }
-    const raw = e.clipboardData?.getData("text/plain") ?? "";
-    const text = normalizePaste(raw);
-    if (isLargePaste(text)) {
-      e.preventDefault();
-      insertAtCaret(pastes.add(text));
-    }
-    // 小粘贴走原生（textarea 默认行为全对）
+    const { files, text, manual, large } = planPaste(e);
+    if (files) attachFiles(files);
+    if (files || manual) e.preventDefault();
+    if (manual) insertAtCaret(large ? pastes.add(text) : text);
   }
 
   function onKeyDown(e: KeyboardEvent) {
@@ -281,6 +276,7 @@ export default function TextComposer(props: {
     // setValue 现在会落草稿，清草稿必须在其后，否则空串又写回去
     clearDraft(activeSessionId());
     setRowChips([]);
+    images.clear(); // 图片数据已随 imageParts 消费，不留到下一轮
   }
 
   // 等语音终稿期间连按 Enter/连点发送键不得双发：in-flight 去重共享同一 Promise
@@ -294,13 +290,17 @@ export default function TextComposer(props: {
   return (
     <div class="relative">
       <Show when={popup()}>
-        {(p) => <ComposerPopup items={p().items} selected={p().selected} pos={popupPos()} />}
+        {(p) => (
+          <ComposerPopup
+            items={p().items}
+            selected={p().selected}
+            pos={popupPos()}
+            onHover={syncSelected}
+          />
+        )}
       </Show>
       <div class="composer-card rounded-xl relative" classList={cardCls()}>
-        <RowChips
-          chips={rowChips()}
-          onRemove={(id) => setRowChips((prev) => prev.filter((c) => c.id !== id))}
-        />
+        <RowChips chips={rowChips()} onRemove={removeChip} />
         <textarea
           ref={(el) => (ta = el)}
           rows={1}
@@ -312,6 +312,7 @@ export default function TextComposer(props: {
             setDraft(activeSessionId(), ta?.value ?? "");
             autogrow();
             checkTrigger();
+            if (popup()) updatePopupPos(); // 弹层开着时锚点随输入即算，不冻结在打开位置
           }}
           onKeyDown={onKeyDown}
           onKeyUp={(e) => {

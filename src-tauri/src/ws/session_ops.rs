@@ -125,6 +125,12 @@ pub(super) fn session_rewind(params: &Value, state: &crate::AppState) -> Result<
         role: role_name(m.role),
         preview: message_preview(m),
     });
+    // rewind 原子性：写锁贯穿「active 检查 -> reset --hard -> 截断重写」。拿不到 = 本 workspace
+    // 有 run 持读锁（或并发 rewind 进行中），与门禁 active_run 同口径拒绝（锁语义见 core::rewind_lock）。
+    // 旧实现 check-then-act 无锁：检查通过到新 run 注册进 active_runs 的间隙里，reset 会覆盖新 run 写的文件。
+    let Some(_guard) = kxen_app::core::rewind_lock::try_rewind_guard(&meta.directory) else {
+        return Err(rewind_gate(true, 0, false, target).expect_err("active_run 分支必拒").to_wire());
+    };
     // 同 workspace（按 session 归属目录判定）任何 session 有 active run 即拒绝
     let active_in_workspace = kxen_app::core::shared::lock(&state.active_runs)
         .keys()
@@ -273,6 +279,8 @@ pub(super) async fn session_delete(params: &Value, state: &crate::AppState) -> R
     state.team.drop_session(id);
     state.drop_extras(id);
     state.picked_files.drop_session(id);
+    // 改动快照随会话销毁：内存态 map 不摘即泄漏（快照为何不落盘见 snapshot 模块 doc）
+    kxen_app::tools::snapshot::drop_session(&state.session_snapshots, id);
 
     // 4. 删文件（meta/jsonl/compact/queue 一并；trash 可恢复）
     kxen_app::core::session::remove(&sessions_dir, id);

@@ -1,14 +1,16 @@
 import { A } from "@solidjs/router";
-import { onMount } from "solid-js";
+import { onCleanup, onMount } from "solid-js";
 import { Folders, Moon, Plus, Settings as SettingsIcon, Sun } from "lucide-solid";
 import SessionTree from "./SessionTree";
-import { initSessions, newSession } from "../lib/state";
+import { initSessions, mountSessionEvents, newSession } from "../lib/state";
 import { onDragStart } from "../lib/drag";
 import { theme, toggleTheme } from "../lib/theme";
 
 /** 左栏：品牌 + 新会话 + 项目-会话树（Codex 式分组）+ 底部应用级入口。 */
 export default function Sidebar() {
   onMount(async () => {
+    // run 存亡/resync 驱动会话列表刷新（running 圆点），随 Sidebar 生命周期注销
+    onCleanup(mountSessionEvents());
     await initSessions();
   });
 

@@ -81,6 +81,18 @@ pub fn is_read_only_tool(name: &str, ctx: &super::context::AgentContext) -> bool
     false
 }
 
+/// 执行侧白名单（与 run.rs 展示侧过滤同口径）：展示过滤只决定模型「看到什么」，
+/// 模型伪造/幻觉 tool_call 名可直接抵达 dispatch，必须在这里复验，否则 readonly 角色一句
+/// 「调用 exec」就越权（P0-08 只挡了展示侧）。内置/deferred 严格按白名单；MCP 只读工具对
+/// restricted 角色可见（tool_defs_for 口径），执行侧同口径放行。
+/// mcp_read_only 由调用方经 is_read_only_tool 算好传入，保持本函数纯（测试不用拼 AgentContext）。
+pub fn tool_permitted(name: &str, allowed: Option<&[&str]>, mcp_read_only: bool) -> bool {
+    match allowed {
+        None => true,
+        Some(a) => a.contains(&name) || (name.starts_with("mcp__") && mcp_read_only),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,6 +105,20 @@ mod tests {
         assert_eq!(summarize_args("knowledge", r#"{"action":"add","description":"用 trash"}"#), "用 trash");
         // 未知工具/坏 JSON 退化为原文截断
         assert_eq!(summarize_args("mystery", "raw args"), "raw args");
+    }
+
+    #[test]
+    fn tool_permitted_mirrors_visibility() {
+        // 无白名单（主会话 / full 角色）：全放行
+        assert!(tool_permitted("exec", None, false));
+        // readonly 白名单：单内放行，写工具拒绝（模型伪造名过不了执行侧）
+        assert!(tool_permitted("read", Some(&["read", "glob", "grep"]), false));
+        assert!(!tool_permitted("exec", Some(&["read", "glob", "grep"]), false));
+        // 内置只读但不在白名单（如 lsp）：展示侧不可见，执行侧同拒
+        assert!(!tool_permitted("lsp", Some(&["read", "glob", "grep"]), true));
+        // MCP 只读对 restricted 可见（P0-08）：放行；MCP 写工具拒绝
+        assert!(tool_permitted("mcp__fs__read_file", Some(&["read"]), true));
+        assert!(!tool_permitted("mcp__fs__write_file", Some(&["read"]), false));
     }
 
     #[test]

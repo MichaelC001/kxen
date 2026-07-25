@@ -26,6 +26,16 @@ interface Group {
   sessions: SessionMeta[];
 }
 
+/** 分组名取 basename；撞名时上提一级（parent/name），否则两个同名项目分组无法区分。 */
+function baseName(p: string): string {
+  return p.split("/").filter(Boolean).pop() ?? p;
+}
+
+function parentName(p: string): string {
+  const segs = p.split("/").filter(Boolean);
+  return segs.length >= 2 ? `${segs[segs.length - 2]}/${segs[segs.length - 1]}` : (segs[0] ?? p);
+}
+
 export default function SessionTree() {
   const [recents, setRecents] = createSignal<Workspace[]>([]);
   const [collapsed, setCollapsed] = createSignal<Set<string>>(new Set());
@@ -37,6 +47,7 @@ export default function SessionTree() {
   /** 拖拽落点高亮：当前悬停的目标行 id（插入线）。 */
   const [dropTarget, setDropTarget] = createSignal("");
   const dedupeDelete = createInFlight();
+  const dedupeAdd = createInFlight();
   let dragId = "";
 
   const reloadRecents = async () => setRecents(await workspaceList().catch(() => []));
@@ -62,17 +73,23 @@ export default function SessionTree() {
     });
     const out: Group[] = dirs.map((d) => ({
       path: d,
-      name: d.split("/").filter(Boolean).pop() ?? d,
+      name: baseName(d),
       sessions: sortGroup(byDir.get(d)!),
     }));
     for (const w of recents()) {
       if (!byDir.has(w.path)) {
         out.push({
           path: w.path,
-          name: w.path.split("/").filter(Boolean).pop() ?? w.path,
+          name: baseName(w.path),
           sessions: [],
         });
       }
+    }
+    // 撞名分组名上提一级（parent/name）：同名 basename 的两个项目否则无法区分
+    const tally = new Map<string, number>();
+    for (const g of out) tally.set(g.name, (tally.get(g.name) ?? 0) + 1);
+    for (const g of out) {
+      if ((tally.get(g.name) ?? 0) > 1) g.name = parentName(g.path);
     }
     return out;
   };
@@ -158,7 +175,8 @@ export default function SessionTree() {
     const path = newPath().trim();
     if (!path) return;
     try {
-      await addAndSwitch(path);
+      // in-flight 去重：Enter 连按/添加按钮双击共享同一 Promise，只执行一次
+      await dedupeAdd(`workspace.add:${path}`, () => addAndSwitch(path));
     } catch (e) {
       // 失败不收起输入框：用户修正路径后直接重试
       flashErr(`添加目录失败：${formatError(e instanceof Error ? e.message : String(e))}`);
@@ -297,6 +315,7 @@ export default function SessionTree() {
       >
         <div class="flex items-center gap-1 px-1.5 py-1">
           <input
+            ref={(el) => setTimeout(() => el.focus(), 0)}
             class="flex-1 bg-transparent text-xs font-mono focus:outline-none placeholder:text-[var(--text-faint)]"
             placeholder="/绝对/路径"
             value={newPath()}

@@ -1,5 +1,5 @@
 // TextComposer 弹层/触发实测（350 行门禁从 text-composer.test.tsx 拆出）：
-// slash/行首/全角触发、IME 弹层守卫、apply 定界、失焦/移出关闭。
+// slash 行首契约、@/# 全角触发、IME 弹层守卫、apply 定界、失焦/移出关闭、ARIA 与锚点跟随。
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import "../../styles.css";
@@ -84,19 +84,13 @@ function mount(onSend: (text: string) => void = () => {}) {
 }
 
 describe("TextComposer 弹层/触发 (webkit)", () => {
-  it("slash 任意位置触发弹层（空白前界）", async () => {
+  it("slash 中段不触发弹层（后端只展开消息开头命令，空白前界也不行）", async () => {
     const { dispose, ta } = mount();
     await new Promise((r) => setTimeout(r, 100));
     ta().focus();
     await userEvent.keyboard("帮我 /doc");
     await new Promise((r) => setTimeout(r, 400));
-    const popup = document.querySelector(".composer-popup");
-    expect(popup).not.toBeNull();
-    expect(popup?.textContent).toContain("/doctor");
-    // 弹层必须落在视口内（镜像定位曾经量到页面原点，弹出屏幕外）
-    const rect = popup!.getBoundingClientRect();
-    expect(rect.bottom).toBeGreaterThan(0);
-    expect(rect.top).toBeLessThan(window.innerHeight);
+    expect(document.querySelector(".composer-popup")).toBeNull();
     dispose();
   });
 
@@ -136,16 +130,20 @@ describe("TextComposer 弹层/触发 (webkit)", () => {
     const popup = document.querySelector(".composer-popup");
     expect(popup).not.toBeNull();
     expect(popup?.textContent).toContain("/doctor");
+    // 弹层必须落在视口内（镜像定位曾经量到页面原点，弹出屏幕外）
+    const rect = popup!.getBoundingClientRect();
+    expect(rect.bottom).toBeGreaterThan(0);
+    expect(rect.top).toBeLessThan(window.innerHeight);
     dispose();
   });
 
-  it("全角边界触发：（ 后的 / 弹层", async () => {
+  it("全角括号后的 / 不触发（非行首）", async () => {
     const { dispose, ta } = mount();
     await new Promise((r) => setTimeout(r, 100));
     ta().focus();
     await userEvent.keyboard("（/doc");
     await new Promise((r) => setTimeout(r, 400));
-    expect(document.querySelector(".composer-popup")?.textContent).toContain("/doctor");
+    expect(document.querySelector(".composer-popup")).toBeNull();
     dispose();
   });
 
@@ -201,7 +199,7 @@ describe("TextComposer 弹层/触发 (webkit)", () => {
     await new Promise((r) => setTimeout(r, 100));
     const el = ta();
     el.focus();
-    await userEvent.keyboard("帮我 /doc");
+    await userEvent.keyboard("帮我{Shift>}{Enter}{/Shift}/doc");
     await new Promise((r) => setTimeout(r, 400));
     expect(document.querySelector(".composer-popup")).not.toBeNull();
     // 旧实现 slice(0,start)+slice(cursor)：cursor 在触发词前会重复中段
@@ -209,7 +207,7 @@ describe("TextComposer 弹层/触发 (webkit)", () => {
     el.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
     );
-    expect(el.value).toBe("帮我 /doctor ");
+    expect(el.value).toBe("帮我\n/doctor ");
     expect(document.querySelector(".composer-popup")).toBeNull();
     dispose();
   });
@@ -255,6 +253,66 @@ describe("TextComposer 弹层/触发 (webkit)", () => {
     await userEvent.click(btn);
     expect(el.value).toBe("/doctor ");
     expect(document.querySelector(".composer-popup")).toBeNull();
+    dispose();
+  });
+
+  it("弹层 ARIA 齐备：listbox/option/aria-selected/activedescendant", async () => {
+    const { dispose, ta } = mount();
+    await new Promise((r) => setTimeout(r, 100));
+    ta().focus();
+    await userEvent.keyboard("/d");
+    await new Promise((r) => setTimeout(r, 400));
+    const listbox = document.querySelector(".composer-popup")!;
+    expect(listbox.getAttribute("role")).toBe("listbox");
+    const opts = [...document.querySelectorAll<HTMLElement>("[role=option]")];
+    expect(opts.length).toBeGreaterThanOrEqual(2);
+    // 选中态契约：恰好一项 aria-selected=true 且与 activedescendant 同指
+    // （不断言固定选中首项：上个用例的鼠标停在弹层位置，mouseenter 合一选中是设计行为）
+    const sel = opts.filter((o) => o.getAttribute("aria-selected") === "true");
+    expect(sel.length).toBe(1);
+    expect(listbox.getAttribute("aria-activedescendant")).toBe(sel[0]!.id);
+    dispose();
+  });
+
+  it("hover 与键盘选中合一 + 选中项滚动跟随", async () => {
+    const scrollSpy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    const { dispose, ta } = mount();
+    await new Promise((r) => setTimeout(r, 100));
+    const el = ta();
+    el.focus();
+    await userEvent.keyboard("/d");
+    await new Promise((r) => setTimeout(r, 400));
+    const opts = [...document.querySelectorAll<HTMLElement>("[role=option]")];
+    expect(opts.length).toBeGreaterThanOrEqual(2);
+    // hover 第 2 条：选中态合并（不再 hover/键盘双高亮）
+    opts[1]!.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(opts[1]!.getAttribute("aria-selected")).toBe("true");
+    expect(opts[1]!.classList.contains("bg-[var(--bg-overlay)]")).toBe(true);
+    expect(opts[0]!.getAttribute("aria-selected")).toBe("false");
+    // 键盘导航：选中项 scrollIntoView({block:"nearest"}) 跟随
+    scrollSpy.mockClear();
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    expect(scrollSpy).toHaveBeenCalled();
+    scrollSpy.mockRestore();
+    dispose();
+  });
+
+  it("弹层锚点随输入即算不冻结（query 变长光标右移，left 跟随）", async () => {
+    const { dispose, ta } = mount();
+    await new Promise((r) => setTimeout(r, 100));
+    ta().focus();
+    await userEvent.keyboard("/d");
+    await new Promise((r) => setTimeout(r, 400));
+    const popup = () => document.querySelector<HTMLElement>(".composer-popup")!;
+    const left1 = parseFloat(popup().style.left);
+    await userEvent.keyboard("o");
+    await new Promise((r) => setTimeout(r, 50));
+    const left2 = parseFloat(popup().style.left);
+    expect(left2).toBeGreaterThan(left1);
     dispose();
   });
 });

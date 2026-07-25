@@ -10,6 +10,7 @@ pub mod ids;
 pub mod notifications;
 pub mod paths;
 pub mod pending_queue;
+pub mod rewind_lock;
 pub mod schedule;
 pub mod session;
 pub mod session_export;

@@ -13,6 +13,30 @@ export function isLargePaste(text: string): boolean {
   return text.length > LARGE_PASTE_CHARS || text.split("\n").length > LARGE_PASTE_LINES;
 }
 
+export interface PastePlan {
+  files: FileList | undefined;
+  /** 归一后的文本（无文本为 ""） */
+  text: string;
+  /** 要手动插入（preventDefault + insertAtCaret）；false = 小净文本走原生（保留原生 undo 粒度） */
+  manual: boolean;
+  /** 大粘贴：插入折叠占位 token 而非全文 */
+  large: boolean;
+}
+
+/**
+ * 粘贴事件分流。手动接管三种：大粘贴（折叠占位）、混合剪贴板（files 早退会把文本静默吞掉）、
+ * 含 \r（小粘贴也要 CRLF 归一，原生粘贴不过 normalizePaste）。
+ */
+export function planPaste(e: ClipboardEvent): PastePlan {
+  const cd = e.clipboardData;
+  const files = cd && cd.files.length > 0 ? cd.files : undefined;
+  const raw = cd?.getData("text/plain") ?? "";
+  const text = normalizePaste(raw);
+  const large = isLargePaste(text);
+  const manual = text !== "" && (large || files !== undefined || raw.includes("\r"));
+  return { files, text, manual, large };
+}
+
 export interface PasteStore {
   add: (full: string) => string;
   expand: (text: string) => string;

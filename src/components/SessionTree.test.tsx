@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   workspaceSwitch: vi.fn(async (_path: string) => {}),
   workspaceList: vi.fn(async () => [] as { path: string; last_used: number }[]),
   workspaceAdd: vi.fn(async (_path: string) => {}),
+  sessionList: vi.fn(async () => [] as SessionMeta[]),
   nav: vi.fn(),
 }));
 
@@ -19,6 +20,7 @@ vi.mock("../lib/chat", async (importOriginal) => {
     workspaceSwitch: h.workspaceSwitch,
     workspaceList: h.workspaceList,
     workspaceAdd: h.workspaceAdd,
+    sessionList: h.sessionList,
   };
 });
 
@@ -50,6 +52,7 @@ afterEach(() => {
   setActiveSessionId("");
   for (const m of flash.msgs()) flash.dismiss(m.id);
   h.workspaceSwitch.mockReset();
+  h.workspaceAdd.mockClear();
   h.nav.mockClear();
 });
 
@@ -101,6 +104,51 @@ describe("SessionTree 切换门", () => {
     await flush();
     expect(h.nav).toHaveBeenCalledWith("/");
     expect(activeSessionId()).toBe(""); // 草稿态：无活跃会话 id
+    dispose();
+  });
+});
+
+describe("SessionTree 分组命名", () => {
+  it("同名 basename 分组：组名上提一级 parent/name 可区分", async () => {
+    setSessions([
+      { ...S1, id: "s1", title: "一", directory: "/x/app" },
+      { ...S1, id: "s2", title: "二", directory: "/y/app" },
+    ]);
+    const dispose = render(() => <SessionTree />, document.body);
+    await flush();
+    expect(byText("x/app")).toBeTruthy();
+    expect(byText("y/app")).toBeTruthy();
+    dispose();
+  });
+
+  it("basename 唯一时不带上级目录", async () => {
+    setSessions([{ ...S1, directory: "/x/app" }]);
+    const dispose = render(() => <SessionTree />, document.body);
+    await flush();
+    expect(byText("app")).toBeTruthy();
+    expect(byText("x/app")).toBeFalsy();
+    dispose();
+  });
+});
+
+describe("SessionTree 手动路径输入", () => {
+  it("打开即聚焦，Enter 连按只添加一次（in-flight 去重）", async () => {
+    const dispose = render(() => <SessionTree />, document.body);
+    await flush();
+    document.body
+      .querySelector("button[title='手动输入路径']")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+    const input = document.body.querySelector<HTMLInputElement>("input[placeholder='/绝对/路径']");
+    expect(input).toBeTruthy();
+    expect(document.activeElement).toBe(input); // autofocus
+    input!.value = "/tmp/proj";
+    input!.dispatchEvent(new Event("input", { bubbles: true }));
+    input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await flush();
+    expect(h.workspaceAdd).toHaveBeenCalledTimes(1);
+    expect(h.workspaceAdd).toHaveBeenCalledWith("/tmp/proj");
     dispose();
   });
 });

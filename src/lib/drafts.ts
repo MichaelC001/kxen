@@ -33,6 +33,11 @@ export function getDraft(sessionId: string): string {
   return "";
 }
 
+/** 恢复前剥掉截断标注：标注是持久化层的容量告示，不是用户内容，随草稿上屏会被原样发进 prompt。 */
+export function stripTruncMark(text: string): string {
+  return text.endsWith(TRUNC_MARK) ? text.slice(0, -TRUNC_MARK.length) : text;
+}
+
 export function setDraft(sessionId: string, text: string): void {
   const key = draftKey(sessionId);
   drafts.set(key, text);

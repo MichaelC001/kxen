@@ -1,6 +1,14 @@
-// drafts store：新会话稳定键、首发迁移、发送后清理、会话间隔离 + localStorage 写穿。
+// drafts store：新会话稳定键、首发迁移、发送后清理、会话间隔离 + localStorage 写穿 + 截断标注剥离。
 import { beforeEach, describe, expect, it } from "vitest";
-import { DRAFT_NEW, clearDraft, draftKey, getDraft, migrateNewDraft, setDraft } from "./drafts";
+import {
+  DRAFT_NEW,
+  clearDraft,
+  draftKey,
+  getDraft,
+  migrateNewDraft,
+  setDraft,
+  stripTruncMark,
+} from "./drafts";
 
 beforeEach(() => {
   clearDraft("");
@@ -88,5 +96,12 @@ describe("drafts localStorage 写穿", () => {
     expect(stored.length).toBeLessThan(big.length);
     expect(stored.endsWith("[草稿过长，已截断]")).toBe(true);
     expect(getDraft("s1")).toBe(big);
+  });
+
+  it("stripTruncMark 只剥尾部标注，正文与无标注文本原样", () => {
+    expect(stripTruncMark("半截草稿\n[草稿过长，已截断]")).toBe("半截草稿");
+    expect(stripTruncMark("正常草稿")).toBe("正常草稿");
+    // 标注出现在中段是用户自己打的字，不能剥
+    expect(stripTruncMark("前[草稿过长，已截断]\n后")).toBe("前[草稿过长，已截断]\n后");
   });
 });

@@ -1,4 +1,4 @@
-// 触发弹窗逻辑（textarea 版）：@ / / / # 检测（Zed 边界规则）+ 弹窗装配 + token 移除。
+// 触发弹窗逻辑（textarea 版）：@ / # 任意位置（Zed 边界规则），/ 收窄行首（对齐后端命令契约）+ 弹窗装配。
 import { fsComplete, type CommandInfo, type CompleteEntry } from "../../lib/chat";
 
 export interface PopupState {
@@ -22,7 +22,7 @@ export interface Trigger {
   query: string;
 }
 
-/** 触发 token 检测：光标前最近的 @ / / / #，前界为行首/空白/半全角括号（Zed 边界规则）。 */
+/** 触发 token 检测：光标前最近的 @ / #（前界为行首/空白/半全角括号，Zed 边界规则）；/ 仅行首。 */
 export function detectTrigger(value: string, cursor: number): Trigger | null {
   let i = cursor - 1;
   while (i >= 0) {
@@ -30,19 +30,22 @@ export function detectTrigger(value: string, cursor: number): Trigger | null {
     if (c === "\n") break;
     if (c === "@" || c === "#" || c === "/") {
       const prev = i === 0 ? "" : value[i - 1];
-      // \n 必须算前界否则行首触发符全失效；全角空格/括号是中文输入的天然分隔
+      // / 只放行行首：后端 llm_task 只展开消息开头的命令（strip_prefix('/')），中段弹层是假承诺；
+      // @/# 落 chip 与位置无关，保持任意位置。\n 必须算前界否则行首触发符全失效；全角空格/括号是中文输入的天然分隔
       const bounded =
-        i === 0 ||
-        prev === " " ||
-        prev === "\t" ||
-        prev === "\n" ||
-        prev === "(" ||
-        prev === "[" ||
-        prev === "{" ||
-        prev === "　" ||
-        prev === "（" ||
-        prev === "【" ||
-        prev === "｛";
+        c === "/"
+          ? i === 0 || prev === "\n"
+          : i === 0 ||
+            prev === " " ||
+            prev === "\t" ||
+            prev === "\n" ||
+            prev === "(" ||
+            prev === "[" ||
+            prev === "{" ||
+            prev === "　" ||
+            prev === "（" ||
+            prev === "【" ||
+            prev === "｛";
       if (!bounded) return null;
       const kind = c === "@" ? "at" : c === "/" ? "slash" : "hash";
       return { kind, start: i, query: value.slice(i + 1, cursor) };
@@ -60,9 +63,9 @@ const KNOWLEDGE_TARGETS = [
 ];
 
 export interface PopupActions {
+  // onChip 的实现方负责删触发词文本：apply 只许调一个动作，连调 onCloseToken 会在新文本上再删一次（误删触发段后的正文）
   onChip: (kind: "file" | "dir" | "knowledge", ref: string, label: string) => void;
   onPlainInsert: (text: string, triggerStart: number) => void;
-  onCloseToken: (triggerStart: number) => void;
 }
 
 /** 按触发类型装配弹窗条目（200ms 防抖由调用方控制）。 */
@@ -76,14 +79,12 @@ export async function buildItems(
     return hits.map((h) => ({
       label: h.path,
       badge: h.kind === "dir" ? "dir" : undefined,
-      apply: () => {
+      apply: () =>
         actions.onChip(
           h.kind === "dir" ? "dir" : "file",
           h.path,
           h.path.split("/").pop() ?? h.path,
-        );
-        actions.onCloseToken(trigger.start);
-      },
+        ),
     }));
   }
   if (trigger.kind === "slash") {
@@ -103,9 +104,6 @@ export async function buildItems(
     label: k.label,
     detail: k.detail,
     badge: "knowledge",
-    apply: () => {
-      actions.onChip("knowledge", k.ref, k.label);
-      actions.onCloseToken(trigger.start);
-    },
+    apply: () => actions.onChip("knowledge", k.ref, k.label),
   }));
 }

@@ -56,14 +56,16 @@ pub async fn remove_with_approval(
     validate_name(name)?;
     let path = repo.join(".kxen").join("worktrees").join(name);
 
-    // dirty 判定：worktree 内的 git status（未跟踪文件也算有改动可丢）
-    let dirty = if path.exists() { !git(&path, &["status", "--porcelain"]).await?.trim().is_empty() } else { false };
+    // dirty 判定：worktree 内的 git status（未跟踪文件也算有改动可丢）；计数进审批理由（用户要知道丢几个文件）
+    let dirty_count =
+        if path.exists() { git(&path, &["status", "--porcelain"]).await?.lines().filter(|l| !l.trim().is_empty()).count() } else { 0 };
+    let dirty = dirty_count > 0;
 
     if dirty || delete_branch {
         let mut command = format!("git worktree remove {name}");
         let mut reasons: Vec<String> = Vec::new();
         if dirty {
-            reasons.push(format!("worktree {name} 有未提交改动，删除将丢失"));
+            reasons.push(format!("worktree {name} 有 {dirty_count} 个文件未提交改动，删除将丢失"));
         }
         if delete_branch {
             command.push_str(&format!(" && git branch -D kxen/{name}"));

@@ -52,6 +52,8 @@ pub(crate) async fn run_llm(
         return;
     }
 
+    // run 期守卫：持到本函数结束——rewind 写锁全程被挡（原子性），存亡广播驱动侧栏 running 圆点（core::rewind_lock）
+    let _run_guard = kxen_app::core::rewind_lock::run_guard(&session_dir, &session_id, &state.bus).await;
     // 自定义 / 命令展开：kind=Command 条目 $ARGUMENTS 模板 + needs 依赖懒加载（builtin 由模型 playbook 处理）
     let text = if let Some(rest) = text.strip_prefix('/') {
         let mut parts = rest.splitn(2, char::is_whitespace);

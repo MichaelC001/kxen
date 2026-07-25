@@ -1,8 +1,10 @@
-// MicMenu：语音引擎快捷切换（状态点 + 未配置明示，切换即热生效）。
+// MicMenu：语音引擎快捷切换（状态点 + 不可用引擎禁用并明示原因，切换成功才热生效）。
 import { createSignal, For, onMount, Show } from "solid-js";
 import { ChevronDown } from "lucide-solid";
 import { setVoiceEngine, voiceEngines, type VoiceOverview } from "../../lib/voice";
 import { onClickOutside } from "../../lib/dismiss";
+import { flashErr } from "../../lib/flash";
+import { formatError } from "../../lib/error-text";
 import { statusDot } from "../../lib/variants";
 
 const TONE: Record<string, "ok" | "warn" | "err" | "faint"> = {
@@ -11,6 +13,9 @@ const TONE: Record<string, "ok" | "warn" | "err" | "faint"> = {
   unconfigured: "warn",
   unavailable: "err",
 };
+
+// 这两态切过去也起不来：禁用而不是点了再失败
+const DISABLED = new Set(["unconfigured", "unavailable"]);
 
 export default function MicMenu(props: { onEngine: (id: string) => void }) {
   const [open, setOpen] = createSignal(false);
@@ -25,7 +30,13 @@ export default function MicMenu(props: { onEngine: (id: string) => void }) {
   onMount(() => void reload());
 
   const pick = async (id: string) => {
-    await setVoiceEngine(id, overview()?.fallback ?? []).catch(() => {});
+    try {
+      await setVoiceEngine(id, overview()?.fallback ?? []);
+    } catch (e) {
+      // 失败不调 onEngine：前端引擎态必须跟后端实际生效的一致；菜单留着让用户看清状态点
+      flashErr(`切换语音引擎失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+      return;
+    }
     await reload();
     props.onEngine(id);
     setOpen(false);
@@ -43,9 +54,9 @@ export default function MicMenu(props: { onEngine: (id: string) => void }) {
             {(e) => (
               <button
                 class="popup-row"
-                classList={{
-                  "opacity-50": e.status === "unconfigured" || e.status === "unavailable",
-                }}
+                classList={{ "opacity-50": DISABLED.has(e.status) }}
+                disabled={DISABLED.has(e.status)}
+                title={DISABLED.has(e.status) ? e.detail : undefined}
                 onClick={() => void pick(e.id)}
               >
                 <span class={statusDot({ tone: TONE[e.status] ?? "faint" })} />
@@ -61,6 +72,9 @@ export default function MicMenu(props: { onEngine: (id: string) => void }) {
               </button>
             )}
           </For>
+          <Show when={(overview()?.engines ?? []).length === 0}>
+            <div class="popup-row text-[var(--text-faint)]">无可用语音引擎</div>
+          </Show>
         </div>
       </Show>
     </div>

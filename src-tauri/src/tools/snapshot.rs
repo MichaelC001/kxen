@@ -1,5 +1,9 @@
 //! 改动快照（Codex turn-diff 口径）：首次写/改/删前留存原文，「本会话 agent 改动」面板的数据源。
 //! 与 git status 无关——只回答 agent 干了什么，不混用户自己的未提交改动。
+//!
+//! 内存态按设计不落盘：快照是 run 期增量基线，重启间隔里文件可能被外部改动，
+//! 旧基线复活会让 diff 口径失真（把别人的改动算到 agent 头上）；重启后面板从空开始，
+//! 跨进程的历史回溯走 rewind/checkpoint（shadow git）语义，不归快照管。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -87,6 +91,11 @@ impl SnapshotStore {
     }
 }
 
+/// 会话销毁时摘除其快照（session_delete 清理链一环）：session_snapshots 是进程内 map，不摘即泄漏。
+pub fn drop_session(map: &Mutex<HashMap<String, SnapshotStore>>, session_id: &str) {
+    crate::core::shared::lock(map).remove(session_id);
+}
+
 /// +added/-deleted 行数（LCS 行 diff）。
 fn line_delta(before: &str, after: &str) -> (usize, usize) {
     let diff = similar::TextDiff::from_lines(before, after);
@@ -145,6 +154,16 @@ mod tests {
         let status2 = store.status();
         assert!(status2.iter().any(|e| e.status == "created"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn drop_session_removes_entry() {
+        let map: Mutex<HashMap<String, SnapshotStore>> = Mutex::new(HashMap::new());
+        crate::core::shared::lock(&map).insert("s1".into(), SnapshotStore::default());
+        drop_session(&map, "s1");
+        assert!(crate::core::shared::lock(&map).is_empty());
+        // 幂等：摘不存在的会话不炸
+        drop_session(&map, "s1");
     }
 
     #[test]

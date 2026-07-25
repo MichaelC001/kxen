@@ -16,6 +16,10 @@ fn approval_ctx<'a>(ctx: &'a AgentContext) -> Option<crate::tools::exec::Approva
 }
 
 pub async fn execute_tool(name: &str, arguments: &str, ctx: &AgentContext) -> Result<String, String> {
+    // 执行侧白名单复验：run.rs 只在展示侧过滤工具单，伪造的 tool_call 名可直接抵达这里
+    if !super::helpers::tool_permitted(name, ctx.allowed_tools, super::helpers::is_read_only_tool(name, ctx)) {
+        return Err(format!("tool not allowed in this role: {name}"));
+    }
     let args: Value = serde_json::from_str(arguments).unwrap_or_else(|_| json!({}));
     let cwd = ctx.workdir.to_string_lossy().to_string();
 
