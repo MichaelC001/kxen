@@ -7,6 +7,7 @@ import { client } from "../lib/client";
 import { onClickOutside } from "../lib/dismiss";
 import { relTime } from "../lib/time";
 import { flashErr } from "../lib/flash";
+import { formatError } from "../lib/error-text";
 import { sessions, switchSession } from "../lib/state";
 
 interface Notice {
@@ -57,7 +58,9 @@ export default function NotificationCenter() {
   };
 
   const clearAll = async () => {
-    await client.rpc("notifications.clear").catch(() => {});
+    await client
+      .rpc("notifications.clear")
+      .catch((e) => flashErr(`清空通知失败：${formatError(e)}`));
     localStorage.setItem(READ_KEY, String(Date.now()));
     await reload();
   };

@@ -196,7 +196,15 @@ export default function SessionTree() {
     const moved = list.splice(from, 1)[0]!;
     list.splice(to, 0, moved);
     for (let i = 0; i < list.length; i++) {
-      await sessionUpdateMeta(list[i]!.id, { sort_order: i + 1 }).catch(() => {});
+      // 逐条写失败就停：部分写入已乱序，继续写只会错上加错，提示后由用户重拖
+      const err = await sessionUpdateMeta(list[i]!.id, { sort_order: i + 1 }).then(
+        () => null,
+        (e) => e,
+      );
+      if (err) {
+        flashErr(`排序保存失败：${formatError(err)}`);
+        break;
+      }
     }
     dragId = "";
     await refreshSessions();

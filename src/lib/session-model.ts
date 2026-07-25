@@ -3,6 +3,8 @@ import { createEffect, createSignal } from "solid-js";
 import { client } from "./client";
 import { currentModel } from "./chat";
 import { displayName, modelsCatalog } from "./models";
+import { flashErr } from "./flash";
+import { formatError } from "./error-text";
 
 // 草稿态（会话未落库）的模型选择无处可写：暂存于此，会话创建后写入其 metadata；
 // "default" = 暂存的是「跟随全局默认」（清除覆盖），与具体模型二选一
@@ -33,8 +35,15 @@ export async function sessionFollowGlobalModel(sessionId: string): Promise<void>
 export async function applyDraftModel(sessionId: string): Promise<void> {
   const pick = draftPick;
   draftPick = null;
-  if (pick === "default") await sessionFollowGlobalModel(sessionId).catch(() => {});
-  else if (pick) await sessionSetModel(sessionId, pick.provider, pick.model).catch(() => {});
+  // 用户已明确选过模型，静默失败会让他以为已生效——必须提示
+  if (pick === "default")
+    await sessionFollowGlobalModel(sessionId).catch((e) =>
+      flashErr(`设置模型失败：${formatError(e)}`),
+    );
+  else if (pick)
+    await sessionSetModel(sessionId, pick.provider, pick.model).catch((e) =>
+      flashErr(`设置模型失败：${formatError(e)}`),
+    );
 }
 
 /** 当前 session 生效模型的显示名（session 覆盖 > 全局默认；切会话自动重取）。 */

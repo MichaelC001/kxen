@@ -180,7 +180,7 @@ export async function restoreSubscriptions(
   const stale = Array.from(subs.values());
   subs.clear();
   for (const topics of stale) {
-    await open(topics).catch(() => {});
+    await open(topics).catch(() => {}); // 单条重开失败不中断其余恢复：断线窗口本就可能丢帧，下一轮 resync 兜底
   }
 }
 

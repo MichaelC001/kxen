@@ -5,6 +5,7 @@ import StatusBar from "./components/StatusBar";
 import CommandPalette from "./components/CommandPalette";
 import ContextMenu from "./components/ContextMenu";
 import FlashHost from "./components/FlashHost";
+import { flashErr } from "./lib/flash";
 import TopAgentBar from "./components/TopAgentBar";
 import AgentFocusView from "./components/AgentFocusView";
 import Session from "./pages/Session";
@@ -104,7 +105,7 @@ function onGlobalContextMenu(e: MouseEvent) {
           void navigator.clipboard
             .readText()
             .then((t) => document.execCommand("insertText", false, t))
-            .catch(() => {}),
+            .catch((e) => flashErr(`读取剪贴板失败：${e instanceof Error ? e.message : e}`)),
       },
       { label: "全选", action: () => document.execCommand("selectAll") },
     ]);

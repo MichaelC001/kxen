@@ -6,7 +6,9 @@ cd "$(dirname "$0")/.."
 
 pnpm exec vitest run src/lib
 sleep 4
-pnpm exec vitest run src/components/composer
+pnpm exec vitest run src/components/composer/text-composer.test.tsx src/components/composer/text-composer-triggers.test.tsx src/components/composer/text-composer-paste.test.tsx src/components/composer/triggers.test.ts src/components/composer/voice-ptt.test.ts
+sleep 4
+pnpm exec vitest run src/components/composer/attach-menu.test.tsx src/components/composer/attach.test.ts src/components/composer/composer-attachments.test.ts src/components/composer/drag-drop.test.ts src/components/composer/image-scale.test.ts src/components/composer/mic-menu.test.tsx src/components/composer/model-picker.test.tsx
 sleep 4
 pnpm exec vitest run src/components/settings
 sleep 4

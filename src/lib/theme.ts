@@ -80,7 +80,7 @@ export function toggleTheme(x?: number, y?: number): void {
         } as KeyframeAnimationOptions,
       );
     })
-    .catch(() => {});
+    .catch(() => {}); // webkit 不支持 view-transition API：静默退回无动画切换
 }
 
 /** 首帧前调用，避免暗->明闪屏。 */

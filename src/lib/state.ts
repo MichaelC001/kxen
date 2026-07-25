@@ -115,7 +115,7 @@ export async function ensureActiveSession(): Promise<string> {
     // 先迁移草稿键再激活：激活触发的 composer 恢复要读到迁移后的内容
     migrateNewDraft(created.id);
     setActiveSessionId(created.id);
-    client.rpc("session.foreground", { id: created.id }).catch(() => {});
+    client.rpc("session.foreground", { id: created.id }).catch(() => {}); // 消防式：仅决定 OS 通知弹不弹，失败无感
     return created.id;
   });
 }
@@ -123,7 +123,7 @@ export async function ensureActiveSession(): Promise<string> {
 export function switchSession(id: string): void {
   setActiveSessionId(id);
   setActiveAgentFocus("");
-  client.rpc("session.foreground", { id }).catch(() => {});
+  client.rpc("session.foreground", { id }).catch(() => {}); // 同上，前台标记失败不影响切换
   navigate?.("/");
 }
 
