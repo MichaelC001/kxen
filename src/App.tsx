@@ -18,6 +18,7 @@ import {
   refreshAgents,
   setNavigator,
 } from "./lib/state";
+import { startAgentsPolling } from "./lib/agents-poll";
 import { mountShortcuts } from "./lib/shortcuts";
 import { openMenu } from "./lib/context-menu";
 import { useNavigate } from "@solidjs/router";
@@ -25,19 +26,17 @@ import { onCleanup, onMount, Show } from "solid-js";
 
 function Home() {
   // agents 名单同时驱动 TopAgentBar 与 RightColumn，轮询上提到共同父级（原先 RightColumn 独占）
-  let timer: ReturnType<typeof setInterval> | undefined;
   onMount(async () => {
     await refreshAgents();
-    timer = setInterval(() => void refreshAgents(), 3000);
   });
-  onCleanup(() => timer && clearInterval(timer));
+  onCleanup(startAgentsPolling());
 
   return (
     <div class="flex-1 min-w-0 flex flex-col">
-      {/* 空会话首屏（EmptyHero）不出只有 Main 的占位 bar；有对话或 agent run 后常驻，Main tab 不丢上下文 */}
-      <Show when={hasConversation() || agents().length > 0}>
+      {/* 顶栏常驻占位：空会话首屏只隐藏不卸载（visibility 保高），出现/消失不再挤动下方布局 */}
+      <div classList={{ invisible: !hasConversation() && agents().length === 0 }}>
         <TopAgentBar />
-      </Show>
+      </div>
       <div class="flex-1 min-h-0 flex">
         {/* Session 常驻只切显隐：卸载会断流监听、丢滚动/草稿态（选中 agent 时主流仍在跑） */}
         <div
@@ -49,7 +48,11 @@ function Home() {
         <Show when={!isMainFocus()}>
           <AgentFocusView name={activeAgentFocus()} />
         </Show>
-        <div class="dock-wrap" classList={{ "dock-hidden": !hasConversation() }}>
+        {/* 右栏显隐与顶栏同条件：有 agent 无对话时不得顶栏有右栏无 */}
+        <div
+          class="dock-wrap"
+          classList={{ "dock-hidden": !hasConversation() && agents().length === 0 }}
+        >
           <RightColumn />
         </div>
       </div>

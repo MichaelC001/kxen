@@ -1,4 +1,5 @@
-// TopAgentBar 实测：chip 渲染（Main 固定 + 每 agent run 一个）/ 点击切换选中 / 状态点样式 / running chip 停止按钮。
+// TopAgentBar 实测：chip 渲染（Main 固定 + 每 agent run 一个）/ 点击切换选中 / 状态点样式
+// / running chip 停止按钮 / 终态 chip 关闭按钮（dismiss 移出名单）。
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TopAgentBar from "./TopAgentBar";
@@ -11,6 +12,12 @@ const stopMock = vi.hoisted(() => ({
   result: true,
   error: null as Error | null,
 }));
+const dismissMock = vi.hoisted(() => ({
+  calls: [] as Array<{ sid: string; name: string }>,
+  result: true,
+  error: null as Error | null,
+  list: [] as AgentActivity[],
+}));
 vi.mock("../lib/team", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../lib/team")>();
   return {
@@ -20,6 +27,12 @@ vi.mock("../lib/team", async (importOriginal) => {
       if (stopMock.error) throw stopMock.error;
       return stopMock.result;
     },
+    agentsDismiss: async (sid: string, name: string) => {
+      dismissMock.calls.push({ sid, name });
+      if (dismissMock.error) throw dismissMock.error;
+      return dismissMock.result;
+    },
+    agentsList: async () => dismissMock.list,
   };
 });
 
@@ -37,7 +50,8 @@ function mount() {
   const dispose = render(() => <TopAgentBar />, document.body);
   const chips = () => [...document.querySelectorAll("[data-chip]")] as HTMLButtonElement[];
   const stops = () => [...document.querySelectorAll("[data-stop]")] as HTMLButtonElement[];
-  return { dispose, chips, stops, chip: (i: number) => chips()[i]! };
+  const dismisses = () => [...document.querySelectorAll("[data-dismiss]")] as HTMLButtonElement[];
+  return { dispose, chips, stops, dismisses, chip: (i: number) => chips()[i]! };
 }
 
 afterEach(() => {
@@ -47,6 +61,10 @@ afterEach(() => {
   stopMock.calls.length = 0;
   stopMock.result = true;
   stopMock.error = null;
+  dismissMock.calls.length = 0;
+  dismissMock.result = true;
+  dismissMock.error = null;
+  dismissMock.list = [];
   for (const m of flash.msgs()) flash.dismiss(m.id);
   document.body.innerHTML = "";
 });
@@ -150,6 +168,46 @@ describe("TopAgentBar (webkit)", () => {
     setAgents([run("builder", "shutdown")]); // 模拟轮询带回新状态
     await new Promise((r) => setTimeout(r, 0));
     expect(chip(1).disabled).toBe(false);
+    dispose();
+  });
+
+  it("终态 chip（done/failed/shutdown）出关闭钮，working chip 不出", () => {
+    setAgents([run("builder", "working"), run("reviewer", "done"), run("ghost", "shutdown")]);
+    const { dispose, dismisses } = mount();
+    expect(dismisses().length).toBe(2);
+    expect(dismisses()[0]!.title).toContain("关闭 reviewer");
+    expect(dismisses()[1]!.title).toContain("关闭 ghost");
+    dispose();
+  });
+
+  it("关闭选中 chip：调 agents.dismiss，名单立即收敛 + 选中态切回 main", async () => {
+    setAgents([run("builder", "working"), run("reviewer", "done")]);
+    setActiveSessionId("s1");
+    setActiveAgentFocus("reviewer");
+    dismissMock.list = [run("builder", "working")]; // dismiss 后后端名单剩 builder
+    const { dispose, dismisses, chips } = mount();
+    dismisses()[0]!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(dismissMock.calls).toEqual([{ sid: "s1", name: "reviewer" }]);
+    expect(activeAgentFocus()).toBe("main");
+    const texts = chips().map((c) => c.textContent ?? "");
+    expect(texts.length).toBe(2);
+    expect(texts[0]).toBe("Main");
+    expect(texts[1]).toContain("builder");
+    dispose();
+  });
+
+  it("agents.dismiss 返回 false：不切窗 + flashErr", async () => {
+    setAgents([run("reviewer", "done")]);
+    setActiveSessionId("s1");
+    setActiveAgentFocus("reviewer");
+    dismissMock.result = false;
+    const { dispose, dismisses } = mount();
+    dismisses()[0]!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(dismissMock.calls).toEqual([{ sid: "s1", name: "reviewer" }]);
+    expect(activeAgentFocus()).toBe("reviewer");
+    expect(flash.msgs().some((m) => m.kind === "err" && m.text.includes("reviewer"))).toBe(true);
     dispose();
   });
 });

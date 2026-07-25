@@ -10,6 +10,7 @@ import type { AgentActivity, TranscriptEntry } from "../lib/team";
 const mocks = vi.hoisted(() => ({
   transcript: vi.fn<(sid: string, name: string) => Promise<TranscriptEntry[]>>(),
   message: vi.fn<(sid: string, name: string, text: string) => Promise<void>>(),
+  topicCalls: [] as string[][],
 }));
 vi.mock("../lib/team", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../lib/team")>();
@@ -17,7 +18,13 @@ vi.mock("../lib/team", async (importOriginal) => {
 });
 vi.mock("../lib/chat", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../lib/chat")>();
-  return { ...orig, onTopic: async () => () => {} };
+  return {
+    ...orig,
+    onTopic: (topics: string[]) => {
+      mocks.topicCalls.push(topics);
+      return () => {};
+    },
+  };
 });
 
 function run(name: string, status: AgentActivity["status"]): AgentActivity {
@@ -61,6 +68,7 @@ function enter(el: HTMLInputElement) {
 beforeEach(() => {
   mocks.transcript.mockReset();
   mocks.message.mockReset();
+  mocks.topicCalls.length = 0;
   setActiveSessionId("s1");
 });
 
@@ -137,6 +145,30 @@ describe("AgentFocusView", () => {
     expect(mocks.transcript).toHaveBeenCalledTimes(2);
     expect(body()).toContain("重试后的转录");
     expect(body()).not.toContain("加载失败，点击重试");
+    dispose();
+  });
+
+  it("delta 订阅自带 session topic（不靠 Session 常驻订阅隐式放行）", async () => {
+    setAgents([run("w", "working")]);
+    mocks.transcript.mockResolvedValue([]);
+    const { dispose } = mount("w");
+    await tick();
+    expect(mocks.topicCalls.at(-1)).toEqual(["llm.delta", "session:s1"]);
+    dispose();
+  });
+
+  it("加载中与真空区分：pending 显示「加载中」，空转录落地后显示「等待输出」", async () => {
+    setAgents([run("w", "working")]);
+    const d = deferred<TranscriptEntry[]>();
+    mocks.transcript.mockReturnValue(d.promise);
+    const { dispose, body } = mount("w");
+    await tick();
+    expect(body()).toContain("加载中…");
+    expect(body()).not.toContain("等待输出…");
+    d.resolve([]);
+    await tick();
+    expect(body()).not.toContain("加载中…");
+    expect(body()).toContain("等待输出…");
     dispose();
   });
 });

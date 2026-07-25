@@ -1,8 +1,8 @@
-import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, For, Show, onCleanup } from "solid-js";
 import { Bot, X } from "lucide-solid";
 import { onTopic } from "../lib/chat";
 import { agentsTranscript, teamMessage, type TranscriptEntry } from "../lib/team";
-import { KIND_BADGE, STATUS_TEXT } from "../lib/agent-display";
+import { kindBadge, statusText } from "../lib/agent-display";
 import { formatError } from "../lib/error-text";
 import { createAction, createSeqGuard } from "../lib/async-guard";
 import { activeSessionId, agents, setActiveAgentFocus } from "../lib/state";
@@ -12,12 +12,15 @@ import { activeSessionId, agents, setActiveAgentFocus } from "../lib/state";
 export default function AgentFocusView(props: { name: string }) {
   const [entries, setEntries] = createSignal<TranscriptEntry[]>([]);
   const [loadFailed, setLoadFailed] = createSignal(false);
+  // 首次转录加载未完成前是「加载中」，与加载完成后的「真空」（等待输出）区分
+  const [loading, setLoading] = createSignal(true);
   const [retryTick, setRetryTick] = createSignal(0);
   const [draft, setDraft] = createSignal("");
   const sendAction = createAction();
   // 转录加载竞态守卫：慢响应晚于切换/重试落地即丢弃，旧 agent 的数据不得覆盖新窗格
   const guard = createSeqGuard();
-  let unlisten: (() => void) | undefined;
+  let off: (() => void) | undefined;
+  let current: string | undefined;
   let listRef: HTMLDivElement | undefined;
 
   const activity = () => agents().find((a) => a.name === props.name);
@@ -30,21 +33,31 @@ export default function AgentFocusView(props: { name: string }) {
     // 切换即清空：旧 agent 的转录不得在新窗格残留到加载完成
     setEntries([]);
     setLoadFailed(false);
+    setLoading(true);
     const id = guard.next();
     agentsTranscript(sid, name)
       .then((t) => {
         if (!guard.isCurrent(id)) return;
         setEntries(t);
+        setLoading(false);
         scroll();
       })
       .catch(() => {
         if (!guard.isCurrent(id)) return;
         setLoadFailed(true);
+        setLoading(false);
       });
   });
 
-  onMount(async () => {
-    unlisten = await onTopic(["llm.delta"], (_topic, payload) => {
+  // 订阅自带 session topic：后端 stream ACL 只把带 session_id 的帧发给 session:<id> 订阅者，
+  // 裸订 llm.delta 是靠 Session 常驻订阅隐式放行（Session 订阅逻辑一变，agent 视图静默断流）。
+  // 订阅跟随活跃会话，切换即退旧订新（对齐 delta.ts 的 onLlmDelta）
+  createEffect(() => {
+    const sid = activeSessionId();
+    if (sid === current) return;
+    current = sid;
+    off?.();
+    off = onTopic(sid ? ["llm.delta", `session:${sid}`] : ["llm.delta"], (_topic, payload) => {
       const p = payload as TranscriptEntry & { agent?: string; session_id?: string };
       if (p.agent !== props.name || p.session_id !== activeSessionId()) return;
       setEntries((prev) => {
@@ -57,7 +70,7 @@ export default function AgentFocusView(props: { name: string }) {
       scroll();
     });
   });
-  onCleanup(() => unlisten?.());
+  onCleanup(() => off?.());
 
   const send = () => {
     const text = draft().trim();
@@ -89,11 +102,11 @@ export default function AgentFocusView(props: { name: string }) {
         <Bot size={13} class="text-[var(--accent-hover)]" />
         <span class="text-xs font-medium">{props.name}</span>
         <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
-          {KIND_BADGE[activity()?.kind ?? "subagent"]}
+          {kindBadge(activity()?.kind ?? "subagent")}
         </span>
         <span class="text-2xs text-[var(--text-faint)]">{activity()?.model.model}</span>
         <span class="text-2xs text-[var(--text-faint)] ml-auto">
-          {STATUS_TEXT[activity()?.status ?? "idle"]}
+          {statusText(activity()?.status ?? "idle")}
         </span>
       </div>
       <div ref={(el) => (listRef = el)} class="flex-1 overflow-auto px-4 py-3 space-y-1.5">
@@ -133,7 +146,10 @@ export default function AgentFocusView(props: { name: string }) {
             加载失败，点击重试
           </button>
         </Show>
-        <Show when={!loadFailed() && entries().length === 0}>
+        <Show when={!loadFailed() && loading()}>
+          <div class="text-2xs text-[var(--text-faint)]">加载中…</div>
+        </Show>
+        <Show when={!loadFailed() && !loading() && entries().length === 0}>
           <div class="text-2xs text-[var(--text-faint)]">等待输出…</div>
         </Show>
       </div>

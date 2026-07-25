@@ -288,6 +288,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             Ok(json!(state.agents.transcript(session_id, name)))
         }
         "agents.stop" => super::ops_agents::agents_stop(&params, &app.state::<Arc<AppState>>()).await,
+        "agents.dismiss" => super::ops_agents::agents_dismiss(&params, &app.state::<Arc<AppState>>()).await,
         "statusline" => {
             let session_id = params.get("session_id").and_then(Value::as_str).unwrap_or("");
             let state = app.state::<Arc<AppState>>();

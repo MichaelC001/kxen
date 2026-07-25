@@ -1,9 +1,10 @@
-import { createSignal, For, Show, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import { ChevronRight } from "lucide-solid";
 import { onTopic } from "../lib/chat";
 import { agentsTranscript, type TranscriptEntry } from "../lib/team";
 import { statusDot } from "../lib/variants";
-import { KIND_BADGE, STATUS_TEXT, STATUS_TONE } from "../lib/agent-display";
+import { kindBadge, statusText, statusTone } from "../lib/agent-display";
+import { formatError } from "../lib/error-text";
 import { activeAgentFocus, activeSessionId, agents, setActiveAgentFocus } from "../lib/state";
 import Dock from "./Dock";
 
@@ -28,27 +29,57 @@ export default function RightColumn() {
   );
 }
 
+/** preview 追踪的最后一条可展示条目：text 正文 / error 红字 / tool 一行摘要。 */
+function previewEntry(
+  e: TranscriptEntry,
+): { text: string; kind: "text" | "error" | "tool" } | null {
+  if (e.kind === "text" && e.text) return { text: e.text, kind: "text" };
+  if (e.kind === "error" && e.message) return { text: formatError(e.message), kind: "error" };
+  if ((e.kind === "tool_call" || e.kind === "tool_result") && e.name) {
+    return { text: `${e.name}: ${e.summary ?? ""}`, kind: "tool" };
+  }
+  return null;
+}
+
 /** 单个子代理概览卡：状态行 + 最近输出预览，点击选中 TopAgentBar chip。 */
 function AgentPane(props: { name: string }) {
   const activity = () => agents().find((a) => a.name === props.name);
-  const [preview, setPreview] = createSignal("");
-  let unlisten: (() => void) | undefined;
+  const [preview, setPreview] = createSignal<{ text: string; kind: "text" | "error" | "tool" }>();
+  let off: (() => void) | undefined;
+  let current: string | undefined;
 
   onMount(async () => {
     const t = await agentsTranscript(activeSessionId(), props.name).catch(
       () => [] as TranscriptEntry[],
     );
-    const lastText = [...t].reverse().find((e) => e.kind === "text" && e.text);
-    if (lastText?.text) setPreview(lastText.text.slice(-120));
-    unlisten = await onTopic(["llm.delta"], (_topic, payload) => {
-      const p = payload as { agent?: string; session_id?: string; kind?: string; text?: string };
+    const last = [...t].reverse().find((e) => previewEntry(e));
+    const entry = last && previewEntry(last);
+    if (entry) setPreview({ text: entry.text.slice(-120), kind: entry.kind });
+  });
+
+  // 订阅自带 session topic：stream ACL 只把带 session_id 的帧发给 session:<id> 订阅者，
+  // 裸订 llm.delta 是靠 Session 常驻订阅隐式放行（Session 一变这里静默断流）。切换会话退旧订新。
+  createEffect(() => {
+    const sid = activeSessionId();
+    if (sid === current) return;
+    current = sid;
+    off?.();
+    off = onTopic(sid ? ["llm.delta", `session:${sid}`] : ["llm.delta"], (_topic, payload) => {
+      const p = payload as TranscriptEntry & { agent?: string; session_id?: string };
       if (p.agent !== props.name || p.session_id !== activeSessionId()) return;
       if (p.kind === "text" && p.text) {
-        setPreview((prev) => (prev + p.text).slice(-120));
+        // 流式 text 逐帧追加；前一条是 error/tool 快照时从干净起点续
+        setPreview((prev) => ({
+          text: ((prev?.kind === "text" ? prev.text : "") + (p.text ?? "")).slice(-120),
+          kind: "text",
+        }));
+        return;
       }
+      const entry = previewEntry(p);
+      if (entry) setPreview({ text: entry.text.slice(-120), kind: entry.kind });
     });
   });
-  onCleanup(() => unlisten?.());
+  onCleanup(() => off?.());
 
   return (
     <button
@@ -57,23 +88,29 @@ function AgentPane(props: { name: string }) {
       onClick={() => setActiveAgentFocus(props.name)}
     >
       <div class="flex items-center gap-1.5">
-        <span
-          class={statusDot(
-            STATUS_TONE[activity()?.status ?? "idle"] ?? { tone: "faint", pulse: false },
-          )}
-        />
+        <span class={statusDot(statusTone(activity()?.status ?? "idle"))} />
         <span class="text-xs font-medium">{props.name}</span>
         <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
-          {KIND_BADGE[activity()?.kind ?? "subagent"]}
+          {kindBadge(activity()?.kind ?? "subagent")}
         </span>
         <span class="text-2xs text-[var(--text-faint)] truncate">{activity()?.model.model}</span>
         <span class="text-2xs text-[var(--text-faint)] ml-auto">
-          {STATUS_TEXT[activity()?.status ?? "idle"]}
+          {statusText(activity()?.status ?? "idle")}
         </span>
         <ChevronRight size={11} class="text-[var(--text-faint)]" />
       </div>
       <Show when={preview()}>
-        <div class="text-2xs text-[var(--text-faint)] truncate mt-1 font-mono">{preview()}</div>
+        {(p) => (
+          <div
+            class="text-2xs truncate mt-1 font-mono"
+            classList={{
+              "text-[var(--err)]": p().kind === "error",
+              "text-[var(--text-faint)]": p().kind !== "error",
+            }}
+          >
+            {p().text}
+          </div>
+        )}
       </Show>
     </button>
   );

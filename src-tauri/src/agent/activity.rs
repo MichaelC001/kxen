@@ -184,6 +184,21 @@ impl AgentRegistry {
         })
     }
 
+    /// 移除终态条目（done/failed/shutdown）：chip 的关闭出口；运行中条目拒绝（要停走 agents.stop）。
+    /// 连带清掉取消句柄，(session, name) 键不得随条目移除泄漏。
+    pub fn dismiss(&self, session_id: &str, name: &str) -> bool {
+        let mut map = crate::core::shared::lock(&self.sessions);
+        let Some(list) = map.get_mut(session_id) else { return false };
+        let Some(pos) = list.iter().position(|a| a.name == name) else { return false };
+        if !matches!(list[pos].status, ActivityStatus::Done | ActivityStatus::Failed | ActivityStatus::Shutdown) {
+            return false;
+        }
+        list.remove(pos);
+        drop(map);
+        crate::core::shared::lock(&self.cancels).remove(&(session_id.to_string(), name.to_string()));
+        true
+    }
+
     pub fn list(&self, session_id: &str) -> Vec<AgentActivity> {
         crate::core::shared::lock(&self.sessions).get(session_id).cloned().unwrap_or_default()
     }
@@ -293,6 +308,26 @@ mod tests {
         assert!(!reg.cancel("s2", "review-1"), "跨 session 同名不得命中");
         assert!(reg.cancel("s1", "review-1"));
         assert!(token.is_cancelled(), "cancel 必须触发令牌");
+    }
+
+    /// dismiss 只放终态：运行中/不存在拒绝；移除条目连带清取消句柄
+    #[test]
+    fn dismiss_only_terminal_and_cleans_cancel_handle() {
+        let reg = AgentRegistry::default();
+        let model = ModelRef::new("xai", "grok");
+        reg.register("s1", "a", AgentKind::Subagent, &model);
+        reg.register_cancel("s1", "a", crate::agent::cancel::CancelToken::new());
+        assert!(!reg.dismiss("s1", "a"), "working 不得 dismiss");
+        assert!(!reg.dismiss("s1", "ghost"), "不存在的 name 返回 false");
+        assert!(!reg.dismiss("s2", "a"), "跨 session 同名不得命中");
+        reg.set_status("s1", "a", ActivityStatus::Done);
+        assert!(reg.dismiss("s1", "a"));
+        assert!(reg.list("s1").is_empty() && !reg.cancel("s1", "a"), "dismiss 移除条目并连带清取消句柄");
+        for status in [ActivityStatus::Failed, ActivityStatus::Shutdown, ActivityStatus::AwaitingPlanApproval] {
+            reg.register("s1", "b", AgentKind::Subagent, &model);
+            reg.set_status("s1", "b", status);
+            assert_eq!(reg.dismiss("s1", "b"), !matches!(status, ActivityStatus::AwaitingPlanApproval), "{status:?}");
+        }
     }
 
     #[test]

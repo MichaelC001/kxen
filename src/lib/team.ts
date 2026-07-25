@@ -59,3 +59,8 @@ export async function agentsTranscript(
 export async function agentsStop(sessionId: string, name: string): Promise<boolean> {
   return client.rpc<boolean>("agents.stop", { session_id: sessionId, name });
 }
+
+/** 移除终态 agent 条目（done/failed/shutdown）：chip 的关闭出口；非终态/不存在返回 false。 */
+export async function agentsDismiss(sessionId: string, name: string): Promise<boolean> {
+  return client.rpc<boolean>("agents.dismiss", { session_id: sessionId, name });
+}

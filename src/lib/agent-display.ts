@@ -27,3 +27,19 @@ export const KIND_BADGE: Record<string, string> = {
   subagent: "sub",
   workflow: "flow",
 };
+
+export type StatusTone = { tone: "ok" | "warn" | "accent" | "err" | "faint"; pulse: boolean };
+
+// 三个取值口统一在这里收口 fallback：后端加了新状态/类别而前端映射没跟上时，
+// 回显原文/灰点，不得渲染空白（空白看不出「有东西但状态未知」）
+export function statusTone(status: string): StatusTone {
+  return STATUS_TONE[status] ?? { tone: "faint", pulse: false };
+}
+
+export function statusText(status: string): string {
+  return STATUS_TEXT[status] ?? status;
+}
+
+export function kindBadge(kind: string): string {
+  return KIND_BADGE[kind] ?? kind;
+}
