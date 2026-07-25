@@ -1,5 +1,6 @@
 // user 时间线条目：右对齐 accent 气泡（可选中）+ 图片附件 + 悬浮操作（fork / 编辑重发）。
-import { For, Show } from "solid-js";
+// 编辑框在本组件：MessageActions 铅笔与右键「编辑并重发」同一入口（旧右键跳过编辑框直接原文重发，两处行为分叉）。
+import { createSignal, For, Show } from "solid-js";
 import MessageActions from "./MessageActions";
 import { openMenu } from "../lib/context-menu";
 import type { MsgItem } from "../lib/items";
@@ -10,7 +11,25 @@ export default function UserItem(props: {
   onEditResend: (text: string) => void;
   onRewind: () => void;
   onRetry: () => void;
+  /** 图片异步解码撑高列表后回调（宿主在钉底态再钉一次） */
+  onImageLoad?: () => void;
 }) {
+  const [editing, setEditing] = createSignal(false);
+  const [draft, setDraft] = createSignal("");
+  let taRef: HTMLTextAreaElement | undefined;
+
+  const startEdit = () => {
+    setDraft(props.item.content);
+    setEditing(true);
+    setTimeout(() => taRef?.focus(), 0);
+  };
+
+  const submit = () => {
+    const t = draft().trim();
+    if (t) props.onEditResend(t);
+    setEditing(false);
+  };
+
   return (
     <div
       class="group relative flex flex-col items-end gap-1"
@@ -21,8 +40,14 @@ export default function UserItem(props: {
             action: () => void navigator.clipboard.writeText(props.item.content),
           },
           { label: "从此处分叉", action: props.onFork },
-          { label: "编辑并重发", action: () => props.onEditResend(props.item.content) },
-          { label: "回退到此处", danger: true, action: props.onRewind },
+          { label: "编辑并重发", action: startEdit },
+          {
+            label: "回退到此处",
+            danger: true,
+            // 未持久化的乐观消息没有 messageId，后端只会报 missing message_id：入口禁用
+            disabled: !props.item.messageId,
+            action: props.onRewind,
+          },
         ]);
       }}
     >
@@ -38,6 +63,7 @@ export default function UserItem(props: {
                 src={`data:${img.media_type};base64,${img.data}`}
                 alt="图片附件"
                 class="max-h-44 max-w-[60%] rounded-lg border border-[var(--border)] object-contain"
+                onLoad={() => props.onImageLoad?.()}
               />
             )}
           </For>
@@ -65,8 +91,40 @@ export default function UserItem(props: {
             role="user"
             content={props.item.content}
             onFork={props.onFork}
-            onEditResend={props.onEditResend}
+            onStartEdit={startEdit}
           />
+        </div>
+      </Show>
+      <Show when={editing()}>
+        <div class="w-full mt-1.5 rounded-lg border border-[var(--accent)] bg-[var(--bg-raised)] p-2 space-y-1.5">
+          <textarea
+            ref={(el) => (taRef = el)}
+            class="w-full bg-transparent text-sm focus:outline-none resize-none"
+            rows={3}
+            value={draft()}
+            onInput={(e) => setDraft(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+              if (e.key === "Escape") setEditing(false);
+            }}
+          />
+          <div class="flex gap-1.5 justify-end">
+            <button
+              class="pressable px-2 py-0.5 rounded text-2xs border border-[var(--border)]"
+              onClick={() => setEditing(false)}
+            >
+              取消
+            </button>
+            <button
+              class="pressable px-2 py-0.5 rounded text-2xs bg-[var(--accent)] text-[var(--accent-contrast)]"
+              onClick={submit}
+            >
+              重发（开分支）
+            </button>
+          </div>
         </div>
       </Show>
     </div>

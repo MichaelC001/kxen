@@ -103,6 +103,15 @@ fn checkpoint_label(messages: &[kxen_app::core::session::Message], idx: usize) -
     messages[..=idx].iter().rev().find(|m| m.role == kxen_app::core::session::Role::User).map(|m| m.id.as_str())
 }
 
+/// checkpoint commit 失败只 warn（barrier 不阻塞 run），rewind 才暴露缺失：归一类结构化 code，前端 rewindErrorText 按 code 上人话。
+fn checkpoint_missing_wire(e: &str, label: &str) -> String {
+    if e.contains("checkpoint not found") {
+        let message = format!("消息 {label} 的代码检查点未保存成功，无法回退到此处");
+        return RewindBlock { code: "checkpoint_missing", message, dirty_count: None, target: None }.to_wire();
+    }
+    e.to_string()
+}
+
 /// 代码回滚到该消息的 shadow 检查点 + 会话截断到该消息（含）。
 pub(super) fn session_rewind(params: &Value, state: &crate::AppState) -> Result<Value, String> {
     let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
@@ -124,7 +133,8 @@ pub(super) fn session_rewind(params: &Value, state: &crate::AppState) -> Result<
     rewind_gate(active_in_workspace, dirty_count, confirm, target).map_err(|b| b.to_wire())?;
     let idx = messages.iter().position(|m| m.id == message_id).expect("rewind_gate 已确认消息存在");
     let label = checkpoint_label(&messages, idx).ok_or("no user checkpoint before this message")?;
-    let hash = kxen_app::tools::checkpoint::reset_to(std::path::Path::new(&meta.directory), label)?;
+    let hash = kxen_app::tools::checkpoint::reset_to(std::path::Path::new(&meta.directory), label)
+        .map_err(|e| checkpoint_missing_wire(&e, label))?;
     kxen_app::core::session::rewrite_messages(&dir, session_id, &messages[..=idx]).map_err(|e| e.to_string())?;
     // 截断点之后的 agent 改动已被 reset_to 从磁盘抹掉：快照里对应条目（尤其被回滚的新建文件）
     // 会变成 before/after 双 None 的「新增 +0 -0」幻影行，按磁盘现状清掉

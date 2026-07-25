@@ -34,8 +34,9 @@ export default function ContextMenu() {
           <For each={m().items}>
             {(item) => (
               <button
-                class="popup-row w-full"
+                class="popup-row w-full disabled:opacity-40"
                 classList={{ "text-[var(--err)]": item.danger === true }}
+                disabled={item.disabled === true}
                 onClick={() => {
                   closeMenu();
                   item.action();

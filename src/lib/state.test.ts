@@ -24,6 +24,7 @@ import {
   activeSessionId,
   agents,
   deleteSession,
+  ensureActiveSession,
   refreshAgents,
   refreshSessions,
   sessions,
@@ -84,6 +85,28 @@ describe("deleteSession 善后切换", () => {
     setActiveSessionId("a");
     mocks.sessionDelete.mockRejectedValueOnce(new Error("io boom"));
     await expect(deleteSession("a")).rejects.toThrow("io boom");
+  });
+});
+
+describe("ensureActiveSession 并发去重", () => {
+  it("并发首发共享同一次创建：只建一个会话，两路拿到同一 id", async () => {
+    mocks.sessionCreate.mockReset();
+    let release!: (m: SessionMeta) => void;
+    mocks.sessionCreate.mockImplementationOnce(
+      () =>
+        new Promise<SessionMeta>((r) => {
+          release = r;
+        }),
+    );
+    mocks.sessionList.mockResolvedValue([meta("s-new", "/p")]);
+    const p1 = ensureActiveSession();
+    const p2 = ensureActiveSession();
+    release(meta("s-new", "/p"));
+    const [a, b] = await Promise.all([p1, p2]);
+    expect(a).toBe("s-new");
+    expect(b).toBe("s-new");
+    expect(mocks.sessionCreate).toHaveBeenCalledTimes(1);
+    expect(activeSessionId()).toBe("s-new");
   });
 });
 

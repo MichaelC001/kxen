@@ -4,6 +4,7 @@ import { client } from "./client";
 import { agentsList, type AgentActivity } from "./team";
 import { sessionCreate, sessionDelete, sessionList, type SessionMeta } from "./chat";
 import { applyDraftModel } from "./session-model";
+import { createInFlight } from "./async-guard";
 import { migrateNewDraft } from "./drafts";
 
 export const [sessions, setSessions] = createSignal<SessionMeta[]>([]);
@@ -100,18 +101,23 @@ export async function newSession(): Promise<void> {
   navigate?.("/");
 }
 
+/** 并发首发（连点/多路并行）共享同一次创建：否则同时建出两个会话，消息写进被丢弃的那个。 */
+const ensureInflight = createInFlight();
+
 /** 草稿态首条消息：先落库成会话再激活。返回活跃会话 id。 */
 export async function ensureActiveSession(): Promise<string> {
   const existing = activeSessionId();
   if (existing) return existing;
-  const created = await sessionCreate();
-  await applyDraftModel(created.id);
-  await refreshSessions();
-  // 先迁移草稿键再激活：激活触发的 composer 恢复要读到迁移后的内容
-  migrateNewDraft(created.id);
-  setActiveSessionId(created.id);
-  client.rpc("session.foreground", { id: created.id }).catch(() => {});
-  return created.id;
+  return ensureInflight("create", async () => {
+    const created = await sessionCreate();
+    await applyDraftModel(created.id);
+    await refreshSessions();
+    // 先迁移草稿键再激活：激活触发的 composer 恢复要读到迁移后的内容
+    migrateNewDraft(created.id);
+    setActiveSessionId(created.id);
+    client.rpc("session.foreground", { id: created.id }).catch(() => {});
+    return created.id;
+  });
 }
 
 export function switchSession(id: string): void {

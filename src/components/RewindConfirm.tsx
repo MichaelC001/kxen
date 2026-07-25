@@ -3,7 +3,12 @@
 import { Show } from "solid-js";
 import { rewindPendingInfo } from "../lib/rewind";
 
-export default function RewindConfirm(props: { onConfirm: () => void; onCancel: () => void }) {
+export default function RewindConfirm(props: {
+  onConfirm: () => void;
+  onCancel: () => void;
+  /** 确认 RPC 在飞：禁用确认键防连点重发 */
+  busy?: () => boolean;
+}) {
   const count = () => rewindPendingInfo()?.dirtyCount;
   const preview = () => rewindPendingInfo()?.targetPreview;
   const roleLabel = () =>
@@ -22,7 +27,8 @@ export default function RewindConfirm(props: { onConfirm: () => void; onCancel: 
       </Show>
       <div class="flex gap-2">
         <button
-          class="pressable px-2.5 py-1 rounded text-2xs bg-[var(--accent)] text-[var(--accent-contrast)]"
+          class="pressable px-2.5 py-1 rounded text-2xs bg-[var(--accent)] text-[var(--accent-contrast)] disabled:opacity-50"
+          disabled={props.busy?.() ?? false}
           onClick={props.onConfirm}
         >
           丢弃改动并回退

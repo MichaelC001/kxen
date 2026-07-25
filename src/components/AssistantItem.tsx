@@ -34,7 +34,13 @@ export default function AssistantItem(props: {
           },
           { label: "从此处分叉", action: props.onFork },
           { label: "重新生成", action: props.onRerun },
-          { label: "回退到此处", danger: true, action: props.onRewind },
+          {
+            label: "回退到此处",
+            danger: true,
+            // 未持久化的乐观消息没有 messageId，后端只会报 missing message_id：入口禁用
+            disabled: !props.item.messageId,
+            action: props.onRewind,
+          },
         ]);
       }}
     >
@@ -49,8 +55,9 @@ export default function AssistantItem(props: {
         </div>
       </Show>
       <Show when={props.item.reasoning}>
-        {/* 思考过程默认折叠（Codex/ChatGPT 形态：答案流出后 thinking 收拢） */}
-        <details class="mb-2" open={props.streaming()}>
+        {/* 只对 live（流式中的末条）受控展开：绑会话级 streaming 会把历史条目的手动开合
+            全部覆盖（任何 run 启停都强制开/关全列思考块）；历史条目用户手动状态自保持 */}
+        <details class="mb-2" open={props.live()}>
           <summary class="text-2xs text-[var(--text-faint)] cursor-pointer select-none">
             思考过程
           </summary>

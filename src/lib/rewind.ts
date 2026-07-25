@@ -1,11 +1,16 @@
 // 回退编排：dirty 门禁的确认闭环 + 拒绝按 code 归类（供 Session 页与单测共用）。
 // 后端 RewindBlock（src-tauri/src/ws/session_ops.rs）序列化为 RPC 错误 message：
 // {code, message, dirty_count?, target?}，前端只按 code 归类，文案漂移不再炸确认流。
-import { createSignal } from "solid-js";
+import { createEffect, createSignal } from "solid-js";
 import { sessionRewind } from "./chat";
 
-/** 后端 rewind 门禁拒绝类别。 */
-export type RewindBlock = "active_run" | "not_in_session" | "dirty" | "unknown";
+/** 后端 rewind 门禁拒绝类别（checkpoint_missing：barrier commit 失败只 warn，rewind 才暴露）。 */
+export type RewindBlock =
+  | "active_run"
+  | "not_in_session"
+  | "dirty"
+  | "checkpoint_missing"
+  | "unknown";
 
 /** RewindBlock 的线上载荷（与 session_ops.rs 序列化字段一一对应）。 */
 export interface RewindErrorPayload {
@@ -39,7 +44,13 @@ export function parseRewindError(err: unknown): RewindErrorPayload | null {
 
 export function classifyRewindError(err: unknown): RewindBlock {
   const code = parseRewindError(err)?.code;
-  if (code === "active_run" || code === "not_in_session" || code === "dirty") return code;
+  if (
+    code === "active_run" ||
+    code === "not_in_session" ||
+    code === "dirty" ||
+    code === "checkpoint_missing"
+  )
+    return code;
   return "unknown";
 }
 
@@ -52,6 +63,8 @@ export function rewindErrorText(err: unknown): string {
       return "这条消息不在当前会话中，无法回退到此处";
     case "dirty":
       return "工作区有未进检查点的改动";
+    case "checkpoint_missing":
+      return "这条消息的代码检查点没有保存成功，无法回退到此处";
     default: {
       const raw =
         parseRewindError(err)?.message ?? (err instanceof Error ? err.message : String(err));
@@ -63,6 +76,8 @@ export function rewindErrorText(err: unknown): string {
 export interface RewindFlow {
   /** 等待 dirty 确认的 messageId，无待确认项为 null。 */
   pending: () => string | null;
+  /** rewind RPC 在飞：确认按钮禁用与 request 防抖共用同一状态。 */
+  busy: () => boolean;
   /** 发起回退：dirty 且无 confirm 转待确认态；active_run / not_in_session 直接报错，不重试。 */
   request: (messageId: string) => Promise<void>;
   /** 用户确认覆盖未进检查点的改动：带 confirm=true 重发。 */
@@ -81,6 +96,7 @@ export function createRewindFlow(deps: {
   onError?: (text: string) => void;
 }): RewindFlow {
   const call = deps.call ?? sessionRewind;
+  const [busy, setBusy] = createSignal(false);
   let pendingId: string | null = null;
   const setPending = (id: string | null, payload?: RewindErrorPayload) => {
     pendingId = id;
@@ -103,8 +119,11 @@ export function createRewindFlow(deps: {
   };
 
   const run = async (messageId: string, confirm: boolean): Promise<void> => {
+    // 连点/重复触发防抖：同一时刻只允许一个 rewind RPC 在飞（确认键禁用也读这个态）
+    if (busy()) return;
     const sid = deps.sessionId();
     if (!sid) return;
+    setBusy(true);
     try {
       await call(sid, messageId, confirm);
       setPending(null);
@@ -117,11 +136,14 @@ export function createRewindFlow(deps: {
       }
       setPending(null);
       deps.onError?.(rewindErrorText(err));
+    } finally {
+      setBusy(false);
     }
   };
 
   return {
     pending: () => pendingId,
+    busy,
     request: (messageId) => run(messageId, false),
     confirm: async () => {
       const id = pendingId;
@@ -168,6 +190,16 @@ export function createSessionRewind(deps: {
     onPendingInfo: setPendingInfo,
     onDone: deps.onDone,
     onError: showNote,
+  });
+  // pending 绑定 sid：切会话立即清待确认条——旧 sid 的 messageId 拿去新会话重发，
+  // 轻则 not_in_session 报错，重则确认条挂在错误的会话上误导用户
+  let lastSid = deps.sessionId();
+  createEffect(() => {
+    const sid = deps.sessionId();
+    if (sid !== lastSid) {
+      lastSid = sid;
+      flow.cancel();
+    }
   });
   return { pending, note, flow, dismissNote };
 }

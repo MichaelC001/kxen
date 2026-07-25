@@ -81,12 +81,21 @@ describe("发送链路失败态", () => {
     expect((s.items()[1] as MsgItem).sendError).toContain("connection lost");
   });
 
-  it("发送成功且 queued 时进待发队列，气泡无失败态", async () => {
+  it("发送成功且 queued 时进待发队列，气泡无失败态，返回 true 供「已加入队列」反馈", async () => {
     h.sendMessage.mockResolvedValueOnce({ queued: true });
     const s = setup();
-    await s.flow.send("排队", [], []);
+    const queued = await s.flow.send("排队", [], []);
+    expect(queued).toBe(true);
     expect(s.queue()).toEqual(["排队"]);
     expect((s.items()[0] as MsgItem).sendError).toBeUndefined();
+  });
+
+  it("首发成功未排队返回 false，发送失败也返回 false", async () => {
+    h.sendMessage.mockResolvedValueOnce({});
+    const s = setup();
+    expect(await s.flow.send("直接跑", [], [])).toBe(false);
+    h.sendMessage.mockRejectedValueOnce(new Error("boom"));
+    expect(await s.flow.send("再发", [], [])).toBe(false);
   });
 
   it("会话创建失败：flash 原因，不上屏气泡", async () => {

@@ -22,7 +22,7 @@ import ApprovalCard from "../components/ApprovalCard";
 import PendingQueue from "../components/PendingQueue";
 import RewindConfirm from "../components/RewindConfirm";
 import UserItem from "../components/UserItem";
-import { activeSessionId, newSession, sessions, setHasConversation } from "../lib/state";
+import { activeSessionId, sessions, setHasConversation } from "../lib/state";
 import { onDragStart } from "../lib/drag";
 import ThinkingOrb from "../components/ThinkingOrb";
 import type { OrbState } from "../lib/orb";
@@ -96,7 +96,7 @@ export default function Session() {
   });
 
   /** Done 对账（实现见 lib/converge.ts）：快照权威 + 队列真源。 */
-  const { converge, clearQueue } = createConverge({
+  const { converge, clearQueue, resetHold } = createConverge({
     setItems,
     setPendingQueue,
     scroll: () => scroll(),
@@ -164,6 +164,7 @@ export default function Session() {
   const stop = () => {
     const sid = activeSessionId();
     if (sid) {
+      resetHold(); // abort 清队列是用户本意：pop 窗口保留逻辑不得把清掉的消息捞回
       setPendingQueue([]);
       void sessionAbort(sid);
     }
@@ -187,13 +188,6 @@ export default function Session() {
     onDone: () => converge(activeSessionId()),
   });
   const rewindAt = (messageId: string) => void rewind.flow.request(messageId);
-  const editResend = async (idx: number, text: string) => {
-    const done = await editResendImpl(send, items(), idx, text);
-    if (!done) {
-      await newSession();
-      await send(text, [], []);
-    }
-  };
 
   return (
     <div class="h-full flex-1 min-w-0 flex flex-col relative">
@@ -220,15 +214,6 @@ export default function Session() {
           </span>
         </Show>
         <span class="ml-auto flex items-center gap-1">
-          <Show when={rewind.note()}>
-            <button
-              class="pressable text-2xs text-[var(--err)]"
-              title="点击关闭"
-              onClick={() => rewind.dismissNote()}
-            >
-              {rewind.note()}
-            </button>
-          </Show>
           <Show when={exportNote()}>
             <span class="text-2xs text-[var(--ok)]">{exportNote()}</span>
           </Show>
@@ -281,9 +266,10 @@ export default function Session() {
                   <UserItem
                     item={item}
                     onFork={() => void forkAt(item.messageId!)}
-                    onEditResend={(text) => void editResend(i(), text)}
+                    onEditResend={(text) => void editResendImpl(send, items(), i(), text)}
                     onRewind={() => void rewindAt(item.messageId!)}
                     onRetry={() => void retrySend(item)}
+                    onImageLoad={() => scroll()}
                   />
                 );
               }
@@ -320,8 +306,20 @@ export default function Session() {
 
       <div class="px-3 pb-3 composer-fade">
         <div class="w-full">
+          {/* rewind 失败尾注锚在 composer 上方固定区（与 RewindConfirm 同区位）：
+              标题栏右上角离 rewind 触发点（消息操作菜单）太远，错误易被忽略 */}
+          <Show when={rewind.note()}>
+            <button
+              class="pressable mb-1.5 text-2xs text-[var(--err)]"
+              title="点击关闭"
+              onClick={() => rewind.dismissNote()}
+            >
+              {rewind.note()}
+            </button>
+          </Show>
           <Show when={rewind.pending()}>
             <RewindConfirm
+              busy={rewind.flow.busy}
               onConfirm={() => void rewind.flow.confirm()}
               onCancel={() => rewind.flow.cancel()}
             />

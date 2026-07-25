@@ -1,6 +1,7 @@
 // rewind 确认流：dirty 门禁的「拒绝 -> 确认 -> 带 confirm 重发」序列，其余拒绝不重试。
 // fixture 与 src-tauri/src/ws/session_ops.rs 的 RewindBlock 序列化对齐（code 驱动，漂移即测试红）。
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createRoot, createSignal } from "solid-js";
 import {
   classifyRewindError,
   createRewindFlow,
@@ -19,6 +20,7 @@ const DIRTY = block("dirty", {
 });
 const ACTIVE_RUN = block("active_run");
 const NOT_IN_SESSION = block("not_in_session");
+const CHECKPOINT_MISSING = block("checkpoint_missing");
 
 type Call = { sid: string; mid: string; confirm: boolean };
 
@@ -131,6 +133,7 @@ describe("classifyRewindError / rewindErrorText", () => {
     expect(classifyRewindError(DIRTY)).toBe("dirty");
     expect(classifyRewindError(ACTIVE_RUN)).toBe("active_run");
     expect(classifyRewindError(NOT_IN_SESSION)).toBe("not_in_session");
+    expect(classifyRewindError(CHECKPOINT_MISSING)).toBe("checkpoint_missing");
     // 旧的手写英文 fixture 形态（纯文案）一律 unknown：归类只看结构化 code
     expect(
       classifyRewindError(new Error("worktree has uncheckpointed changes, pass confirm=true")),
@@ -156,6 +159,60 @@ describe("classifyRewindError / rewindErrorText", () => {
   it("未识别错误保留原始信息便于排查", () => {
     expect(rewindErrorText(new Error("boom"))).toBe("回退失败：boom");
   });
+
+  it("checkpoint_missing（barrier commit 失败只 warn，rewind 才暴露）：归类人话，不再裸报英文", () => {
+    expect(rewindErrorText(CHECKPOINT_MISSING)).toBe(
+      "这条消息的代码检查点没有保存成功，无法回退到此处",
+    );
+  });
+});
+
+describe("createRewindFlow 防抖", () => {
+  it("request 在飞期间重复触发不再发 RPC，busy 暴露给确认键禁用", async () => {
+    let release!: () => void;
+    const calls: Call[] = [];
+    const flow = createRewindFlow({
+      sessionId: () => "s1",
+      call: (sid, mid, confirm) => {
+        calls.push({ sid, mid, confirm });
+        return new Promise<void>((r) => {
+          release = r;
+        });
+      },
+    });
+    expect(flow.busy()).toBe(false);
+    const p1 = flow.request("m-1");
+    expect(flow.busy()).toBe(true);
+    await flow.request("m-2"); // 在飞被拒：立即返回，不发第二个 RPC
+    expect(calls).toHaveLength(1);
+    release();
+    await p1;
+    expect(flow.busy()).toBe(false);
+  });
+
+  it("confirm 在飞时重复确认只发一次带 confirm 的请求", async () => {
+    let releaseConfirm!: () => void;
+    const calls: Call[] = [];
+    const flow = createRewindFlow({
+      sessionId: () => "s1",
+      call: (sid, mid, confirm) => {
+        calls.push({ sid, mid, confirm });
+        return confirm
+          ? new Promise<void>((r) => {
+              releaseConfirm = r;
+            })
+          : Promise.reject(DIRTY);
+      },
+    });
+    await flow.request("m-9");
+    expect(flow.pending()).toBe("m-9");
+    const p1 = flow.confirm();
+    await flow.confirm(); // 在飞被拒：不得重复发 confirm=true
+    expect(calls.map((c) => c.confirm)).toEqual([false, true]);
+    releaseConfirm();
+    await p1;
+    expect(flow.pending()).toBeNull();
+  });
 });
 
 describe("createSessionRewind 错误尾注", () => {
@@ -163,12 +220,20 @@ describe("createSessionRewind 错误尾注", () => {
 
   function noteHarness() {
     vi.useFakeTimers();
-    const r = createSessionRewind({
-      sessionId: () => "s1",
-      onDone: () => {},
-      call: () => Promise.reject(ACTIVE_RUN),
+    // createSessionRewind 内含 createEffect（切会话清 pending）：挂 root 消除未处置警告
+    return createRoot((dispose) => {
+      const r = createSessionRewind({
+        sessionId: () => "s1",
+        onDone: () => {},
+        call: () => Promise.reject(ACTIVE_RUN),
+      });
+      return {
+        note: r.note,
+        dismiss: r.dismissNote,
+        fire: (mid: string) => r.flow.request(mid),
+        dispose,
+      };
     });
-    return { note: r.note, dismiss: r.dismissNote, fire: (mid: string) => r.flow.request(mid) };
   }
 
   it("报错上尾注，4s 自动消失", async () => {
@@ -179,6 +244,7 @@ describe("createSessionRewind 错误尾注", () => {
     expect(h.note()).not.toBe("");
     vi.advanceTimersByTime(1);
     expect(h.note()).toBe("");
+    h.dispose();
   });
 
   it("点击关闭立即消，且旧计时器不再清掉后续文案", async () => {
@@ -193,6 +259,7 @@ describe("createSessionRewind 错误尾注", () => {
     expect(h.note()).not.toBe("");
     vi.advanceTimersByTime(1);
     expect(h.note()).toBe("");
+    h.dispose();
   });
 });
 
@@ -202,11 +269,14 @@ describe("createSessionRewind 确认框上下文通道", () => {
   it("dirty 挂起时 RewindConfirm 通道带上下文，确认后清空", async () => {
     vi.useFakeTimers();
     let reject = true;
-    const r = createSessionRewind({
-      sessionId: () => "s1",
-      onDone: () => {},
-      call: () => (reject ? Promise.reject(DIRTY) : Promise.resolve()),
-    });
+    const { r, dispose } = createRoot((d) => ({
+      r: createSessionRewind({
+        sessionId: () => "s1",
+        onDone: () => {},
+        call: () => (reject ? Promise.reject(DIRTY) : Promise.resolve()),
+      }),
+      dispose: d,
+    }));
     await r.flow.request("m-9");
     expect(rewindPendingInfo()).toEqual({
       messageId: "m-9",
@@ -217,5 +287,26 @@ describe("createSessionRewind 确认框上下文通道", () => {
     reject = false;
     await r.flow.confirm();
     expect(rewindPendingInfo()).toBeNull();
+    dispose();
+  });
+
+  it("切会话清待确认条：旧 sid 的 pending 不泄漏（新 sid + 旧 mid 重发是误回退）", async () => {
+    const [sid, setSid] = createSignal("s1");
+    const { r, dispose } = createRoot((d) => ({
+      r: createSessionRewind({
+        sessionId: sid,
+        onDone: () => {},
+        call: () => Promise.reject(DIRTY),
+      }),
+      dispose: d,
+    }));
+    await r.flow.request("m-9");
+    expect(r.pending()).toBe("m-9");
+    expect(rewindPendingInfo()).not.toBeNull();
+    setSid("s2");
+    await new Promise((res) => setTimeout(res, 0)); // 等 createEffect 生效
+    expect(r.pending()).toBeNull();
+    expect(rewindPendingInfo()).toBeNull();
+    dispose();
   });
 });

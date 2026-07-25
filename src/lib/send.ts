@@ -18,11 +18,12 @@ export interface SendFlowDeps {
 }
 
 export interface SendFlow {
+  /** 返回 true = 消息转入后端排队（运行中发送）：调用方据此给「已加入队列」反馈。 */
   send: (
     text: string,
     context: ContextItem[],
     images: Array<{ media_type: string; data: string }>,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   retry: (bubble: MsgItem) => Promise<void>;
 }
 
@@ -34,7 +35,7 @@ export function createSendFlow(deps: SendFlowDeps): SendFlow {
       sid = await ensureActiveSession();
     } catch (e) {
       flashErr(`发送失败：${formatError(e instanceof Error ? e.message : String(e))}`);
-      return;
+      return false;
     }
     // 只有本轮把会话从空闲推进 streaming 的首发，失败时才负责收回 streaming；
     // 排队中的发送失败时当前 run 仍在跑，streaming 动不得
@@ -53,12 +54,14 @@ export function createSendFlow(deps: SendFlowDeps): SendFlow {
     try {
       const r = await sendMessage(sid, text, context, images);
       if (r?.queued) deps.setPendingQueue((prev) => [...prev, text]);
+      return r?.queued === true;
     } catch (e) {
       const msg = formatError(e instanceof Error ? e.message : String(e));
       flashErr(`发送失败：${msg}`);
       // 引用相等定位本气泡：乐观气泡无 messageId，对账/刷新后已被快照撤下，map 不到是正常
       deps.setItems((prev) => prev.map((it) => (it === bubble ? { ...it, sendError: msg } : it)));
       if (startedStream) deps.onStreamStop(sid);
+      return false;
     }
   };
 

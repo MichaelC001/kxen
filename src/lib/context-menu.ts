@@ -5,6 +5,8 @@ import { createSignal } from "solid-js";
 export interface MenuItem {
   label: string;
   danger?: boolean;
+  /** 禁用态（如未持久化消息无 messageId，rewind 入口只展示不可点） */
+  disabled?: boolean;
   action: () => void;
 }
 
