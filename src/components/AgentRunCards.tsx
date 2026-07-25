@@ -35,7 +35,8 @@ export default function AgentRunCards() {
                 <span class="text-2xs text-[var(--text-faint)] max-w-24 truncate">
                   {a.model.model}
                 </span>
-                <span class="text-2xs text-[var(--text-faint)] ml-auto shrink-0">
+                {/* hover 时管理钮覆盖右侧，状态文案让位避免叠影（同 RightColumn 箭头让位） */}
+                <span class="text-2xs text-[var(--text-faint)] ml-auto shrink-0 group-hover:hidden">
                   {statusText(a.status)}
                 </span>
               </button>

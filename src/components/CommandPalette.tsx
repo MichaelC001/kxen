@@ -25,10 +25,13 @@ export default function CommandPalette() {
   const onKey = (e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
+      // Solid 信号同步生效：setOpen 后再读 open() 已是新值，初始化必须按切换前的旧值判「正在打开」，
+      // 否则初始化落在关闭分支——首开面板命令列表为空、关闭时反而预载
+      const isOpening = !open();
       // 打开面板即打断语音 PTT：焦点被面板 input 抢走后空格 keyup 丢失，PTT 永远收不到松开
-      if (!open()) interruptComposer();
-      setOpen(!open());
-      if (!open()) {
+      if (isOpening) interruptComposer();
+      setOpen(isOpening);
+      if (isOpening) {
         setQuery("");
         setSelected(0);
         void commandList().then(setCommands);

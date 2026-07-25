@@ -102,6 +102,15 @@ describe("AgentRunCards", () => {
     dispose();
   });
 
+  it("状态文案 hover 让位：group-hover:hidden 防管理钮遮字（同 RightColumn 箭头让位）", () => {
+    setAgents([run("builder", "working")]);
+    const { dispose, cards } = mount();
+    const status = cards()[0]!.querySelector("span.ml-auto")!;
+    expect(status.textContent).toBe("工作中");
+    expect(status.className).toContain("group-hover:hidden");
+    dispose();
+  });
+
   it("running 卡点停止：调 agents.stop，乐观置灰，轮询收敛摘灰", async () => {
     setAgents([run("builder", "working"), run("reviewer", "done")]);
     setActiveSessionId("s1");

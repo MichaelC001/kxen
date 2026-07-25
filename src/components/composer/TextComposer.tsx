@@ -202,6 +202,7 @@ export default function TextComposer(props: {
   }
 
   async function send() {
+    voiceCtl.cancelPendingActivation(); // 快速 Enter（按住不足 400ms）不走 stop：废未决激活计时，防发送后触发开录
     // 录音中发送：先等语音收尾（终稿并入输入框），连终稿一起发。
     // 旧实现不 await：发出去的是旧 partial，终稿随后倒灌已清空的输入框。
     // 仅启动中（权限弹窗未决）取消不等待：此刻没有终稿可等，发送不能被弹窗卡住。

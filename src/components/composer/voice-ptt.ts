@@ -11,6 +11,8 @@ export interface VoiceController {
    * discard：丢弃终稿（切会话——base 属旧会话，并入新会话输入框就是串台）。
    */
   stop: (mode?: "merge" | "discard") => Promise<void>;
+  /** 废掉未决的 PTT 激活计时：按住不足 400ms 直接发送时不走 stop，计时留存会在发送后触发开录。 */
+  cancelPendingActivation: () => void;
   /** 启动中（权限弹窗/引擎未决）：发送方据此区分「等终稿」还是「取消不等」。 */
   starting: () => boolean;
   onSpaceDown: (e: KeyboardEvent) => void;
@@ -182,6 +184,7 @@ export function createVoicePtt(opts: {
       else launch();
     },
     stop,
+    cancelPendingActivation: clearPttTimer,
     starting: () => starting,
     onSpaceDown: (e) => {
       if (e.key !== " ") return;

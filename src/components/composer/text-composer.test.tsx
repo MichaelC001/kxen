@@ -284,6 +284,29 @@ describe("TextComposer (webkit)", () => {
     dispose();
   });
 
+  it("快速 Enter（空格按住不足 400ms）发送：未决激活计时作废，不莫名开录", async () => {
+    let sent = "";
+    const { dispose, ta } = mount((t) => (sent = t));
+    await new Promise((r) => setTimeout(r, 100));
+    const el = ta();
+    el.focus();
+    await userEvent.keyboard("hi");
+    // 两键同 tick 连发 = 按住不足 400ms：激活计时必未触发（真等 100ms 在慢环境会被 400ms 计时抢跑，失去确定性）；
+    // 此路径 recording/starting 皆 false，不调 voiceCtl.stop，计时只能靠 cancelPendingActivation 作废
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(sent).toBe("hi");
+    // 等过 400ms 激活窗口：旧实现计时随后触发 launch，发送完莫名开录
+    await new Promise((r) => setTimeout(r, 500));
+    expect(voiceMock.started).toBe(0);
+    expect(voiceMock.stopped).toBe(0);
+    el.dispatchEvent(new KeyboardEvent("keyup", { key: " ", bubbles: true, cancelable: true }));
+    dispose();
+  });
+
   it("语音 partial 落草稿；切会话停录音、迟到终稿不串台，切回恢复", async () => {
     const { dispose, setTick, ta } = mount();
     await new Promise((r) => setTimeout(r, 100));
