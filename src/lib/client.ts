@@ -207,6 +207,22 @@ async function closeSubscription(streamId: string): Promise<void> {
   await call("rpc.unsubscribe", { stream_id: streamId });
 }
 
+/**
+ * sub 流 chunk 按 topics 匹配分发，不按 streamId：重连恢复后服务端生成新 streamId
+ * （ws/protocol.rs stream_id() 时间戳+序号），闭包捕获首开 id 会把恢复后的帧全部丢弃；
+ * 服务端对每 topic 每连接只发一帧（ws/stream.rs find 首个命中 binding），按 topic 匹配恰好一次。
+ */
+export function createSubChunkHandler(
+  topics: string[],
+  handler: (payload: unknown) => void,
+): (chunk: StreamChunk) => void {
+  return (chunk) => {
+    const result = chunk.result as { topic?: unknown; payload?: unknown } | undefined;
+    if (typeof result?.topic !== "string" || !topics.includes(result.topic)) return;
+    handler(result.payload);
+  };
+}
+
 // ---------------- 对外：client 单例 ----------------
 
 export const client = {
@@ -220,11 +236,7 @@ export const client = {
     const list = Array.isArray(topics) ? topics : [topics];
     return new TopicStream<T>(async (handler) => {
       const streamId = await openSubscription(list);
-      const onChunk = (chunk: StreamChunk) => {
-        if (chunk.stream?.id !== streamId) return;
-        const result = chunk.result as { payload?: unknown } | undefined;
-        handler(result?.payload ?? chunk.result);
-      };
+      const onChunk = createSubChunkHandler(list, handler);
       chunkHandlers.add(onChunk);
       return () => {
         chunkHandlers.delete(onChunk);
