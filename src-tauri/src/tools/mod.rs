@@ -1,5 +1,6 @@
 //! kxen-tools：exec / 读写删 / safety / hooks / worktree。
 
+pub mod browser;
 pub mod checkpoint;
 pub mod dev_server;
 pub mod exec;

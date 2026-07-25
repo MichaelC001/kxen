@@ -277,6 +277,7 @@ pub(super) async fn session_delete(params: &Value, state: &crate::AppState) -> R
         tracing::info!(n, "session delete: goals canceled");
     }
     state.team.drop_session(id);
+    state.extras.close_browser(id).await; // 浏览器随会话关闭（Chrome 进程兜底是 kill_on_drop）
     state.drop_extras(id);
     state.picked_files.drop_session(id);
     // 改动快照随会话销毁：内存态 map 不摘即泄漏（快照为何不落盘见 snapshot 模块 doc）

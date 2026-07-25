@@ -18,6 +18,8 @@ pub struct SessionExtras {
     pub loaded_skills: std::sync::Mutex<std::collections::HashSet<String>>,
     /// skill -> skill 递归深度（cap 3）。
     pub skill_depth: std::sync::atomic::AtomicU32,
+    /// browser 工具的 per-session 单实例槽（懒启动；delete 经 close_browser 关 Chrome）
+    pub browser: crate::tools::browser::BrowserSlot,
 }
 
 /// 按 session 隔离的 extras 注册表：进程级单例会让 A 会话的 todo/挂载工具
@@ -35,6 +37,14 @@ impl SessionExtrasRegistry {
     /// 会话销毁时清状态：下次取用重建空实例。
     pub fn drop_extras(&self, session_id: &str) {
         crate::core::shared::lock(&self.inner).remove(session_id);
+    }
+
+    /// 会话销毁前关浏览器（driver Drop 的进程兜底是 kill_on_drop，这里走显式 close 更干净）。
+    pub async fn close_browser(&self, session_id: &str) {
+        let extras = crate::core::shared::lock(&self.inner).get(session_id).cloned();
+        if let Some(extras) = extras {
+            extras.browser.close().await;
+        }
     }
 }
 

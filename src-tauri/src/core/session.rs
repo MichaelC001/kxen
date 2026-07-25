@@ -195,14 +195,18 @@ pub fn remove(dir: &Path, id: &str) {
         return;
     }
     let paths = [meta_path(dir, id), messages_path(dir, id), compaction_path(dir, id)];
+    // 会话子目录（browser 截图等运行期产物）一并清，口径与消息文件相同
+    let session_dir = dir.join(id);
     if dir.starts_with(std::env::temp_dir()) {
         for p in &paths {
             let _ = std::fs::remove_file(p);
         }
+        let _ = std::fs::remove_dir_all(&session_dir);
     } else {
         for p in &paths {
             let _ = trash::delete(p);
         }
+        let _ = trash::delete(&session_dir);
     }
 }
 

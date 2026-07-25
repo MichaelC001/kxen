@@ -297,42 +297,5 @@ pub fn core_tools() -> Vec<ToolDefinition> {
 }
 
 /// deferred 工具目录：默认不进上下文，经 tool_search 挂载到会话。
-pub fn deferred_tools() -> Vec<ToolDefinition> {
-    vec![
-        ToolDefinition::function(
-            "todo",
-            "Session todo list for tracking multi-step work: add items, list, complete by id, clear completed.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "action": { "type": "string", "enum": ["add", "list", "complete", "clear"] },
-                    "content": { "type": "string", "description": "Required for add" },
-                    "id": { "type": "integer", "description": "Required for complete" }
-                },
-                "required": ["action"]
-            }),
-        ),
-        ToolDefinition::function(
-            "webfetch",
-            "Fetch a URL and return the page as plain text (scripts/styles stripped, capped at 50k chars).",
-            json!({
-                "type": "object",
-                "properties": {
-                    "url": { "type": "string", "description": "https:// or http:// URL" }
-                },
-                "required": ["url"]
-            }),
-        ),
-        ToolDefinition::function(
-            "websearch",
-            "Search the web (DuckDuckGo) and return top results with title, URL and snippet. Use for current events, docs, library facts.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string", "description": "search query" }
-                },
-                "required": ["query"]
-            }),
-        ),
-    ]
-}
+/// 实现移至 tools_deferred.rs（本文件贴近 350 行门禁）；转口保持既有调用路径不变。
+pub use crate::agent::tools_deferred::deferred_tools;

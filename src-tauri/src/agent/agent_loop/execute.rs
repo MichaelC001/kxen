@@ -253,6 +253,7 @@ pub fn dispatch_tool<'a>(
                 let url = args.get("url").and_then(Value::as_str).ok_or("missing url")?;
                 crate::tools::webfetch::fetch_text(url).await
             }
+            "browser" => crate::tools::browser::dispatch(args, ctx.extras.as_deref().map(|e| &e.browser), ctx.session_id.as_deref()).await,
             "websearch" => {
                 let query = args.get("query").and_then(Value::as_str).ok_or("missing query")?;
                 Ok(crate::tools::websearch::format_hits(&crate::tools::websearch::search(query).await?))
