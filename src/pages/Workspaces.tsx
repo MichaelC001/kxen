@@ -1,9 +1,12 @@
 // 工作看板：workspace = 并行任务运行单元，一列一个 workspace。
 // 列内分区：运行中会话 / 隔离树 / goal / 排队与 cron 计数；8s 轮询 + goal/task 事件即时刷新。
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
-import { A, useNavigate } from "@solidjs/router";
+import { A } from "@solidjs/router";
 import { ArrowLeft, FolderGit2, GitBranch, Play, Target } from "lucide-solid";
 import { onTopic, workspacesOverview, workspaceSwitch, type WorkspaceOverview } from "../lib/chat";
+import { newSession, sessions, switchSession } from "../lib/state";
+import { flashErr } from "../lib/flash";
+import { formatError } from "../lib/error-text";
 import { goalStatusMeta, rankCards, type GoalTone } from "../lib/board";
 import { relTime } from "../lib/time";
 import { onDragStart } from "../lib/drag";
@@ -16,9 +19,7 @@ const TONE_CLASS: Record<GoalTone, string> = {
 };
 
 export default function Workspaces() {
-  const navigate = useNavigate();
   const [cards, setCards] = createSignal<WorkspaceOverview[]>([]);
-  const [note, setNote] = createSignal("");
   let unlisten: (() => void) | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
 
@@ -37,18 +38,23 @@ export default function Workspaces() {
     if (timer) clearInterval(timer);
   });
 
-  const flash = (msg: string) => {
-    setNote(msg);
-    setTimeout(() => setNote(""), 3000);
-  };
-
-  const open = async (path: string) => {
+  const open = async (path: string, sessionId?: string) => {
     try {
       await workspaceSwitch(path);
-      navigate("/");
     } catch (e) {
-      flash(String(e));
+      flashErr(`切换工作区失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+      return;
     }
+    if (sessionId) {
+      switchSession(sessionId);
+      return;
+    }
+    // 只切 workdir 不切会话 = 旧会话配新目录：落地该工作区最近会话，无则回草稿态
+    const latest = sessions()
+      .filter((s) => s.directory === path)
+      .sort((a, b) => b.updated_at - a.updated_at)[0];
+    if (latest) switchSession(latest.id);
+    else await newSession();
   };
 
   return (
@@ -63,9 +69,6 @@ export default function Workspaces() {
           返回会话
         </A>
         <h1 class="text-lg font-medium text-[var(--text)] mb-4">工作看板</h1>
-        <Show when={note()}>
-          <div class="text-xs text-[var(--err)] mb-3">{note()}</div>
-        </Show>
         <Show
           when={cards().length > 0}
           fallback={
@@ -97,7 +100,10 @@ function Section(props: { title: string; children: JSX.Element }) {
   );
 }
 
-function Column(props: { card: WorkspaceOverview; onOpen: (path: string) => void }) {
+function Column(props: {
+  card: WorkspaceOverview;
+  onOpen: (path: string, sessionId?: string) => void;
+}) {
   const c = () => props.card;
   const basename = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
 
@@ -125,15 +131,19 @@ function Column(props: { card: WorkspaceOverview; onOpen: (path: string) => void
         <Section title="运行中">
           <For each={c().running_sessions} fallback={<EmptyLine text="无运行中会话" />}>
             {(s) => (
-              <div class="flex items-center gap-1.5 px-1 py-0.5 text-xs">
+              <button
+                class="pressable w-full flex items-center gap-1.5 px-1 py-0.5 rounded text-xs hover:bg-[var(--bg-overlay)]"
+                title="直达该运行中会话"
+                onClick={() => void props.onOpen(c().path, s.id)}
+              >
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--ok)] shrink-0 animate-pulse" />
-                <span class="flex-1 truncate text-[var(--text)]">{s.title}</span>
+                <span class="flex-1 truncate text-left text-[var(--text)]">{s.title}</span>
                 <Show when={s.queued > 0}>
                   <span class="text-2xs tabular-nums text-[var(--warn)] shrink-0">
                     +{s.queued} 排队
                   </span>
                 </Show>
-              </div>
+              </button>
             )}
           </For>
         </Section>

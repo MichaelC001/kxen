@@ -5,6 +5,8 @@ import { sessionUpdateMeta, type SessionMeta } from "../lib/chat";
 import { openMenu } from "../lib/context-menu";
 import { relTime } from "../lib/time";
 import { activeSessionId } from "../lib/state";
+import { flashErr } from "../lib/flash";
+import { formatError } from "../lib/error-text";
 
 export default function SessionRow(props: {
   session: SessionMeta;
@@ -13,9 +15,13 @@ export default function SessionRow(props: {
   onDelete: () => void;
   onChanged: () => void;
   draggable: boolean;
+  /** 拖拽悬停落点：行顶画插入线。 */
+  dropTarget: boolean;
   onDragStart: (e: DragEvent) => void;
   onDragOver: (e: DragEvent) => void;
+  onDragLeave: (e: DragEvent) => void;
   onDrop: (e: DragEvent) => void;
+  onDragEnd: (e: DragEvent) => void;
 }) {
   const [renaming, setRenaming] = createSignal(false);
   const [confirming, setConfirming] = createSignal(false);
@@ -26,17 +32,26 @@ export default function SessionRow(props: {
 
   const commitRename = async () => {
     const t = draft().trim();
-    if (t && t !== s().title) {
-      await sessionUpdateMeta(s().id, { title: t });
-      props.onChanged();
+    try {
+      if (t && t !== s().title) {
+        await sessionUpdateMeta(s().id, { title: t });
+        props.onChanged();
+      }
+    } catch (e) {
+      flashErr(`重命名失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+    } finally {
+      // RPC 失败也必须退出编辑态，否则输入框卡死
+      setRenaming(false);
     }
-    setRenaming(false);
   };
 
-  const togglePin = async (e: MouseEvent) => {
-    e.stopPropagation();
-    await sessionUpdateMeta(s().id, { pinned: !s().pinned });
-    props.onChanged();
+  const togglePin = async () => {
+    try {
+      await sessionUpdateMeta(s().id, { pinned: !s().pinned });
+      props.onChanged();
+    } catch (e) {
+      flashErr(`置顶失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+    }
   };
 
   return (
@@ -46,9 +61,11 @@ export default function SessionRow(props: {
         "bg-[var(--bg-overlay)] text-[var(--text)]": s().id === activeSessionId(),
         "text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60": s().id !== activeSessionId(),
         "opacity-50 pointer-events-none": props.deleting,
+        "shadow-[inset_0_2px_0_var(--accent)]": props.dropTarget,
       }}
       draggable={props.draggable && !renaming() && !props.deleting}
       onClick={props.onOpen}
+      onMouseLeave={() => setConfirming(false)}
       onContextMenu={(e) => {
         openMenu(e, [
           {
@@ -61,8 +78,7 @@ export default function SessionRow(props: {
           },
           {
             label: s().pinned ? "取消置顶" : "置顶",
-            action: () =>
-              void sessionUpdateMeta(s().id, { pinned: !s().pinned }).then(props.onChanged),
+            action: () => void togglePin(),
           },
           { label: "删除会话", danger: true, action: props.onDelete },
         ]);
@@ -74,7 +90,9 @@ export default function SessionRow(props: {
       }}
       onDragStart={props.onDragStart}
       onDragOver={props.onDragOver}
+      onDragLeave={props.onDragLeave}
       onDrop={props.onDrop}
+      onDragEnd={props.onDragEnd}
     >
       <Show when={s().running}>
         <span class="ml-1 w-1.5 h-1.5 rounded-full bg-[var(--ok)] animate-pulse shrink-0" />
@@ -118,7 +136,10 @@ export default function SessionRow(props: {
           <button
             class="px-1 text-[var(--text-faint)] hover:text-[var(--text)]"
             title={s().pinned ? "取消置顶" : "置顶"}
-            onClick={(e) => void togglePin(e)}
+            onClick={(e) => {
+              e.stopPropagation();
+              void togglePin();
+            }}
           >
             <Show when={s().pinned} fallback={<Pin size={11} />}>
               <PinOff size={11} />

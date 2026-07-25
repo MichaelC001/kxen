@@ -1,0 +1,94 @@
+// SessionRow 三处小修回归：重命名 RPC 失败 finally 必退编辑态、置顶失败 flashErr、
+// 删除确认态 mouseleave 复位。
+import { render } from "solid-js/web";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { SessionMeta } from "../lib/chat";
+
+const h = vi.hoisted(() => ({
+  sessionUpdateMeta: vi.fn(async (_id: string, _patch: unknown) => {}),
+}));
+
+vi.mock("../lib/chat", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../lib/chat")>();
+  return { ...orig, sessionUpdateMeta: h.sessionUpdateMeta };
+});
+
+import SessionRow from "./SessionRow";
+import { flash } from "../lib/flash";
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+const S: SessionMeta = { id: "s1", title: "旧标题", directory: "/a", created_at: 1, updated_at: 1 };
+
+const renderRow = () =>
+  render(
+    () => (
+      <SessionRow
+        session={S}
+        deleting={false}
+        onOpen={() => {}}
+        onDelete={() => {}}
+        onChanged={() => {}}
+        draggable={false}
+        dropTarget={false}
+        onDragStart={() => {}}
+        onDragOver={() => {}}
+        onDragLeave={() => {}}
+        onDrop={() => {}}
+        onDragEnd={() => {}}
+      />
+    ),
+    document.body,
+  );
+
+const titleSpan = () =>
+  [...document.body.querySelectorAll("span")].find((el) => el.textContent?.trim() === S.title);
+
+afterEach(() => {
+  document.body.innerHTML = "";
+  for (const m of flash.msgs()) flash.dismiss(m.id);
+  h.sessionUpdateMeta.mockReset();
+});
+
+describe("SessionRow 失败路径", () => {
+  it("重命名 RPC 失败：finally 退出编辑态并 flashErr（输入框不卡死）", async () => {
+    h.sessionUpdateMeta.mockRejectedValue(new Error("connection lost"));
+    const dispose = renderRow();
+    titleSpan()?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await flush();
+    const input = document.body.querySelector("input");
+    expect(input).not.toBeNull();
+    input!.value = "新标题";
+    input!.dispatchEvent(new Event("input", { bubbles: true }));
+    input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await flush();
+    expect(document.body.querySelector("input")).toBeNull(); // finally 必退编辑态
+    expect(flash.msgs().some((m) => m.kind === "err" && m.text.includes("重命名失败"))).toBe(true);
+    dispose();
+  });
+
+  it("置顶 RPC 失败：flashErr 且不外抛", async () => {
+    h.sessionUpdateMeta.mockRejectedValue(new Error("connection lost"));
+    const dispose = renderRow();
+    const pin = document.body.querySelector("button[title='置顶']");
+    pin?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+    expect(flash.msgs().some((m) => m.kind === "err" && m.text.includes("置顶失败"))).toBe(true);
+    dispose();
+  });
+
+  it("删除确认态：mouseleave 复位为未确认", async () => {
+    const dispose = renderRow();
+    const del = document.body.querySelector("button[title='删除会话（再点一次确认）']");
+    del?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+    expect(document.body.querySelector("button[title='确认删除']")).not.toBeNull();
+    document
+      .querySelector(".interactive")!
+      .dispatchEvent(new MouseEvent("mouseleave", { bubbles: false }));
+    await flush();
+    expect(document.body.querySelector("button[title='确认删除']")).toBeNull();
+    expect(document.body.querySelector("button[title='删除会话（再点一次确认）']")).not.toBeNull();
+    dispose();
+  });
+});

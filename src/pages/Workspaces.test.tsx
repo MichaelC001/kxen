@@ -1,0 +1,133 @@
+// 看板落点回归：点列头/隔离树必须切到该 workspace 最近会话（无会话回草稿态），
+// 运行中条目是 button 可直达其会话；workspaceSwitch 失败中止并 flashErr。
+// 回归背景：旧版只 workspaceSwitch + navigate("/")，落地显示旧会话 + 新 workdir 错配。
+import { render } from "solid-js/web";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { JSX } from "solid-js";
+import type { SessionMeta, WorkspaceOverview } from "../lib/chat";
+
+const h = vi.hoisted(() => ({
+  workspacesOverview: vi.fn(async () => [] as WorkspaceOverview[]),
+  workspaceSwitch: vi.fn(async (_path: string) => {}),
+  onTopic: vi.fn((_topics: string[], _handler: unknown) => () => {}),
+  nav: vi.fn(),
+}));
+
+vi.mock("../lib/chat", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../lib/chat")>();
+  return {
+    ...orig,
+    workspacesOverview: h.workspacesOverview,
+    workspaceSwitch: h.workspaceSwitch,
+    onTopic: h.onTopic,
+  };
+});
+
+// <A> 依赖 Router 上下文：测试无路由装配，桩成普通锚
+vi.mock("@solidjs/router", () => ({
+  A: (props: { href: string; class?: string; children?: JSX.Element }) => (
+    <a href={props.href} class={props.class}>
+      {props.children}
+    </a>
+  ),
+}));
+
+import Workspaces from "./Workspaces";
+import { flash } from "../lib/flash";
+import { activeSessionId, setActiveSessionId, setNavigator, setSessions } from "../lib/state";
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+const S1: SessionMeta = {
+  id: "s1",
+  title: "跑着的事",
+  directory: "/a",
+  created_at: 1,
+  updated_at: 100,
+};
+const S2: SessionMeta = {
+  id: "s2",
+  title: "较新会话",
+  directory: "/a",
+  created_at: 1,
+  updated_at: 200,
+};
+
+const CARD: WorkspaceOverview = {
+  path: "/a",
+  sessions: 2,
+  running: 1,
+  last_activity: 200,
+  dirty: 0,
+  running_sessions: [{ id: "s1", title: "跑着的事", queued: 0 }],
+  worktrees: [],
+  goal: null,
+  queued: 0,
+  cron: 0,
+};
+
+const btnByText = (text: string) =>
+  [...document.body.querySelectorAll("button")].find((el) => el.textContent?.includes(text));
+
+beforeEach(() => {
+  setNavigator(h.nav);
+  setSessions([S1, S2]);
+  h.workspacesOverview.mockResolvedValue([CARD]);
+});
+
+afterEach(() => {
+  document.body.innerHTML = "";
+  setSessions([]);
+  setActiveSessionId("");
+  for (const m of flash.msgs()) flash.dismiss(m.id);
+  h.workspaceSwitch.mockReset();
+  h.nav.mockClear();
+});
+
+describe("Workspaces 看板落点", () => {
+  it("点列头：切到该 workspace 最近会话（updated_at 最大）", async () => {
+    const dispose = render(() => <Workspaces />, document.body);
+    await flush();
+    btnByText("/a")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+    expect(h.workspaceSwitch).toHaveBeenCalledWith("/a");
+    expect(activeSessionId()).toBe("s2");
+    expect(h.nav).toHaveBeenCalledWith("/");
+    dispose();
+  });
+
+  it("点运行中条目：直达该会话", async () => {
+    const dispose = render(() => <Workspaces />, document.body);
+    await flush();
+    btnByText("跑着的事")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+    expect(h.workspaceSwitch).toHaveBeenCalledWith("/a");
+    expect(activeSessionId()).toBe("s1");
+    dispose();
+  });
+
+  it("无会话的 workspace：落地草稿态", async () => {
+    h.workspacesOverview.mockResolvedValue([{ ...CARD, path: "/c", running_sessions: [] }]);
+    const dispose = render(() => <Workspaces />, document.body);
+    await flush();
+    btnByText("/c")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+    expect(activeSessionId()).toBe(""); // 草稿态
+    expect(h.nav).toHaveBeenCalledWith("/");
+    dispose();
+  });
+
+  it("workspaceSwitch 失败：中止并 flashErr，不切会话不跳转", async () => {
+    h.workspaceSwitch.mockRejectedValue(new Error("directory not found: /a"));
+    const dispose = render(() => <Workspaces />, document.body);
+    await flush();
+    btnByText("/a")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
+    expect(activeSessionId()).toBe("");
+    expect(h.nav).not.toHaveBeenCalled();
+    expect(flash.msgs().some((m) => m.kind === "err" && m.text.includes("切换工作区失败"))).toBe(
+      true,
+    );
+    dispose();
+  });
+});

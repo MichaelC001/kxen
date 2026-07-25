@@ -34,6 +34,8 @@ export default function SessionTree() {
   const [newPath, setNewPath] = createSignal("");
   /** 删除进行中（三态之二）：行禁用 + spinner，finally 必复位防卡死。 */
   const [deleting, setDeleting] = createSignal<ReadonlySet<string>>(new Set());
+  /** 拖拽落点高亮：当前悬停的目标行 id（插入线）。 */
+  const [dropTarget, setDropTarget] = createSignal("");
   const dedupeDelete = createInFlight();
   let dragId = "";
 
@@ -94,12 +96,23 @@ export default function SessionTree() {
   };
 
   const open = async (path: string, id: string) => {
-    await workspaceSwitch(path).catch(() => {});
+    try {
+      await workspaceSwitch(path);
+    } catch (e) {
+      // 目录被删/无权限时中止：继续切会话会让 statusline/diff/LSP 全对错目录
+      flashErr(`切换目录失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+      return;
+    }
     switchSession(id);
   };
 
   const quickNew = async (path: string) => {
-    await workspaceSwitch(path).catch(() => {});
+    try {
+      await workspaceSwitch(path);
+    } catch (e) {
+      flashErr(`切换目录失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+      return;
+    }
     await newSession();
   };
 
@@ -119,9 +132,10 @@ export default function SessionTree() {
     }
   };
 
+  /** 添加并切入：错误上抛由调用方 flash（保留输入框/选择器现场）。 */
   const addAndSwitch = async (path: string) => {
-    await workspaceAdd(path).catch(() => {});
-    await workspaceSwitch(path).catch(() => {});
+    await workspaceAdd(path);
+    await workspaceSwitch(path);
     await refreshSessions();
     await reloadRecents();
   };
@@ -133,13 +147,23 @@ export default function SessionTree() {
       multiple: false,
       title: "选择项目目录",
     }).catch(() => null);
-    if (typeof selected === "string" && selected) await addAndSwitch(selected);
+    if (typeof selected === "string" && selected) {
+      await addAndSwitch(selected).catch((e) => {
+        flashErr(`添加目录失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+      });
+    }
   };
 
   const addPath = async () => {
     const path = newPath().trim();
     if (!path) return;
-    await addAndSwitch(path);
+    try {
+      await addAndSwitch(path);
+    } catch (e) {
+      // 失败不收起输入框：用户修正路径后直接重试
+      flashErr(`添加目录失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+      return;
+    }
     setAdding(false);
     setNewPath("");
   };
@@ -207,9 +231,27 @@ export default function SessionTree() {
                         onDelete={() => void remove(s.id)}
                         onChanged={() => void refreshSessions()}
                         draggable
+                        dropTarget={dropTarget() === s.id}
                         onDragStart={() => (dragId = s.id)}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={() => void dropOn(group, s.id)}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          // 拖到自身上不标落点
+                          if (dragId && dragId !== s.id) setDropTarget(s.id);
+                        }}
+                        onDragLeave={(e) => {
+                          // 子元素间移动也触发 leave：真离开本行才清高亮
+                          if (!(e.currentTarget as Node).contains(e.relatedTarget as Node | null))
+                            setDropTarget("");
+                        }}
+                        onDrop={() => {
+                          setDropTarget("");
+                          void dropOn(group, s.id);
+                        }}
+                        onDragEnd={() => {
+                          // 取消拖拽（Esc/落点非法）不触发 drop：dragend 兜底清状态
+                          dragId = "";
+                          setDropTarget("");
+                        }}
                       />
                     )}
                   </For>

@@ -1,16 +1,20 @@
 // 消息动作：fork / 重新生成 / 编辑重发（Session.tsx 拆出，350 门禁）。
 import { sessionFork } from "./chat";
 import { activeSessionId, refreshSessions, switchSession } from "./state";
+import { flashErr } from "./flash";
+import { formatError } from "./error-text";
 import type { Item } from "./items";
 
 type Send = (text: string, context: [], images: []) => Promise<void>;
 
 /** 从指定消息分叉：新会话带前缀历史并切入。 */
 export async function forkAt(messageId: string): Promise<void> {
-  const forked = await sessionFork(activeSessionId(), messageId).catch(() => null);
-  if (forked) {
+  try {
+    const forked = await sessionFork(activeSessionId(), messageId);
     await refreshSessions();
     switchSession(forked.id);
+  } catch (e) {
+    flashErr(`分叉失败：${formatError(e instanceof Error ? e.message : String(e))}`);
   }
 }
 
@@ -35,12 +39,16 @@ export async function editResend(
   for (let j = idx - 1; j >= 0; j--) {
     const m = items[j];
     if (m?.kind === "msg" && m.messageId) {
-      const forked = await sessionFork(activeSessionId(), m.messageId).catch(() => null);
-      if (forked) {
+      try {
+        const forked = await sessionFork(activeSessionId(), m.messageId);
         await refreshSessions();
         switchSession(forked.id);
         await send(text, [], []);
         return true;
+      } catch (e) {
+        // fork 失败不再继续往更早消息退避：那会静默丢失比用户预期更多的上下文
+        flashErr(`编辑重发失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+        return false;
       }
     }
   }
