@@ -1,6 +1,7 @@
 // 空格 PTT 状态机实测（webkit 真实按键）：长按进语音无连打空格；失败干净回退。
 // 底座是 textarea（TextComposer 同款），PTT 只依赖 getText/setText 接口。
 import { describe, expect, it } from "vitest";
+import type { VoiceSession } from "../../lib/voice";
 import { createVoicePtt } from "./voice-ptt";
 
 function key(el: HTMLElement, type: "keydown" | "keyup", repeat = false) {
@@ -134,6 +135,72 @@ describe("voice PTT (webkit)", () => {
     key(el, "keyup");
     await new Promise((r) => setTimeout(r, 50));
     expect(gotSid).toBe("sess-42");
+    el.remove();
+  });
+
+  it("partial 只替换上屏区间：录音中手打的内容不被 partial/终稿覆盖", async () => {
+    const el = mountTa("hello");
+    let onPartial: (t: string) => void = () => {};
+    const ctl = createVoicePtt({
+      getText: () => el.value,
+      setText: (v) => (el.value = v),
+      afterChange: () => {},
+      setRecording: () => {},
+      setError: () => {},
+      engine: () => "apple",
+      startSession: async (_e, p) => {
+        onPartial = p;
+        return { engine: "apple", stop: async () => "终稿" };
+      },
+    });
+    ctl.toggle();
+    await new Promise((r) => setTimeout(r, 50));
+    onPartial("世界");
+    expect(el.value).toBe("hello世界");
+    // 录音中手打：旧实现 setText(base+partial) 会把 "abc" 抹掉
+    el.value = "hello世界abc";
+    onPartial("世界和平");
+    expect(el.value).toBe("hello世界和平abc");
+    // 终稿同样只替换 partial 区间
+    await ctl.stop();
+    expect(el.value).toBe("hello终稿abc");
+    // 停止后迟到的 partial 不上屏
+    onPartial("追加");
+    expect(el.value).toBe("hello终稿abc");
+    el.remove();
+  });
+
+  it("启动中 toggle = 取消：启动落定后自停，迟到终稿不上屏", async () => {
+    const el = mountTa();
+    let recording = false;
+    let innerStopped = 0;
+    let resolveStart: (s: VoiceSession) => void = () => {};
+    const ctl = createVoicePtt({
+      getText: () => el.value,
+      setText: (v) => (el.value = v),
+      afterChange: () => {},
+      setRecording: (v) => (recording = v),
+      setError: () => {},
+      engine: () => "apple",
+      // 权限弹窗未决：start 最长挂 60s
+      startSession: () =>
+        new Promise<VoiceSession>((res) => {
+          resolveStart = res;
+        }),
+    });
+    ctl.toggle(); // 启动
+    ctl.toggle(); // 启动中再按 = 取消（旧实现被 start 守卫吞掉，60s 内不可取消）
+    resolveStart({
+      engine: "apple",
+      stop: async () => {
+        innerStopped++;
+        return "迟到终稿";
+      },
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(recording).toBe(false);
+    expect(innerStopped).toBe(1); // 启动落定后自停，引擎不留占麦
+    expect(el.value).toBe(""); // 已取消会话的迟到终稿不上屏
     el.remove();
   });
 });

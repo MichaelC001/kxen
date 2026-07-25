@@ -165,7 +165,7 @@ impl MicSession {
             if samples.is_empty() {
                 None
             } else {
-                let path = std::env::temp_dir().join(format!("kxen-voice-{}.wav", std::process::id()));
+                let path = super::provider::temp_wav_path();
                 super::provider::write_wav_pub(&path, &samples, self.sample_rate).ok().map(|_| path.to_string_lossy().into_owned())
             }
         };

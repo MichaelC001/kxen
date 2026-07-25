@@ -160,11 +160,23 @@ impl RecordSession {
         if samples.is_empty() {
             return Err("未录到音频".into());
         }
-        let path = std::env::temp_dir().join(format!("kxen-voice-{}.wav", std::process::id()));
+        let path = temp_wav_path();
         let path_str = path.to_string_lossy().into_owned();
         write_wav(&path, &samples, self.sample_rate).map_err(|e| format!("写 WAV 失败: {e}"))?;
         Ok((path_str, samples.len() as f32 / self.sample_rate as f32))
     }
+}
+
+/// 云转写临时 WAV 路径：pid + 原子序号 + 纳秒时间戳。
+/// 旧名只按 pid：多会话并发 stop 写同一路径，互相覆盖、还互相误删。
+pub(crate) fn temp_wav_path() -> std::path::PathBuf {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "kxen-voice-{}-{}-{nanos}.wav",
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ))
 }
 
 /// 16-bit PCM 单声道 WAV（f32 -> i16 截断）。
@@ -209,5 +221,15 @@ mod wav_tests {
         assert_eq!(&bytes[8..12], b"WAVE");
         assert_eq!(bytes.len(), 44 + 6);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn temp_wav_path_unique_per_call() {
+        // 多会话并发 stop 各写各的临时文件：同名会互相覆盖 + 互相误删
+        let a = super::temp_wav_path();
+        let b = super::temp_wav_path();
+        assert_ne!(a, b);
+        assert!(a.file_name().unwrap().to_string_lossy().starts_with("kxen-voice-"));
+        assert!(a.extension().is_some_and(|e| e == "wav"));
     }
 }
