@@ -9,13 +9,16 @@ import { createInFlight } from "../../lib/async-guard";
 import { flashErr } from "../../lib/flash";
 import { formatError } from "../../lib/error-text";
 import { COMPOSER_INSERT_EVENT } from "../../lib/composer-bus";
-import { buildItems, detectTrigger, type PopupState, type Trigger } from "./triggers";
+import { detectTrigger, type PopupState, type Trigger } from "./triggers";
 import { createAttachments } from "./composer-attachments";
 import { createVoicePtt } from "./voice-ptt";
-import { caretRect } from "./caret";
+import { caretPopupPos } from "./caret";
 import { createPasteStore, planPaste } from "./paste";
 import { createTokenEstimate } from "./token-estimate";
 import { listenComposerDragDrop } from "./drag-drop";
+import { createTriggerCheck } from "./trigger-check";
+import { handlePopupKey } from "./popup-keys";
+import { buildSendParts } from "./send-payload";
 import AttachMenu from "./AttachMenu";
 import ComposerPopup from "./ComposerPopup";
 import MicControl from "./MicControl";
@@ -47,7 +50,6 @@ export default function TextComposer(props: {
     [voiceEngine, setVoiceEngine] = createSignal("apple"),
     [dragOver, setDragOver] = createSignal(false);
   let ta: HTMLTextAreaElement | undefined;
-  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   let imeLockUntil = 0; // Safari compositionend 先于 commit keydown（WebKit #165231），50ms 锁窗吞尾随 Enter
   const images = new Map<string, { media_type: string; data: string }>();
   const pastes = createPasteStore();
@@ -114,7 +116,6 @@ export default function TextComposer(props: {
     onCleanup(listenComposerDragDrop(setDragOver, (paths) => void attachPaths(paths)));
     ta?.focus();
   });
-  onCleanup(() => debounceTimer && clearTimeout(debounceTimer));
 
   createEffect(() => {
     props.focusTick();
@@ -141,44 +142,8 @@ export default function TextComposer(props: {
   });
   onCleanup(voiceCtl.dispose);
 
-  // composer 贴窗口底部，弹窗必须向上展开（bottom 锚定），否则下穿出窗被状态栏裁掉
   function updatePopupPos() {
-    const r = ta ? caretRect(ta) : null;
-    if (!r) return setPopupPos(null);
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - 264));
-    setPopupPos({ left, bottom: window.innerHeight - r.top + 4 });
-  }
-
-  function checkTrigger() {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(async () => {
-      const cursor = ta?.selectionStart ?? text().length;
-      const trigger = detectTrigger(text(), cursor);
-      if (!trigger) {
-        setPopup(null);
-        return;
-      }
-      const items = await buildItems(trigger, commands(), {
-        onChip: (kind, ref, label) => {
-          removeTriggerText(trigger);
-          pushChip({ kind, ref, label, title: ref });
-          setPopup(null);
-          ta?.focus();
-        },
-        onPlainInsert: (insert, start) => {
-          removeTriggerText(trigger, start);
-          insertAtCaret(insert);
-          setPopup(null);
-          ta?.focus();
-        },
-      });
-      if (items.length === 0) {
-        setPopup(null);
-        return;
-      }
-      updatePopupPos();
-      setPopup({ ...trigger, items, selected: 0 });
-    }, 200);
+    setPopupPos(caretPopupPos(ta));
   }
 
   const pushChip = (chip: Omit<RowChip, "id">) =>
@@ -195,6 +160,18 @@ export default function TextComposer(props: {
   const syncSelected = (i: number) =>
     setPopup((p) => (p && p.selected !== i ? { ...p, selected: i } : p));
 
+  const triggerCheck = createTriggerCheck({
+    ta: () => ta,
+    text,
+    commands,
+    removeTriggerText,
+    pushChip,
+    insertAtCaret,
+    setPopup,
+    updatePopupPos,
+  });
+  onCleanup(triggerCheck.dispose);
+
   const { attachFiles, attachPaths } = createAttachments({ images, pushChip });
 
   function onPaste(e: ClipboardEvent) {
@@ -206,26 +183,9 @@ export default function TextComposer(props: {
 
   function onKeyDown(e: KeyboardEvent) {
     const p = popup();
-    if (p) {
-      // IME 组字中弹层放行：Enter/方向键归输入法候选窗（isComposing/keyCode229/锁窗三保险，同发送守卫）
-      if (e.isComposing || e.keyCode === 229 || Date.now() < imeLockUntil) return;
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        const delta = e.key === "ArrowDown" ? 1 : -1;
-        setPopup({ ...p, selected: (p.selected + delta + p.items.length) % p.items.length });
-        return;
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        p.items[p.selected]?.apply();
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setPopup(null);
-        return;
-      }
-    }
+    // IME 组字中弹层放行：Enter/方向键归输入法候选窗（isComposing/keyCode229/锁窗三保险，同发送守卫）
+    if (p && (e.isComposing || e.keyCode === 229 || Date.now() < imeLockUntil)) return;
+    if (p && handlePopupKey(e, p, setPopup)) return;
     // IME 提交 Enter 不发送：isComposing / keyCode 229 / 50ms 锁窗 三保险（cline#3475 同款）
     if (
       e.key === "Enter" &&
@@ -251,25 +211,7 @@ export default function TextComposer(props: {
     // err chip 只是装配失败的告示（可点 X 移除），不进发送载荷：仅剩 err chip 时按空输入处理
     const payloadChips = rowChips().filter((c) => c.kind !== "err");
     if (!value && payloadChips.length === 0) return;
-    // 知识注记走 note context（注入模型但不进用户气泡，Part::Context 分流）
-    const context: ContextItem[] = payloadChips
-      .filter((c) => c.kind !== "image")
-      .map((c) =>
-        c.kind === "knowledge"
-          ? {
-              type: "note",
-              text: `（请把本次相关经验用 knowledge 工具沉淀到 ${c.ref}，写前给我确认）`,
-            }
-          : c.kind === "web" || c.kind === "docs"
-            ? { type: c.kind, url: c.ref }
-            : c.kind === "dir"
-              ? { type: "dir", path: c.ref }
-              : { type: "file", path: c.ref },
-      );
-    const imageParts = payloadChips
-      .filter((c) => c.kind === "image")
-      .map((c) => images.get(c.ref))
-      .filter((i): i is { media_type: string; data: string } => !!i);
+    const { context, imageParts } = buildSendParts(payloadChips, images);
     props.onSend(value, context, imageParts);
     pastes.clear();
     setValue("", 0);
@@ -311,7 +253,7 @@ export default function TextComposer(props: {
             if (ta) setText(ta.value);
             setDraft(activeSessionId(), ta?.value ?? "");
             autogrow();
-            checkTrigger();
+            triggerCheck.run();
             if (popup()) updatePopupPos(); // 弹层开着时锚点随输入即算，不冻结在打开位置
           }}
           onKeyDown={onKeyDown}

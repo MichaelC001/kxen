@@ -42,3 +42,13 @@ export function caretRect(textarea: HTMLTextAreaElement): DOMRect | null {
   div.remove();
   return rect;
 }
+
+// composer 贴窗口底部，弹窗必须向上展开（bottom 锚定），否则下穿出窗被状态栏裁掉
+export function caretPopupPos(
+  textarea: HTMLTextAreaElement | undefined,
+): { left: number; bottom: number } | null {
+  const r = textarea ? caretRect(textarea) : null;
+  if (!r) return null;
+  const left = Math.max(8, Math.min(r.left, window.innerWidth - 264));
+  return { left, bottom: window.innerHeight - r.top + 4 };
+}
