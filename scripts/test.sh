@@ -4,6 +4,9 @@
 set -e
 cd "$(dirname "$0")/.."
 
+# 有效代码行门禁（350）：先卡文件长度再跑测试
+bash scripts/check-lines.sh
+
 pnpm exec vitest run src/lib
 sleep 4
 pnpm exec vitest run src/components/composer/text-composer.test.tsx src/components/composer/text-composer-triggers.test.tsx src/components/composer/text-composer-paste.test.tsx src/components/composer/triggers.test.ts src/components/composer/voice-ptt.test.ts
