@@ -62,10 +62,11 @@ pub fn expand_args(content: &str, args: &str, declared: &[String]) -> String {
         out = out.replace(&format!("${}", i + 1), arg);
         out = out.replace(&format!("$ARGUMENTS[{i}]"), arg);
     }
-    if !out.contains('$') || (!content.contains("$ARGUMENTS") && !declared.is_empty()) {
-        if !args.is_empty() && !content.contains("$ARGUMENTS") {
-            out.push_str(&format!("\nARGUMENTS: {args}"));
-        }
+    if (!out.contains('$') || (!content.contains("$ARGUMENTS") && !declared.is_empty()))
+        && !args.is_empty()
+        && !content.contains("$ARGUMENTS")
+    {
+        out.push_str(&format!("\nARGUMENTS: {args}"));
     }
     out
 }

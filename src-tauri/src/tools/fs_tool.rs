@@ -36,10 +36,10 @@ pub struct FileTracker {
 
 impl FileTracker {
     pub fn mark(&self, path: &Path) {
-        if let Ok(meta) = std::fs::metadata(path) {
-            if let Ok(mtime) = meta.modified() {
-                self.seen.lock().expect("tracker").insert(path.to_path_buf(), (mtime, meta.len()));
-            }
+        if let Ok(meta) = std::fs::metadata(path)
+            && let Ok(mtime) = meta.modified()
+        {
+            self.seen.lock().expect("tracker").insert(path.to_path_buf(), (mtime, meta.len()));
         }
     }
 
@@ -169,7 +169,7 @@ fn simple_diff(before: &[String], after: &[String]) -> String {
     out
 }
 
-fn apply_anchor_edits(original: &str, lines: &mut Vec<String>, edits: &[AnchorEdit], _path: &Path) -> Result<usize, FsToolError> {
+fn apply_anchor_edits(original: &str, lines: &mut [String], edits: &[AnchorEdit], _path: &Path) -> Result<usize, FsToolError> {
     let orig_lines: Vec<&str> = original.lines().collect();
     let anchors = generate_anchors(&orig_lines);
     let mut applied = 0;

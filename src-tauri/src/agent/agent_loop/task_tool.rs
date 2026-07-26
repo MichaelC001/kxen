@@ -34,7 +34,13 @@ pub async fn execute_task_tool(args: &Value, ctx: &AgentContext) -> Result<Strin
             crate::tools::exec::safety_gate(&params.command, &params.workdir, appr.as_ref()).await.map_err(|e| e.to_string())?;
             dev_server(params, &ctx.registry)
                 .await
-                .map(|s| format!("ready: {} (task {})", s.url.unwrap_or_else(|| "(no url)".into()), s.task_id))
+                .map(|s| {
+                    // dev server 崩溃感知：进程自己退出时通知主 loop（主动 kill/restart 不通知）
+                    if let Some(router) = ctx.notify.clone() {
+                        crate::agent::background::notify_on_task_exit(ctx.registry.clone(), &s.task_id, router);
+                    }
+                    format!("ready: {} (task {})", s.url.unwrap_or_else(|| "(no url)".into()), s.task_id)
+                })
                 .map_err(|e| e.to_string())
         }
         "output" => {
@@ -54,7 +60,16 @@ pub async fn execute_task_tool(args: &Value, ctx: &AgentContext) -> Result<Strin
         }
         "restart" => {
             let id = args.get("task_id").and_then(Value::as_str).ok_or("missing task_id")?;
-            restart_task(id, &ctx.registry).await.map(|new_id| format!("restarted as {new_id}")).map_err(|e| e.to_string())
+            restart_task(id, &ctx.registry)
+                .await
+                .map(|new_id| {
+                    // 新任务重新挂崩溃通知（旧任务被 kill 标记，不会误报）
+                    if let Some(router) = ctx.notify.clone() {
+                        crate::agent::background::notify_on_task_exit(ctx.registry.clone(), &new_id, router);
+                    }
+                    format!("restarted as {new_id}")
+                })
+                .map_err(|e| e.to_string())
         }
         other => Err(format!("unknown task action: {other}")),
     }

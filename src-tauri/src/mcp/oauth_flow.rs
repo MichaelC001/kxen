@@ -28,6 +28,14 @@ pub async fn bind_callback(port: Option<u16>) -> Result<(tokio::net::TcpListener
     Ok((l, port))
 }
 
+/// 单例 client（禁 redirect：授权端点的 30x 必须原样呈现，不能跟跳）。
+fn http() -> reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().expect("oauth http client"))
+        .clone()
+}
+
 /// 等一个回调：path 精确匹配才消费（错 path 回 404 继续等），整体包 timeout。
 pub async fn wait_callback(
     listener: &tokio::net::TcpListener,
@@ -170,7 +178,7 @@ pub struct LoginSession {
 
 /// discovery -> (DCR) -> 绑回调 -> PKCE 授权 URL。config 有 client_id 时跳过动态注册。
 pub async fn prepare_login(cfg: &RemoteConfig, guard: Guard) -> Result<LoginSession, String> {
-    let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().map_err(|e| e.to_string())?;
+    let http = http();
     let oauth = cfg.oauth.clone().unwrap_or_default();
     let meta: AuthServerMeta = discover(&http, &cfg.url, oauth.auth_server_metadata_url.as_deref(), guard).await?;
     let (listener, port) = bind_callback(oauth.callback_port).await?;
@@ -209,7 +217,7 @@ pub async fn finish_login(session: &LoginSession, store: &TokenStore) -> Result<
         return Err("oauth 回调 state 不匹配（疑似跨流混淆，已丢弃）".into());
     }
     let code = cb.code.ok_or("oauth 回调缺 code")?;
-    let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().map_err(|e| e.to_string())?;
+    let http = http();
     let grant = exchange_code(
         &http,
         &session.token_endpoint,

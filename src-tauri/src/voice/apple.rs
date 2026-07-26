@@ -23,7 +23,7 @@ pub fn recognize_file(path: &str, locale: &str) -> Result<String, String> {
             let _ = tx.send(Err(err));
             return;
         }
-        if let Some((text, true)) = objc::result_text(result) {
+        if let Some((text, true)) = unsafe { objc::result_text(result) } {
             let _ = tx.send(Ok(text));
         }
     });
@@ -103,7 +103,7 @@ pub fn start_mic(locale: &str) -> Result<MicSession, String> {
             let _ = tx.send(SessionEvent::Error(e));
             return;
         }
-        if let Some((text, is_final)) = objc::result_text(result) {
+        if let Some((text, is_final)) = unsafe { objc::result_text(result) } {
             let _ = tx.send(if is_final { SessionEvent::Final(text) } else { SessionEvent::Partial(text) });
         }
     });
@@ -117,7 +117,7 @@ pub fn start_mic(locale: &str) -> Result<MicSession, String> {
         objc::TapHandler::new(move |buffer: *mut AnyObject, _time: *mut AnyObject| {
             if !buffer.is_null() {
                 objc::append_buffer(unsafe { &*req_ptr }, buffer);
-                let chunk = objc::pcm_samples(buffer);
+                let chunk = unsafe { objc::pcm_samples(buffer) };
                 if !chunk.is_empty() {
                     crate::core::shared::lock(&sink).extend_from_slice(&chunk);
                 }

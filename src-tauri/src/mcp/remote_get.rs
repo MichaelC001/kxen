@@ -59,10 +59,10 @@ impl StreamableHttpTransport {
         }
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             // 与 POST 同一自愈思路：非显式配置先 refresh，本轮仍按失败退避，下轮用新 token
-            if !self.explicit_auth {
-                if let Some(auth) = &self.auth {
-                    let _ = auth.refresh().await;
-                }
+            if !self.explicit_auth
+                && let Some(auth) = &self.auth
+            {
+                let _ = auth.refresh().await;
             }
             return Attempt::Failed;
         }

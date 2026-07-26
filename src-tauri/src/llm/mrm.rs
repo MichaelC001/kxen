@@ -191,6 +191,11 @@ impl ModelResourceManager {
         }
         let keys = crate::auth::credential::accounts_of(store, &binding.provider);
         if keys.is_empty() {
+            // 持有其它 provider 凭证时跳过无凭证 provider：降级链才能走到用户真实持有的订阅；
+            // store 全空（首启探测前/测试）保留盲默认键旧行为
+            if !store.is_empty() {
+                return Vec::new();
+            }
             return vec![(binding.provider.clone(), None)];
         }
         keys.into_iter()
@@ -264,7 +269,7 @@ impl ModelResourceManager {
     /// RPM 记账（acquire_role 选定候选时补记，与 wait_rpm 的记账点对齐）。
     async fn note_rpm(&self, key: &str) {
         let provider = key.split(':').next().unwrap_or(key);
-        if !self.config.limits.providers.get(provider).and_then(|l| l.rpm).is_some_and(|r| r > 0) {
+        if self.config.limits.providers.get(provider).and_then(|l| l.rpm).is_none_or(|r| r == 0) {
             return;
         }
         let mut windows = self.rpm_windows.lock().await;

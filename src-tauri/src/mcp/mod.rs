@@ -129,7 +129,9 @@ impl McpManager {
             match connect {
                 Ok(client) => {
                     tracing::info!(server = name, tools = client.tools.len(), "mcp server connected");
-                    self.servers.lock().expect("mcp").get_mut(&name).map(|e| e.client = Some(Arc::new(client)));
+                    if let Some(e) = self.servers.lock().expect("mcp").get_mut(&name) {
+                        e.client = Some(Arc::new(client));
+                    }
                 }
                 Err(e) => {
                     if oauth::is_auth_required(&e) {
@@ -269,10 +271,10 @@ impl McpManager {
             }
         };
         let client = Arc::new(client);
-        self.servers.lock().expect("mcp").get_mut(server).map(|e| {
+        if let Some(e) = self.servers.lock().expect("mcp").get_mut(server) {
             e.client = Some(client.clone());
             e.needs_auth = false;
-        });
+        }
         Ok(client)
     }
 

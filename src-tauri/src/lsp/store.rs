@@ -41,10 +41,10 @@ impl Store {
             .unwrap_or_default();
         let mut map = self.by_path.lock().expect("lsp store");
         let entry = map.entry(path).or_insert_with(|| Entry { version: None, source: source.to_string(), diags: Vec::new() });
-        if let (Some(new), Some(old)) = (version, entry.version) {
-            if new < old {
-                return;
-            }
+        if let (Some(new), Some(old)) = (version, entry.version)
+            && new < old
+        {
+            return;
         }
         if version.is_some() {
             entry.version = version;
@@ -62,7 +62,7 @@ impl Store {
     pub fn snapshot(&self, filter: Option<&Path>) -> String {
         let map = self.by_path.lock().expect("lsp store");
         let mut entries: Vec<_> = map.iter().filter(|(p, _)| filter.is_none_or(|f| *p == f)).collect();
-        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+        entries.sort_by_key(|(a, _)| *a);
         let mut out = String::new();
         for (path, entry) in entries {
             for d in &entry.diags {

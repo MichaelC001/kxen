@@ -56,7 +56,7 @@ fn extract_nested(command: &str) -> Option<&str> {
 
 fn split_segments(command: &str) -> Vec<&str> {
     command
-        .split(|c| matches!(c, ';' | '|' | '\n'))
+        .split([';', '|', '\n'])
         .flat_map(|part| part.split("&&"))
         .flat_map(|part| part.split("||"))
         .map(str::trim)

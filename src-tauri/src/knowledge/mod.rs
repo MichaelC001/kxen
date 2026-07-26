@@ -56,6 +56,8 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// 字符串 -> Kind（自有解析器，不实现 FromStr：返回值是 Option 而非 Result，语义不同）。
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Kind> {
         Some(match s {
             "rule" => Kind::Rule,

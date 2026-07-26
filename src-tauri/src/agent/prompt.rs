@@ -140,10 +140,16 @@ doing useful foreground work - never idle-wait and never poll for results.
 finish, await them in order or race them with Promise.race - parallel(...) alone always waits for \
 the whole batch.";
 
+/// frozen/dynamic 上下文边界标记：之上跨轮稳定（provider 前缀缓存命中区），之下逐轮可变。
+/// anthropic wire 在此把 system 拆成两块并给 frozen 块打 cache_control ephemeral；
+/// openai-compat 原样发送（服务端自动前缀缓存，稳定前缀即命中）。
+pub const CACHE_BOUNDARY: &str = "<!-- kxen:context-boundary -->";
+
 /// Full system prompt for a turn. `workdir` is rendered into the environment line.
 /// `involved` = 本会话涉及文件（OKF globs 动态激活与多层就近的输入）。
 /// `session_id` = goal 按 session 粒度注入（多会话并发各见各的 goal）。
 pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf], session_id: Option<&str>) -> String {
+    // frozen 段：跨轮逐字节稳定（workdir 会话内不变），provider 前缀缓存的命中区
     let mut out = String::with_capacity(2048);
     out.push_str(IDENTITY);
     out.push_str("\n\n## Environment\n\n- OS: macOS (Apple Silicon)\n- Working directory: ");
@@ -160,6 +166,10 @@ pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf],
     out.push_str(BACKGROUND_PLAYBOOK);
     out.push_str("\n\n");
     out.push_str(KNOWLEDGE_GUIDE);
+    // 边界标记恒在：dynamic 有无内容都不改 frozen 字节，缓存前缀不失稳
+    out.push_str("\n\n");
+    out.push_str(CACHE_BOUNDARY);
+    // dynamic 段：knowledge 随涉及文件变、goal usage 逐轮变，全部压在边界之后
     if let Some(block) = crate::knowledge::render(workdir, involved) {
         out.push_str(&block);
     }
@@ -188,12 +198,12 @@ fn goal_block(session_id: Option<&str>) -> Option<String> {
         goal.contract.completion_criteria
     );
     if let Some(constraints) = goal.contract.constraints.as_deref() {
-        let _ = write!(out, "Constraints: {constraints}\n");
+        let _ = writeln!(out, "Constraints: {constraints}");
     }
     let budget = &goal.contract.budget;
-    let _ = write!(
+    let _ = writeln!(
         out,
-        "Usage: turns {}{}, tokens {}{}\n",
+        "Usage: turns {}{}, tokens {}{}",
         goal.turns_used,
         budget.turns.map(|t| format!("/{t}")).unwrap_or_default(),
         goal.tokens_used,
@@ -201,7 +211,7 @@ fn goal_block(session_id: Option<&str>) -> Option<String> {
     );
     if matches!(goal.status, GoalStatus::Blocked | GoalStatus::BudgetLimited) {
         if let Some(reason) = goal.block_reason.as_deref() {
-            let _ = write!(out, "Blocked: {reason}\n");
+            let _ = writeln!(out, "Blocked: {reason}");
         }
         out.push_str("This goal needs user input or a status change (resume/cancel) before continuing.\n");
     } else {
@@ -221,5 +231,15 @@ mod tests {
         assert!(p.contains("You are kxen"));
         assert!(p.contains("write-goal playbook"));
         assert!(p.contains("Working directory: /tmp/x"));
+    }
+
+    #[test]
+    fn frozen_prefix_stable_across_dynamic_inputs() {
+        // involved 文件与会话 goal 只影响边界之后的 dynamic 段：frozen 前缀必须逐字节一致（缓存命中的前提）
+        let a = system_prompt(std::path::Path::new("/tmp/x"), &[], None);
+        let b = system_prompt(std::path::Path::new("/tmp/x"), &[std::path::PathBuf::from("/tmp/x/src/main.rs")], Some("s-other"));
+        let frozen_of = |s: &str| s.split(CACHE_BOUNDARY).next().unwrap().to_string();
+        assert!(a.contains(CACHE_BOUNDARY));
+        assert_eq!(frozen_of(&a), frozen_of(&b));
     }
 }

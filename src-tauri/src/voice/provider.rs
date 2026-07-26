@@ -143,7 +143,7 @@ pub fn start_recording() -> Result<RecordSession, String> {
     let sink = samples.clone();
     let (engine, rate) = super::objc::start_mic_capture(move |_input| {
         super::objc::TapHandler::new(move |buffer, _time| {
-            let chunk = super::objc::pcm_samples(buffer);
+            let chunk = unsafe { super::objc::pcm_samples(buffer) };
             if !chunk.is_empty() {
                 crate::core::shared::lock(&sink).extend_from_slice(&chunk);
             }

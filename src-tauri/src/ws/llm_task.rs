@@ -226,11 +226,11 @@ pub(crate) async fn run_llm(
                     }
                 }
                 AE::Compacted { summary } => {
-                    // auto-compact 落检查点（upto = 当前存储尾消息 id）；前端无对应渲染，不上行
+                    // auto-compact 落检查点（upto = 当前存储尾消息 id），随后走下方统一上行：
+                    // 前端时间线呈现「上下文已压缩」（live-only，不落 JSONL 避免污染模型重放）
                     if let Some(upto) = ses::load_messages(&sessions_dir_event, &sid).last().map(|m| m.id.clone()) {
                         let _ = ses::save_compaction(&sessions_dir_event, &sid, &ses::Compaction::new(upto, summary.clone()));
                     }
-                    return;
                 }
                 _ => {}
             }

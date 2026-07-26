@@ -26,13 +26,13 @@ impl LlmClient {
         match model.provider.as_str() {
             "anthropic" => {
                 let Some(crate::auth::credential::CredentialKind::Oauth { access, .. }) =
-                    crate::auth::credential::credential_for(&store, "anthropic", model.account.as_deref())
+                    crate::auth::credential::credential_for(store, "anthropic", model.account.as_deref())
                 else {
                     return Box::pin(futures::stream::once(async { Delta::Error("anthropic credential missing (run doctor)".into()) }));
                 };
                 crate::llm::anthropic::AnthropicProvider::new(access.clone()).stream_chat(&model.model, messages, tools)
             }
-            "openai" => match crate::auth::credential::credential_for(&store, "openai", model.account.as_deref()) {
+            "openai" => match crate::auth::credential::credential_for(store, "openai", model.account.as_deref()) {
                 Some(crate::auth::credential::CredentialKind::Oauth { access, account_id, .. }) => crate::llm::openai::OpenAiProvider::new(
                     access.clone(),
                     account_id.clone(),
@@ -72,7 +72,7 @@ impl LlmClient {
                     let provider = p.to_string();
                     return Box::pin(futures::stream::once(async move { Delta::Error(format!("unknown provider: {provider}")) }));
                 };
-                let cred = crate::auth::credential::credential_for(&store, p, model.account.as_deref());
+                let cred = crate::auth::credential::credential_for(store, p, model.account.as_deref());
                 let bearer = match (spec.auth, cred) {
                     // 本地免鉴权端点的 bearer 仅为占位（ollama 不校验）
                     (crate::providers::AuthKind::LocalFree, _) => p.to_string(),

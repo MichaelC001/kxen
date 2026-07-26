@@ -64,7 +64,8 @@ notify-rust = "4"
 
 [profile.release]
 opt-level = 3
-lto = "thin"
+# PRD 3.6 全 LTO（fat）：codegen-units=1 已就位，thin 换 fat 换最后一段内联收益
+lto = true
 codegen-units = 1
 strip = true
 panic = "abort"

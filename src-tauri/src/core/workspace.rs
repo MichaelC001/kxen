@@ -17,7 +17,7 @@ pub fn list(dir: &Path) -> Vec<Workspace> {
         return Vec::new();
     };
     let mut list: Vec<Workspace> = serde_json::from_str(&text).unwrap_or_default();
-    list.sort_by(|a, b| b.last_used.cmp(&a.last_used));
+    list.sort_by_key(|w| std::cmp::Reverse(w.last_used));
     list
 }
 

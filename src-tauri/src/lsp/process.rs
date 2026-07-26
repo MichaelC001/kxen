@@ -46,8 +46,7 @@ impl LspClient {
         tokio::spawn(async move {
             let mut decoder = FrameDecoder::default();
             let mut chunk = [0u8; 8192];
-            loop {
-                let Ok(n) = stdout.read(&mut chunk).await else { break };
+            while let Ok(n) = stdout.read(&mut chunk).await {
                 if n == 0 {
                     break;
                 }
@@ -57,10 +56,10 @@ impl LspClient {
                         if let Some(tx) = pending_rx.lock().expect("lsp pending").remove(&id) {
                             let _ = tx.send(v);
                         }
-                    } else if v.get("method").and_then(Value::as_str) == Some("textDocument/publishDiagnostics") {
-                        if let Some(params) = v.get("params") {
-                            store_rx.update_from_publish(params, source);
-                        }
+                    } else if v.get("method").and_then(Value::as_str) == Some("textDocument/publishDiagnostics")
+                        && let Some(params) = v.get("params")
+                    {
+                        store_rx.update_from_publish(params, source);
                     }
                 }
             }

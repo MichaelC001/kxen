@@ -268,7 +268,7 @@ impl Goal {
             .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
             .filter_map(|e| serde_json::from_str(&std::fs::read_to_string(e.path()).ok()?).ok())
             .collect();
-        out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        out.sort_by_key(|g| std::cmp::Reverse(g.updated_at));
         out
     }
     /// 当前焦点 goal（active/paused/blocked/budget_limited 中最近更新的一个），用于状态注入与 GUI 焦点显示。

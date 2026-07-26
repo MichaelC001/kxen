@@ -61,7 +61,7 @@ pub fn glob_files(pattern: &str, base: &Path) -> Result<SearchHits, SearchError>
         }
     }
     let total = hits.len();
-    hits.sort_by(|a, b| b.1.cmp(&a.1));
+    hits.sort_by_key(|h| std::cmp::Reverse(h.1));
     hits.truncate(MAX_GLOB_RESULTS);
     Ok(SearchHits { hits: hits.into_iter().map(|(rel, _)| rel).collect(), total })
 }
@@ -90,10 +90,10 @@ pub fn grep_files(pattern: &str, base: &Path, glob_filter: Option<&str>) -> Resu
         }
         let path = entry.path();
         let rel = path.strip_prefix(base).unwrap_or(path).to_string_lossy().into_owned();
-        if let Some(f) = &filter {
-            if !f.is_match(&rel) {
-                continue;
-            }
+        if let Some(f) = &filter
+            && !f.is_match(&rel)
+        {
+            continue;
         }
         if entry.metadata().map(|m| m.len()).unwrap_or(0) > MAX_FILE_BYTES {
             continue;

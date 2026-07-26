@@ -62,18 +62,11 @@ pub async fn verify_provider(
     let messages = vec![Message::user("ping, reply with one word")];
     let mut stream = LlmClient::stream(&model, &messages, store);
     let result = tokio::time::timeout(std::time::Duration::from_secs(20), async {
-        while let Some(delta) = stream.next().await {
-            match delta {
-                Delta::Text(_)
-                | Delta::Reasoning(_)
-                | Delta::Usage { .. }
-                | Delta::Done
-                | Delta::ToolFragments(_)
-                | Delta::ToolCall { .. } => return Ok(()),
-                Delta::Error(e) => return Err(e),
-            }
+        // 首个有效 delta 即判活；Error 判死；流空结束按活处理（对端正常收尾）
+        match stream.next().await {
+            Some(Delta::Error(e)) => Err(e),
+            _ => Ok(()),
         }
-        Ok(())
     })
     .await;
     let latency_ms = started.elapsed().as_millis() as u64;

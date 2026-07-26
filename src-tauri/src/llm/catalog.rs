@@ -141,7 +141,7 @@ fn parse_models_dev(text: &str) -> Option<Vec<ProviderCatalog>> {
                 output: m.get("limit").and_then(|l| l.get("output")).and_then(|c| c.as_u64()).unwrap_or(0),
             })
             .collect();
-        models.sort_by(|a, b| b.context.cmp(&a.context));
+        models.sort_by_key(|m| std::cmp::Reverse(m.context));
         out.push(ProviderCatalog { provider: spec.key.to_string(), provider_name, models, fetched_at: ts, source: "models.dev".into() });
     }
     if out.is_empty() { None } else { Some(out) }

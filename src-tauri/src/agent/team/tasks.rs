@@ -39,7 +39,7 @@ pub(super) fn claim_task(state: &Arc<TeamState>, who: &str) -> Result<String, St
 pub(super) fn has_claimable(state: &Arc<TeamState>) -> bool {
     let tasks = lock(&state.tasks);
     let done: Vec<u64> = tasks.iter().filter(|t| t.status == TeamTaskStatus::Completed).map(|t| t.id).collect();
-    tasks.iter().any(|t| t.status == TeamTaskStatus::Pending && t.assignee.is_none() && t.depends_on.iter().all(|d| done.contains(&d)))
+    tasks.iter().any(|t| t.status == TeamTaskStatus::Pending && t.assignee.is_none() && t.depends_on.iter().all(|d| done.contains(d)))
 }
 
 pub(super) async fn complete_task(state: &Arc<TeamState>, who: &str, id: u64) -> Result<String, String> {

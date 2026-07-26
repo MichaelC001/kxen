@@ -42,10 +42,10 @@ pub fn tokenize(text: &str) -> Vec<String> {
         if !word.is_empty() {
             out.push(std::mem::take(word));
         }
-        if *cjk_run == 1 {
-            if let Some(c) = *last_cjk {
-                out.push(c.to_string());
-            }
+        if *cjk_run == 1
+            && let Some(c) = *last_cjk
+        {
+            out.push(c.to_string());
         }
         *last_cjk = None;
         *cjk_run = 0;

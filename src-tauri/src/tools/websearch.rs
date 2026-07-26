@@ -3,6 +3,20 @@
 const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 const MAX_RESULTS: usize = 8;
 
+/// 单例 client（UA/timeout 定制，与 LLM 共享 client 配置不同，自建池复用）。
+fn http() -> reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(TIMEOUT)
+                .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) kxen/0.1")
+                .build()
+                .expect("websearch http client")
+        })
+        .clone()
+}
+
 #[derive(Debug, PartialEq)]
 pub struct SearchHit {
     pub title: String,
@@ -14,11 +28,7 @@ pub async fn search(query: &str) -> Result<Vec<SearchHit>, String> {
     if query.trim().is_empty() {
         return Err("empty query".into());
     }
-    let client = reqwest::Client::builder()
-        .timeout(TIMEOUT)
-        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) kxen/0.1")
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = http();
     let url = format!("https://html.duckduckgo.com/html/?q={}", urlencode(query));
     let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
@@ -59,12 +69,13 @@ fn percent_decode(s: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(v);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+        {
+            out.push(v);
+            i += 3;
+            continue;
         }
         out.push(bytes[i]);
         i += 1;

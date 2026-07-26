@@ -21,41 +21,39 @@ pub(super) fn parse_entry(scope: Scope, kind_hint: Kind, path: &Path, text: &str
     let mut date = String::new();
     let mut content = text;
 
-    if let Some(rest) = text.strip_prefix("---") {
-        if let Some(end) = rest.find("\n---") {
-            for line in rest[..end].lines() {
-                let Some((key, value)) = line.split_once(':') else { continue };
-                let key = key.trim();
-                let value = value.trim().trim_matches('"');
-                match key {
-                    "kind" | "type" => {
-                        if let Some(k) = Kind::from_str(value) {
-                            kind = k;
-                        } else if NOTE_TYPES.contains(&value) {
-                            kind = if kind_hint == Kind::Memory { Kind::Memory } else { Kind::Note };
-                            note_type = Some(value.to_string());
-                        }
+    if let Some(rest) = text.strip_prefix("---")
+        && let Some(end) = rest.find("\n---")
+    {
+        for line in rest[..end].lines() {
+            let Some((key, value)) = line.split_once(':') else { continue };
+            let key = key.trim();
+            let value = value.trim().trim_matches('"');
+            match key {
+                "kind" | "type" => {
+                    if let Some(k) = Kind::from_str(value) {
+                        kind = k;
+                    } else if NOTE_TYPES.contains(&value) {
+                        kind = if kind_hint == Kind::Memory { Kind::Memory } else { Kind::Note };
+                        note_type = Some(value.to_string());
                     }
-                    "name" => slug = value.chars().take(64).collect(),
-                    "description" => description = value.chars().take(1024).collect(),
-                    "alwaysApply" | "always_apply" | "always" => always_apply = matches!(value, "true" | "yes" | "1"),
-                    "globs" | "glob" => globs = list_value(value),
-                    "enabled" => enabled = value != "false",
-                    "needs" => needs = list_value(value),
-                    "when_to_use" | "when-to-use" => when_to_use = Some(value.to_string()),
-                    "arguments" => arguments = list_value(value),
-                    "disable-model-invocation" | "disable_model_invocation" => {
-                        disable_model_invocation = matches!(value, "true" | "yes" | "1")
-                    }
-                    "user-invocable" | "user_invocable" => user_invocable = !matches!(value, "false" | "no" | "0"),
-                    "argument-hint" | "argument_hint" => argument_hint = Some(value.to_string()),
-                    "note-type" | "note_type" => note_type = Some(value.to_string()),
-                    "date" => date = value.to_string(),
-                    _ => {}
                 }
+                "name" => slug = value.chars().take(64).collect(),
+                "description" => description = value.chars().take(1024).collect(),
+                "alwaysApply" | "always_apply" | "always" => always_apply = matches!(value, "true" | "yes" | "1"),
+                "globs" | "glob" => globs = list_value(value),
+                "enabled" => enabled = value != "false",
+                "needs" => needs = list_value(value),
+                "when_to_use" | "when-to-use" => when_to_use = Some(value.to_string()),
+                "arguments" => arguments = list_value(value),
+                "disable-model-invocation" | "disable_model_invocation" => disable_model_invocation = matches!(value, "true" | "yes" | "1"),
+                "user-invocable" | "user_invocable" => user_invocable = !matches!(value, "false" | "no" | "0"),
+                "argument-hint" | "argument_hint" => argument_hint = Some(value.to_string()),
+                "note-type" | "note_type" => note_type = Some(value.to_string()),
+                "date" => date = value.to_string(),
+                _ => {}
             }
-            content = rest[end + 4..].trim_start_matches('\n');
         }
+        content = rest[end + 4..].trim_start_matches('\n');
     }
 
     // slug 兜底：文件名；SKILL.md 用父目录名

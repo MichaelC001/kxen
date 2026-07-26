@@ -221,10 +221,10 @@ async fn read_loop(
                         }
                         continue;
                     }
-                    if let Some(id) = v.get("id").and_then(|i| i.as_u64()) {
-                        if let Some(tx) = pending.lock().expect("mcp pending").remove(&id) {
-                            let _ = tx.send(v);
-                        }
+                    if let Some(id) = v.get("id").and_then(|i| i.as_u64())
+                        && let Some(tx) = pending.lock().expect("mcp pending").remove(&id)
+                    {
+                        let _ = tx.send(v);
                     }
                 }
             }

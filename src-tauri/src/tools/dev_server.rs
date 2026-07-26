@@ -106,10 +106,10 @@ async fn wait_ready(task: Arc<crate::tools::task::TaskHandle>, pattern: Option<S
             }
         }
         // 端口可达
-        if let Some(p) = port {
-            if tokio::net::TcpStream::connect(("127.0.0.1", p)).await.is_ok() {
-                return Ready::Ready(Some(format!("http://localhost:{p}")));
-            }
+        if let Some(p) = port
+            && tokio::net::TcpStream::connect(("127.0.0.1", p)).await.is_ok()
+        {
+            return Ready::Ready(Some(format!("http://localhost:{p}")));
         }
         tokio::time::sleep(Duration::from_millis(120)).await;
     }

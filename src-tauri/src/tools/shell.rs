@@ -64,12 +64,13 @@ pub fn snapshots() -> &'static std::collections::HashMap<ShellKind, ShellSnapsho
     })
 }
 
-/// 把用户命令包装为「快照回放 + cd + rm->trash 遮蔽 + 命令」的完整 shell 调用。
+/// 把用户命令包装为「快照回放 + cd + 命令遮蔽 + 命令」的完整 shell 调用。
 pub fn wrap_command(kind: ShellKind, workdir: &str, command: &str) -> Vec<String> {
     let snapshot = snapshots().get(&kind).map(|s| s.snapshot.as_str()).unwrap_or("");
     let script = format!(
-        "{snapshot}\n{shadow}\ncd -- {workdir}\n{command}",
+        "{snapshot}\n{shadow}\n{speed}\ncd -- {workdir}\n{command}",
         shadow = trash_shadow(kind),
+        speed = speed_shadow(kind),
         workdir = shell_escape(workdir),
         command = command,
     );
@@ -81,6 +82,15 @@ fn trash_shadow(kind: ShellKind) -> String {
     match kind {
         ShellKind::Fish => "function rm; for a in $argv; switch $a; case '-*'; ; case '*'; command trash $a; end; end; end".into(),
         _ => "rm() { local args=(); for a in \"$@\"; do case \"$a\" in -*) ;; *) args+=(\"$a\");; esac; done; command trash \"${args[@]}\"; }".into(),
+    }
+}
+
+/// 提速遮蔽（grok-build 实证）：grep -> ugrep、find -> bfs，两者都是 CLI 兼容替换。
+/// 未安装不遮蔽（按 PATH 探测逐命令门控），与 rm->trash 的硬遮蔽不同——trash 是系统自带。
+fn speed_shadow(kind: ShellKind) -> String {
+    match kind {
+        ShellKind::Fish => "if command -vq ugrep; function grep; command ugrep $argv; end; end; if command -vq bfs; function find; command bfs $argv; end; end".into(),
+        _ => "command -v ugrep >/dev/null 2>&1 && grep() { command ugrep \"$@\"; }; command -v bfs >/dev/null 2>&1 && find() { command bfs \"$@\"; }; true".into(),
     }
 }
 
@@ -98,8 +108,18 @@ mod tests {
         assert_eq!(wrapped[0], "/bin/zsh");
         let script = &wrapped[2];
         assert!(script.contains("command trash"), "should contain trash shadow");
+        assert!(script.contains("ugrep"), "should contain grep->ugrep shadow");
+        assert!(script.contains("bfs"), "should contain find->bfs shadow");
         assert!(script.contains("cd -- '/tmp/x'"));
         assert!(script.ends_with("ls -la"));
+    }
+
+    #[test]
+    fn speed_shadow_is_functional() {
+        // 真跑一遍：遮蔽脚本不得有语法错误（装了 ugrep/bfs 时函数定义也必须成立）
+        let wrapped = wrap_command(ShellKind::Zsh, "/tmp", "type grep >/dev/null; type find >/dev/null");
+        let out = std::process::Command::new(&wrapped[0]).args(&wrapped[1..]).output().expect("run zsh");
+        assert!(out.status.success(), "shadow script 语法错误: {}", String::from_utf8_lossy(&out.stderr));
     }
 
     #[test]

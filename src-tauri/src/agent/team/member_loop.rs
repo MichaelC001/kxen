@@ -16,6 +16,8 @@ use super::member_wake::{
 };
 use super::types::MemberStatus;
 
+// 参数逐项都是独立生命周期句柄（state/cancel/notify 各属不同所有者），打包 struct 只换层皮
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn teammate_loop(
     state: Arc<TeamState>,
     name: String,

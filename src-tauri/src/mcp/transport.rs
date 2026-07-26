@@ -72,10 +72,10 @@ impl StdioTransport {
                     }
                     continue;
                 }
-                if let Some(id) = v.get("id").and_then(|i| i.as_u64()) {
-                    if let Some(tx) = pending_rx.lock().expect("mcp pending").remove(&id) {
-                        let _ = tx.send(v);
-                    }
+                if let Some(id) = v.get("id").and_then(|i| i.as_u64())
+                    && let Some(tx) = pending_rx.lock().expect("mcp pending").remove(&id)
+                {
+                    let _ = tx.send(v);
                 }
             }
             // EOF：全部挂起请求按失败结束（调用方走 lazy restart）

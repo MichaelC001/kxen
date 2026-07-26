@@ -16,8 +16,7 @@ impl FrameDecoder {
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<String> {
         self.buf.extend_from_slice(bytes);
         let mut out = Vec::new();
-        loop {
-            let Some(header_end) = find_subslice(&self.buf, b"\r\n\r\n") else { break };
+        while let Some(header_end) = find_subslice(&self.buf, b"\r\n\r\n") {
             let header = String::from_utf8_lossy(&self.buf[..header_end]).to_string();
             let Some(len) =
                 header.split("\r\n").find_map(|line| line.strip_prefix("Content-Length: ").and_then(|v| v.trim().parse::<usize>().ok()))

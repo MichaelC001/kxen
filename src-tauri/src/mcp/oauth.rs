@@ -166,10 +166,10 @@ pub async fn discover(
                 None => continue,
             }
         };
-        if let Some(v) = get_json(http, &meta_url, guard).await? {
-            if let Ok(meta) = parse_meta(&v, &meta_url) {
-                return Ok(meta);
-            }
+        if let Some(v) = get_json(http, &meta_url, guard).await?
+            && let Ok(meta) = parse_meta(&v, &meta_url)
+        {
+            return Ok(meta);
         }
     }
     let mut last_err: Option<String> = None;

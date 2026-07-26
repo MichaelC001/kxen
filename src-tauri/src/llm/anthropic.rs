@@ -67,6 +67,32 @@ struct SystemBlock<'a> {
     #[serde(rename = "type")]
     kind: &'static str,
     text: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_control: Option<CacheControl>,
+}
+
+#[derive(Serialize)]
+struct CacheControl {
+    #[serde(rename = "type")]
+    kind: &'static str,
+}
+
+/// system 文本 -> wire 块：按 CACHE_BOUNDARY 拆 frozen/dynamic，frozen 块尾打 ephemeral 断点。
+/// 断点前的字节跨轮稳定即命中 prompt cache；无边界的 system（subagent 等）保持单块原样。
+fn system_blocks_of<'a>(texts: impl Iterator<Item = &'a str>) -> Vec<SystemBlock<'a>> {
+    let mut out = Vec::new();
+    for text in texts {
+        if let Some((frozen, dynamic)) = text.split_once(crate::agent::prompt::CACHE_BOUNDARY) {
+            out.push(SystemBlock { kind: "text", text: frozen.trim_end(), cache_control: Some(CacheControl { kind: "ephemeral" }) });
+            let dynamic = dynamic.trim();
+            if !dynamic.is_empty() {
+                out.push(SystemBlock { kind: "text", text: dynamic, cache_control: None });
+            }
+        } else {
+            out.push(SystemBlock { kind: "text", text, cache_control: None });
+        }
+    }
+    out
 }
 
 #[derive(Serialize)]
@@ -196,13 +222,9 @@ impl AnthropicProvider {
             // OAuth contract: 系统块第一行固定身份行，用户 system 追加在后；api-key 直连不注入
             let mut system: Vec<SystemBlock> = Vec::new();
             if oauth {
-                system.push(SystemBlock { kind: "text", text: IDENTITY_LINE });
+                system.push(SystemBlock { kind: "text", text: IDENTITY_LINE, cache_control: None });
             }
-            for m in &messages_owned {
-                if m.role == Role::System {
-                    system.push(SystemBlock { kind: "text", text: &m.content });
-                }
-            }
+            system.extend(system_blocks_of(messages_owned.iter().filter(|m| m.role == Role::System).map(|m| m.content.as_str())));
             let api_messages = api_messages_of(&messages_owned);
             let tools_api: Option<Vec<ApiTool>> = if tools_owned.is_empty() {
                 None
@@ -256,6 +278,24 @@ mod tests {
         assert_eq!(remap_tool_name("exec"), "Bash");
         assert_eq!(unmap_tool_name("Bash"), "exec");
         assert_eq!(unmap_tool_name("custom_tool"), "custom_tool");
+    }
+
+    #[test]
+    fn system_blocks_split_at_cache_boundary() {
+        let text = format!("frozen part\n\n{}\n\ndynamic part", crate::agent::prompt::CACHE_BOUNDARY);
+        let blocks = system_blocks_of([text.as_str()].into_iter());
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].text, "frozen part");
+        assert!(blocks[0].cache_control.is_some(), "frozen 块必须打 ephemeral 断点");
+        assert_eq!(blocks[1].text, "dynamic part");
+        assert!(blocks[1].cache_control.is_none());
+    }
+
+    #[test]
+    fn system_blocks_without_boundary_stay_plain() {
+        let blocks = system_blocks_of(["no marker here"].into_iter());
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].cache_control.is_none());
     }
 
     #[test]

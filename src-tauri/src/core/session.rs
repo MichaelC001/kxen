@@ -182,7 +182,7 @@ pub fn list(dir: &Path) -> Vec<Session> {
         .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
         .filter_map(|e| serde_json::from_str(&std::fs::read_to_string(e.path()).ok()?).ok())
         .collect();
-    out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    out.sort_by_key(|m| std::cmp::Reverse(m.updated_at));
     out
 }
 
@@ -225,10 +225,11 @@ pub fn append_message(dir: &Path, message: &Message) -> std::io::Result<Session>
 
     let mut session = load_meta(dir, &message.session_id)?;
     session.updated_at = now_ms();
-    if message.role == Role::User && session.title == "新会话" {
-        if let Some(Part::Text { text }) = message.parts.first() {
-            session.title = text.chars().take(30).collect();
-        }
+    if message.role == Role::User
+        && session.title == "新会话"
+        && let Some(Part::Text { text }) = message.parts.first()
+    {
+        session.title = text.chars().take(30).collect();
     }
     save_meta(dir, &session)?;
     Ok(session)

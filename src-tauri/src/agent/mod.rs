@@ -8,6 +8,7 @@ pub mod cancel;
 pub mod commands;
 pub mod compact;
 pub mod context;
+pub mod goal_verify;
 pub mod loop_detect;
 pub mod prompt;
 pub mod skills;

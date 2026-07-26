@@ -131,7 +131,31 @@ impl Config {
             let parsed: Config = toml::from_str(&text)?;
             config.merge(parsed);
         }
+        config.seed_default_roles();
         Ok(config)
+    }
+
+    /// 五角色默认绑定：只补缺位（用户 config 逐项覆盖）。面向四订阅持有者择型：
+    /// 思考/评审走 claude（评审需独立产出质量），执行走 grok-build（命令调度快），
+    /// 研究走 grok-4.5（长上下文检索），规划走 kimi k2 thinking。用户没有的订阅
+    /// 由 mrm candidates 跳过（无凭证 provider 不出候选），降级链走到真实持有的订阅。
+    fn seed_default_roles(&mut self) {
+        let binding = |provider: &str, model: &str, fallback: Option<&str>| RoleBinding {
+            provider: provider.into(),
+            model: model.into(),
+            fallback: fallback.map(String::from),
+            account: None,
+        };
+        let defaults: [(&str, RoleBinding); 5] = [
+            ("thinking", binding("anthropic", "claude-opus-4-8", Some("planning"))),
+            ("planning", binding("kimi", "kimi-k2-thinking", Some("review"))),
+            ("execution", binding("xai", "grok-build-0.1", Some("research"))),
+            ("review", binding("anthropic", "claude-sonnet-4-6", Some("thinking"))),
+            ("research", binding("xai", "grok-4.5", Some("execution"))),
+        ];
+        for (role, b) in defaults {
+            self.roles.entry(role.to_string()).or_insert(b);
+        }
     }
 
     fn merge(&mut self, other: Config) {

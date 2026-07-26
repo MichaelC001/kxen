@@ -93,7 +93,7 @@ pub fn probe_all(store: &mut AuthStore, allow_keychain: bool) -> Vec<(&'static s
                 return (rule.provider, ProbeOutcome::Fresh, rule.display);
             }
             // env override（开发期暂存，最高优先）
-            let imported = rule.env_override.and_then(|var| read_env_override(var)).or_else(|| {
+            let imported = rule.env_override.and_then(read_env_override).or_else(|| {
                 if rule.provider == "anthropic" && !allow_keychain {
                     probe_with_timeout(&ProbeRule {
                         provider: rule.provider,
@@ -170,12 +170,11 @@ fn probe_claude() -> Option<CredentialKind> {
         if acct.is_empty() {
             continue;
         }
-        if let Ok(entry) = keyring::Entry::new("Claude Code-credentials", acct) {
-            if let Ok(raw) = entry.get_password() {
-                if let Some(cred) = parse_claude(&raw) {
-                    return Some(cred);
-                }
-            }
+        if let Ok(entry) = keyring::Entry::new("Claude Code-credentials", acct)
+            && let Ok(raw) = entry.get_password()
+            && let Some(cred) = parse_claude(&raw)
+        {
+            return Some(cred);
         }
     }
     // 兜底：凭证 JSON 文件（Linux/Windows 形态，或手动放置）

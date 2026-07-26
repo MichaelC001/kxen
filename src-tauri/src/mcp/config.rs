@@ -197,11 +197,11 @@ fn parse_server(name: String, def: ServerDef) -> Option<ServerConfig> {
         }));
     }
     if let Some(command) = def.command {
-        if let Some(k) = kind {
-            if k != "stdio" {
-                tracing::warn!(name, kind = k, "command server 的 type 只能是 stdio，跳过");
-                return None;
-            }
+        if let Some(k) = kind
+            && k != "stdio"
+        {
+            tracing::warn!(name, kind = k, "command server 的 type 只能是 stdio，跳过");
+            return None;
         }
         return Some(ServerConfig::Stdio(StdioConfig { name, command, args: def.args, env: def.env }));
     }

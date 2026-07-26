@@ -3,10 +3,17 @@
 
 use serde_json::Value;
 
+/// complete 的逐条验证评审（score-based）：模型自带 model+store，judge 由调用方择型注入。
+pub struct GoalJudge {
+    pub model: crate::llm::ModelRef,
+    pub store: crate::auth::credential::AuthStore,
+}
+
 pub async fn execute_goal_tool(
     args: &Value,
     session_id: Option<&str>,
     bus: Option<&crate::core::event::EventBus>,
+    judge: Option<&GoalJudge>,
 ) -> Result<String, String> {
     let action = args.get("action").and_then(Value::as_str).ok_or("missing action")?;
     let dir = crate::core::paths::goals_dir();
@@ -26,7 +33,7 @@ pub async fn execute_goal_tool(
     match action {
         "list" => {
             let goals = crate::core::goal::Goal::list(&dir);
-            Ok(if goals.is_empty() { "no goals".into() } else { goals.iter().map(|g| show(g)).collect::<Vec<_>>().join("\n---\n") })
+            Ok(if goals.is_empty() { "no goals".into() } else { goals.iter().map(&show).collect::<Vec<_>>().join("\n---\n") })
         }
         "create" => {
             let contract = crate::core::goal::GoalContract {
@@ -61,6 +68,26 @@ pub async fn execute_goal_tool(
                 "cancel" => goal.cancel().map_err(|e| e.to_string())?,
                 "complete" => {
                     let evidence = args.get("evidence").and_then(Value::as_str).ok_or("missing evidence")?;
+                    // score-based 逐条验证：全过才允许 complete；评审调用失败按可重试错误返回，不降级放行
+                    if let Some(j) = judge {
+                        let scores = crate::agent::goal_verify::score_completion(
+                            &j.model,
+                            &j.store,
+                            &goal.contract.objective,
+                            &goal.contract.completion_criteria,
+                            evidence,
+                        )
+                        .await?;
+                        let failed: Vec<_> = scores.iter().filter(|s| !s.pass).collect();
+                        if !failed.is_empty() {
+                            let detail = failed.iter().map(|s| format!("- {}: {}", s.criterion, s.reason)).collect::<Vec<_>>().join("\n");
+                            return Err(format!(
+                                "completion verification failed ({} criterion/criteria unmet):\n{detail}\n\
+                                 Provide evidence that actually satisfies every criterion, or adjust the goal contract.",
+                                failed.len()
+                            ));
+                        }
+                    }
                     goal.complete(evidence).map_err(|e| e.to_string())?;
                 }
                 unknown => return Err(format!("unknown goal action: {unknown}")),

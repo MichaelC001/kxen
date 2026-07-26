@@ -326,7 +326,7 @@ async fn test_dispatch(app: &AppHandle, params: &Value) -> Result<Value, String>
         mcp: Some(state.mcp.clone()),
         lsp: Some(state.lsp.read().expect("lsp").clone()),
     };
-    let (_name, answer) = kxen_app::agent::subagent::dispatch(
+    let (_name, _degraded, answer) = kxen_app::agent::subagent::dispatch(
         role,
         "Reply with exactly: PONG".to_string(),
         &deps,

@@ -72,7 +72,7 @@ pub fn render(nodes: &[RawAxNode], first_ref: u32) -> Snapshot {
         if let Some(line) = line_for(node, &mut next_ref, &mut out.refs) {
             total += 1;
             let indent = "  ".repeat(depth.min(24));
-            if !truncated && out.text.len() + indent.len() + line.len() + 1 <= MAX_SNAPSHOT_CHARS {
+            if !truncated && out.text.len() + indent.len() + line.len() < MAX_SNAPSHOT_CHARS {
                 out.text.push_str(&indent);
                 out.text.push_str(&line);
                 out.text.push('\n');

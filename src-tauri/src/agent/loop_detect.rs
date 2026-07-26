@@ -3,6 +3,7 @@
 //! 2. semantic   - same tool + normalized arguments (case/whitespace folded)
 //! 3. stagnation - a run of tool results that never change (no new information)
 //! 4. churn      - ABABAB oscillation (edit/revert cycles)
+//!
 //! A trigger stops the turn with a written reason instead of burning budget.
 
 use crate::core::shared::SharedStr;

@@ -153,8 +153,15 @@ fn parse_frontmatter(text: &str) -> (std::collections::HashMap<String, String>, 
     (map, rest[end + 4..].trim().to_string())
 }
 
-/// agent 派发：角色 -> mrm 路由 model -> 独立子 loop -> (定名, 结果) 回传；定名给 background 拼完成通知，kind 统一进活动注册表供 UI 多窗格展示。
-pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: AgentKind) -> Result<(String, String), String> {
+/// agent 派发：角色 -> mrm 路由 model -> 独立子 loop -> (定名, 降级标注, 结果) 回传；
+/// 定名给 background 拼完成通知，kind 统一进活动注册表供 UI 多窗格展示。
+/// 降级标注 = mrm 状态注入：主绑定不可用（限流/满载）时给调用方一句可回执的说明，让编排模型看得见降级。
+pub async fn dispatch(
+    role: &str,
+    prompt: String,
+    deps: &SubagentDeps,
+    kind: AgentKind,
+) -> Result<(String, Option<String>, String), String> {
     // 未知 role 显式报错：静默回落只读会把实现类任务做成"跑完但没改"，比直接报错更难被发现
     if !role_exists(role, &deps.workdir) {
         return Err(format!(
@@ -233,7 +240,20 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         },
     };
 
-    let mut messages = vec![Message::system(crate::agent::prompt::subagent_prompt(&agent.name, &agent.prompt)), Message::user(prompt)];
+    let degraded_note = grant.resolved.degraded_from.as_ref().map(|from| {
+        format!(
+            "degraded: role '{from}' primary binding unavailable (rate limit or capacity); ran on {}/{}",
+            grant.resolved.provider, grant.resolved.model
+        )
+    });
+    let mut system_prompt = crate::agent::prompt::subagent_prompt(&agent.name, &agent.prompt);
+    // 子代理自知降级：产出质量受换型影响时应在最终报告里声明
+    if let Some(note) = &degraded_note {
+        system_prompt.push_str(&format!(
+            "\n\n<scheduling>{note}. Flag this downgrade in your final report if it affects result quality.</scheduling>"
+        ));
+    }
+    let mut messages = vec![Message::system(system_prompt), Message::user(prompt)];
     let outcome = run_turn(&mut child, &mut messages).await;
     deps.agents.set_status(
         &session_id,
@@ -241,7 +261,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         if outcome.aborted { crate::agent::activity::ActivityStatus::Shutdown } else { crate::agent::activity::ActivityStatus::Done },
     );
     drop(grant);
-    Ok((name, outcome.final_text))
+    Ok((name, degraded_note, outcome.final_text))
 }
 
 #[cfg(test)]

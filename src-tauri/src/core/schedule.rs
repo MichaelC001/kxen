@@ -46,10 +46,10 @@ fn store_file() -> std::path::PathBuf {
 
 fn ensure_loaded() {
     LOADED.get_or_init(|| {
-        if let Ok(text) = std::fs::read_to_string(store_file()) {
-            if let Ok(jobs) = serde_json::from_str::<Vec<CronJob>>(&text) {
-                *crate::core::shared::lock(&JOBS) = jobs;
-            }
+        if let Ok(text) = std::fs::read_to_string(store_file())
+            && let Ok(jobs) = serde_json::from_str::<Vec<CronJob>>(&text)
+        {
+            *crate::core::shared::lock(&JOBS) = jobs;
         }
     });
 }

@@ -36,7 +36,7 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
             input_tokens: input,
             output_tokens: output,
             last_input_tokens: acc.last_input(),
-            tokens_per_sec: if gen_ms > 0 { output * 1000 / gen_ms } else { 0 },
+            tokens_per_sec: (output * 1000).checked_div(gen_ms).unwrap_or(0),
         })
     };
 

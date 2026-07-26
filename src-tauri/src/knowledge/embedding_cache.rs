@@ -32,6 +32,10 @@ impl EmbeddingCache {
         self.map.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
     pub fn contains(&self, hash: &str) -> bool {
         self.map.contains_key(hash)
     }

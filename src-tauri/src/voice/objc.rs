@@ -7,6 +7,8 @@ use objc2::runtime::{AnyClass, AnyObject, Bool};
 use objc2_foundation::{NSError, NSLocale, NSString, NSURL};
 
 #[link(name = "Speech", kind = "framework")]
+unsafe extern "C" {}
+
 #[link(name = "AVFAudio", kind = "framework")]
 unsafe extern "C" {}
 
@@ -15,6 +17,9 @@ fn class(name: &std::ffi::CStr) -> &'static AnyClass {
 }
 
 /// +0（autoreleased）返回的安全持有：显式 retain 后交接所有权。
+///
+/// # Safety
+/// `ptr` 必须是有效的 Objective-C 对象指针或可空；非对象指针属调用方契约违反。
 pub unsafe fn retain_autoreleased(ptr: *mut AnyObject) -> Option<Retained<AnyObject>> {
     if ptr.is_null() {
         return None;
@@ -164,7 +169,10 @@ pub fn stop_mic_engine(engine: &AnyObject) {
 }
 
 /// 读取 PCM 帧数据（float32 交错首通道）-> 采样副本。
-pub fn pcm_samples(buffer: *mut AnyObject) -> Vec<f32> {
+///
+/// # Safety
+/// `buffer` 必须是 AVAudioPCMBuffer 有效指针（tap 回调送达的对象）。
+pub unsafe fn pcm_samples(buffer: *mut AnyObject) -> Vec<f32> {
     if buffer.is_null() {
         return Vec::new();
     }
@@ -192,7 +200,10 @@ pub fn cancel_task(task: &AnyObject) {
 }
 
 /// 解析识别结果 -> (formattedString, isFinal)。
-pub fn result_text(result: *mut AnyObject) -> Option<(String, bool)> {
+///
+/// # Safety
+/// `result` 必须是 SFSpeechRecognitionResult 有效指针或可空（识别回调送达的对象）。
+pub unsafe fn result_text(result: *mut AnyObject) -> Option<(String, bool)> {
     if result.is_null() {
         return None;
     }

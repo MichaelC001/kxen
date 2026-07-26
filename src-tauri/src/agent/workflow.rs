@@ -6,6 +6,7 @@
 //! - `CONSTRAINTS`                              role bindings + provider availability snapshot
 //! - `phase(name)`                              progress marker, streamed live; carries index/total when `meta.phases` matches
 //! - `log(msg)`                                 tracing
+//!
 //! Optional `export const meta = { name, description, whenToUse, phases: [{ title, detail }] }` drives structured phase
 //! progress and the completion envelope appended to the script's return text.
 
@@ -155,12 +156,16 @@ pub async fn run_script(
                         return Err(workflow_err(msg));
                     }
                     match dispatch(&role, prompt.clone(), &deps, crate::agent::activity::AgentKind::Workflow).await {
-                        Ok((_name, result)) => {
+                        Ok((_name, degraded, result)) => {
                             *stats.lock().expect("stats").ok_by_role.entry(role.clone()).or_insert(0) += 1;
                             if let Some(j) = journal.lock().expect("journal").as_mut() {
                                 j.record(&role, &prompt, &result);
                             }
-                            Ok(result)
+                            // 降级标注回给脚本：编排逻辑可感知换型（journal 缓存只存正文，标注不进缓存键）
+                            Ok(match degraded {
+                                Some(d) => format!("{result}\n[{d}]"),
+                                None => result,
+                            })
                         }
                         Err(e) => {
                             // error 截断 120 字符：信封是单行摘要，完整错误在 agent 自身结果里

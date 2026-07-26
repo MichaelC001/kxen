@@ -8,8 +8,8 @@ pub fn tool_defs(tools: &[McpTool]) -> Vec<ToolDefinition> {
         .iter()
         .map(|t| {
             ToolDefinition::function(
-                &format!("mcp__{}__{}", t.server, t.name),
-                &format!("[mcp:{}] {}", t.server, t.description),
+                format!("mcp__{}__{}", t.server, t.name),
+                format!("[mcp:{}] {}", t.server, t.description),
                 t.schema.clone(),
             )
         })
