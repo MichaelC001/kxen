@@ -1,8 +1,8 @@
 # kxen 产品需求文档（PRD）
 
-- 版本: 2.0
-- 日期: 2026-07-21
-- 状态: 与 docs/rust/01-design.md（v3.0）对齐
+- 版本: 2.1
+- 日期: 2026-07-26
+- 状态: 与 docs/rust/01-design.md（v3.0）对齐；v2.1 对账代码漂移（workflow 原语/护栏数值/write-goal 引导方式/正则预编译）
 
 ## 1. 产品概述
 
@@ -38,8 +38,8 @@ kxen 是 macOS Apple Silicon 专精的开源 Coding Agent Harness，**只做 cod
 
 ### 3.3 编排
 
-- Dynamic Workflow：模型自主写 JS（rquickjs 沙箱执行），agent()/pipeline()/constraints()/phase() 原语，中间结果不进主上下文，缓存恢复，200 调用护栏
-- Goal 生命周期：完成契约必填、预算三维、阻塞三次规则、score-based 逐条验证、write-goal 引导起草（AskUserQuestion 驱动）
+- Dynamic Workflow：模型自主写 JS（rquickjs 沙箱执行），agent()/parallel()/phase() 原语 + CONSTRAINTS 只读快照（角色绑定与 provider 可用性），中间结果不进主上下文，缓存恢复，32 派发护栏 + 10 分钟 wall clock
+- Goal 生命周期：完成契约必填、预算三维、阻塞三次规则、score-based 逐条验证、write-goal 引导起草（对话式 playbook 引导）
 - 角色化 subagent：预置 model/permission/prompt，task 派发
 - loop 检测四层（exact/semantic/stagnation/churn），防空转
 
@@ -60,7 +60,7 @@ kxen 是 macOS Apple Silicon 专精的开源 Coding Agent Harness，**只做 cod
 
 ### 3.6 性能与安全
 
-- 无 Clone 原则：hot path 零分配、Arc<str> 共享、RegexSet 预编译、HTTP client 单例、事件零拷贝
+- 无 Clone 原则：hot path 零分配、Arc<str> 共享、正则预编译（LazyLock）、HTTP client 单例、事件零拷贝
 - release 全 LTO；目标：包 < 20MB、内存 < 80MB、首绘 < 500ms、首 token < 2s
 - Tauri capabilities 最小授权；凭证只读；零遥测零上传
 
