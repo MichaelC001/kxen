@@ -48,6 +48,21 @@ export interface TranscriptEntry {
   message?: string;
 }
 
+/** 连续同 kind 的 text/reasoning 条目合并成一条：转录按流式 delta 逐条落库（一词一条），
+ *  不合并直接渲染会逐词竖排。 */
+export function mergeDeltas(list: TranscriptEntry[]): TranscriptEntry[] {
+  const out: TranscriptEntry[] = [];
+  for (const e of list) {
+    const last = out.at(-1);
+    if ((e.kind === "text" || e.kind === "reasoning") && last?.kind === e.kind) {
+      out[out.length - 1] = { ...last, text: (last.text ?? "") + (e.text ?? "") };
+    } else {
+      out.push(e);
+    }
+  }
+  return out;
+}
+
 export async function agentsTranscript(
   sessionId: string,
   name: string,

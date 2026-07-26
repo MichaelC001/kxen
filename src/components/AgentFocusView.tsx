@@ -1,7 +1,7 @@
 import { createEffect, createSignal, For, Show, onCleanup } from "solid-js";
 import { Bot, X } from "lucide-solid";
 import { onTopic } from "../lib/chat";
-import { agentsTranscript, teamMessage, type TranscriptEntry } from "../lib/team";
+import { agentsTranscript, mergeDeltas, teamMessage, type TranscriptEntry } from "../lib/team";
 import { kindBadge, statusText } from "../lib/agent-display";
 import { formatError } from "../lib/error-text";
 import { createAction, createSeqGuard } from "../lib/async-guard";
@@ -38,7 +38,7 @@ export default function AgentFocusView(props: { name: string }) {
     agentsTranscript(sid, name)
       .then((t) => {
         if (!guard.isCurrent(id)) return;
-        setEntries(t);
+        setEntries(mergeDeltas(t));
         setLoading(false);
         scroll();
       })
@@ -62,7 +62,7 @@ export default function AgentFocusView(props: { name: string }) {
       if (p.agent !== props.name || p.session_id !== activeSessionId()) return;
       setEntries((prev) => {
         const last = prev.at(-1);
-        if (p.kind === "text" && last?.kind === "text") {
+        if ((p.kind === "text" || p.kind === "reasoning") && last?.kind === p.kind) {
           return [...prev.slice(0, -1), { ...last, text: (last.text ?? "") + (p.text ?? "") }];
         }
         return [...prev.slice(-199), p];

@@ -1,4 +1,4 @@
-import { createSignal, For, Show, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import {
   agentDiffFile,
   agentDiffStatus,
@@ -162,21 +162,36 @@ export default function Dock() {
 
   // 焦点带会话口径（与 StatusBar 一致）；焦点为空回落最近更新的 goal，complete/canceled 终态也有呈现
   const reloadGoal = async () => {
+    const sid = activeSessionId();
     try {
-      const focused = await goalFocus(activeSessionId() || undefined);
-      setGoal(focused ?? (await goalList())[0] ?? null);
+      const focused = await goalFocus(sid || undefined);
+      const next = focused ?? (await goalList())[0] ?? null;
+      // await 期间切了会话：旧口径的结果不得落地
+      if (activeSessionId() === sid) setGoal(next);
     } catch {
       // 事件/轮询驱动：本轮失败保留旧值，下一轮重拉
     }
   };
   const reloadDiff = async () => {
     const sid = activeSessionId();
-    setChanges(sid ? await agentDiffStatus(sid) : []);
+    if (!sid) {
+      setChanges([]);
+      return;
+    }
+    const next = await agentDiffStatus(sid);
+    if (activeSessionId() === sid) setChanges(next);
   };
   const reloadTasks = async () => setTasks(await taskList());
 
+  // 切换会话立即重拉会话口径数据：否则上一会话的 goal/diff 会残留到下个事件或轮询
+  createEffect(() => {
+    activeSessionId();
+    void reloadGoal();
+    void reloadDiff();
+  });
+
   onMount(async () => {
-    await Promise.all([reloadGoal(), reloadDiff(), reloadTasks()]);
+    await reloadTasks();
     unlisten = await onTopic(["goal.update", "task.update"], () => {
       void reloadGoal();
       void reloadTasks();

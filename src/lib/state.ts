@@ -98,6 +98,8 @@ export async function newSession(): Promise<void> {
   // 草稿态：不立即落库；首次发送消息时才创建会话（对齐 Cursor/Claude/ChatGPT）
   setActiveSessionId("");
   setActiveAgentFocus("");
+  // 旧会话的 agent 名单不得残留到草稿态（下一次 3s 轮询才清会卡在界面上）
+  setAgents([]);
   navigate?.("/");
 }
 
@@ -123,6 +125,9 @@ export async function ensureActiveSession(): Promise<string> {
 export function switchSession(id: string): void {
   setActiveSessionId(id);
   setActiveAgentFocus("");
+  // 先清旧名单再立即拉目标会话：等 3s 轮询会把上一会话的 agent 卡在新界面
+  setAgents([]);
+  void refreshAgents();
   client.rpc("session.foreground", { id }).catch(() => {}); // 同上，前台标记失败不影响切换
   navigate?.("/");
 }
@@ -147,7 +152,9 @@ export async function refreshAgents(): Promise<void> {
     setAgents([]);
     return;
   }
-  const next = await agentsList(sid).catch(() => []);
+  const next = (await agentsList(sid).catch(() => [])) ?? [];
+  // await 期间切了会话：旧会话的晚到响应不得覆盖新名单
+  if (activeSessionId() !== sid) return;
   setAgents((prev) => mergeKeyed(prev, next, (a) => a.name, sameAgent));
 }
 

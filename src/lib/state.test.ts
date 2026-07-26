@@ -42,12 +42,14 @@ import {
   deleteSession,
   ensureActiveSession,
   mountSessionEvents,
+  newSession,
   refreshAgents,
   refreshSessions,
   sessions,
   setActiveSessionId,
   setAgents,
   setSessions,
+  switchSession,
 } from "./state";
 
 function meta(id: string, directory: string): SessionMeta {
@@ -209,5 +211,50 @@ describe("mountSessionEvents 事件驱动刷新", () => {
     await vi.advanceTimersByTimeAsync(300);
     expect(mocks.sessionList).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+});
+
+describe("会话切换的 agents 清理", () => {
+  function agent(name: string): AgentActivity {
+    return {
+      name,
+      kind: "teammate",
+      model: { provider: "p", model: "m" },
+      status: "working",
+      started_at: 0,
+    };
+  }
+
+  it("newSession 回草稿态：旧会话名单同步清空（不等 3s 轮询）", async () => {
+    setActiveSessionId("s1");
+    setAgents([agent("w")]);
+    await newSession();
+    expect(activeSessionId()).toBe("");
+    expect(agents()).toEqual([]);
+  });
+
+  it("switchSession：先同步清旧名单，再按新会话立即重拉", async () => {
+    setActiveSessionId("s1");
+    setAgents([agent("w")]);
+    switchSession("s2");
+    expect(agents()).toEqual([]);
+    expect(mocks.agentsList).toHaveBeenCalledWith("s2");
+  });
+
+  it("refreshAgents await 期间切了会话：旧会话晚到响应不得落地", async () => {
+    let resolveOld!: (v: AgentActivity[]) => void;
+    mocks.agentsList.mockImplementation((sid) =>
+      sid === "s1"
+        ? new Promise<AgentActivity[]>((r) => {
+            resolveOld = r;
+          })
+        : Promise.resolve([]),
+    );
+    setActiveSessionId("s1");
+    const p = refreshAgents();
+    setActiveSessionId("s2");
+    resolveOld([agent("w")]);
+    await p;
+    expect(agents()).toEqual([]);
   });
 });

@@ -171,4 +171,22 @@ describe("AgentFocusView", () => {
     expect(body()).toContain("等待输出…");
     dispose();
   });
+
+  it("初始加载：连续同 kind delta 合并渲染（转录按 delta 逐条落库，不合并会逐词竖排）", async () => {
+    setAgents([run("w", "working")]);
+    mocks.transcript.mockResolvedValue([
+      { kind: "text", text: "The " },
+      { kind: "text", text: "user " },
+      { kind: "text", text: "wants" },
+      { kind: "reasoning", text: "think " },
+      { kind: "reasoning", text: "more" },
+    ]);
+    const { dispose } = mount("w");
+    await tick();
+    const divs = [...document.querySelectorAll(".whitespace-pre-wrap")];
+    expect(divs).toHaveLength(2);
+    expect(divs[0]!.textContent).toBe("The user wants");
+    expect(divs[1]!.textContent).toBe("think more");
+    dispose();
+  });
 });

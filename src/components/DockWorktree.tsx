@@ -201,21 +201,21 @@ export default function DockWorktree() {
       </div>
       <div class="flex gap-1.5 mt-2">
         <input
-          class="flex-1 bg-transparent border border-[var(--border)] rounded px-1.5 py-1 text-2xs font-mono placeholder:text-[var(--text-faint)]"
+          class="flex-1 min-w-0 bg-transparent border border-[var(--border)] rounded px-1.5 py-1 text-2xs font-mono placeholder:text-[var(--text-faint)]"
           placeholder="新隔离树名（a-z0-9-）"
           value={name()}
           onInput={(e) => setName(e.currentTarget.value)}
           onKeyDown={(e) => e.key === "Enter" && void create(true)}
         />
         <button
-          class="pressable px-1.5 py-1 rounded border border-[var(--border)] text-2xs text-[var(--text-dim)]"
+          class="pressable shrink-0 whitespace-nowrap px-1.5 py-1 rounded border border-[var(--border)] text-2xs text-[var(--text-dim)]"
           title="仅创建 worktree（不切换工作区）"
           onClick={() => void create(false)}
         >
           仅创建
         </button>
         <button
-          class="pressable px-1.5 py-1 rounded bg-[var(--accent)] text-[var(--accent-contrast)] text-2xs"
+          class="pressable shrink-0 whitespace-nowrap px-1.5 py-1 rounded bg-[var(--accent)] text-[var(--accent-contrast)] text-2xs"
           title="创建 worktree 并直接在其中起新会话"
           onClick={() => void create(true)}
         >
