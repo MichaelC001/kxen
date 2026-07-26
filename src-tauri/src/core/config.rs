@@ -17,6 +17,8 @@ pub struct Config {
     pub send_when_running: String,
     /// 记忆检索的 embedding 语义召回（缺省关闭，纯 BM25）
     pub embedding: EmbeddingConfig,
+    /// 网页搜索引擎（缺省 auto：tavily -> brave -> ddg 按 key 可用性）
+    pub search: SearchConfig,
 }
 
 /// embedding 语义召回：三档 provider（openai / openrouter / ollama），缺省 provider 为空 = 关闭。
@@ -67,6 +69,18 @@ impl Default for VoiceConfig {
     fn default() -> Self {
         Self { engine: "apple".into(), fallback: vec![], locale: "zh-CN".into(), transcribe_model: "whisper-1".into() }
     }
+}
+
+/// 网页搜索：引擎选择（API key 不落 config，走 auth.json / 环境变量）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SearchConfig {
+    /// 主引擎 id（见 websearch 引擎表）；空 = auto（按表序取第一个有 key 的）
+    pub engine: String,
+    /// google 引擎必需：Custom Search Engine id（或 GOOGLE_SEARCH_CX 环境变量）
+    pub google_cx: String,
+    /// searxng 自托管实例 base URL（或 SEARXNG_URL 环境变量）
+    pub searxng_url: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -176,6 +190,9 @@ impl Config {
         self.custom_providers.extend(other.custom_providers);
         if other.embedding != EmbeddingConfig::default() {
             self.embedding = other.embedding;
+        }
+        if other.search != SearchConfig::default() {
+            self.search = other.search;
         }
     }
 }

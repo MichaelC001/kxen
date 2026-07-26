@@ -3,17 +3,17 @@
 
 use serde_json::Value;
 
-/// complete 的逐条验证评审（score-based）：模型自带 model+store，judge 由调用方择型注入。
-pub struct GoalJudge {
+/// complete 的逐条验证评审（score-based）：judge 由调用方择型注入，store 借用不重拷。
+pub struct GoalJudge<'a> {
     pub model: crate::llm::ModelRef,
-    pub store: crate::auth::credential::AuthStore,
+    pub store: &'a crate::auth::credential::AuthStore,
 }
 
 pub async fn execute_goal_tool(
     args: &Value,
     session_id: Option<&str>,
     bus: Option<&crate::core::event::EventBus>,
-    judge: Option<&GoalJudge>,
+    judge: Option<&GoalJudge<'_>>,
 ) -> Result<String, String> {
     let action = args.get("action").and_then(Value::as_str).ok_or("missing action")?;
     let dir = crate::core::paths::goals_dir();
@@ -72,7 +72,7 @@ pub async fn execute_goal_tool(
                     if let Some(j) = judge {
                         let scores = crate::agent::goal_verify::score_completion(
                             &j.model,
-                            &j.store,
+                            j.store,
                             &goal.contract.objective,
                             &goal.contract.completion_criteria,
                             evidence,

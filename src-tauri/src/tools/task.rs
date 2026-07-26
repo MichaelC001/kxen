@@ -140,7 +140,8 @@ pub fn append_capped(output: &Arc<Mutex<String>>, truncated: &Arc<Mutex<bool>>, 
     out.push_str(chunk);
     if out.len() > cap {
         let cut = out.floor_char_boundary(out.len() - cap / 2);
-        *out = out[cut..].to_string();
+        // drain 原地截头：每个输出块都过这里，to_string 重分配是白拷一份
+        out.drain(..cut);
         *truncated.lock().expect("truncated") = true;
     }
 }

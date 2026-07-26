@@ -32,7 +32,7 @@ pub fn deferred_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "websearch",
-            "Search the web (DuckDuckGo) and return top results with title, URL and snippet. Use for current events, docs, library facts.",
+            "Search the web and return top results with title, URL and snippet. Use for current events, docs, library facts.",
             json!({
                 "type": "object",
                 "properties": {

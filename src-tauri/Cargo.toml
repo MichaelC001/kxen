@@ -40,6 +40,8 @@ reqwest = { version = "0.13", default-features = false, features = [
   "stream",
   "multipart",
   "form",
+  # websearch 的 query 参数编码（替手工 urlencode）
+  "query",
 ] }
 futures = "0.3"
 tokio-tungstenite = "0.26"

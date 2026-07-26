@@ -171,7 +171,7 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
                 },
                 None => ctx.model.clone(),
             };
-            let judge = super::goal_tool::GoalJudge { model: judge_model, store: ctx.store.clone() };
+            let judge = super::goal_tool::GoalJudge { model: judge_model, store: &ctx.store };
             execute_goal_tool(args, ctx.session_id.as_deref(), ctx.bus.as_ref(), Some(&judge)).await
         }
         "glob" => {
@@ -264,7 +264,7 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
         "browser" => crate::tools::browser::dispatch(args, ctx.extras.as_deref().map(|e| &e.browser), ctx.session_id.as_deref()).await,
         "websearch" => {
             let query = args.get("query").and_then(Value::as_str).ok_or("missing query")?;
-            Ok(crate::tools::websearch::format_hits(&crate::tools::websearch::search(query).await?))
+            Ok(crate::tools::websearch::format_hits(&crate::tools::websearch::search(query, &ctx.store).await?))
         }
         "team" => {
             // team 全部动作 lead-only：teammate 调用一律权限错误（防自我复制与审批绕过）
