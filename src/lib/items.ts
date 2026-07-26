@@ -28,6 +28,15 @@ export interface ToolItem {
 export interface PhaseItem {
   kind: "phase";
   name: string;
+  /** 脚本声明 meta.phases 时带结构化进度（渲染进度条），否则只有文案 */
+  index?: number | undefined;
+  total?: number | undefined;
+  workflow?: string | undefined;
+}
+/** auto-compact 现场卡（live-only，与 phase 同规：不落盘，刷新后消失）。 */
+export interface CompactedItem {
+  kind: "compacted";
+  summary: string;
 }
 export interface ApprovalItem {
   kind: "approval";
@@ -37,7 +46,7 @@ export interface ApprovalItem {
   // allowed/denied = 用户决定；timeout/cancelled = 后端了结（approval.resolved）；expired = 迟到应答发现服务端已了结
   resolved?: "allowed" | "denied" | "timeout" | "cancelled" | "expired";
 }
-export type Item = MsgItem | ToolItem | PhaseItem | ApprovalItem;
+export type Item = MsgItem | ToolItem | PhaseItem | CompactedItem | ApprovalItem;
 
 /** 落盘 decision（allow/deny/timeout/cancel）-> 卡片已决态；未知值按 expired 兜底（不冒充用户决定）。 */
 const DECISION_RESOLVED: Record<string, NonNullable<ApprovalItem["resolved"]>> = {

@@ -2,6 +2,7 @@ import { createSignal, For, onMount, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { ArrowLeft } from "lucide-solid";
 import KnowledgeSection from "../components/settings/KnowledgeSection";
+import DoctorSection from "../components/settings/DoctorSection";
 import McpSection from "../components/settings/McpSection";
 import ProvidersSection from "../components/settings/ProvidersSection";
 import RoutingSection from "../components/settings/RoutingSection";
@@ -22,6 +23,7 @@ const SECTIONS = [
   "用量与统计",
   "知识库 OKF",
   "定时任务",
+  "诊断",
   "高级",
 ] as const;
 
@@ -152,6 +154,10 @@ export default function Settings() {
 
           <Show when={section() === "定时任务"}>
             <ScheduleSection />
+          </Show>
+
+          <Show when={section() === "诊断"}>
+            <DoctorSection />
           </Show>
 
           <Show when={section() === "高级"}>

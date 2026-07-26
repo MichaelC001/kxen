@@ -11,7 +11,7 @@ export interface RunStats {
 }
 
 export interface ToolEvent {
-  kind: "tool_call" | "tool_result" | "phase" | "approval" | "approval_resolved";
+  kind: "tool_call" | "tool_result" | "phase" | "approval" | "approval_resolved" | "compacted";
   name: string;
   summary?: string | undefined;
   args?: string | undefined;
@@ -149,6 +149,9 @@ export function onLlmDelta(
           approvalId: event.approval_id,
           outcome: event.outcome,
         });
+        break;
+      case "compacted":
+        onTool?.({ kind: "compacted", name: "compact", summary: event.summary });
         break;
     }
   }

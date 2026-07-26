@@ -255,11 +255,37 @@ export default function Session() {
                 );
               }
               if (item.kind === "phase") {
+                if (item.index != null && item.total != null) {
+                  return (
+                    <div class="text-xs text-[var(--text-faint)] flex items-center gap-2">
+                      <span class="inline-block w-1 h-1 rounded-full bg-[var(--accent)]" />
+                      {item.workflow ? `${item.workflow} · ` : ""}phase {item.index}/{item.total} ·{" "}
+                      {item.name}
+                      <span class="w-24 h-1 rounded bg-[var(--bg-overlay)] overflow-hidden">
+                        <span
+                          class="block h-full rounded bg-[var(--accent)] transition-all"
+                          style={{ width: `${Math.min(100, (item.index / item.total) * 100)}%` }}
+                        />
+                      </span>
+                    </div>
+                  );
+                }
                 return (
                   <div class="text-xs text-[var(--text-faint)] flex items-center gap-2">
                     <span class="inline-block w-1 h-1 rounded-full bg-[var(--accent)]" />
                     {item.name}
                   </div>
+                );
+              }
+              if (item.kind === "compacted") {
+                return (
+                  <details class="text-xs text-[var(--text-faint)] border border-[var(--border)]/50 rounded px-3 py-1.5">
+                    <summary class="cursor-pointer select-none flex items-center gap-2">
+                      <span class="inline-block w-1 h-1 rounded-full bg-[var(--warn)]" />
+                      上下文已自动压缩（auto-compact），展开看摘要
+                    </summary>
+                    <div class="mt-1.5 whitespace-pre-wrap">{item.summary}</div>
+                  </details>
                 );
               }
               if (item.role === "user") {

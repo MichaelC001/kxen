@@ -1,4 +1,5 @@
 import { client } from "./client";
+import type { McpServerStatus } from "./mcp";
 export interface DoctorEntry {
   provider: string;
   display: string;
@@ -6,11 +7,28 @@ export interface DoctorEntry {
   detail: string;
 }
 
+export interface LspHealth {
+  language: string;
+  status: string;
+}
+
+/** 子系统健康汇总（MCP/LSP/MRM/event bus），仅 RPC 路径带（reprobe 纯凭证路径为 null）。 */
+export interface SystemHealth {
+  mcp: McpServerStatus[];
+  lsp_root: string;
+  lsp: LspHealth[];
+  mrm_describe: string;
+  mrm_dispatches: number;
+  bus_capacity: number;
+  bus_receivers: number;
+}
+
 export interface DoctorReport {
-  entries: DoctorEntry[];
-  bun_like_runtime: string;
+  runtime: string;
   data_dir: string;
   config_dir: string;
+  entries: DoctorEntry[];
+  system?: SystemHealth | null;
 }
 
 export interface ChatMessage {

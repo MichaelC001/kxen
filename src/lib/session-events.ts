@@ -51,13 +51,35 @@ export function applyStreamEvent(
     // 超时/取消的了结帧：等待中的审批卡置失效
     if (event.approvalId)
       applyApprovalResolved(deps.setItems, event.approvalId, event.outcome ?? "cancelled");
+  } else if (event.kind === "compacted") {
+    // auto-compact 现场卡：让用户看见上下文被压缩（此前静默发生，只有 ctx 条间接反映）
+    deps.setItems((prev) => [...prev, { kind: "compacted", summary: event.summary ?? "" }]);
   } else {
-    // workflow phase：有 index/total 时 `phase 2/10 · xxx`（避免 phase: + i/N: 双冒号），无则 `phase: xxx`（旧脚本无 meta）
-    const label =
+    // workflow phase：带 index/total 的渲染结构化进度条；同 workflow 连续 phase 就地更新（推进不刷屏）。
+    // 无 meta 的旧脚本保持 `phase: xxx` 一行文案
+    const item: Item =
       event.index != null && event.total != null
-        ? `phase ${event.index}/${event.total} · ${event.name}`
-        : `phase: ${event.name}`;
-    deps.setItems((prev) => [...prev, { kind: "phase", name: label }]);
+        ? {
+            kind: "phase",
+            name: event.name,
+            index: event.index,
+            total: event.total,
+            workflow: event.workflowName,
+          }
+        : { kind: "phase", name: `phase: ${event.name}` };
+    deps.setItems((prev) => {
+      const last = prev.at(-1);
+      if (
+        item.kind === "phase" &&
+        item.index != null &&
+        last?.kind === "phase" &&
+        last.index != null &&
+        last.workflow === item.workflow
+      ) {
+        return [...prev.slice(0, -1), item];
+      }
+      return [...prev, item];
+    });
   }
   deps.scroll();
 }

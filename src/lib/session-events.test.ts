@@ -13,16 +13,48 @@ function setup() {
 }
 
 describe("applyStreamEvent phase 分支", () => {
-  it("有 index/total 渲染为 phase i/N · title（不再有第二个冒号）", () => {
+  it("有 index/total 产出结构化进度项（进度条渲染）", () => {
     const { deps, last } = setup();
-    applyStreamEvent({ kind: "phase", name: "业务补齐", index: 2, total: 10 }, deps);
-    expect(last()).toEqual({ kind: "phase", name: "phase 2/10 · 业务补齐" });
+    applyStreamEvent(
+      { kind: "phase", name: "业务补齐", index: 2, total: 10, workflowName: "wf" },
+      deps,
+    );
+    expect(last()).toEqual({
+      kind: "phase",
+      name: "业务补齐",
+      index: 2,
+      total: 10,
+      workflow: "wf",
+    });
   });
 
-  it("无 index 保持 phase: xxx", () => {
+  it("无 index 保持 phase: xxx 一行文案", () => {
     const { deps, last } = setup();
     applyStreamEvent({ kind: "phase", name: "scan" }, deps);
     expect(last()).toEqual({ kind: "phase", name: "phase: scan" });
+  });
+
+  it("同 workflow 连续 phase 就地更新不追加（推进不刷屏）", () => {
+    const { deps, items } = setup();
+    applyStreamEvent({ kind: "phase", name: "一", index: 1, total: 3, workflowName: "wf" }, deps);
+    applyStreamEvent({ kind: "phase", name: "二", index: 2, total: 3, workflowName: "wf" }, deps);
+    expect(items()).toHaveLength(1);
+    expect(items()[0]).toEqual({ kind: "phase", name: "二", index: 2, total: 3, workflow: "wf" });
+  });
+
+  it("不同 workflow 的 phase 各自成行（不互相覆盖）", () => {
+    const { deps, items } = setup();
+    applyStreamEvent({ kind: "phase", name: "一", index: 1, total: 3, workflowName: "wf-a" }, deps);
+    applyStreamEvent({ kind: "phase", name: "x", index: 1, total: 2, workflowName: "wf-b" }, deps);
+    expect(items()).toHaveLength(2);
+  });
+});
+
+describe("applyStreamEvent compacted 分支", () => {
+  it("auto-compact 事件上屏为 compacted 卡（不落 phase 分支）", () => {
+    const { deps, last } = setup();
+    applyStreamEvent({ kind: "compacted", name: "compact", summary: "前文蒸馏摘要" }, deps);
+    expect(last()).toEqual({ kind: "compacted", summary: "前文蒸馏摘要" });
   });
 });
 
