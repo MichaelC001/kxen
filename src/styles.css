@@ -153,8 +153,10 @@ body {
 }
 
 /* ============ 右 dock 抽屉（负 margin 出流 + 位移深度 + 透明度，280ms ease-out） ============ */
+/* 宽度走 --dock-w（内联写入，支持拖拽调宽）；relative 给左缘拖拽把手定位 */
 .dock-wrap {
-  width: 16rem;
+  position: relative;
+  width: var(--dock-w, 16rem);
   flex-shrink: 0;
   margin-right: 0;
   opacity: 1;
@@ -167,7 +169,7 @@ body {
   transition: transform 280ms var(--ease-out);
 }
 .dock-wrap.dock-hidden {
-  margin-right: -16rem;
+  margin-right: calc(-1 * var(--dock-w, 16rem));
   opacity: 0;
   pointer-events: none;
 }

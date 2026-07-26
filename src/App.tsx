@@ -22,6 +22,8 @@ import { startAgentsPolling } from "./lib/agents-poll";
 import { mountShortcuts } from "./lib/shortcuts";
 import { openMenu } from "./lib/context-menu";
 import { mountOsNotificationJump } from "./lib/os-notify";
+import { adjustDock, adjustSidebar, dockWidth, resetDock, resetSidebar } from "./lib/panels";
+import ResizeHandle from "./components/ResizeHandle";
 import { useNavigate } from "@solidjs/router";
 import { onCleanup, onMount, Show } from "solid-js";
 
@@ -48,8 +50,15 @@ function Home() {
         {/* 右栏显隐：有对话或有 agent 即可见——无对话只剩 agent 现场时，概览卡的管理钮不能被藏 */}
         <div
           class="dock-wrap"
+          style={{ "--dock-w": `${dockWidth()}px` }}
           classList={{ "dock-hidden": !hasConversation() && agents().length === 0 }}
         >
+          {/* 向左拖变宽：dx 取反 */}
+          <ResizeHandle
+            class="absolute left-0 top-0 h-full z-10"
+            onDrag={(dx) => adjustDock(-dx)}
+            onReset={resetDock}
+          />
           <RightColumn />
         </div>
       </div>
@@ -79,6 +88,7 @@ function Layout(props: { children?: import("solid-js").JSX.Element }) {
   return (
     <div class="h-screen flex overflow-hidden">
       <Sidebar />
+      <ResizeHandle onDrag={adjustSidebar} onReset={resetSidebar} />
       <main class="flex-1 min-w-0 flex">{props.children}</main>
       <CommandPalette />
       <ContextMenu />
