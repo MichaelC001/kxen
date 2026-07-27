@@ -1,0 +1,43 @@
+---
+title: MCP、LSP、Browser、Voice 和 Schedule
+description: 接入外部工具、语言服务、浏览器、语音输入和定时任务。
+status: canonical
+sidebar:
+  order: 5
+---
+
+## MCP
+
+kxen 支持 stdio、Streamable HTTP 和 SSE transport。用户配置和项目配置合并，项目同名 server 覆盖用户配置。项目 MCP 只在 Workspace 已信任时加载。
+
+每个 MCP 工具可以配置:
+
+- allow
+- ask
+- deny
+
+远端 MCP 支持固定 header 和 OAuth 配置。Secret 不应提交到仓库。
+
+## LSP
+
+语言注册表当前覆盖:
+
+- Rust
+- TypeScript
+- JavaScript
+- Python
+- Go
+
+缺少对应 language server 时优雅降级。LSP 当前主要服务诊断，不应把未实现的完整 IDE code intelligence 写入功能说明。
+
+## Browser
+
+Browser 工具通过本机 Chrome DevTools Protocol 驱动系统 Chrome。它不下载独立 Chromium。访问 URL 时仍要经过网络边界检查。
+
+## Voice
+
+Voice 支持 Apple、OpenAI 和 xAI 引擎，并可以配置 fallback、locale 和转写模型。
+
+## Schedule
+
+Schedule 用于在应用运行期间触发任务。触发不能绕开 Session 的活动 run 保护、模型资源限制或工具审批。

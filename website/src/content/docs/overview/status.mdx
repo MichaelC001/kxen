@@ -1,0 +1,46 @@
+---
+title: 当前状态
+description: 区分已实现、实验性、开发中和未开放的产品能力。
+status: canonical
+sidebar:
+  order: 2
+---
+
+页面状态描述当前开发预览，不等于公开发行承诺。
+
+## 已实现
+
+- Tauri 2 桌面壳和 SolidJS 界面。
+- Workspace、Session、消息流和持久化。
+- Provider 认证、模型目录、账号管理和角色路由。
+- Agent loop、Goal、Workflow、Subagent 和 Agent Teams。
+- 文件、Shell、任务、Web 搜索、Browser、MCP 和 LSP 工具。
+- Knowledge、Memory、Schedule、Voice、Notification 和 Diagnostics。
+- Checkpoint、Rewind、Worktree 和 Diff 呈现。
+
+## 实验性
+
+- 多 Session 和多 Workspace 并发隔离。
+- Workflow crash resume。
+- Checkpoint 和 Rewind 的组合恢复语义。
+- Remote MCP OAuth。
+- 多语言 LSP。
+- Browser 自动化。
+- 自动知识沉淀。
+
+## 未开放
+
+- 正式下载。
+- macOS 签名与公证发行。
+- 自动更新。
+- 公开 GitHub 仓库。
+- 稳定配置兼容承诺。
+- Windows、Linux 和 Intel Mac。
+
+## 状态判定
+
+- PASS 表示当前源码存在完整主链，并通过对应静态或自动检查。
+- FAIL 表示实现、文档或门禁存在直接冲突。
+- UNKNOWN 表示没有完成真实系统、Provider 或桌面交互验收。
+
+功能页不会把 UNKNOWN 写成 PASS。

@@ -1,0 +1,60 @@
+---
+title: Safety 和 Approval
+description: 命令评估、路径保护、审批、可恢复删除和取消语义。
+status: canonical
+sidebar:
+  order: 3
+---
+
+Safety 在工具执行层生效。Prompt、AGENTS.md、Skill、项目配置和模型输出都不能关闭硬保护。
+
+## 判定
+
+每次命令或受保护路径操作进入以下结果之一:
+
+- Allow: 直接执行。
+- Ask: 需要用户批准。
+- Deny: 拒绝执行。
+- Recoverable: 操作可恢复，但仍记录风险。
+
+Deny 优先于 Ask，Ask 优先于 Recoverable。
+
+## 硬拒绝
+
+当前规则覆盖:
+
+- 磁盘格式化、分区和系统擦除。
+- 系统关机、重启和安全配置修改。
+- Keychain 或 GPG 私钥销毁。
+- 数据库、Cloud 项目、Kubernetes namespace 和基础设施全量销毁。
+- 批量删除 Git refs 或分支。
+- 以系统目录、Credential 目录、home 根和 `.git` 为目标的破坏性文件操作。
+- 删除目标包含未展开变量，导致范围无法静态判定。
+
+## 需要审批
+
+高风险但存在合法用途的命令进入 Ask，包括:
+
+- `git push --force`
+- 裸 `git reset --hard`
+- `sudo`
+- `git clean -f`
+- `kill -9`
+- 包发布和软件卸载
+- 递归权限变更
+
+审批只对本次具体调用生效。超时、拒绝和取消都不执行命令。
+
+## 删除
+
+`delete` 和 Session 删除使用 macOS 废纸篓。Shell 中的 `trash` 被识别为可恢复删除。可恢复不等于无风险，系统路径和 `.git` 仍受保护。
+
+## 网络边界
+
+初始 URL 会经过网络地址检查。MCP remote transport 和 Web 工具不能把 loopback、link-local 或内部地址当作普通公网目标。
+
+Browser 当前只检查初始导航 URL。页内导航和子资源不是完整 SSRF 安全边界，因此 Browser 仍属于实验性能力。
+
+## 取消
+
+Abort 优先于审批和长任务。正在等待审批的调用在取消后按拒绝处理，不能继续悬挂或在后台恢复执行。

@@ -1,0 +1,69 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Header from "../components/Header.astro";
+import { homeDescription, homeTitle } from "../lib/home-content";
+---
+
+<BaseLayout title={homeTitle} description={homeDescription}>
+  <div class="flex flex-col min-h-screen">
+    <Header />
+    <main class="flex-1 mx-auto max-w-5xl w-full px-6 py-16 sm:py-24">
+      <div class="max-w-3xl">
+        <div class="inline-flex items-center rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+          开发预览
+        </div>
+        <div class="mt-6 flex items-center gap-5">
+          <img src="/icon.png" width="76" height="76" alt="" class="h-16 w-16 rounded-2xl shadow-lg sm:h-20 sm:w-20" />
+          <h1
+            class="text-foreground leading-tight"
+            style="font-size: clamp(3rem, 9vw, 5.75rem); font-weight: 700; letter-spacing: -0.055em;"
+          >
+            kxen
+          </h1>
+        </div>
+        <p class="mt-6 max-w-2xl text-xl text-foreground leading-relaxed sm:text-2xl">
+          一个原生、可控、面向复杂软件工程任务的 Coding Agent Harness。
+        </p>
+        <p class="mt-4 max-w-2xl text-base text-muted-foreground leading-relaxed sm:text-lg">
+          为 macOS Apple Silicon 构建。统一管理模型、目标、工作流、子代理、工具、安全边界和本地知识。
+        </p>
+        <div class="mt-8 flex flex-wrap gap-3">
+          <a href="/overview" class="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground no-underline transition-colors hover:bg-primary-hover">
+            了解 kxen
+          </a>
+          <a href="/getting-started" class="rounded-lg border border-border-strong bg-card px-4 py-2.5 text-sm font-semibold text-foreground no-underline transition-colors hover:bg-accent">
+            开始使用
+          </a>
+        </div>
+      </div>
+
+      <div class="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <a
+          href="/guides/orchestration"
+          class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
+        >
+          <div class="font-semibold text-foreground">目标与编排</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">Goal、Workflow、Subagent 和 Agent Teams 共享一个执行模型。</div>
+        </a>
+        <a
+          href="/concepts/mrm"
+          class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
+        >
+          <div class="font-semibold text-foreground">多模型调度</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">用角色、账号、并发和降级链统一管理所有模型调用。</div>
+        </a>
+        <a
+          href="/reference/safety"
+          class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
+        >
+          <div class="font-semibold text-foreground">执行安全</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">危险操作在执行层统一拦截，删除默认进入废纸篓。</div>
+        </a>
+      </div>
+
+      <div class="mt-16 border-t border-border pt-8 text-sm text-muted-foreground">
+        当前版本为开发预览。公开发行、签名下载和自动更新尚未开放。
+      </div>
+    </main>
+  </div>
+</BaseLayout>

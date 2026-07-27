@@ -1,12 +1,16 @@
 ---
 type: reference
-description: 架构速览与模块边界（改代码前按需阅读）
+description: 架构速览与模块边界，改代码前按需阅读
 ---
 
 # 架构速览
 
-- 根即 crate 根：`src/{core,llm,auth,tools,agent}/` 单向依赖 agent -> tools -> llm -> auth -> core
-- 通信：WS 双通道（/rpc 请求-响应 + /stream 订阅推送），端口启动随机分配经 window.eval 注入
-- 调度：一切 LLM 调用与 subagent 派发经 `src/llm/mrm.rs` acquire/release
-- 工具面：exec/read/edit/write/delete/task/goal/agent/workflow 常驻；其余经 tool_search 渐进披露
-- 完整设计：`docs/rust/01-design.md`（唯一真相）
+- 应用前端位于 `src`，使用 SolidJS。
+- Rust crate 位于 `src-tauri`，拥有 Runtime、持久化和系统能力。
+- 前后端通过 WebSocket RPC 和 Stream 通信。
+- 所有模型调用必须经过 `src-tauri/src/llm/mrm.rs`。
+- 高频工具常驻，其他工具通过 Tool Search 渐进披露。
+- 项目知识位于 `.agents` 和 `src-tauri/.agents/notes`。
+- 官网和全部文档位于 `website`，使用 Cloudflare Nimbus。
+- 当前权威 Runtime 文档: [https://kxen.ai/concepts/runtime](https://kxen.ai/concepts/runtime)
+- 当前权威维护者文档: [https://kxen.ai/maintainers/repository](https://kxen.ai/maintainers/repository)

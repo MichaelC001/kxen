@@ -1,0 +1,46 @@
+---
+title: MRM
+description: Model Resource Manager 的角色路由、账号轮转、并发、RPM 和 fallback 契约。
+status: canonical
+sidebar:
+  order: 3
+---
+
+MRM 是 Model Resource Manager。主 Session、Subagent、Workflow Agent 和 Team member 的模型调用都必须经过 MRM。
+
+## 输入
+
+一次申请包含角色和当前 Auth store。角色绑定提供首选 Provider、模型、可选账号和 fallback 角色。
+
+## 候选解析
+
+MRM 按以下顺序选择:
+
+1. 读取角色绑定。
+2. 如果固定账号，只检查该账号。
+3. 否则按默认账号和命名账号构造候选。
+4. 跳过无凭证、RPM 已满或并发已满的候选。
+5. 首选角色不可用时进入 fallback 链。
+
+未配置的 Team observer 回落到 execution 角色。
+
+## 资源限制
+
+- 全局并发限制所有模型调用。
+- Provider 并发由同一 Provider 的全部账号共享。
+- RPM 按 Provider 和账号分别计算 60 秒滑动窗口。
+- Grant 使用 RAII，在调用结束或异常退出时释放并发 slot。
+
+选择和占用 slot 是一个原子过程，避免先选中模型再因并发竞争超发。
+
+## 账号轮转
+
+同一 Provider 调用失败后可以切换到其他可用账号。刷新后的凭证会回写共享 Auth store，使后续 run 和 Agent 获得新凭证。
+
+## 可观测性
+
+MRM 保留最近 50 条 dispatch record，包含角色、Provider、模型、账号、降级来源和时间。界面可以显示真实解析结果，而不是只显示配置中的首选值。
+
+## 当前边界
+
+当前实现具有固定并发、账号 RPM、账号轮转和角色 fallback。动态 AIMD、成本预算和 Provider 熔断仍属于历史设计，不写入当前能力表。

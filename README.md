@@ -1,22 +1,51 @@
 # kxen
 
-macOS Apple Silicon 原生 Coding Agent Harness（Tauri 2 + Rust + QuickJS）。
+macOS Apple Silicon 原生 Coding Agent Harness。kxen 使用 Tauri 2、Rust、SolidJS 和 QuickJS，把多 Provider 模型、目标、工作流、Agent Teams、本地工具、安全审批和长期知识组织在一个桌面 Runtime 中。
 
-## 特性
+官网与权威文档: [https://kxen.ai](https://kxen.ai)
 
-- 四订阅混用：Claude / Codex / Grok Build / Kimi Code（OAuth 复用，非 API key）
-- 角色化 subagent：thinking / planning / execution / review / research，经 MRM 全局资源调度
-- goal 生命周期：create -> activate -> 执行 -> 验证 -> complete/blocked，带预算与阻塞升级
-- workflow：模型自编 JavaScript 编排脚本（QuickJS 沙箱），agent()/CONSTRAINTS/phase() 原语
-- 命令调度：快照 shell + auto_bg（15s 自动后台）+ dev_server 就绪门 + rm 强制进回收站
-- loop 检测四层：exact / semantic / stagnation / churn，空转硬停
+当前状态: 开发预览。正式下载、签名、公证和自动更新尚未开放。
 
-## 开发
+## 主要能力
+
+- Workspace、Session 和 Composer。
+- 多 Provider、多账号、角色路由和 MRM。
+- Goal、Subagent、Dynamic Workflow 和 Agent Teams。
+- 文件、Shell、Browser、MCP 和 LSP 工具。
+- Knowledge、Rules、Skills 和 Memory。
+- Checkpoint、Rewind 和 Worktree。
+- 执行层 Safety、Approval 和可恢复删除。
+
+## 开发应用
 
 ```bash
-cd src-tauri && cargo test    # 全部 Rust 测试（300+）
-pnpm tauri:dev                # 启动 app（dev，前端 + Rust 后端一起起）
-pnpm dev                      # 仅前端 dev server（端口 7823）
+pnpm install
+pnpm tauri:dev
 ```
 
-设计文档：`docs/rust/01-design.md`
+## 验证应用
+
+```bash
+pnpm check
+pnpm test
+pnpm build
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo check --manifest-path src-tauri/Cargo.toml
+```
+
+## 开发官网
+
+```bash
+cd website
+pnpm install
+pnpm dev
+```
+
+## 验证官网
+
+```bash
+cd website
+pnpm check
+```
+
+官网使用 Cloudflare Nimbus。产品介绍和产品文档统一保存在 `website` package 中，开发调研、实现计划和内部 QA 不进入产品站，根 `docs` 目录不再使用。

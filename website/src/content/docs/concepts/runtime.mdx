@@ -1,0 +1,50 @@
+---
+title: Runtime
+description: kxen 桌面运行时的前端、Rust 后端、通信和持久化边界。
+status: canonical
+sidebar:
+  order: 1
+---
+
+kxen 是一个 Tauri 2 macOS 应用。SolidJS 前端负责交互，Rust 后端负责长期状态、模型调用、工具执行和持久化。
+
+## 分层
+
+```text
+SolidJS UI
+    |
+WebSocket RPC 和 Stream
+    |
+Rust AppState
+    |
+Session、Agent、MRM、Tools、Knowledge、MCP、LSP
+    |
+本地文件、进程、Provider 和系统能力
+```
+
+UI 不直接调用 Provider，也不直接拥有 Agent run。后端通过 RPC 接收操作，通过 Stream 推送 token、工具、审批、活动状态和终态事件。
+
+## AppState
+
+AppState 持有跨 Session 的共享运行对象，包括:
+
+- Session 和 active run registry。
+- Auth store 和 Provider catalog。
+- MRM。
+- Approval broker。
+- Task、Schedule、Team 和 Browser 状态。
+- Event bus。
+
+共享状态不会因为前端组件卸载而结束。界面重连后应从后端快照恢复，再使用事件流保持更新。
+
+## Session
+
+Session 是用户工作的持久边界。一次 run 是 Session 中的一次执行，不是新的 Session。pending queue、Goal、Team 和 Schedule 都通过 Session ID 关联。
+
+## 终态
+
+每次 run 必须产生完成、取消或错误终态。网络断线、前端刷新和模型流停止都不能成为静默结束。
+
+## 平台边界
+
+当前 Runtime 只支持 macOS 14 及以上版本和 Apple Silicon。Tauri bundle 目标是 DMG，签名身份尚未配置。

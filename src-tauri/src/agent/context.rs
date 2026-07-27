@@ -1,5 +1,5 @@
 //! @ 引用的内容注入：chip -> <file_content>/<url_content> 上下文块。
-//! 数值依据 docs/research/2026-07-21-agent-ux.md §1：16KB 大纲降级、64KB 单文件 cap、200KB 总量 cap。
+//! 产品契约见 website/src/content/docs/concepts/context-engineering.mdx：16KB 大纲降级、64KB 单文件 cap、200KB 总量 cap。
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;

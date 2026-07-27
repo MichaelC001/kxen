@@ -1,0 +1,38 @@
+---
+title: Knowledge、Rules、Skills 和 Memory
+description: 组织项目约束、按需参考、可调用 Skill 和长期记忆。
+status: canonical
+sidebar:
+  order: 4
+---
+
+kxen 把指令型内容和知识型内容分开管理。
+
+## AGENTS.md
+
+AGENTS.md 保存项目级协作规则。多层目录可以提供更接近当前文件的约束。规则从仓库根到当前工作目录依次加载，近层规则后应用。
+
+## .agents
+
+项目知识目录可以包含:
+
+- `rules`: 需要注入 Agent 上下文的约束。
+- `references`: 按需读取的参考资料。
+- `skills`: 可发现和调用的工作流说明。
+- `commands`: 用户显式触发的命令模板。
+- `agents`: 角色定义。
+- `workflows`: 保存的编排定义。
+
+References 不应自动塞入每次模型请求。Agent 先读取索引，再按任务需要读取正文。
+
+## Knowledge
+
+Knowledge 支持扫描、检索、渲染和注入。默认使用文本检索，配置 embedding 后可以加入语义召回。
+
+## Memory
+
+Memory 保存从历史 Session 提炼出的稳定信息。自动沉淀不能静默覆盖项目规则，也不能把失败输出写成事实。
+
+## 优先级
+
+执行层 Safety 高于所有文档指令。项目规则不能关闭内置危险操作防护，也不能让只读角色获得写工具。
