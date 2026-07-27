@@ -175,6 +175,10 @@ export async function taskKill(id: string): Promise<boolean> {
   return client.rpc<boolean>("task.kill", { id });
 }
 
+export async function taskRestart(id: string): Promise<{ task_id: string }> {
+  return client.rpc<{ task_id: string }>("task.restart", { id });
+}
+
 // ---------------- 事件订阅（goal.update / task.update） ----------------
 
 export function onTopic(

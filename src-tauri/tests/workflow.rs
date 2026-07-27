@@ -25,6 +25,8 @@ fn test_deps() -> SubagentDeps {
         custom_providers: Default::default(),
         send_when_running: String::new(),
         embedding: Default::default(),
+        search: Default::default(),
+        coding_rules: Default::default(),
     };
     SubagentDeps {
         registry: Arc::new(kxen_app::tools::task::TaskRegistry::new()),
@@ -72,6 +74,21 @@ async fn promise_all_fanout() {
 async fn constraints_are_visible() {
     let out = run_ok("return CONSTRAINTS.roles.thinking.provider + '/' + CONSTRAINTS.roles.execution.model").await;
     assert_eq!(body(&out), "anthropic/grok");
+}
+
+#[tokio::test]
+async fn constraints_are_deep_frozen() {
+    // 沙箱当前为严格模式：覆写冻结属性抛 TypeError。逐项 try/catch 后继续，
+    // 验证顶层/嵌套覆写与新增 key 全部无效，宿主快照保持只读
+    let out = run_ok(
+        "let threw = false; \
+         try { CONSTRAINTS.max_agents = 999; } catch (e) { threw = true; } \
+         try { CONSTRAINTS.roles.thinking.provider = 'hacked'; } catch (e) {} \
+         try { CONSTRAINTS.injected = 1; } catch (e) {} \
+         return CONSTRAINTS.max_agents + '/' + CONSTRAINTS.roles.thinking.provider + '/' + String(CONSTRAINTS.injected) + '/' + threw",
+    )
+    .await;
+    assert_eq!(body(&out), "32/anthropic/undefined/true");
 }
 
 #[tokio::test]

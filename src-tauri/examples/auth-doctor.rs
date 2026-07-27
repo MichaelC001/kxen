@@ -19,6 +19,7 @@ fn main() {
             ProbeOutcome::Imported => "imported",
             ProbeOutcome::Fresh => "ok     ",
             ProbeOutcome::Missing => "missing",
+            ProbeOutcome::NeedsApproval => "approve",
         };
         let expired = store.get(*provider).is_some_and(|c| c.is_expired());
         println!("{mark}  {display:28} ({provider}){}", if expired { "  [expired, will refresh]" } else { "" });

@@ -54,7 +54,7 @@ pub fn first_line(s: &str, max: usize) -> String {
 }
 
 /// 可见 deferred 工具：tool_search 挂载集 ∩ 身份白名单。
-/// readonly 子代理 / plan-mode teammate 与父 session 共享 extras，不过白名单会看到 todo/webfetch/websearch（越权面）。
+/// readonly 子代理 / plan-mode teammate 与父 session 共享 extras，白名单过滤挡挂载工具的越权可见。
 pub fn deferred_visible(extras: Option<&super::context::SessionExtras>, allowed: Option<&[&str]>) -> Vec<crate::llm::tool::ToolDefinition> {
     let Some(extras) = extras else { return Vec::new() };
     let enabled = crate::core::shared::lock(&extras.extra_tools);
@@ -124,16 +124,16 @@ mod tests {
     #[test]
     fn deferred_respects_allowed_whitelist() {
         let extras = crate::agent::agent_loop::SessionExtras::default();
-        extras.extra_tools.lock().expect("tools").insert("todo".to_string());
-        extras.extra_tools.lock().expect("tools").insert("webfetch".to_string());
+        extras.extra_tools.lock().expect("tools").insert("lsp".to_string());
+        extras.extra_tools.lock().expect("tools").insert("schedule".to_string());
         // 无白名单（full）：挂载的全部可见
         let names: Vec<_> = deferred_visible(Some(&extras), None).into_iter().map(|t| t.function.name).collect();
-        assert_eq!(names, ["todo", "webfetch"]);
+        assert_eq!(names, ["lsp", "schedule"]);
         // readonly 白名单（read/glob/grep）：共享 extras 里挂载的 deferred 一个都不可见
         assert!(deferred_visible(Some(&extras), Some(&["read", "glob", "grep"])).is_empty());
-        // 白名单显式含 todo（如 ReadonlyTodo 放开）：只放白名单内的
-        let names: Vec<_> = deferred_visible(Some(&extras), Some(&["todo"])).into_iter().map(|t| t.function.name).collect();
-        assert_eq!(names, ["todo"]);
+        // 白名单显式含 lsp：只放白名单内的
+        let names: Vec<_> = deferred_visible(Some(&extras), Some(&["lsp"])).into_iter().map(|t| t.function.name).collect();
+        assert_eq!(names, ["lsp"]);
         // 无 extras（子代理无 session 上下文）：空
         assert!(deferred_visible(None, None).is_empty());
     }

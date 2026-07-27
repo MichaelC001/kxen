@@ -1,9 +1,12 @@
-//! Resident tool definitions (progressive disclosure: ~10 resident, rest via Tool Search in M5).
+//! Resident tool definitions (progressive disclosure per design 3.2: ~12 resident, rest via tool_search).
 //! All tool descriptions are English by design; UI strings stay Simplified Chinese.
 
 use crate::llm::tool::ToolDefinition;
 use serde_json::json;
 
+/// 常驻工具：设计 3.2 点名的 12 个 + tool_search（渐进披露入口，本身必须常驻）+
+/// team 系 3 个（run.rs 按身份门控：主会话不展示 team，teammate 才见 send_message/team_task）。
+/// 其余（delete/lsp/agent/worktree/skill/knowledge/schedule/browser）走 deferred 经 tool_search 挂载。
 pub fn core_tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition::function(
@@ -60,15 +63,6 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                     "content": { "type": "string" }
                 },
                 "required": ["path", "content"]
-            }),
-        ),
-        ToolDefinition::function(
-            "delete",
-            "Delete a file to the Trash (recoverable).",
-            json!({
-                "type": "object",
-                "properties": { "path": { "type": "string" } },
-                "required": ["path"]
             }),
         ),
         ToolDefinition::function(
@@ -138,54 +132,49 @@ pub fn core_tools() -> Vec<ToolDefinition> {
             }),
         ),
         ToolDefinition::function(
-            "lsp",
-            "Language-server intelligence for rust, ts/tsx, js/jsx, python and go files (per-language servers start lazily on first use; a language whose server is not installed degrades to a hint message while other languages keep working). Actions: diagnostics (default; pass `path` for one file, omit for all session-touched supported files), hover/definition/references (require `path`, `line`, `character`, 1-based), symbols (document outline, requires `path`).",
+            "todo",
+            "Session todo list for tracking multi-step work: add items, list, complete by id, clear completed.",
             json!({
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["diagnostics", "hover", "definition", "references", "symbols"], "description": "Defaults to diagnostics" },
-                    "path": { "type": "string", "description": "File path (relative to working directory); required for hover/definition/references/symbols" },
-                    "line": { "type": "integer", "description": "1-based line, required for hover/definition/references" },
-                    "character": { "type": "integer", "description": "1-based column, required for hover/definition/references" }
-                }
+                    "action": { "type": "string", "enum": ["add", "list", "complete", "clear"] },
+                    "content": { "type": "string", "description": "Required for add" },
+                    "id": { "type": "integer", "description": "Required for complete" }
+                },
+                "required": ["action"]
             }),
         ),
         ToolDefinition::function(
-            "tool_search",
-            "Discover additional tools that are not loaded by default (progressive disclosure). Returns matching tool cards; matched tools become callable for the rest of this session.",
+            "webfetch",
+            "Fetch a URL and return the page as plain text (scripts/styles stripped, capped at 50k chars).",
             json!({
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string", "description": "What you need, e.g. 'todo list' or 'fetch url'" }
+                    "url": { "type": "string", "description": "https:// or http:// URL" }
+                },
+                "required": ["url"]
+            }),
+        ),
+        ToolDefinition::function(
+            "websearch",
+            "Search the web and return top results with title, URL and snippet. Use for current events, docs, library facts.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "search query" }
                 },
                 "required": ["query"]
             }),
         ),
         ToolDefinition::function(
-            "agent",
-            "Dispatch a subagent by role: thinking (deep analysis), planning (task decomposition), execution (fast execution), review (adversarial review), research (external research). Each runs on a model chosen for the role. Default is synchronous (blocks until the subagent finishes); set background=true for 2+ independent tasks to run them in parallel - the call returns a receipt immediately and each result arrives later as a task notification.",
+            "tool_search",
+            "Discover additional tools that are not loaded by default (progressive disclosure): delete, lsp, agent, worktree, skill, knowledge, schedule, browser. Returns matching tool cards; matched tools become callable for the rest of this session.",
             json!({
                 "type": "object",
                 "properties": {
-                    "role": { "type": "string", "enum": ["thinking", "planning", "execution", "review", "research"] },
-                    "prompt": { "type": "string", "description": "The task for the subagent to perform" },
-                    "worktree": { "type": "string", "description": "Optional: run this dispatch inside an isolated git worktree with this name (branch kxen/<name>, main tree untouched)" },
-                    "background": { "type": "boolean", "description": "Optional, default false. true = async dispatch: receipt now, result delivered as a task notification in a later turn" }
+                    "query": { "type": "string", "description": "What you need, e.g. 'delete file' or 'lsp diagnostics'" }
                 },
-                "required": ["role", "prompt"]
-            }),
-        ),
-        ToolDefinition::function(
-            "worktree",
-            "Manage isolated git worktrees under .kxen/worktrees (for parallel or bulk-change isolation). Actions: create (name), remove (name, delete_branch?), list, diff (name -> diff --stat vs main tree).",
-            json!({
-                "type": "object",
-                "properties": {
-                    "action": { "type": "string", "enum": ["create", "remove", "list", "diff"] },
-                    "name": { "type": "string" },
-                    "delete_branch": { "type": "boolean" }
-                },
-                "required": ["action"]
+                "required": ["query"]
             }),
         ),
         ToolDefinition::function(
@@ -198,19 +187,6 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                     "run_id": { "type": "string", "description": "optional: stable id to enable journal/resume across runs" }
                 },
                 "required": ["script"]
-            }),
-        ),
-        ToolDefinition::function(
-            "skill",
-            "Load a skill by name (see Available skills). Skills are reusable instruction packs; loading one already loaded with identical args is rejected. Do not call for skills marked disable-model-invocation.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "action": { "type": "string", "enum": ["load"] },
-                    "name": { "type": "string" },
-                    "args": { "type": "string", "description": "Arguments passed to the skill template" }
-                },
-                "required": ["action", "name"]
             }),
         ),
         ToolDefinition::function(
@@ -258,37 +234,6 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                     "action": { "type": "string", "enum": ["claim", "complete", "fail", "list"] },
                     "id": { "type": "integer" },
                     "reason": { "type": "string", "description": "why the task failed (for fail)" }
-                },
-                "required": ["action"]
-            }),
-        ),
-        ToolDefinition::function(
-            "knowledge",
-            "Persist durable learnings. add (scope: project|personal, type: correction|convention|pitfall|preference, description, content, slug?) writes one atomic note - same slug replaces, never duplicates. project = true only about this codebase (use sparingly; committed at .agents/notes); personal = cross-project (~/.agents/notes, the default). list shows both scopes; remove (scope, slug).",
-            json!({
-                "type": "object",
-                "properties": {
-                    "action": { "type": "string", "enum": ["add", "list", "remove"] },
-                    "scope": { "type": "string", "enum": ["project", "personal"] },
-                    "slug": { "type": "string" },
-                    "type": { "type": "string", "enum": ["correction", "convention", "pitfall", "preference", "note"] },
-                    "description": { "type": "string" },
-                    "content": { "type": "string" }
-                },
-                "required": ["action"]
-            }),
-        ),
-        ToolDefinition::function(
-            "schedule",
-            "Cron-based scheduled agent wakeups (in-process, lives with the app). add (cron 5-field, prompt, once?) schedules a run in THIS session at each fire time; list shows jobs with next fire; remove (id). Use for reminders, periodic checks, or one-shot follow-ups.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "action": { "type": "string", "enum": ["add", "list", "remove"] },
-                    "cron": { "type": "string", "description": "5-field cron, e.g. '30 9 * * *' or '*/10 * * * *'" },
-                    "prompt": { "type": "string" },
-                    "once": { "type": "boolean" },
-                    "id": { "type": "string" }
                 },
                 "required": ["action"]
             }),

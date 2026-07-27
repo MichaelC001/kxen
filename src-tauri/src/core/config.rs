@@ -19,6 +19,21 @@ pub struct Config {
     pub embedding: EmbeddingConfig,
     /// 网页搜索引擎（缺省 auto：tavily -> brave -> ddg 按 key 可用性）
     pub search: SearchConfig,
+    /// 内置编码规则注入开关（缺省开启）
+    pub coding_rules: CodingRulesConfig,
+}
+
+/// 内置编码规则（prompt.rs CODING_RULES）：app 自带的通用编码纪律，对所有会话生效。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CodingRulesConfig {
+    pub enabled: bool,
+}
+
+impl Default for CodingRulesConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 /// embedding 语义召回：三档 provider（openai / openrouter / ollama），缺省 provider 为空 = 关闭。
@@ -151,8 +166,9 @@ impl Config {
 
     /// 五角色默认绑定：只补缺位（用户 config 逐项覆盖）。面向四订阅持有者择型：
     /// 思考/评审走 claude（评审需独立产出质量），执行走 grok-build（命令调度快），
-    /// 研究走 grok-4.5（长上下文检索），规划走 kimi k2 thinking。用户没有的订阅
-    /// 由 mrm candidates 跳过（无凭证 provider 不出候选），降级链走到真实持有的订阅。
+    /// 研究走 grok-4.5（长上下文检索），规划走 kimi-for-coding 的 k3（1M 上下文推理型；
+    /// provider key 必须对齐订阅探测导入键，否则探测到的凭证不会被该角色命中）。
+    /// 用户没有的订阅由 mrm candidates 跳过（无凭证 provider 不出候选），降级链走到真实持有的订阅。
     fn seed_default_roles(&mut self) {
         let binding = |provider: &str, model: &str, fallback: Option<&str>| RoleBinding {
             provider: provider.into(),
@@ -162,7 +178,7 @@ impl Config {
         };
         let defaults: [(&str, RoleBinding); 5] = [
             ("thinking", binding("anthropic", "claude-opus-4-8", Some("planning"))),
-            ("planning", binding("kimi", "kimi-k2-thinking", Some("review"))),
+            ("planning", binding("kimi-for-coding", "k3", Some("review"))),
             ("execution", binding("xai", "grok-build-0.1", Some("research"))),
             ("review", binding("anthropic", "claude-sonnet-4-6", Some("thinking"))),
             ("research", binding("xai", "grok-4.5", Some("execution"))),
@@ -194,7 +210,16 @@ impl Config {
         if other.search != SearchConfig::default() {
             self.search = other.search;
         }
+        if other.coding_rules != CodingRulesConfig::default() {
+            self.coding_rules = other.coding_rules;
+        }
     }
+}
+
+/// 内置编码规则开关（缺省开启；config.toml [coding_rules] enabled = false 关闭）。
+/// prompt 组装每次现读：设置页开关下一轮即生效，无需重启。
+pub fn coding_rules_enabled() -> bool {
+    Config::load(&crate::core::paths::config_dir().join("config.toml"), None).map(|c| c.coding_rules.enabled).unwrap_or(true)
 }
 
 /// voice.set_engine 的局部更新：覆盖 engine/fallback（空数组 = 清空降级链；
@@ -216,6 +241,25 @@ pub fn merge_voice_engine(doc: &mut toml::Table, engine: &str, fallback: &[Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_role_providers_align_with_registry_and_probe() {
+        let mut config = Config::default();
+        config.seed_default_roles();
+        let expected = ["thinking", "planning", "execution", "review", "research"];
+        let probe_keys: Vec<&str> = crate::auth::probe::RULES.iter().map(|r| r.provider).collect();
+        for role in expected {
+            let b = config.roles.get(role).unwrap_or_else(|| panic!("缺角色 {role} 默认绑定"));
+            let spec = crate::providers::find(&b.provider).unwrap_or_else(|| panic!("角色 {role} provider {} 不在注册表", b.provider));
+            assert!(probe_keys.contains(&b.provider.as_str()), "角色 {role} provider {} 不在探测 key 集合", b.provider);
+            // 无 /models 端点的 provider 只能靠静态种子，绑错模型名会在路由期静默 404
+            if !spec.models_endpoint {
+                assert!(spec.static_models.iter().any(|m| m.id == b.model), "角色 {role} 模型 {} 不在 {} 静态模型集", b.model, b.provider);
+            }
+        }
+        // B3 回归：planning 曾绑 "kimi"（API key provider），探测导入的是 kimi-for-coding
+        assert_eq!(config.roles["planning"].provider, "kimi-for-coding");
+    }
 
     #[test]
     fn merge_voice_engine_keeps_other_voice_keys() {

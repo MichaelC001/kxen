@@ -125,8 +125,12 @@ pub async fn run_script(
         .async_with(async move |ctx| {
             let globals = ctx.globals();
 
-            // CONSTRAINTS：直接注入 JS 字面量，脚本免解析
-            let inject = format!("globalThis.CONSTRAINTS = {};", serde_json::to_string(&constraints).unwrap_or_else(|_| "{}".into()));
+            // CONSTRAINTS：深冻结后注入 JS 字面量（宿主快照只读，脚本覆写静默无效），脚本免解析
+            ctx.eval::<Value, _>(js::DEEP_FREEZE_JS).catch(&ctx).map_err(|e| e.to_string())?;
+            let inject = format!(
+                "globalThis.CONSTRAINTS = globalThis.__kxen_deepFreeze({});",
+                serde_json::to_string(&constraints).unwrap_or_else(|_| "{}".into())
+            );
             ctx.eval::<Value, _>(inject).catch(&ctx).map_err(|e| e.to_string())?;
 
             // FORMAT_RESULT / PARALLEL：与 CONSTRAINTS 同方式注入

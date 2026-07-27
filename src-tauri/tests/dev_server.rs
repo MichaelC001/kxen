@@ -1,7 +1,7 @@
 // dev server 生命周期测试（P1-33）：readiness timeout 杀进程组、解析 port 写回 task 状态。
 // 走 kxen_app 公共 API，与 tests/safety_eval.rs 同一拆分先例（350 行门禁）。
 use kxen_app::core::shared::lock;
-use kxen_app::tools::dev_server::{DevServerParams, ReadySpec, dev_server};
+use kxen_app::tools::dev_server::{DevServerParams, ReadySpec, dev_server, restart_task};
 use kxen_app::tools::task::TaskRegistry;
 use std::sync::Arc;
 use std::time::Duration;
@@ -59,4 +59,23 @@ async fn parsed_port_written_back_to_task() {
     assert_eq!(info.port, Some(49217), "list 快照应带解析出的 port");
 
     registry.kill(&started.task_id).await;
+}
+
+/// 同配置重启：id 不变，ready spec 保留（重启后按原 spec 重新就绪并解析出同一 port）。
+#[tokio::test]
+async fn restart_keeps_id_and_ready_spec() {
+    let registry = Arc::new(TaskRegistry::new());
+    let started =
+        dev_server(params("echo 'listening on http://localhost:49231/'; sleep 60", 5_000), &registry).await.expect("pattern 命中应 ready");
+
+    let new_id = restart_task(&started.task_id, &registry).await.expect("restart 应成功");
+    assert_eq!(new_id, started.task_id, "重启后 task id 不得变化");
+
+    let task = registry.get(&new_id).expect("task registered");
+    assert_eq!(*lock(&task.port), Some(49231), "ready spec 保留：重启后应重新解析出同一 port");
+    assert!(lock(&task.restart).is_some(), "重启后 ready/shell 元数据必须带回（再次重启仍同配置）");
+    let info = registry.list().into_iter().find(|t| t.id == new_id).expect("listed");
+    assert_eq!(info.status, kxen_app::tools::task::TaskStatus::Running, "重启就绪后应为 Running");
+
+    registry.kill(&new_id).await;
 }

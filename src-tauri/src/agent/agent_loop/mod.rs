@@ -6,6 +6,7 @@ mod execute;
 mod goal_tool;
 mod helpers;
 mod run;
+mod run_calls;
 mod task_tool;
 mod usage;
 

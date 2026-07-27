@@ -38,6 +38,12 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let state = app.state::<Arc<AppState>>();
             Ok(json!(state.registry.kill(id).await))
         }
+        "task.restart" => {
+            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
+            let state = app.state::<Arc<AppState>>();
+            let task_id = kxen_app::tools::dev_server::restart_task(id, &state.registry).await.map_err(|e| e.to_string())?;
+            Ok(json!({ "task_id": task_id }))
+        }
         "set_model" => {
             let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
             let model = params.get("model").and_then(Value::as_str).ok_or("missing model")?;
@@ -168,64 +174,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
                 .map_err(|e| e.to_string())?;
             Ok(json!({ "path": path.to_string_lossy() }))
         }
-        "worktree.list" => {
-            let state = app.state::<Arc<AppState>>();
-            let dir = state.active_workspace.read().expect("workspace").clone();
-            let infos = kxen_app::tools::worktree::list(&dir).await?;
-            Ok(json!(
-                infos.iter().map(|i| json!({ "name": i.name, "path": i.path.to_string_lossy(), "branch": i.branch })).collect::<Vec<_>>()
-            ))
-        }
-        "worktree.create" => {
-            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
-            let state = app.state::<Arc<AppState>>();
-            let dir = state.active_workspace.read().expect("workspace").clone();
-            let info = kxen_app::tools::worktree::create(&dir, name).await?;
-            Ok(json!({ "name": info.name, "path": info.path.to_string_lossy(), "branch": info.branch }))
-        }
-        "worktree.remove" => {
-            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
-            let delete_branch = params.get("delete_branch").and_then(Value::as_bool).unwrap_or(false);
-            let state = app.state::<Arc<AppState>>();
-            let dir = state.active_workspace.read().expect("workspace").clone();
-            let appr = kxen_app::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), None, None);
-            kxen_app::tools::worktree::remove_with_approval(&dir, name, delete_branch, appr.as_ref()).await?;
-            Ok(json!(true))
-        }
-        "worktree.status" => {
-            // 单棵 worktree 的脏文件清单（看板行内计数数据源）
-            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
-            let entries = kxen_app::tools::worktree::status(std::path::Path::new(path)).await?;
-            Ok(json!(entries))
-        }
-        "diff.status" => {
-            let state = app.state::<Arc<AppState>>();
-            let dir = state.active_workspace.read().expect("workspace").clone();
-            Ok(json!(kxen_app::tools::worktree::status(&dir).await?))
-        }
-        "diff.agent_status" => {
-            // 本会话 agent 改动（快照口径），与 git status 无关
-            let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
-            let state = app.state::<Arc<AppState>>();
-            let entries = kxen_app::core::shared::lock(&state.session_snapshots).get(id).map(|s| s.status()).unwrap_or_default();
-            Ok(serde_json::to_value(entries).map_err(|e| e.to_string())?)
-        }
-        "diff.agent_file" => {
-            let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
-            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
-            let state = app.state::<Arc<AppState>>();
-            let store = kxen_app::core::shared::lock(&state.session_snapshots).get(id).cloned();
-            let p = std::path::Path::new(path);
-            let text = store.and_then(|s| s.diff(p).or_else(|| s.diff_created(p)));
-            Ok(json!({ "text": text.unwrap_or_default() }))
-        }
-        "diff.file" => {
-            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
-            let state = app.state::<Arc<AppState>>();
-            let dir = state.active_workspace.read().expect("workspace").clone();
-            let text = kxen_app::tools::worktree::diff_file(&dir, path).await?;
-            Ok(json!(text))
-        }
+        m if m.starts_with("worktree.") || m.starts_with("diff.") => try_worktree_diff(m, &params, &app.state::<Arc<AppState>>()).await,
         "send_message" => {
             let p: super::session_ops::SendMessageParams = serde_json::from_value(params).map_err(|e| e.to_string())?;
             let state = app.state::<Arc<AppState>>();
@@ -299,6 +248,8 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
                 .map_err(|e| e.to_string())?;
             Ok(serde_json::to_value(config).map_err(|e| e.to_string())?)
         }
+        "coding_rules.get" => Ok(super::settings::coding_rules_report()),
+        "coding_rules.set" => super::settings::set_coding_rules(&params),
         "config.set_role" => {
             let role = params.get("role").and_then(Value::as_str).ok_or("missing role")?;
             let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
@@ -337,6 +288,62 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
                 }
             }));
             Ok(json!(commands))
+        }
+        other => Err(format!("unknown method: {other}")),
+    }
+}
+async fn try_worktree_diff(method: &str, params: &Value, state: &Arc<AppState>) -> Result<Value, String> {
+    match method {
+        "worktree.list" => {
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            let infos = kxen_app::tools::worktree::list(&dir).await?;
+            Ok(json!(
+                infos.iter().map(|i| json!({ "name": i.name, "path": i.path.to_string_lossy(), "branch": i.branch })).collect::<Vec<_>>()
+            ))
+        }
+        "worktree.create" => {
+            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            let info = kxen_app::tools::worktree::create(&dir, name).await?;
+            Ok(json!({ "name": info.name, "path": info.path.to_string_lossy(), "branch": info.branch }))
+        }
+        "worktree.remove" => {
+            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
+            let delete_branch = params.get("delete_branch").and_then(Value::as_bool).unwrap_or(false);
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            let appr = kxen_app::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), None, None);
+            kxen_app::tools::worktree::remove_with_approval(&dir, name, delete_branch, appr.as_ref()).await?;
+            Ok(json!(true))
+        }
+        "worktree.status" => {
+            // 单棵 worktree 的脏文件清单（看板行内计数数据源）
+            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
+            let entries = kxen_app::tools::worktree::status(std::path::Path::new(path)).await?;
+            Ok(json!(entries))
+        }
+        "diff.status" => {
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            Ok(json!(kxen_app::tools::worktree::status(&dir).await?))
+        }
+        "diff.agent_status" => {
+            // 本会话 agent 改动（快照口径），与 git status 无关
+            let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
+            let entries = kxen_app::core::shared::lock(&state.session_snapshots).get(id).map(|s| s.status()).unwrap_or_default();
+            Ok(serde_json::to_value(entries).map_err(|e| e.to_string())?)
+        }
+        "diff.agent_file" => {
+            let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
+            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
+            let store = kxen_app::core::shared::lock(&state.session_snapshots).get(id).cloned();
+            let p = std::path::Path::new(path);
+            let text = store.and_then(|s| s.diff(p).or_else(|| s.diff_created(p)));
+            Ok(json!({ "text": text.unwrap_or_default() }))
+        }
+        "diff.file" => {
+            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
+            let dir = state.active_workspace.read().expect("workspace").clone();
+            let text = kxen_app::tools::worktree::diff_file(&dir, path).await?;
+            Ok(json!(text))
         }
         other => Err(format!("unknown method: {other}")),
     }

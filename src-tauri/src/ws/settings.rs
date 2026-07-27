@@ -110,6 +110,34 @@ fn merge_binding(
     binding
 }
 
+/// 内置编码规则状态：开关 + 全文（设置页展示用）。
+pub(super) fn coding_rules_report() -> Value {
+    json!({
+        "enabled": kxen_app::core::config::coding_rules_enabled(),
+        "content": kxen_app::agent::prompt::CODING_RULES,
+    })
+}
+
+/// 内置编码规则开关写回：非破坏编辑 [coding_rules].enabled（tmp+rename 原子写，同 set_role）。
+/// prompt 每轮现读 config，无需热换。
+pub(super) fn set_coding_rules(params: &Value) -> Result<Value, String> {
+    let enabled = params.get("enabled").and_then(Value::as_bool).ok_or("missing enabled")?;
+    let path = kxen_app::core::paths::config_dir().join("config.toml");
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut doc: toml::Table =
+        if text.trim().is_empty() { toml::Table::new() } else { toml::from_str(&text).map_err(|e| format!("config.toml parse: {e}"))? };
+    let entry = doc.entry(String::from("coding_rules")).or_insert_with(|| toml::Value::Table(toml::Table::new()));
+    if !entry.is_table() {
+        *entry = toml::Value::Table(toml::Table::new());
+    }
+    entry.as_table_mut().expect("coding_rules table").insert("enabled".into(), toml::Value::Boolean(enabled));
+    std::fs::create_dir_all(kxen_app::core::paths::config_dir()).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, toml::to_string(&doc).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    Ok(json!({ "enabled": enabled }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::merge_binding;

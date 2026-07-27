@@ -1,4 +1,4 @@
-//! webfetch 工具：拉 URL -> 粗提取正文文本（deferred 工具，经 tool_search 挂载）。
+//! webfetch 工具：拉 URL -> 粗提取正文文本（常驻工具，SSRF 防护见 net_guard）。
 
 const MAX_CHARS: usize = 50_000;
 const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);

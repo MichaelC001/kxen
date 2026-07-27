@@ -62,12 +62,12 @@ pub async fn execute_task_tool(args: &Value, ctx: &AgentContext) -> Result<Strin
             let id = args.get("task_id").and_then(Value::as_str).ok_or("missing task_id")?;
             restart_task(id, &ctx.registry)
                 .await
-                .map(|new_id| {
-                    // 新任务重新挂崩溃通知（旧任务被 kill 标记，不会误报）
+                .map(|id| {
+                    // 新进程重新挂崩溃通知（旧进程被 kill 标记，旧 watcher 不会误报）
                     if let Some(router) = ctx.notify.clone() {
-                        crate::agent::background::notify_on_task_exit(ctx.registry.clone(), &new_id, router);
+                        crate::agent::background::notify_on_task_exit(ctx.registry.clone(), &id, router);
                     }
-                    format!("restarted as {new_id}")
+                    format!("restarted {id}")
                 })
                 .map_err(|e| e.to_string())
         }

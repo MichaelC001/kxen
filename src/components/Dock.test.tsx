@@ -7,6 +7,7 @@ const h = vi.hoisted(() => ({
   goalList: vi.fn(async (): Promise<unknown[]> => []),
   goalTransit: vi.fn(async (_id: string, _action: string): Promise<unknown> => ({})),
   taskList: vi.fn(async () => [] as unknown[]),
+  taskRestart: vi.fn(async (_id: string) => ({ task_id: _id })),
   agentDiffStatus: vi.fn(async () => [] as unknown[]),
   onTopic: vi.fn(async (_topics: string[], _handler: unknown) => () => {}),
   resync: new Set<() => void>(),
@@ -22,6 +23,7 @@ vi.mock("../lib/chat", async (importOriginal) => {
     goalTransit: h.goalTransit,
     taskList: h.taskList,
     taskKill: vi.fn(async () => true),
+    taskRestart: h.taskRestart,
     agentDiffStatus: h.agentDiffStatus,
     agentDiffFile: vi.fn(async () => ""),
     onTopic: h.onTopic,
@@ -66,6 +68,8 @@ afterEach(() => {
   h.goalList.mockResolvedValue([]);
   h.goalTransit.mockClear();
   h.taskList.mockClear();
+  h.taskList.mockResolvedValue([]);
+  h.taskRestart.mockClear();
   h.resync.clear();
   setActiveSessionId("");
 });
@@ -83,6 +87,26 @@ describe("Dock resync 自愈", () => {
     expect(h.taskList).toHaveBeenCalledTimes(2);
     dispose();
     expect(h.resync.size).toBe(0);
+  });
+});
+
+describe("Dock 后台任务操作", () => {
+  it("任务行有「重启」按钮：点击调 task.restart 并重拉列表", async () => {
+    h.taskList.mockResolvedValue([
+      { id: "t1", command: "pnpm dev", status: "running", uptime_ms: 1000, port: 3000, tail: "" },
+    ]);
+    const dispose = render(() => <Dock />, document.body);
+    await new Promise((r) => setTimeout(r, 0));
+    const btn = [...document.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("重启"),
+    ) as HTMLButtonElement | undefined;
+    expect(btn).toBeTruthy();
+    const before = h.taskList.mock.calls.length;
+    btn?.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.taskRestart).toHaveBeenCalledWith("t1");
+    expect(h.taskList.mock.calls.length).toBe(before + 1);
+    dispose();
   });
 });
 

@@ -2,8 +2,9 @@
 //! 每规则：读官方 CLI 凭证存储 -> 与现有 auth.json 条目比新鲜度（expires 大者优先）。
 
 use crate::auth::credential::{AuthStore, CredentialKind};
-use serde::Deserialize;
-use std::path::PathBuf;
+
+mod sources;
+use sources::{parse_claude, probe_claude, probe_claude_file_only, probe_codex, probe_grok, probe_kimi};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeOutcome {
@@ -13,6 +14,8 @@ pub enum ProbeOutcome {
     Fresh,
     /// 官方源不存在；现有条目保留（若有）
     Missing,
+    /// 首读未获用户批准，本源跳过（启动期无审批窗口的降级；重新导入时会请求批准）
+    NeedsApproval,
 }
 
 pub struct ProbeRule {
@@ -67,11 +70,6 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
-/// expires 单位归一（ms）。kimi 官方文件是秒级；历史代码无差别 *1000 会产生荒诞远期值。
-fn sane_expires(v: u64) -> u64 {
-    if v > 1_000_000_000_000 { v } else { v * 1000 }
-}
-
 /// 荒诞远期 expires（单位 bug 产物）按已过期处理，让 store 在下轮探测自修复。
 fn poisoned(c: &CredentialKind) -> bool {
     matches!(c.expires(), Some(v) if v > now_ms() + TEN_YEARS_MS)
@@ -92,8 +90,14 @@ pub fn probe_all(store: &mut AuthStore, allow_keychain: bool) -> Vec<(&'static s
             if exempt {
                 return (rule.provider, ProbeOutcome::Fresh, rule.display);
             }
-            // env override（开发期暂存，最高优先）
-            let imported = rule.env_override.and_then(read_env_override).or_else(|| {
+            // env override（开发期暂存，最高优先；用户显式设置，豁免首读批准门）
+            let from_env = rule.env_override.and_then(read_env_override);
+            // 首读批准门（设计 4.2）：未批准源不碰官方凭证存储，跳过并在 outcome/日志可见
+            if from_env.is_none() && !crate::auth::consent::is_approved(rule.provider) {
+                tracing::info!(provider = rule.provider, "credential probe skipped: first-read not approved");
+                return (rule.provider, ProbeOutcome::NeedsApproval, rule.display);
+            }
+            let imported = from_env.or_else(|| {
                 if rule.provider == "anthropic" && !allow_keychain {
                     probe_with_timeout(&ProbeRule {
                         provider: rule.provider,
@@ -140,161 +144,9 @@ fn read_env_override(var: &str) -> Option<CredentialKind> {
     parse_claude(raw.trim())
 }
 
-// --- Claude（Keychain 优先，~/.claude/.credentials.json 兜底） ---
-
-#[derive(Deserialize)]
-struct ClaudeCredentialsFile {
-    #[serde(rename = "claudeAiOauth")]
-    claude_ai_oauth: Option<ClaudeOauth>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ClaudeOauth {
-    access_token: String,
-    refresh_token: String,
-    expires_at: u64,
-}
-
-/// 仅文件路径（启动探测用）：未签名二进制碰 keychain 每次都弹 ACL 窗，绝不能自动触发。
-fn probe_claude_file_only() -> Option<CredentialKind> {
-    let file = home()?.join(".claude/.credentials.json");
-    let raw = std::fs::read_to_string(file).ok()?;
-    parse_claude(&raw)
-}
-
-fn probe_claude() -> Option<CredentialKind> {
-    // macOS：官方 CLI 默认写 Keychain（service: Claude Code-credentials，account: 本机用户名）
-    let account = std::env::var("USER").unwrap_or_default();
-    for acct in [account.as_str(), "claude"] {
-        if acct.is_empty() {
-            continue;
-        }
-        if let Ok(entry) = keyring::Entry::new("Claude Code-credentials", acct)
-            && let Ok(raw) = entry.get_password()
-            && let Some(cred) = parse_claude(&raw)
-        {
-            return Some(cred);
-        }
-    }
-    // 兜底：凭证 JSON 文件（Linux/Windows 形态，或手动放置）
-    probe_claude_file_only()
-}
-
-fn parse_claude(raw: &str) -> Option<CredentialKind> {
-    let parsed: ClaudeCredentialsFile = serde_json::from_str(raw).ok()?;
-    let oauth = parsed.claude_ai_oauth?;
-    Some(CredentialKind::Oauth { access: oauth.access_token, refresh: oauth.refresh_token, expires: oauth.expires_at, account_id: None })
-}
-
-// --- Codex（~/.codex/auth.json） ---
-
-#[derive(Deserialize)]
-struct CodexAuthFile {
-    tokens: Option<CodexTokens>,
-}
-
-#[derive(Deserialize)]
-struct CodexTokens {
-    access_token: String,
-    refresh_token: String,
-    account_id: Option<String>,
-}
-
-fn probe_codex() -> Option<CredentialKind> {
-    let file = home()?.join(".codex/auth.json");
-    let raw = std::fs::read_to_string(file).ok()?;
-    let parsed: CodexAuthFile = serde_json::from_str(&raw).ok()?;
-    let t = parsed.tokens?;
-    let expires = jwt_exp(&t.access_token).unwrap_or(0);
-    Some(CredentialKind::Oauth { access: t.access_token, refresh: t.refresh_token, expires, account_id: t.account_id })
-}
-
-// --- Grok（~/.grok/auth.json，issuer map 取 expires 最新） ---
-
-#[derive(Deserialize)]
-struct GrokEntry {
-    key: Option<String>,
-    refresh_token: Option<String>,
-    expires_at: Option<serde_json::Value>,
-}
-
-fn probe_grok() -> Option<CredentialKind> {
-    let file = home()?.join(".grok/auth.json");
-    let raw = std::fs::read_to_string(file).ok()?;
-    let map: std::collections::HashMap<String, GrokEntry> = serde_json::from_str(&raw).ok()?;
-    let mut best: Option<(String, String, u64)> = None;
-    for entry in map.values() {
-        let Some(key) = entry.key.clone() else { continue };
-        let expires = parse_expires(entry.expires_at.as_ref());
-        if best.as_ref().is_none_or(|(_, _, e)| expires > *e) {
-            best = Some((key, entry.refresh_token.clone().unwrap_or_default(), expires));
-        }
-    }
-    let (key, refresh, expires) = best?;
-    Some(CredentialKind::Oauth { access: key, refresh, expires, account_id: None })
-}
-
-fn parse_expires(value: Option<&serde_json::Value>) -> u64 {
-    match value {
-        Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0),
-        Some(serde_json::Value::String(s)) => {
-            // ISO 8601 -> ms（粗解析：取前 19 位按 UTC）
-            chrono_free_iso_ms(s).unwrap_or(0)
-        }
-        _ => 0,
-    }
-}
-
-fn chrono_free_iso_ms(s: &str) -> Option<u64> {
-    // 简化：用 time crate 的 OffsetDateTime 解析 RFC3339
-    let t = time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339).ok()?;
-    Some((t.unix_timestamp_nanos() / 1_000_000) as u64)
-}
-
-// --- Kimi（~/.kimi-code/credentials/kimi-code.json，Bearer 直连作 api key） ---
-
-#[derive(Deserialize)]
-struct KimiCredentials {
-    access_token: Option<String>,
-    refresh_token: Option<String>,
-    expires_at: Option<u64>,
-}
-
-fn probe_kimi() -> Option<CredentialKind> {
-    let file = home()?.join(".kimi-code/credentials/kimi-code.json");
-    let raw = std::fs::read_to_string(file).ok()?;
-    let parsed: KimiCredentials = serde_json::from_str(&raw).ok()?;
-    // kimi 官方文件是 oauth 形态（access/refresh/expires_at）——保留过期时间才能正确轮换；单位归一防荒诞远期
-    Some(CredentialKind::Oauth {
-        access: parsed.access_token?,
-        refresh: parsed.refresh_token.unwrap_or_default(),
-        expires: parsed.expires_at.map(sane_expires).unwrap_or(0),
-        account_id: None,
-    })
-}
-
-// --- 工具 ---
-
-fn home() -> Option<PathBuf> {
-    dirs::home_dir()
-}
-
-/// JWT exp（秒）-> ms；解析失败返回 None。
-fn jwt_exp(token: &str) -> Option<u64> {
-    let payload = token.split('.').nth(1)?;
-    let decoded = base64_url_decode(payload)?;
-    let json: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
-    Some(json.get("exp")?.as_u64()? * 1000)
-}
-
-fn base64_url_decode(input: &str) -> Option<Vec<u8>> {
-    use base64::Engine;
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(input).ok()
-}
-
 #[cfg(test)]
 mod tests {
+    use super::sources::{jwt_exp, read_credential_file};
     use super::*;
 
     #[test]
@@ -330,5 +182,40 @@ mod tests {
         // exp = 2000000000
         let token = "x.eyJleHAiOjIwMDAwMDAwMDB9.y";
         assert_eq!(jwt_exp(token), Some(2000000000_000));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_credential_file_refused() {
+        let dir = std::env::temp_dir().join(format!("kxen-probe-symlink-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let real = dir.join("real.json");
+        std::fs::write(&real, "{}").unwrap();
+        let link = dir.join("link.json");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert_eq!(read_credential_file(&real).as_deref(), Some("{}"), "普通文件正常读");
+        assert!(read_credential_file(&link).is_none(), "symlink 必须拒绝");
+        assert!(read_credential_file(&dir.join("absent.json")).is_none(), "不存在视为不可得");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 进程级隔离 consent store：空文件 = 全部源未批准（Once 写序防并行 env 竞态，勿删）。
+    fn setup_empty_consent() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| unsafe {
+            std::env::set_var("KXEN_CONSENT_FILE", std::env::temp_dir().join(format!("kxen-probe-consent-{}.json", std::process::id())));
+        });
+    }
+
+    #[test]
+    fn unapproved_sources_skipped() {
+        setup_empty_consent();
+        let mut store = AuthStore::new();
+        let outcomes = probe_all(&mut store, true);
+        assert_eq!(outcomes.len(), RULES.len());
+        for (provider, outcome, _) in &outcomes {
+            assert_eq!(*outcome, ProbeOutcome::NeedsApproval, "{provider} 未批准必须跳过");
+        }
+        assert!(store.is_empty(), "未批准时不得导入任何凭证");
     }
 }

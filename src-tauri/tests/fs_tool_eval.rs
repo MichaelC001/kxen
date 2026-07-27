@@ -126,3 +126,56 @@ fn match_edit_ambiguous() {
     let spec = EditSpec::Match { old_string: "x".into(), new_string: "y".into(), expected_replacements: None };
     assert!(matches!(edit(&path, &spec, &tracker, "/tmp"), Err(FsToolError::Ambiguous { .. })));
 }
+
+// ---------------- edit 外部变更检测 ----------------
+
+#[test]
+fn anchor_edit_rejected_after_external_change() {
+    // 外部（不经工具）改写后，旧锚点不可信：拒绝并提示重读，文件不被改动
+    let path = temp_file("ext-anchor", "alpha\nbeta\ngamma\n");
+    let tracker = FileTracker::default();
+    tracker.mark(&path);
+    std::thread::sleep(std::time::Duration::from_millis(5)); // 保证纳秒 mtime 前进
+    std::fs::write(&path, "alpha\nbeta\nGAMMA\n").unwrap();
+
+    // "beta" 行内容未变，锚点本身仍命中：证明拦截发生在 tracker 层而非锚点层
+    let lines: Vec<&str> = "alpha\nbeta\ngamma\n".lines().collect();
+    let anchors = generate_anchors(&lines);
+    let spec = EditSpec::Anchors { edits: vec![AnchorEdit { anchor: anchors[1].to_string(), new_text: "BETA".into() }] };
+    let err = edit(&path, &spec, &tracker, "/tmp").unwrap_err();
+    assert!(matches!(err, FsToolError::ExternallyModified { .. }), "{err}");
+    assert!(err.to_string().contains("re-read"), "{err}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "alpha\nbeta\nGAMMA\n");
+}
+
+#[test]
+fn match_edit_self_heals_after_external_change() {
+    // match 按内容匹配：外部变更后用新鲜内容直接应用，且写后 tracker 刷新不再误报
+    let path = temp_file("ext-match", "alpha\nbeta\ngamma\n");
+    let tracker = FileTracker::default();
+    tracker.mark(&path);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    std::fs::write(&path, "alpha\ninserted\nbeta\ngamma\n").unwrap();
+
+    let spec = EditSpec::Match { old_string: "beta".into(), new_string: "BETA".into(), expected_replacements: None };
+    assert_eq!(edit(&path, &spec, &tracker, "/tmp").unwrap().applied, 1);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "alpha\ninserted\nBETA\ngamma\n");
+
+    let lines: Vec<&str> = "alpha\ninserted\nBETA\ngamma\n".lines().collect();
+    let anchors = generate_anchors(&lines);
+    let spec = EditSpec::Anchors { edits: vec![AnchorEdit { anchor: anchors[2].to_string(), new_text: "beta2".into() }] };
+    assert_eq!(edit(&path, &spec, &tracker, "/tmp").unwrap().applied, 1, "自愈后锚点 edit 不应再报外部变更");
+}
+
+#[test]
+fn unchanged_edit_no_false_positive() {
+    // 未变更：mtime 快路径判 fresh，anchors edit 直接放行
+    let path = temp_file("ext-fresh", "alpha\nbeta\n");
+    let tracker = FileTracker::default();
+    tracker.mark(&path);
+    assert!(!tracker.changed_externally(&path));
+    let lines: Vec<&str> = "alpha\nbeta\n".lines().collect();
+    let anchors = generate_anchors(&lines);
+    let spec = EditSpec::Anchors { edits: vec![AnchorEdit { anchor: anchors[0].to_string(), new_text: "ALPHA".into() }] };
+    assert_eq!(edit(&path, &spec, &tracker, "/tmp").unwrap().applied, 1);
+}

@@ -1,144 +1,12 @@
 //! System prompt assembly (English by design — models follow English most reliably).
 //! Layers: identity -> tool policy -> write-goal playbook -> active goal injection.
 
+use super::prompt_text::{BACKGROUND_PLAYBOOK, IDENTITY, KNOWLEDGE_GUIDE, REPLY_POLICY, TOOL_POLICY, ULTRA_PLAYBOOK, WRITE_GOAL_PLAYBOOK};
 use crate::core::goal::{Goal, GoalStatus};
 use std::fmt::Write as _;
 
-const IDENTITY: &str = "\
-You are kxen, a coding agent running on macOS (Apple Silicon) inside a native app. \
-You help with software engineering tasks: reading, writing and refactoring code, running commands, \
-managing dev servers, and driving multi-step work through goals and subagents.";
-
-const TOOL_POLICY: &str = "\
-## Tool usage policy
-
-- exec: declare the shell dialect explicitly (zsh is the user's login shell). Compose ONE well-formed \
-command instead of chaining four or five piped one-liners; if you need multi-step logic, write a script \
-file and run it. Long-running commands auto-background after 15s and notify you on completion - never \
-poll, never sleep-wait, never write `for`/`until` retry loops around a slow command.
-- task: the single entry point for background processes. Use task(start) with a `ready` gate \
-(pattern or port) for dev servers - it blocks until ready and returns the URL. Manage the lifecycle \
-with task(output/kill/list/restart). Restart a dev server after changing its config or port.
-- read/edit/write/delete: read emits LINE#HASH anchors; prefer edit(anchors) over match mode. \
-delete moves to the Trash - it is the only way you remove files, never `rm` in exec.
-- agent: delegate well-scoped subtasks by role (thinking/planning/execution/review/research). \
-Give each subagent a self-contained brief: goal, context, exact paths, expected output shape.
-- goal: durable objectives with a completion contract and budgets. See the write-goal playbook below.";
-
-const REPLY_POLICY: &str = "\
-## Reply policy
-
-Default to answering in plain text. Tools act on the environment (files, shell, search, agents) - \
-never use a tool to produce the answer itself. Conversation, explanation, translation, and text \
-generation are answered directly with zero tool calls. Tool arguments must match each tool's \
-schema exactly; never invent parameters.";
-
-const WRITE_GOAL_PLAYBOOK: &str = "\
-## write-goal playbook
-
-When the user asks to define a goal (or says \"write-goal\"), do NOT call goal(create) immediately, \
-and DO NOT start doing the goal's work either. Defining the contract IS the task - file edits, \
-exploration and verification belong to the execution phase, not to this conversation. Run this loop:
-
-1. Collect the contract through conversation: the end state (what must become true), the proof \
-(completion_criteria - an observable check: a command exit code, a test count, a search with zero hits, \
-a file that exists), boundaries (constraints - what is off-limits), and optionally a budget \
-(tokens/turns/wall_clock_ms). Ask only for what is missing or ambiguous; do not investigate the repo \
-to answer questions the user can answer directly.
-2. Present the full contract back in a compact block and ask for explicit confirmation. Revise until \
-the user agrees.
-3. Only then call goal(create) with the agreed contract, followed by goal(activate).
-
-While a goal is active: work one bounded slice per turn, verify against the completion_criteria before \
-claiming done, and call goal(complete, evidence) only with concrete evidence you actually observed. \
-If you cannot make progress, say why and stop - do not force a pass.";
-
-const KNOWLEDGE_GUIDE: &str = "\
-## Knowledge capture
-
-Persist durable learnings with the knowledge tool - do not rely on session memory:
-- WHEN: the user corrects you, states a durable convention, or you hit a non-obvious pitfall.
-- scope project: true only about this codebase (sparingly; committed at .agents/notes).
-- scope personal: useful across projects (~/.agents/notes) - the default.
-One topic per note; re-adding the same slug updates it. Skip one-off task details.";
-
-const ULTRA_PLAYBOOK: &str = "\
-## ultra modes (/ultracode /ultraplan /ultrareview) - MANDATORY workflow usage
-
-When the user message starts with /ultracode, /ultraplan or /ultrareview, or explicitly asks to use \
-workflow: you MUST call the workflow tool. Do NOT explore the repository yourself with one-by-one \
-exec/read/glob calls - that is the single most common failure mode. The workflow script fans the \
-work out to subagents in parallel; you only synthesize what comes back.
-
-Script shape (adapt phases to the mode):
-
-    const meta = {
-      name: 'short-kebab-name',
-      description: 'one line',
-      whenToUse: 'one line',
-      phases: [{ title: 'decompose', detail: '...' }, { title: 'integrate', detail: '...' }],
-    };
-    phase('decompose');
-    const question = '<user request>';
-    const [a, b, c] = await parallel([
-      () => agent('execution', 'Self-contained brief with absolute paths, part 1 of ' + question),
-      () => agent('execution', 'Self-contained brief with absolute paths, part 2 of ' + question),
-      () => agent('review', 'Verify the combined findings for ' + question),
-    ]);
-    phase('integrate');
-    return [a, b, c].map((r) => (r && r.__failed ? '(agent failed: ' + r.error + ')' : r)).join('\\n\\n');
-
-Script rules (violating these is the top failure mode):
-
-- FLAT top-level statements only, ending with a top-level return. NEVER wrap the body in a function \
-(`async function main() { ... }` without calling it returns nothing and the workflow errors).
-- meta is OPTIONAL (`export const meta` also works) but recommended: it turns phase() into \
-structured `phase 2/10` progress and names the completion envelope. Keep phases titles exactly \
-matching your phase('...') calls.
-- Fan out with the built-in `parallel(thunks, { concurrency })` (default 8), NOT bare Promise.all: \
-parallel never rejects - a failed item comes back as `{ __failed: true, error }`. Check every \
-result for `__failed`; retry that item ONCE inline, otherwise report it. One dead agent must not \
-sink the whole workflow.
-- agent() accepts agent(role, prompt) or agent(prompt, { agentType, label }); use label to name \
-branches - it shows up in the failure list of the completion envelope.
-- Return ONE concatenated markdown string; do NOT return objects or arrays. They are auto-formatted \
-into `##` sections with empty results flagged, but only a string lets you control the structure. \
-The engine appends a compact envelope (agent counts, failures, phase progress, wall time) after \
-your text - never fake one yourself.
-- If any agent result is empty or the workflow errors, retry ONCE with a corrected, simpler script; \
-NEVER silently fall back to one-by-one exec/read calls - report the failure instead.
-- Long tasks: pass a stable run_id. If the workflow times out or dies mid-way, re-run with the SAME \
-run_id - completed agent dispatches resume from the journal cache instead of re-running and burning \
-tokens again.
-
-/ultracode <task> - large implementation: <=6 INDEPENDENT slices of agent(execution), then \
-phase('integrate'): merge and run the project's real checks (cargo test / tsc / vp check), \
-fix failures before reporting.
-
-/ultraplan <question> - planning: parallel agent(planning) for architecture, agent(research) \
-for codebase grounding (it must read real files), agent(thinking) for risks. Synthesize ONE plan \
-with verification command per phase and explicit non-goals. Present and stop - no implementation \
-until the user says go.
-
-/ultrareview <path|scope> - review: parallel four agent(review) lenses over the same target: \
-correctness, security, performance, convention (check against real files, not taste). Findings \
-only: severity P0/P1/P2, file:line, one-line fix, deduped. No style nits, no praise, no fixes.";
-
-const BACKGROUND_PLAYBOOK: &str = "\
-## background agents (streaming reduction)
-
-For 2+ INDEPENDENT research or implementation tasks, dispatch them in one turn with \
-agent(..., background=true) instead of awaiting each dispatch in sequence. The tool returns a \
-receipt immediately; each result arrives later as a `[task notification] agent <name> (<role>) \
-finished` user message.
-
-- Digest each notification as it lands: extract that path's conclusions, and spot-check critical \
-claims with exec/read before trusting them - a subagent's say-so is not proof.
-- Synthesize only after ALL dispatched paths have reported. While some are still running, keep \
-doing useful foreground work - never idle-wait and never poll for results.
-- The same per-path digestion applies inside workflow scripts: when paths must be consumed as they \
-finish, await them in order or race them with Promise.race - parallel(...) alone always waits for \
-the whole batch.";
+// 外部路径 kxen_app::agent::prompt::CODING_RULES 不变；文案本体在 prompt_text.rs
+pub use super::prompt_text::CODING_RULES;
 
 /// frozen/dynamic 上下文边界标记：之上跨轮稳定（provider 前缀缓存命中区），之下逐轮可变。
 /// anthropic wire 在此把 system 拆成两块并给 frozen 块打 cache_control ephemeral；
@@ -148,7 +16,15 @@ pub const CACHE_BOUNDARY: &str = "<!-- kxen:context-boundary -->";
 /// Full system prompt for a turn. `workdir` is rendered into the environment line.
 /// `involved` = 本会话涉及文件（OKF globs 动态激活与多层就近的输入）。
 /// `session_id` = goal 按 session 粒度注入（多会话并发各见各的 goal）。
-pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf], session_id: Option<&str>) -> String {
+/// `coding_rules` = 内置编码规则开关（调用方经 config::coding_rules_enabled() 现读）。
+/// `mrm` = 模型调度器（None = subagent 路径：槽由 dispatch 的 grant 持整轮，不注调度状态）。
+pub async fn system_prompt(
+    workdir: &std::path::Path,
+    involved: &[std::path::PathBuf],
+    session_id: Option<&str>,
+    coding_rules: bool,
+    mrm: Option<&crate::llm::mrm::ModelResourceManager>,
+) -> String {
     // frozen 段：跨轮逐字节稳定（workdir 会话内不变），provider 前缀缓存的命中区
     let mut out = String::with_capacity(2048);
     out.push_str(IDENTITY);
@@ -166,6 +42,10 @@ pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf],
     out.push_str(BACKGROUND_PLAYBOOK);
     out.push_str("\n\n");
     out.push_str(KNOWLEDGE_GUIDE);
+    if coding_rules {
+        out.push_str("\n\n");
+        out.push_str(CODING_RULES);
+    }
     // 边界标记恒在：dynamic 有无内容都不改 frozen 字节，缓存前缀不失稳
     out.push_str("\n\n");
     out.push_str(CACHE_BOUNDARY);
@@ -177,12 +57,22 @@ pub fn system_prompt(workdir: &std::path::Path, involved: &[std::path::PathBuf],
         out.push_str("\n\n");
         out.push_str(&block);
     }
+    // mrm 调度状态逐轮可变（并发占用随负载波动），同样压在边界之后（设计 3.1 dynamic 段）
+    if let Some(mrm) = mrm {
+        out.push_str("\n\n");
+        out.push_str(&mrm_block(mrm).await);
+    }
     out
 }
 
 /// Subagent prompt: lean identity + role brief + the same tool policy (no write-goal playbook).
-pub fn subagent_prompt(role: &str, role_brief: &str) -> String {
-    format!("You are the {role} subagent of kxen, a coding agent on macOS (Apple Silicon). {role_brief}\n\n{TOOL_POLICY}")
+pub fn subagent_prompt(role: &str, role_brief: &str, coding_rules: bool) -> String {
+    let mut out = format!("You are the {role} subagent of kxen, a coding agent on macOS (Apple Silicon). {role_brief}\n\n{TOOL_POLICY}");
+    if coding_rules {
+        out.push_str("\n\n");
+        out.push_str(CODING_RULES);
+    }
+    out
 }
 
 /// Active goal injection: renders the focus goal so the model always sees the contract it is driving.
@@ -221,25 +111,89 @@ fn goal_block(session_id: Option<&str>) -> Option<String> {
     Some(out)
 }
 
+/// mrm 调度状态块：角色绑定（含实时可用性）+ provider 并发占用 + 近期降级标注。
+/// 让主模型规划时自知限额（设计 4.3「状态摘要注入模型上下文」），避免派发已打满的角色。
+async fn mrm_block(mrm: &crate::llm::mrm::ModelResourceManager) -> String {
+    let mut out = String::with_capacity(256);
+    out.push_str("<mrm_status>\nRole bindings:\n");
+    for role in ["thinking", "planning", "execution", "review", "research"] {
+        if let Some(binding) = mrm.role(role) {
+            let state = if mrm.available(&binding.provider).await { "available" } else { "at capacity" };
+            let _ = writeln!(out, "- {role}: {}/{} ({state})", binding.provider, binding.model);
+        }
+    }
+    out.push_str("Concurrency:\n");
+    for line in mrm.describe().await.lines() {
+        let _ = writeln!(out, "- {line}");
+    }
+    // 降级证据只列最近 3 条：更早的换型对当前规划无意义
+    let degraded: Vec<_> = mrm.history().await.into_iter().filter(|r| r.degraded_from.is_some()).take(3).collect();
+    if !degraded.is_empty() {
+        out.push_str("Recent degradations:\n");
+        for r in degraded {
+            let _ = writeln!(out, "- {} ran on {}/{} (primary binding unavailable)", r.role, r.provider, r.model);
+        }
+    }
+    out.push_str("</mrm_status>");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn prompt_contains_core_sections() {
-        let p = system_prompt(std::path::Path::new("/tmp/x"), &[], None);
+    #[tokio::test]
+    async fn prompt_contains_core_sections() {
+        let p = system_prompt(std::path::Path::new("/tmp/x"), &[], None, true, None).await;
         assert!(p.contains("You are kxen"));
         assert!(p.contains("write-goal playbook"));
         assert!(p.contains("Working directory: /tmp/x"));
     }
 
-    #[test]
-    fn frozen_prefix_stable_across_dynamic_inputs() {
+    #[tokio::test]
+    async fn coding_rules_toggle_controls_injection() {
+        let on = system_prompt(std::path::Path::new("/tmp/x"), &[], None, true, None).await;
+        let off = system_prompt(std::path::Path::new("/tmp/x"), &[], None, false, None).await;
+        assert!(on.contains("Coding rules (built-in)"));
+        assert!(!off.contains("Coding rules (built-in)"));
+        // subagent 同开关
+        assert!(subagent_prompt("execution", "brief", true).contains("Coding rules (built-in)"));
+        assert!(!subagent_prompt("execution", "brief", false).contains("Coding rules (built-in)"));
+    }
+
+    #[tokio::test]
+    async fn frozen_prefix_stable_across_dynamic_inputs() {
         // involved 文件与会话 goal 只影响边界之后的 dynamic 段：frozen 前缀必须逐字节一致（缓存命中的前提）
-        let a = system_prompt(std::path::Path::new("/tmp/x"), &[], None);
-        let b = system_prompt(std::path::Path::new("/tmp/x"), &[std::path::PathBuf::from("/tmp/x/src/main.rs")], Some("s-other"));
+        let a = system_prompt(std::path::Path::new("/tmp/x"), &[], None, true, None).await;
+        let b =
+            system_prompt(std::path::Path::new("/tmp/x"), &[std::path::PathBuf::from("/tmp/x/src/main.rs")], Some("s-other"), true, None)
+                .await;
         let frozen_of = |s: &str| s.split(CACHE_BOUNDARY).next().unwrap().to_string();
         assert!(a.contains(CACHE_BOUNDARY));
         assert_eq!(frozen_of(&a), frozen_of(&b));
+    }
+
+    #[tokio::test]
+    async fn mrm_status_injected_after_boundary() {
+        let mut config = crate::core::config::Config::default();
+        config.roles.insert(
+            "execution".to_string(),
+            crate::core::config::RoleBinding {
+                provider: "xai".to_string(),
+                model: "grok-build-0.1".to_string(),
+                fallback: None,
+                account: None,
+            },
+        );
+        let mrm = crate::llm::mrm::ModelResourceManager::new(config);
+        let with = system_prompt(std::path::Path::new("/tmp/x"), &[], None, true, Some(&mrm)).await;
+        let dynamic = with.split(CACHE_BOUNDARY).nth(1).expect("boundary");
+        assert!(dynamic.contains("<mrm_status>"));
+        assert!(dynamic.contains("- execution: xai/grok-build-0.1 (available)"));
+        // mrm 注入不改 frozen 前缀；subagent 路径（mrm=None）不注调度状态
+        let without = system_prompt(std::path::Path::new("/tmp/x"), &[], None, true, None).await;
+        let frozen_of = |s: &str| s.split(CACHE_BOUNDARY).next().unwrap().to_string();
+        assert_eq!(frozen_of(&with), frozen_of(&without));
+        assert!(!without.contains("<mrm_status>"));
     }
 }

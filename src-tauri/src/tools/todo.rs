@@ -1,4 +1,4 @@
-//! todo 工具：会话级任务清单（deferred 工具，经 tool_search 挂载）。
+//! todo 工具：会话级任务清单（常驻工具，状态存 SessionExtras 按 session 隔离）。
 
 use std::sync::Mutex;
 

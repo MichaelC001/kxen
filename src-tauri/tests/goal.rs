@@ -37,6 +37,46 @@ fn blocked_after_three_same_reasons() {
     assert_eq!(g.status, GoalStatus::Blocked);
 }
 
+// --- D12：loop 检测停轮原因走 goal 阻塞三次规则 ---
+
+#[test]
+fn loop_stop_reasons_escalate_to_blocked() {
+    // run.rs 把 LoopStop 原因串作为 blocked_reason 传给 record_goal_turn -> record_turn；
+    // 同一原因连续 3 轮（三次空转停轮）必须能把 goal 打成 Blocked
+    use kxen_app::agent::loop_detect::{LoopDetector, LoopVerdict};
+    let mut g = Goal::create(contract(), "g-loop".into()).unwrap();
+    g.activate().unwrap();
+    for round in 0..3 {
+        let mut d = LoopDetector::new();
+        let reason = (0..3)
+            .find_map(|_| match d.record("read", "{\"path\":\"a\"}", "x") {
+                LoopVerdict::Stop(s) => Some(s.to_string()),
+                LoopVerdict::Ok => None,
+            })
+            .expect("exact 层第三次必触发");
+        g.record_turn(0, Some(&reason), false).unwrap();
+        if round < 2 {
+            assert_eq!(g.status, GoalStatus::Active);
+        }
+    }
+    assert_eq!(g.status, GoalStatus::Blocked);
+    assert!(g.block_reason.as_deref().unwrap().contains("loop detected (exact)"));
+}
+
+#[test]
+fn loop_stop_counter_resets_on_progress() {
+    // 阻塞计数只累积「连续」停滞：中间一轮正常推进即清零，恢复中的 goal 不被误伤
+    let mut g = Goal::create(contract(), "g-loop2".into()).unwrap();
+    g.activate().unwrap();
+    g.record_turn(0, Some("loop detected (exact) - x"), false).unwrap();
+    g.record_turn(0, Some("loop detected (exact) - x"), false).unwrap();
+    assert_eq!(g.consecutive_blocks, 2);
+    g.record_turn(0, None, false).unwrap();
+    assert_eq!(g.consecutive_blocks, 0);
+    g.record_turn(0, Some("loop detected (exact) - x"), false).unwrap();
+    assert_eq!(g.status, GoalStatus::Active);
+}
+
 #[test]
 fn budget_limited() {
     let mut g = Goal::create(contract(), "g3".into()).unwrap();
@@ -204,6 +244,7 @@ async fn goal_tool_publishes_goal_update_on_create_and_transit() {
         &serde_json::json!({"action": "create", "objective": "迁移完成", "completion_criteria": "测试全绿"}),
         Some("sess-pub"),
         Some(&bus),
+        None,
     )
     .await
     .unwrap();
@@ -218,7 +259,7 @@ async fn goal_tool_publishes_goal_update_on_create_and_transit() {
 
     for (action, want) in [("activate", "active"), ("cancel", "canceled")] {
         let args = serde_json::json!({"action": action, "id": id});
-        execute_goal_tool(&args, None, Some(&bus)).await.unwrap();
+        execute_goal_tool(&args, None, Some(&bus), None).await.unwrap();
         match rx.try_recv().unwrap() {
             Event::GoalUpdate { id: got, status } => {
                 assert_eq!(got, id);
@@ -229,11 +270,11 @@ async fn goal_tool_publishes_goal_update_on_create_and_transit() {
     }
 
     // get 只读：无状态迁移不发事件
-    execute_goal_tool(&serde_json::json!({"action": "get", "id": id}), None, Some(&bus)).await.unwrap();
+    execute_goal_tool(&serde_json::json!({"action": "get", "id": id}), None, Some(&bus), None).await.unwrap();
     assert!(rx.try_recv().is_err(), "get 不应发 GoalUpdate");
 
     // 无 bus（子代理无事件通道）不 panic，落盘照常
-    execute_goal_tool(&serde_json::json!({"action": "list"}), None, None).await.unwrap();
+    execute_goal_tool(&serde_json::json!({"action": "list"}), None, None, None).await.unwrap();
 
     std::fs::remove_dir_all(&dir).ok();
 }
