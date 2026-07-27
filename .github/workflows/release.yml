@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to release
+        required: true
+        default: v0.1.0
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    name: macOS ARM64
+    runs-on: macos-14
+    timeout-minutes: 90
+    environment: release
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 86e4d320a5d69fb54f9721fb219a4902
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            website/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir website install --frozen-lockfile
+      - name: Validate release credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            APPLE_CERTIFICATE
+            APPLE_CERTIFICATE_PASSWORD
+            APPLE_TEAM_ID
+            APPLE_API_ISSUER
+            APPLE_API_KEY
+            APPLE_API_PRIVATE_KEY
+            TAURI_SIGNING_PRIVATE_KEY
+            TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+            CLOUDFLARE_API_TOKEN
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name}" ]]; then
+              printf 'missing release secret: %s\n' "$name"
+              exit 1
+            fi
+          done
+      - name: Import Developer ID certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          KXEN_KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          KXEN_KEYCHAIN_PATH="$RUNNER_TEMP/kxen-signing.keychain-db"
+          KXEN_CERTIFICATE_PATH="$RUNNER_TEMP/kxen-certificate.p12"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$KXEN_CERTIFICATE_PATH"
+          security create-keychain -p "$KXEN_KEYCHAIN_PASSWORD" "$KXEN_KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KXEN_KEYCHAIN_PATH"
+          security unlock-keychain -p "$KXEN_KEYCHAIN_PASSWORD" "$KXEN_KEYCHAIN_PATH"
+          security import "$KXEN_CERTIFICATE_PATH" \
+            -k "$KXEN_KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security list-keychain -d user -s "$KXEN_KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KXEN_KEYCHAIN_PASSWORD" \
+            "$KXEN_KEYCHAIN_PATH"
+          KXEN_SIGNING_IDENTITY="$(
+            security find-identity -v -p codesigning "$KXEN_KEYCHAIN_PATH" |
+              awk -F '"' '/Developer ID Application/ { print $2; exit }'
+          )"
+          if [[ -z "$KXEN_SIGNING_IDENTITY" ]]; then
+            printf 'Developer ID Application identity not found\n'
+            exit 1
+          fi
+          printf 'APPLE_SIGNING_IDENTITY=%s\n' "$KXEN_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+      - name: Prepare App Store Connect key
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          KXEN_API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$KXEN_API_KEY_PATH"
+          printf 'APPLE_API_KEY_PATH=%s\n' "$KXEN_API_KEY_PATH" >> "$GITHUB_ENV"
+      - name: Build signed and notarized bundle
+        run: pnpm tauri:build -- --target aarch64-apple-darwin
+      - name: Stage release assets
+        id: stage
+        run: node scripts/stage-release.mjs
+      - name: Verify Apple signatures and notarization
+        shell: bash
+        run: |
+          set -euo pipefail
+          KXEN_APP_PATH="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Kxen.app"
+          codesign --verify --deep --strict --verbose=2 "$KXEN_APP_PATH"
+          spctl --assess --type execute --verbose=2 "$KXEN_APP_PATH"
+          xcrun stapler validate "$KXEN_APP_PATH"
+          spctl --assess --type open --context context:primary-signature --verbose=2 \
+            "${{ steps.stage.outputs.dmg_path }}"
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            "${{ steps.stage.outputs.dmg_path }}" \
+            "${{ steps.stage.outputs.updater_path }}" \
+            "${{ steps.stage.outputs.signature_path }}" \
+            "${{ steps.stage.outputs.manifest_path }}" \
+            --verify-tag \
+            --prerelease \
+            --title "Kxen ${{ steps.stage.outputs.version }} development preview" \
+            --notes-file "${{ steps.stage.outputs.notes_path }}"
+      - name: Publish R2 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --dir website exec wrangler r2 object put \
+            "kxen-releases/$RELEASE_TAG/${{ steps.stage.outputs.dmg_name }}" \
+            --file "${{ steps.stage.outputs.dmg_path }}" \
+            --content-type application/x-apple-diskimage \
+            --cache-control "public, max-age=31536000, immutable" \
+            --remote
+          pnpm --dir website exec wrangler r2 object put \
+            "kxen-releases/$RELEASE_TAG/${{ steps.stage.outputs.updater_name }}" \
+            --file "${{ steps.stage.outputs.updater_path }}" \
+            --content-type application/gzip \
+            --cache-control "public, max-age=31536000, immutable" \
+            --remote
+          pnpm --dir website exec wrangler r2 object put \
+            "kxen-releases/$RELEASE_TAG/${{ steps.stage.outputs.updater_name }}.sig" \
+            --file "${{ steps.stage.outputs.signature_path }}" \
+            --content-type text/plain \
+            --cache-control "public, max-age=31536000, immutable" \
+            --remote
+          pnpm --dir website exec wrangler r2 object put \
+            "kxen-releases/latest.json" \
+            --file "${{ steps.stage.outputs.manifest_path }}" \
+            --content-type application/json \
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --remote
+      - name: Verify published updater
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --retry 8 \
+            --retry-all-errors \
+            "https://releases.kxen.ai/latest.json" |
+            jq -e --arg version "${{ steps.stage.outputs.version }}" \
+              '.version == $version and .platforms["darwin-aarch64"].signature != ""'

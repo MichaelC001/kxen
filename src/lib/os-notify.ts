@@ -13,6 +13,8 @@ export async function mountOsNotificationJump(): Promise<() => void> {
       flashErr("来源会话已删除");
       return;
     }
-    switchSession(e.payload);
+    void switchSession(e.payload).catch((err) => {
+      flashErr(`切换会话失败：${err instanceof Error ? err.message : String(err)}`);
+    });
   });
 }

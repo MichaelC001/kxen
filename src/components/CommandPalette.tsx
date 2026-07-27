@@ -6,6 +6,8 @@ import { fmtCtx, modelsCatalog, type ProviderCatalog } from "../lib/models";
 import { activeSessionId, sessions, switchSession } from "../lib/state";
 import { sessionSetModel } from "../lib/session-model";
 import { insertComposerText, interruptComposer } from "../lib/composer-bus";
+import { flashErr } from "../lib/flash";
+import { formatError } from "../lib/error-text";
 
 interface Row {
   kind: "command" | "session" | "model";
@@ -63,7 +65,11 @@ export default function CommandPalette() {
           kind: "session",
           label: s.title,
           detail: s.directory,
-          apply: () => switchSession(s.id),
+          apply: () => {
+            void switchSession(s.id).catch((e) => {
+              flashErr(`切换会话失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+            });
+          },
         });
       }
     }

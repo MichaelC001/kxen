@@ -24,7 +24,17 @@ vi.mock("../../lib/provider", async (importOriginal) => {
 });
 
 import AddAccountPanel from "./AddAccountPanel";
-import { resetAccountForm, setKind, setName, setProvider, setToken } from "./add-account-form";
+import {
+  resetAccountForm,
+  setBaseUrl,
+  setCaps,
+  setKind,
+  setModels,
+  setName,
+  setProtocol,
+  setProvider,
+  setToken,
+} from "./add-account-form";
 import { flash } from "../../lib/flash";
 
 const P = (key: string, auth: ProviderInfo["auth"]): ProviderInfo => ({
@@ -168,6 +178,144 @@ describe("AddAccountPanel 表单状态保留", () => {
     const tokenInput = document.body.querySelector<HTMLInputElement>("input[type=password]");
     expect(nameInput?.value).toBe("work");
     expect(tokenInput?.value).toBe("sk-half-filled");
+    dispose();
+  });
+});
+
+describe("AddAccountPanel 保存", () => {
+  it("API Key 保存使用当前 provider、账号名和凭证", async () => {
+    const done = vi.fn();
+    setKind("apikey");
+    setProvider("deepseek");
+    setName("work");
+    setToken("sk-deepseek");
+    const dispose = render(() => <AddAccountPanel onDone={done} />, document.body);
+    await vi.waitFor(() => expect(providerOptions()).toEqual(["deepseek", "kimi"]));
+    btnByText("保存").click();
+    await vi.waitFor(() =>
+      expect(h.importAccount).toHaveBeenCalledWith(
+        "deepseek",
+        "work",
+        "sk-deepseek",
+        "api",
+        "",
+        0,
+        undefined,
+      ),
+    );
+    expect(done).toHaveBeenCalledWith("账号 deepseek:work 已添加");
+    dispose();
+  });
+
+  it("多区域账号保存选择的 region", async () => {
+    h.list.mockResolvedValue([
+      {
+        ...P("deepseek", "api_key"),
+        regions: [
+          { key: "global", display: "全球", base_url: "https://api.example.com/v1" },
+          { key: "cn", display: "中国", base_url: "https://cn.example.com/v1" },
+        ],
+      },
+    ]);
+    setKind("apikey");
+    setProvider("deepseek");
+    setName("regional");
+    setToken("sk-region");
+    const dispose = render(() => <AddAccountPanel onDone={() => {}} />, document.body);
+    await vi.waitFor(() => expect(document.body.querySelectorAll("select")).toHaveLength(2));
+    const region = document.body.querySelector<HTMLSelectElement>("select[title^='运营区域']");
+    region!.value = "cn";
+    region!.dispatchEvent(new Event("change", { bubbles: true }));
+    btnByText("保存").click();
+    await vi.waitFor(() =>
+      expect(h.importAccount).toHaveBeenCalledWith(
+        "deepseek",
+        "regional",
+        "sk-region",
+        "api",
+        "",
+        0,
+        "cn",
+      ),
+    );
+    dispose();
+  });
+
+  it("自定义提供商保存协议、模型和能力，并保留完成消息中的名称", async () => {
+    const done = vi.fn();
+    setKind("custom");
+    setName("relay");
+    setBaseUrl("https://relay.example.com/v1");
+    setModels("m1, m2");
+    setToken("relay-key");
+    setProtocol("openai");
+    setCaps(["text", "vision"]);
+    const dispose = render(() => <AddAccountPanel onDone={done} />, document.body);
+    await vi.waitFor(() => expect(document.body.textContent).toContain("自定义提供商"));
+
+    const protocol = document.body.querySelector<HTMLSelectElement>("select");
+    protocol!.value = "anthropic";
+    protocol!.dispatchEvent(new Event("change", { bubbles: true }));
+    const audio = [
+      ...document.body.querySelectorAll<HTMLInputElement>("input[type=checkbox]"),
+    ].find((input) => input.parentElement?.textContent?.includes("audio"));
+    audio!.click();
+    btnByText("保存").click();
+
+    await vi.waitFor(() =>
+      expect(h.addCustom).toHaveBeenCalledWith(
+        "relay",
+        "https://relay.example.com/v1",
+        "relay-key",
+        ["m1", "m2"],
+        "anthropic",
+        ["text", "vision", "audio"],
+      ),
+    );
+    expect(done).toHaveBeenCalledWith("自定义提供商 relay 已添加");
+    dispose();
+  });
+
+  it("必填校验和 RPC 失败均保留错误信息", async () => {
+    const dispose = render(() => <AddAccountPanel onDone={() => {}} />, document.body);
+    await vi.waitFor(() => expect(providerOptions().length).toBeGreaterThan(0));
+
+    btnByText("测试连接").click();
+    await vi.waitFor(() => expect(document.body.textContent).toContain("先填凭证再测试连接"));
+
+    setName("");
+    setToken("token");
+    btnByText("保存").click();
+    await vi.waitFor(() => expect(document.body.textContent).toContain("账号名必填"));
+
+    h.importAccount.mockRejectedValueOnce(new Error("auth store read-only"));
+    setName("work");
+    btnByText("保存").click();
+    await vi.waitFor(() => expect(document.body.textContent).toContain("auth store read-only"));
+    dispose();
+  });
+});
+
+describe("AddAccountPanel 降级", () => {
+  it("provider 清单加载失败显示全局错误", async () => {
+    h.list.mockRejectedValueOnce(new Error("registry unavailable"));
+    const dispose = render(() => <AddAccountPanel onDone={() => {}} />, document.body);
+    await vi.waitFor(() =>
+      expect(flash.msgs().some((message) => message.text.includes("registry unavailable"))).toBe(
+        true,
+      ),
+    );
+    expect(providerOptions()).toEqual([]);
+    dispose();
+  });
+
+  it("连接测试抛错显示格式化结果", async () => {
+    h.verify.mockRejectedValueOnce(new Error("network down"));
+    setToken("access-token");
+    const dispose = render(() => <AddAccountPanel onDone={() => {}} />, document.body);
+    await vi.waitFor(() => expect(providerOptions().length).toBeGreaterThan(0));
+    btnByText("测试连接").click();
+    await vi.waitFor(() => expect(document.body.textContent).toContain("network down"));
     dispose();
   });
 });

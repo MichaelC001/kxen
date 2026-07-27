@@ -36,10 +36,11 @@ export default defineConfig({
       "@tauri-apps/api/event",
       "@tauri-apps/api/window",
       "@tauri-apps/plugin-dialog",
+      "@tauri-apps/plugin-process",
+      "@tauri-apps/plugin-updater",
       "@tauri-apps/plugin-websocket",
       "shiki/core",
-      "shiki/engine/oniguruma",
-      "shiki/wasm",
+      "shiki/engine/javascript",
       "shiki/themes/github-dark.mjs",
       "shiki/themes/github-light.mjs",
       ...SHIKI_LANGS.map((l) => `shiki/langs/${l}.mjs`),
@@ -49,12 +50,14 @@ export default defineConfig({
     // 显式 node：vite-plugin-solid 在 mode=test 且未设 environment 时注入 jsdom，
     // vitest 4 启动时对该 environment 做依赖检查，jsdom 未装则 exit 1（browser 测试实际不用它）
     environment: "node",
-    // webkit 下两类基建噪音都会被报成 unhandled rejection 并判失败：JSC 对跨 async 链拒绝的误报
-    // （test-setup.ts 已黑洞化 Tauri invoke）与 vitest 模块服务 route 在测试文件收尾导航时被
-    // playwright GC（route.fulfill: object collected）。断言不依赖 rejection 检测，噪音豁免。
-    dangerouslyIgnoreUnhandledErrors: true,
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     setupFiles: ["src/test-setup.ts"],
+    coverage: {
+      provider: "istanbul",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/**/*.test.{ts,tsx}", "src/test-setup.ts"],
+      reporter: ["json"],
+    },
     browser: {
       enabled: true,
       provider: playwright(),

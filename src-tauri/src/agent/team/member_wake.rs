@@ -164,12 +164,10 @@ mod tests {
             mrm: Arc::new(std::sync::RwLock::new(Arc::new(crate::llm::mrm::ModelResourceManager::new(
                 crate::core::config::Config::default(),
             )))),
-            hooks: None,
+            runtimes: Arc::new(crate::workspace_runtime::WorkspaceRuntimeRegistry::default()),
             extras: Arc::new(crate::agent::agent_loop::SessionExtrasRegistry::default()),
             agents: Arc::new(crate::agent::activity::AgentRegistry::default()),
             approvals: None,
-            mcp: None,
-            lsp: Arc::new(crate::agent::team::LspPool::default()),
         }
     }
 
@@ -182,8 +180,7 @@ mod tests {
     /// P0-1：两轮 wake 后 messages 仍含首条 brief、前轮 assistant 结论与工具结果
     #[test]
     fn history_survives_across_wakes() {
-        let mut history: Vec<Message> = Vec::new();
-        history.push(Message::user("brief: build X"));
+        let mut history: Vec<Message> = vec![Message::user("brief: build X")];
         let round1 = round_messages("sys-v1".into(), &history);
         assert_eq!(round1.len(), 2);
         // 模拟 run_turn 就地累积（assistant 工具调用 + 工具结果 + 末轮文本）

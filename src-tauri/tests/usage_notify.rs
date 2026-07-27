@@ -40,11 +40,11 @@ async fn lagged_consumer_skips_and_keeps_receiving() {
     bus.publish(Event::notify("after", None));
     let mut survived = false;
     for _ in 0..8 {
-        if let RecvVerdict::Event(Event::Notification { text, .. }) = recv_verdict(rx.recv().await) {
-            if text == "after" {
-                survived = true;
-                break;
-            }
+        if let RecvVerdict::Event(Event::Notification { text, .. }) = recv_verdict(rx.recv().await)
+            && text == "after"
+        {
+            survived = true;
+            break;
         }
     }
     assert!(survived, "lag 后必须能继续收到新事件");

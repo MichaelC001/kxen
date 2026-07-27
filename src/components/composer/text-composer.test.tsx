@@ -81,6 +81,12 @@ vi.mock("../../lib/chat", async (importOriginal) => {
   };
 });
 
+vi.mock("../../lib/client", () => ({
+  client: {
+    rpc: vi.fn(async () => undefined),
+  },
+}));
+
 afterEach(() => {
   chatMock.deferred = false;
   chatMock.resolvers.length = 0;
@@ -172,9 +178,10 @@ describe("TextComposer (webkit)", () => {
     ta().dispatchEvent(
       new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }),
     );
-    await new Promise((r) => setTimeout(r, 100));
     expect(ta().value).toBe("");
-    expect(document.querySelector(".composer-card")?.textContent).toContain("图片 png");
+    await vi.waitFor(() =>
+      expect(document.querySelector(".composer-card")?.textContent).toContain("图片 png"),
+    );
     dispose();
   });
 

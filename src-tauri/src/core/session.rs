@@ -96,6 +96,12 @@ fn write_lock(id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
     crate::core::shared::lock(registry).entry(id.to_string()).or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(()))).clone()
 }
 
+pub fn drop_write_lock(id: &str) {
+    if let Some(registry) = WRITE_LOCKS.get() {
+        crate::core::shared::lock(registry).remove(id);
+    }
+}
+
 fn meta_path(dir: &Path, id: &str) -> PathBuf {
     dir.join(format!("{id}.json"))
 }

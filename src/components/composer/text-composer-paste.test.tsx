@@ -87,8 +87,9 @@ describe("TextComposer 粘贴/附件 (webkit)", () => {
     const dt = new DataTransfer();
     dt.items.add(new File(["x"], "a.png", { type: "image/png" }));
     pasteFile(ta(), dt);
-    await new Promise((r) => setTimeout(r, 100));
-    expect(document.querySelector(".composer-card")?.textContent).toContain("图片 png");
+    await vi.waitFor(() =>
+      expect(document.querySelector(".composer-card")?.textContent).toContain("图片 png"),
+    );
     const chipX = [...document.querySelectorAll<HTMLElement>(".composer-card button")].find((b) =>
       b.parentElement?.textContent?.includes("图片 png"),
     )!;
@@ -108,9 +109,10 @@ describe("TextComposer 粘贴/附件 (webkit)", () => {
     dt.items.add(new File(["x"], "a.png", { type: "image/png" }));
     dt.setData("text/plain", "附图说明");
     pasteFile(ta(), dt);
-    await new Promise((r) => setTimeout(r, 100));
     expect(ta().value).toBe("附图说明");
-    expect(document.querySelector(".composer-card")?.textContent).toContain("图片 png");
+    await vi.waitFor(() =>
+      expect(document.querySelector(".composer-card")?.textContent).toContain("图片 png"),
+    );
     dispose();
   });
 

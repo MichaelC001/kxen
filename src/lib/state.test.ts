@@ -236,8 +236,9 @@ describe("会话切换的 agents 清理", () => {
   it("switchSession：先同步清旧名单，再按新会话立即重拉", async () => {
     setActiveSessionId("s1");
     setAgents([agent("w")]);
-    switchSession("s2");
+    await switchSession("s2");
     expect(agents()).toEqual([]);
+    expect(mocks.rpc).toHaveBeenCalledWith("session.activate", { id: "s2" });
     expect(mocks.agentsList).toHaveBeenCalledWith("s2");
   });
 

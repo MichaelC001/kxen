@@ -1,12 +1,12 @@
 // 看板落点回归：点列头/隔离树必须切到该 workspace 最近会话（无会话回草稿态），
 // 运行中条目是 button 可直达其会话；workspaceSwitch 失败中止并 flashErr。
-// 回归背景：旧版只 workspaceSwitch + navigate("/")，落地显示旧会话 + 新 workdir 错配。
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JSX } from "solid-js";
 import type { SessionMeta, WorkspaceOverview } from "../lib/chat";
 
 const h = vi.hoisted(() => ({
+  rpc: vi.fn(async (_method: string, _params?: unknown) => null),
   workspacesOverview: vi.fn(async () => [] as WorkspaceOverview[]),
   workspaceSwitch: vi.fn(async (_path: string) => {}),
   onTopic: vi.fn((_topics: string[], _handler: unknown) => () => {}),
@@ -26,8 +26,7 @@ vi.mock("../lib/chat", async (importOriginal) => {
 
 vi.mock("../lib/client", () => ({
   client: {
-    // state.ts switchSession 的 session.foreground 上报也要 rpc：桩成空实现
-    rpc: vi.fn(async () => null),
+    rpc: h.rpc,
     onResync: (cb: () => void) => {
       h.resync.add(cb);
       return () => h.resync.delete(cb);
@@ -82,6 +81,8 @@ const btnByText = (text: string) =>
   [...document.body.querySelectorAll("button")].find((el) => el.textContent?.includes(text));
 
 beforeEach(() => {
+  h.rpc.mockResolvedValue(null);
+  h.workspaceSwitch.mockResolvedValue(undefined);
   setNavigator(h.nav);
   setSessions([S1, S2]);
   h.workspacesOverview.mockResolvedValue([CARD]);
@@ -93,6 +94,7 @@ afterEach(() => {
   setActiveSessionId("");
   for (const m of flash.msgs()) flash.dismiss(m.id);
   h.workspaceSwitch.mockReset();
+  h.rpc.mockReset();
   h.workspacesOverview.mockClear();
   h.nav.mockClear();
   h.resync.clear();
@@ -118,7 +120,7 @@ describe("Workspaces 看板落点", () => {
     await flush();
     btnByText("/a")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
-    expect(h.workspaceSwitch).toHaveBeenCalledWith("/a");
+    expect(h.rpc).toHaveBeenCalledWith("session.activate", { id: "s2" });
     expect(activeSessionId()).toBe("s2");
     expect(h.nav).toHaveBeenCalledWith("/");
     dispose();
@@ -129,7 +131,7 @@ describe("Workspaces 看板落点", () => {
     await flush();
     btnByText("跑着的事")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
-    expect(h.workspaceSwitch).toHaveBeenCalledWith("/a");
+    expect(h.rpc).toHaveBeenCalledWith("session.activate", { id: "s1" });
     expect(activeSessionId()).toBe("s1");
     dispose();
   });
@@ -146,6 +148,7 @@ describe("Workspaces 看板落点", () => {
   });
 
   it("workspaceSwitch 失败：中止并 flashErr，不切会话不跳转", async () => {
+    setSessions([]);
     h.workspaceSwitch.mockRejectedValue(new Error("directory not found: /a"));
     const dispose = render(() => <Workspaces />, document.body);
     await flush();

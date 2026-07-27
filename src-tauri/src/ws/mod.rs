@@ -2,6 +2,7 @@
 //! - 请求-响应：{jsonrpc:"3.0", id, method, params} -> {id, resId, result|error}
 //! - 服务端流：stream:{id, seq, mode:"server", complete?}（run 流 / 订阅流）
 //! - 系统方法：rpc.subscribe / rpc.unsubscribe / rpc.cancelStream / rpc.heartbeat
+//!
 //! 端口启动时随机分配，前端经 ws_port command 获取。
 
 pub mod llm_task;
@@ -15,17 +16,21 @@ pub mod pending;
 pub mod protocol;
 mod rpc;
 mod run_finalize;
+mod session_delete;
 pub mod session_ops;
+mod session_recovery;
 mod settings;
 mod stream;
+mod worktree_rpc;
 
 use futures::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
+use tokio_tungstenite::tungstenite::handshake::server::{Callback, ErrorResponse, Request as WsRequest, Response as WsResponse};
 use tokio_tungstenite::tungstenite::http;
 
 use crate::AppState;
@@ -54,22 +59,51 @@ fn token_from_query(uri: &str) -> Option<String> {
     query.split('&').find_map(|pair| pair.strip_prefix("token=").map(String::from))
 }
 
-/// 全局流序号表（stream_id -> 已用 seq，跨连接共享保证单调）。
-static STREAM_SEQ: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
+#[derive(Default)]
+struct StreamSequences {
+    values: HashMap<String, u64>,
+}
 
-pub fn next_seq(stream_id: &str) -> u64 {
-    let mut guard = STREAM_SEQ.lock().expect("stream seq");
-    let map = guard.get_or_insert_with(HashMap::new);
-    let seq = map.entry(stream_id.to_string()).or_insert(0);
-    let current = *seq;
-    *seq += 1;
-    current
+impl StreamSequences {
+    fn next(&mut self, stream_id: &str) -> u64 {
+        let seq = self.values.entry(stream_id.to_string()).or_insert(0);
+        let current = *seq;
+        *seq += 1;
+        current
+    }
+
+    fn remove(&mut self, stream_id: &str) {
+        self.values.remove(stream_id);
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.values.len()
+    }
 }
 
 /// 连接级订阅绑定：topic -> sub stream_id。
 struct SubBinding {
     stream_id: String,
     topics: HashSet<String>,
+}
+
+struct HandshakeGuard {
+    expected: String,
+}
+
+impl Callback for HandshakeGuard {
+    fn on_request(self, request: &WsRequest, response: WsResponse) -> Result<WsResponse, ErrorResponse> {
+        let origin = request.headers().get("origin").and_then(|value| value.to_str().ok());
+        let token_ok = token_from_query(&request.uri().to_string()).is_some_and(|token| token == self.expected);
+        if origin_allowed(origin) && token_ok {
+            return Ok(response);
+        }
+        Err(http::Response::builder()
+            .status(http::StatusCode::FORBIDDEN)
+            .body(Some("ws handshake rejected: bad origin or token".to_string()))
+            .expect("403 response"))
+    }
 }
 
 // ---------------- 启动 ----------------
@@ -89,24 +123,12 @@ pub async fn serve(app: AppHandle) -> std::io::Result<u16> {
 async fn handle_mux(stream: TcpStream, app: AppHandle) {
     // 握手门：Origin 白名单 + ?token= 与 AppState.ws_token 相等，任一不过拒连
     let expected = app.state::<Arc<AppState>>().ws_token.clone();
-    let Ok(ws) = tokio_tungstenite::accept_hdr_async(stream, move |req: &http::Request<()>, resp: http::Response<()>| {
-        let origin = req.headers().get("origin").and_then(|v| v.to_str().ok());
-        let token_ok = token_from_query(&req.uri().to_string()).is_some_and(|t| t == expected);
-        if origin_allowed(origin) && token_ok {
-            Ok(resp)
-        } else {
-            Err(http::Response::builder()
-                .status(http::StatusCode::FORBIDDEN)
-                .body(Some("ws handshake rejected: bad origin or token".to_string()))
-                .expect("403 response"))
-        }
-    })
-    .await
-    else {
+    let Ok(ws) = tokio_tungstenite::accept_hdr_async(stream, HandshakeGuard { expected }).await else {
         return;
     };
     let (mut tx, mut rx) = ws.split();
     let mut subs: Vec<SubBinding> = Vec::new();
+    let mut sequences = StreamSequences::default();
     let mut bus_rx = app.state::<Arc<AppState>>().bus.subscribe();
 
     loop {
@@ -114,7 +136,7 @@ async fn handle_mux(stream: TcpStream, app: AppHandle) {
             msg = rx.next() => {
                 match msg {
                     Some(Ok(WsMessage::Text(text))) => {
-                        let Some(resp) = handle_client_frame(&text, &mut subs, &app).await else { continue };
+                        let Some(resp) = handle_client_frame(&text, &mut subs, &mut sequences, &app).await else { continue };
                         if tx.send(WsMessage::Text(resp.into())).await.is_err() {
                             break;
                         }
@@ -127,7 +149,7 @@ async fn handle_mux(stream: TcpStream, app: AppHandle) {
                 use tokio::sync::broadcast::error::RecvError;
                 match event {
                     Ok(event) => {
-                        for chunk in stream::event_to_chunks(event, &subs) {
+                        for chunk in stream::event_to_chunks(event, &subs, &mut sequences) {
                             let Ok(text) = serde_json::to_string(&chunk) else { continue };
                             if tx.send(WsMessage::Text(text.into())).await.is_err() {
                                 return;
@@ -136,7 +158,7 @@ async fn handle_mux(stream: TcpStream, app: AppHandle) {
                     }
                     // bus 溢出：连接不断，发 resync 控制帧让前端全量重拉（丢增量不可自愈）
                     Err(RecvError::Lagged(n)) => {
-                        let chunk = resync_chunk(n);
+                        let chunk = resync_chunk(n, &mut sequences);
                         let Ok(text) = serde_json::to_string(&chunk) else { continue };
                         if tx.send(WsMessage::Text(text.into())).await.is_err() {
                             return;
@@ -150,7 +172,7 @@ async fn handle_mux(stream: TcpStream, app: AppHandle) {
 }
 
 /// 处理一条客户端帧：3.0 请求 -> 响应文本（heartbeat/无响应型返回 None 由调用方跳过）。
-async fn handle_client_frame(text: &str, subs: &mut Vec<SubBinding>, app: &AppHandle) -> Option<String> {
+async fn handle_client_frame(text: &str, subs: &mut Vec<SubBinding>, sequences: &mut StreamSequences, app: &AppHandle) -> Option<String> {
     let Ok(req) = serde_json::from_str::<Request>(text) else {
         let resp = Response::err(Value::Null, protocol::PARSE_ERROR, "invalid json-rpc frame");
         return serde_json::to_string(&resp).ok();
@@ -175,19 +197,20 @@ async fn handle_client_frame(text: &str, subs: &mut Vec<SubBinding>, app: &AppHa
         protocol::M_UNSUBSCRIBE => {
             let stream_id = req.params.get("stream_id").and_then(Value::as_str).unwrap_or("");
             subs.retain(|b| b.stream_id != stream_id);
+            sequences.remove(stream_id);
             let resp = Response::ok(req.id, json!(true));
             return serde_json::to_string(&resp).ok();
         }
         protocol::M_CANCEL_STREAM => {
             let stream_id = req.params.get("stream_id").and_then(Value::as_str).unwrap_or("");
-            let cancelled = cancel_stream(stream_id, subs, app);
+            let cancelled = cancel_stream(stream_id, subs, sequences, app);
             let resp = Response::ok(req.id, json!(cancelled));
             return serde_json::to_string(&resp).ok();
         }
         _ => {}
     }
 
-    let result = rpc::rpc_call(&req.method, req.params, &app).await;
+    let result = rpc::rpc_call(&req.method, req.params, app).await;
     let resp = match result {
         Ok(value) => Response::ok(req.id, value),
         Err(e) => Response::err(req.id, protocol::INTERNAL_ERROR, e),
@@ -196,9 +219,10 @@ async fn handle_client_frame(text: &str, subs: &mut Vec<SubBinding>, app: &AppHa
 }
 
 /// cancelStream：run 流找 session cancel；sub 流退订。
-fn cancel_stream(stream_id: &str, subs: &mut Vec<SubBinding>, app: &AppHandle) -> bool {
+fn cancel_stream(stream_id: &str, subs: &mut Vec<SubBinding>, sequences: &mut StreamSequences, app: &AppHandle) -> bool {
     if stream_id.starts_with("sub-") {
         subs.retain(|b| b.stream_id != stream_id);
+        sequences.remove(stream_id);
         return true;
     }
     let state = app.state::<Arc<AppState>>();
@@ -217,10 +241,10 @@ fn cancel_stream(stream_id: &str, subs: &mut Vec<SubBinding>, app: &AppHandle) -
 const RESYNC_STREAM_ID: &str = "sys.resync";
 
 /// bus Lagged 时下发给该连接的控制帧（复用 StreamChunk 结构，前端按 topic 分流）。
-fn resync_chunk(dropped: u64) -> protocol::StreamChunk {
+fn resync_chunk(dropped: u64, sequences: &mut StreamSequences) -> protocol::StreamChunk {
     protocol::StreamChunk::new(
         RESYNC_STREAM_ID,
-        next_seq(RESYNC_STREAM_ID),
+        sequences.next(RESYNC_STREAM_ID),
         json!({ "topic": "sys.resync", "payload": { "dropped": dropped } }),
     )
 }
@@ -272,7 +296,8 @@ mod tests {
             panic!("small capacity bus must lag, got: {lagged:?}");
         };
         assert!(n >= 2, "6 条进 capacity 4：至少丢 2 条");
-        let chunk = resync_chunk(n);
+        let mut sequences = StreamSequences::default();
+        let chunk = resync_chunk(n, &mut sequences);
         let v = serde_json::to_value(&chunk).unwrap();
         assert_eq!(v["jsonrpc"], "3.0");
         assert_eq!(v["stream"]["id"], "sys.resync");
@@ -284,13 +309,25 @@ mod tests {
         bus.publish(Event::notify("after", None));
         let mut survived = false;
         for _ in 0..8 {
-            if let Ok(Event::Notification { text, .. }) = rx.recv().await {
-                if text == "after" {
-                    survived = true;
-                    break;
-                }
+            if let Ok(Event::Notification { text, .. }) = rx.recv().await
+                && text == "after"
+            {
+                survived = true;
+                break;
             }
         }
         assert!(survived, "lag 后必须能继续收到新事件");
+    }
+
+    #[test]
+    fn stream_sequences_are_connection_local_and_reclaimable() {
+        let mut first = StreamSequences::default();
+        let mut second = StreamSequences::default();
+        assert_eq!(first.next("run-one"), 0);
+        assert_eq!(first.next("run-one"), 1);
+        assert_eq!(second.next("run-one"), 0);
+        assert_eq!(first.len(), 1);
+        first.remove("run-one");
+        assert_eq!(first.len(), 0);
     }
 }

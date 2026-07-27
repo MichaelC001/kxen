@@ -89,6 +89,10 @@ impl PendingQueues {
         crate::core::shared::lock(&self.map).get(id).map(|q| q.iter().map(|m| m.text.clone()).collect()).unwrap_or_default()
     }
 
+    pub fn snapshot(&self, id: &str) -> Vec<QueuedMessage> {
+        crate::core::shared::lock(&self.map).get(id).map(|q| q.iter().cloned().collect()).unwrap_or_default()
+    }
+
     pub fn has_queued(&self, id: &str) -> bool {
         crate::core::shared::lock(&self.map).get(id).is_some_and(|q| !q.is_empty())
     }

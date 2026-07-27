@@ -11,3 +11,4 @@ pub mod mcp;
 pub mod providers;
 pub mod tools;
 pub mod voice;
+pub mod workspace_runtime;

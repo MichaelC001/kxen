@@ -16,7 +16,19 @@ use std::sync::Arc;
 pub use manager::TeamManager;
 pub use relay::{LeadPath, LeadRelay};
 pub(crate) use types::TeamState;
-pub use types::{LspPool, Member, MemberStatus, SpawnDeps, TeamTask, TeamTaskStatus};
+pub use types::{Member, MemberStatus, SpawnDeps, TeamTask, TeamTaskStatus};
+
+#[allow(dead_code)]
+fn _assert_futures_send(mgr: &Arc<TeamManager>, args: &serde_json::Value) {
+    fn assert_send<T: Send>(_: T) {}
+    assert_send(mgr.lead_action("s", args));
+}
+
+#[allow(dead_code)]
+fn _assert_resolve_send(mrm: &crate::llm::mrm::ModelResourceManager) {
+    fn assert_send<T: Send>(_: T) {}
+    assert_send(mrm.resolve("thinking", &crate::auth::credential::AuthStore::new()));
+}
 
 // ---------------- 测试（存储与任务逻辑，不触网） ----------------
 
@@ -38,12 +50,10 @@ mod tests {
             fallback_workdir: Arc::from(Path::new("/tmp")),
             store: Arc::new(std::sync::Mutex::new(crate::auth::credential::AuthStore::default())),
             mrm: Arc::new(std::sync::RwLock::new(Arc::new(ModelResourceManager::new(config)))),
-            hooks: None,
+            runtimes: Arc::new(crate::workspace_runtime::WorkspaceRuntimeRegistry::default()),
             extras: Arc::new(crate::agent::agent_loop::SessionExtrasRegistry::default()),
             agents: Arc::new(crate::agent::activity::AgentRegistry::default()),
             approvals: None,
-            mcp: None,
-            lsp: Arc::new(LspPool::default()),
         }
     }
 
@@ -310,16 +320,4 @@ mod tests {
         assert!(mgr.lead_action("s1", &serde_json::json!({ "action": "shutdown", "name": "ghost" })).await.is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
-}
-
-#[allow(dead_code)]
-fn _assert_futures_send(mgr: &Arc<TeamManager>, args: &serde_json::Value) {
-    fn assert_send<T: Send>(_: T) {}
-    assert_send(mgr.lead_action("s", args));
-}
-
-#[allow(dead_code)]
-fn _assert_resolve_send(mrm: &crate::llm::mrm::ModelResourceManager) {
-    fn assert_send<T: Send>(_: T) {}
-    assert_send(mrm.resolve("thinking", &crate::auth::credential::AuthStore::new()));
 }

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   diffStatus: vi.fn(async () => [] as { path: string; status: string }[]),
-  diffFile: vi.fn(async (_path: string) => ""),
+  diffFile: vi.fn(async (_sessionId: string, _path: string) => ""),
 }));
 
 vi.mock("../lib/chat-ops", async (importOriginal) => {
@@ -17,6 +17,7 @@ vi.mock("../lib/chat-ops", async (importOriginal) => {
 vi.mock("./Markdown", () => ({ default: (p: { text: string }) => <pre>{p.text}</pre> }));
 
 import DockRepoDiff from "./DockRepoDiff";
+import { setActiveSessionId } from "../lib/state";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -24,10 +25,12 @@ afterEach(() => {
   document.body.innerHTML = "";
   h.diffStatus.mockReset().mockResolvedValue([]);
   h.diffFile.mockReset().mockResolvedValue("");
+  setActiveSessionId("");
 });
 
 describe("DockRepoDiff 仓库改动分段", () => {
   it("渲染 git status 条目（状态中文 + 路径）", async () => {
+    setActiveSessionId("session-1");
     h.diffStatus.mockResolvedValue([
       { path: "src/a.ts", status: "M" },
       { path: "b.txt", status: "??" },
@@ -43,6 +46,7 @@ describe("DockRepoDiff 仓库改动分段", () => {
   });
 
   it("空状态：工作区无未提交改动", async () => {
+    setActiveSessionId("session-1");
     const dispose = render(() => <DockRepoDiff />, document.body);
     await flush();
     expect(document.body.textContent).toContain("工作区无未提交改动");
@@ -50,6 +54,7 @@ describe("DockRepoDiff 仓库改动分段", () => {
   });
 
   it("点击条目展开 diff，再点收起", async () => {
+    setActiveSessionId("session-1");
     h.diffStatus.mockResolvedValue([{ path: "src/a.ts", status: "M" }]);
     h.diffFile.mockResolvedValue("@@ -1 +1 @@\n-old\n+new");
     const dispose = render(() => <DockRepoDiff />, document.body);
@@ -59,7 +64,7 @@ describe("DockRepoDiff 仓库改动分段", () => {
     );
     row?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
-    expect(h.diffFile).toHaveBeenCalledWith("src/a.ts");
+    expect(h.diffFile).toHaveBeenCalledWith("session-1", "src/a.ts");
     expect(document.body.textContent).toContain("+new");
     row?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();

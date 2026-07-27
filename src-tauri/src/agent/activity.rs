@@ -1,6 +1,4 @@
 //! 代理活动注册表：teammate / subagent / workflow 三类子代理的统一视图。
-//! 每个 session 一份名单 + 每代理 200 条转录 ring buffer；
-//! teammate 转录写穿落盘（重启重放回内存），subagent/workflow 一次性派发纯内存。
 
 use crate::llm::ModelRef;
 use serde::Serialize;
@@ -68,17 +66,14 @@ impl AgentRegistry {
             model: model.clone(),
             status: ActivityStatus::Working,
             started_at: now_ms(),
-            // 重启重放：teammate 从磁盘 JSONL 注水内存 ring（无文件 = 空，spawn 与 restore 同路）
             transcript: self.rehydrate(session_id, name, kind),
         });
     }
 
-    /// 接线写穿根目录（TeamManager 构造时注入；锁序恒为 sessions -> team_root，无环）
     pub fn set_team_root(&self, root: std::path::PathBuf) {
         *crate::core::shared::lock(&self.team_root) = Some(root);
     }
 
-    /// 写穿目标路径：session/name 拼进文件路径，先过 ids 白名单（防目录穿越）
     fn transcript_path(&self, session_id: &str, name: &str) -> Option<std::path::PathBuf> {
         if crate::core::ids::validate_id(session_id).is_err() || crate::core::ids::validate_id(name).is_err() {
             tracing::warn!(session_id, name, "transcript persist skipped: invalid id");
@@ -89,7 +84,6 @@ impl AgentRegistry {
             .map(|root| root.join(session_id).join("transcripts").join(format!("{name}.jsonl")))
     }
 
-    /// 重启重放：读磁盘 JSONL 最后 TRANSCRIPT_CAP 条注水内存 ring（teammate 限定；坏行剔除）
     fn rehydrate(&self, session_id: &str, name: &str, kind: AgentKind) -> VecDeque<serde_json::Value> {
         let mut out = VecDeque::new();
         if kind != AgentKind::Teammate {
@@ -210,6 +204,17 @@ impl AgentRegistry {
             .map(|a| a.transcript.iter().cloned().collect())
             .unwrap_or_default()
     }
+
+    pub fn drop_session(&self, session_id: &str) {
+        crate::core::shared::lock(&self.sessions).remove(session_id);
+        let mut cancels = crate::core::shared::lock(&self.cancels);
+        let keys: Vec<(String, String)> = cancels.keys().filter(|(sid, _)| sid == session_id).cloned().collect();
+        for key in keys {
+            if let Some(token) = cancels.remove(&key) {
+                token.cancel();
+            }
+        }
+    }
 }
 
 fn now_ms() -> u64 {
@@ -243,7 +248,6 @@ mod tests {
         assert_eq!(reg.list("s1").len(), 3);
     }
 
-    /// teammate 转录写穿 + 重启重放：每条 JSONL 落盘；新 registry（模拟重启）register 注水内存
     #[test]
     fn teammate_transcript_write_through_and_rehydrate() {
         let dir = std::env::temp_dir().join(format!("kxen-transcript-{}", std::process::id()));
@@ -259,7 +263,6 @@ mod tests {
         let file = root.join("s1/transcripts/w.jsonl");
         assert_eq!(std::fs::read_to_string(&file).unwrap().lines().count(), 2, "teammate 每条必须写穿一行");
         assert!(!root.join("s1/transcripts/sub.jsonl").exists(), "subagent 一次性派发不得落盘");
-        // 重放：新 registry（模拟重启）register 同名 teammate 从磁盘注水
         let reg2 = AgentRegistry::default();
         reg2.set_team_root(root.clone());
         reg2.register("s1", "w", AgentKind::Teammate, &model);
@@ -267,7 +270,6 @@ mod tests {
         assert_eq!(t.len(), 2);
         assert_eq!(t[0]["text"], "hello");
         assert_eq!(t[1]["text"], "world");
-        // 非法 name 过 ids 白名单：不得拼出穿越路径产生新文件
         reg2.register("s1", "../escape", AgentKind::Teammate, &model);
         reg2.push_transcript("s1", "../escape", serde_json::json!({ "x": 1 }));
         let names: Vec<_> = std::fs::read_dir(root.join("s1/transcripts")).unwrap().map(|e| e.unwrap().file_name()).collect();
@@ -286,7 +288,6 @@ mod tests {
         reg.set_team_root(root.clone());
         reg.register("s1", "w-1", AgentKind::Teammate, &model);
         reg.push_transcript("s1", "w-1", serde_json::json!({ "kind": "text", "text": "persisted" }));
-        // 模拟重启：新 registry 经 register_unique 定名命中同名（prefix-i 撞已落盘文件）
         let reg2 = AgentRegistry::default();
         reg2.set_team_root(root.clone());
         let name = reg2.register_unique("s1", "w", AgentKind::Teammate, &model);
@@ -332,7 +333,6 @@ mod tests {
 
     #[test]
     fn concurrent_register_same_prefix_gets_distinct_names() {
-        // 真并发下同 role 两次派发：拆锁实现会同名并条，单锁 register_unique 必须各自定名
         let reg = std::sync::Arc::new(AgentRegistry::default());
         let model = ModelRef::new("xai", "grok");
         let mut handles = Vec::new();

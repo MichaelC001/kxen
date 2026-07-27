@@ -130,6 +130,24 @@ pub fn remove_by_session(session_id: &str) -> usize {
     removed
 }
 
+pub fn restore_jobs(restored: Vec<CronJob>) -> usize {
+    ensure_loaded();
+    let mut jobs = crate::core::shared::lock(&JOBS);
+    let mut added = 0;
+    for job in restored {
+        if jobs.iter().any(|current| current.id == job.id) {
+            continue;
+        }
+        jobs.push(job);
+        added += 1;
+    }
+    drop(jobs);
+    if added > 0 {
+        persist();
+    }
+    added
+}
+
 #[cfg(test)]
 pub fn clear() {
     crate::core::shared::lock(&JOBS).clear();

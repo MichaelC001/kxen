@@ -5,12 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionMeta } from "../lib/chat";
 
 const h = vi.hoisted(() => ({
+  rpc: vi.fn(async (_method: string, _params?: unknown) => undefined),
   workspaceSwitch: vi.fn(async (_path: string) => {}),
   workspaceList: vi.fn(async () => [] as { path: string; last_used: number }[]),
   workspaceAdd: vi.fn(async (_path: string) => {}),
   sessionList: vi.fn(async () => [] as SessionMeta[]),
   nav: vi.fn(),
 }));
+
+vi.mock("../lib/client", () => ({ client: { rpc: h.rpc } }));
 
 vi.mock("../lib/chat", async (importOriginal) => {
   // 全量 mock 会断 state.ts 的 sessionCreate/sessionList 绑定：铺开真实模块，只桩 workspace 相关
@@ -42,6 +45,8 @@ const byText = (text: string) =>
   [...document.body.querySelectorAll("span")].find((el) => el.textContent?.trim() === text);
 
 beforeEach(() => {
+  h.rpc.mockResolvedValue(undefined);
+  h.workspaceSwitch.mockResolvedValue(undefined);
   setNavigator(h.nav);
   setSessions([S1]);
 });
@@ -52,31 +57,32 @@ afterEach(() => {
   setActiveSessionId("");
   for (const m of flash.msgs()) flash.dismiss(m.id);
   h.workspaceSwitch.mockReset();
+  h.rpc.mockReset();
   h.workspaceAdd.mockClear();
   h.nav.mockClear();
 });
 
 describe("SessionTree 切换门", () => {
-  it("workspaceSwitch 失败：点行中止，不切会话并 flashErr", async () => {
-    h.workspaceSwitch.mockRejectedValue(new Error("directory not found: /a"));
+  it("session.activate 失败：点行中止，不切会话并 flashErr", async () => {
+    h.rpc.mockRejectedValue(new Error("session activation failed"));
     const dispose = render(() => <SessionTree />, document.body);
     await flush();
     byText("会话一")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
     expect(activeSessionId()).toBe(""); // 中止：会话不得照常打开
     expect(h.nav).not.toHaveBeenCalled();
-    expect(flash.msgs().some((m) => m.kind === "err" && m.text.includes("切换目录失败"))).toBe(
+    expect(flash.msgs().some((m) => m.kind === "err" && m.text.includes("切换会话失败"))).toBe(
       true,
     );
     dispose();
   });
 
-  it("workspaceSwitch 成功：点行切到该会话", async () => {
+  it("session.activate 成功：点行切到该会话", async () => {
     const dispose = render(() => <SessionTree />, document.body);
     await flush();
     byText("会话一")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
-    expect(h.workspaceSwitch).toHaveBeenCalledWith("/a");
+    expect(h.rpc).toHaveBeenCalledWith("session.activate", { id: "s1" });
     expect(activeSessionId()).toBe("s1");
     expect(h.nav).toHaveBeenCalledWith("/");
     dispose();

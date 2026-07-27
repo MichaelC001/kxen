@@ -34,12 +34,12 @@ async fn respond_via_bus<T>(broker: &ApprovalBroker, bus: &EventBus, allow: bool
     let responder = async {
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
-                if let Ok(Event::LlmDelta(v)) = rx.recv().await {
-                    if v.get("kind").and_then(|k| k.as_str()) == Some("approval") {
-                        let id = v.get("approval_id").and_then(|i| i.as_str()).unwrap_or_default().to_string();
-                        assert!(broker.respond(&id, allow), "approval should be pending");
-                        return;
-                    }
+                if let Ok(Event::LlmDelta(v)) = rx.recv().await
+                    && v.get("kind").and_then(|k| k.as_str()) == Some("approval")
+                {
+                    let id = v.get("approval_id").and_then(|i| i.as_str()).unwrap_or_default().to_string();
+                    assert!(broker.respond(&id, allow), "approval should be pending");
+                    return;
                 }
             }
         })

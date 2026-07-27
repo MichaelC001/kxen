@@ -104,9 +104,12 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
         }
         "knowledge.injection_preview" => {
             let state = app.state::<Arc<AppState>>();
-            let dir = state.active_workspace.read().expect("workspace").clone();
             // 真实 involved：最近一轮 run 的文件集（原来固定 [] = glob 动态命中永远看不到）
             let session_id = params.get("session_id").and_then(Value::as_str);
+            let dir = match session_id {
+                Some(sid) => state.runtime_for_session(sid)?.root().to_path_buf(),
+                None => state.active_workspace.read().expect("workspace").clone(),
+            };
             let involved =
                 session_id.and_then(|sid| kxen_app::core::shared::lock(&state.session_involved).get(sid).cloned()).unwrap_or_default();
             let block = kxen_app::knowledge::render(&dir, &involved);
@@ -156,7 +159,7 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
             let report = crate::doctor::doctor_report(&store);
             let config_text = std::fs::read_to_string(kxen_app::core::paths::config_dir().join("config.toml")).unwrap_or_default();
-            let health = crate::doctor::system_health(&state).await;
+            let health = crate::doctor::system_health(&state).await?;
             let mut md =
                 format!("# kxen diagnostics\n\n- version: {}\n- at: {:?}\n\n", env!("CARGO_PKG_VERSION"), std::time::SystemTime::now());
             md.push_str("## providers\n\n");
@@ -311,20 +314,21 @@ async fn test_dispatch(app: &AppHandle, params: &Value) -> Result<Value, String>
     let mrm = state.mrm.read().expect("mrm").clone();
     let resolved = mrm.resolve(role, &store).await.ok_or_else(|| format!("no available model for role {role}"))?;
     let degraded = resolved.degraded_from.clone();
+    let runtime = state.workspace_runtimes.ready(&state.workdir).await?;
     let deps = kxen_app::agent::subagent::SubagentDeps {
         registry: state.registry.clone(),
         workdir: state.workdir.clone(),
         store,
         mrm,
-        hooks: Some(state.hooks.clone()),
+        hooks: Some(runtime.hooks()),
         extras: None,
         cancel: None,
         agents: state.agents.clone(),
         session_id: None,
         bus: state.bus.clone(),
         approvals: Some(state.approvals.clone()),
-        mcp: Some(state.mcp.clone()),
-        lsp: Some(state.lsp.read().expect("lsp").clone()),
+        mcp: Some(runtime.mcp()),
+        lsp: Some(runtime.lsp()),
     };
     let (_name, _degraded, answer) = kxen_app::agent::subagent::dispatch(
         role,

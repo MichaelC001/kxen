@@ -301,6 +301,23 @@ impl Goal {
         }
         n
     }
+
+    pub fn remove_for_session(dir: &std::path::Path, session_id: &str) -> usize {
+        let mut removed = 0;
+        for goal in Self::list(dir) {
+            if goal.session_id.as_deref() != Some(session_id) {
+                continue;
+            }
+            if std::fs::remove_file(dir.join(format!("{}.json", goal.id))).is_ok() {
+                removed += 1;
+            }
+        }
+        removed
+    }
+
+    pub fn restore_all(dir: &std::path::Path, goals: &[Self]) -> usize {
+        goals.iter().filter(|goal| goal.save(dir).is_ok()).count()
+    }
 }
 
 /// complete 证据最小校验（P2-05）：trim 后 >= 20 字符，且不能只是 done/ok 类占位词

@@ -13,10 +13,11 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 
 /// env KXEN_MCP_OAUTH_STORE 是进程全局：凡经 client 建连链读 token 库的测试必须串行。
-static ENV_LOCK: Mutex<()> = Mutex::new(());
+static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Default, PartialEq)]
 enum RefreshOutcome {
+    #[default]
     Grant,
     Reject,
 }
@@ -29,12 +30,6 @@ struct State {
     accepted_token: String,
     refresh_outcome: RefreshOutcome,
     refresh_access: String,
-}
-
-impl Default for RefreshOutcome {
-    fn default() -> Self {
-        Self::Grant
-    }
 }
 
 struct Mock {
@@ -346,7 +341,7 @@ async fn exchange_code_posts_expected_form() {
 /// refresh 也被拒 -> AUTH_REQUIRED -> needs_auth 且连接被丢弃。
 #[tokio::test]
 async fn http_401_refresh_retry_then_needs_auth() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = ENV_LOCK.lock().await;
     let dir = std::env::temp_dir().join(format!("kxen-oauth-flow-{}", std::process::id()));
     let store_path = dir.join("mcp-oauth.json");
     // WHY unsafe：env 是进程全局，本文件内此类测试由 ENV_LOCK 串行
@@ -406,7 +401,7 @@ async fn http_401_refresh_retry_then_needs_auth() {
 /// config 显式 Authorization 被 401：报失败且不回落 OAuth（不标 needs_auth、不试 refresh）。
 #[tokio::test]
 async fn explicit_authorization_rejected_no_oauth_fallback() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = ENV_LOCK.lock().await;
     let mock = start_mock(true);
     let mut headers = HashMap::new();
     headers.insert("Authorization".to_string(), "Bearer wrong".to_string());

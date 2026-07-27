@@ -65,4 +65,5 @@ pub struct AgentOutcome {
     pub turns: u32,
     pub aborted: bool,
     pub stats: Option<RunStats>,
+    pub terminal: AgentEvent,
 }

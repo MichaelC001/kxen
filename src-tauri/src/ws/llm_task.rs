@@ -23,11 +23,29 @@ pub(crate) async fn run_llm(
     // cron 触发的 run：消息前缀 [cron <id>]（main.rs tick 注入格式），run 结束回写 job 执行历史
     let cron_job_id = text.strip_prefix("[cron ").and_then(|rest| rest.split(']').next()).map(str::to_string);
 
-    // 多 workspace：run 的 workdir 取 session 归属目录（fallback 当前活跃 workspace）
-    let session_dir = ses::load_meta(&sessions_dir, &session_id)
-        .map(|m| m.directory)
-        .unwrap_or_else(|_| state.active_workspace.read().expect("workspace").to_string_lossy().into_owned());
+    // Session metadata 是 workspace 归属真相源；缺失时禁止回落前台目录，避免跨项目继承工具。
+    let session_dir = match ses::load_meta(&sessions_dir, &session_id) {
+        Ok(meta) => meta.directory,
+        Err(e) => {
+            tracing::error!(session = session_id, error = %e, "session metadata unavailable");
+            finish_direct(
+                &state,
+                &session_id,
+                &stream_id,
+                kxen_app::agent::agent_loop::AgentEvent::Error { message: format!("session unavailable: {e}") },
+            );
+            return;
+        }
+    };
     let session_path = std::path::PathBuf::from(&session_dir);
+    let runtime = match state.workspace_runtimes.ready(&session_path).await {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            tracing::error!(session = session_id, error = %e, "session workspace runtime unavailable");
+            finish_direct(&state, &session_id, &stream_id, kxen_app::agent::agent_loop::AgentEvent::Error { message: e });
+            return;
+        }
+    };
 
     // /compact 手动压缩：蒸馏旧段落检查点（原始 JSONL 不动，rewind 锚点保留），不走正常 run
     if text.trim() == "/compact" {
@@ -38,17 +56,21 @@ pub(crate) async fn run_llm(
             None => "历史太短，无需压缩".to_string(),
         };
         let msg = ses::new_message(&session_id, ses::Role::Assistant, vec![ses::Part::Text { text: notice }]);
-        let _ = ses::append_message(&sessions_dir, &msg);
-        // done 事件让前端收敛（不发 run，前端在等终态）
-        state.bus.publish(kxen_app::core::event::Event::LlmDelta(serde_json::json!({
-            "kind": "done", "session_id": session_id, "stream_id": stream_id,
-        })));
+        let terminal = match ses::append_message(&sessions_dir, &msg) {
+            Ok(_) => kxen_app::agent::agent_loop::AgentEvent::Done { turns: 0, stats: None },
+            Err(e) => kxen_app::agent::agent_loop::AgentEvent::Error { message: format!("session append failed: {e}") },
+        };
+        finish_direct(&state, &session_id, &stream_id, terminal);
         return;
     }
 
     // /doctor 环境自检：doctor 报告直出（落盘 + done 事件），不走 LLM
     if crate::doctor::is_doctor_command(&text) {
-        crate::doctor::reply_with_report(&state, &sessions_dir, &session_id, &stream_id).await;
+        let terminal = match crate::doctor::reply_with_report(&state, &sessions_dir, &session_id).await {
+            Ok(()) => kxen_app::agent::agent_loop::AgentEvent::Done { turns: 0, stats: None },
+            Err(e) => kxen_app::agent::agent_loop::AgentEvent::Error { message: e },
+        };
+        finish_direct(&state, &session_id, &stream_id, terminal);
         return;
     }
 
@@ -109,6 +131,12 @@ pub(crate) async fn run_llm(
     let with_images = !images.is_empty();
     if let Err(e) = ses::append_message(&sessions_dir, &user_msg) {
         tracing::error!(error = %e, "session append failed");
+        finish_direct(
+            &state,
+            &session_id,
+            &stream_id,
+            kxen_app::agent::agent_loop::AgentEvent::Error { message: format!("session append failed: {e}") },
+        );
         return;
     }
     // checkpoint 屏障：turn 前状态打 shadow git 检查点，等落盘完成再进 run
@@ -181,7 +209,7 @@ pub(crate) async fn run_llm(
         mrm: Some(state.mrm.read().expect("mrm lock").clone()),
         allowed_tools: None,
         extras: Some(state.extras_for(&session_id)),
-        hooks: Some(state.hooks.clone()),
+        hooks: Some(runtime.hooks()),
         loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
         cancel: Some(cancel.clone()),
         team: Some(state.team.clone()),
@@ -190,11 +218,14 @@ pub(crate) async fn run_llm(
         agents: Some(state.agents.clone()),
         bus: Some(bus.clone()),
         approvals: Some(state.approvals.clone()),
-        mcp: Some(state.mcp.clone()),
-        lsp: Some(state.lsp.read().expect("lsp").clone()),
+        mcp: Some(runtime.mcp()),
+        lsp: Some(runtime.lsp()),
         notify: Some(notify.clone()),
         on_event: Arc::new(move |event| {
             use kxen_app::agent::agent_loop::AgentEvent as AE;
+            if matches!(&event, AE::Done { .. } | AE::Aborted | AE::Error { .. }) {
+                return;
+            }
             match &event {
                 AE::Reasoning { text } => {
                     // 分片落盘为整块：连续 reasoning delta 并入尾部 Reasoning part
@@ -248,6 +279,7 @@ pub(crate) async fn run_llm(
     let outcome = kxen_app::agent::agent_loop::run_turn(&mut ctx, &mut messages).await;
     super::run_finalize::finalize_run(super::run_finalize::RunEnd {
         state: state.inner(),
+        runtime,
         session_id,
         stream_id,
         notify,
@@ -260,6 +292,11 @@ pub(crate) async fn run_llm(
         app: app.clone(),
     })
     .await;
+}
+
+fn finish_direct(state: &Arc<AppState>, session_id: &str, stream_id: &str, terminal: kxen_app::agent::agent_loop::AgentEvent) {
+    kxen_app::core::shared::lock(&state.run_streams).remove(stream_id);
+    super::run_finalize::publish_terminal(&state.bus, session_id, stream_id, &terminal);
 }
 
 /// 队列续跑的 spawn 断路器：在 async fn（run_llm 或其收尾 run_finalize）体内直接 spawn run_llm

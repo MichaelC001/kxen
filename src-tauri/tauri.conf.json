@@ -31,10 +31,17 @@
   "bundle": {
     "active": true,
     "targets": ["dmg"],
+    "createUpdaterArtifacts": true,
     "macOS": {
       "minimumSystemVersion": "14.0",
       "signingIdentity": null
     },
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERBQzQzQkYxRkJFMUI4MTgKUldRWXVPSDc4VHZFMm9YS3dHelJYdWZZYThVUmwvdlV3ZGhVV2p0cnpSQ0pVYTRyTjAxUmhUSkYK",
+      "endpoints": ["https://releases.kxen.ai/latest.json"]
+    }
   }
 }

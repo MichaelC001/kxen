@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn orphan_parent_treated_as_root() {
         // parent_id 指向不在列表里的节点（partial tree）按根处理，不丢子树
-        let nodes = vec![node("a", Some("ghost"), "link", "x")];
+        let nodes = [node("a", Some("ghost"), "link", "x")];
         let mut n = nodes[0].clone();
         n.backend_dom_node_id = Some(1);
         let snap = render(&[n], 1);

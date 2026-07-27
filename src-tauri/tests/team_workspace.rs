@@ -2,7 +2,7 @@
 //! 两 workspace 场景：team 在 A 启动，switch 到 B 后 A 的 session 仍绑 A、新 session 的 team 用 B。
 //! 放 tests/ 遵循 350 行门禁（tests/ 不计入，src/ 内文件超限见 file_gates.rs）。
 
-use kxen_app::agent::team::{LspPool, SpawnDeps, TeamManager};
+use kxen_app::agent::team::{SpawnDeps, TeamManager};
 use kxen_app::auth::credential::{AuthStore, CredentialKind};
 use kxen_app::core::event::EventBus;
 use std::path::{Path, PathBuf};
@@ -45,12 +45,10 @@ fn deps(fallback: &Path, store: Arc<Mutex<AuthStore>>) -> SpawnDeps {
         mrm: Arc::new(std::sync::RwLock::new(Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(
             kxen_app::core::config::Config::default(),
         )))),
-        hooks: None,
+        runtimes: Arc::new(kxen_app::workspace_runtime::WorkspaceRuntimeRegistry::default()),
         extras: Arc::new(kxen_app::agent::agent_loop::SessionExtrasRegistry::default()),
         agents: Arc::new(kxen_app::agent::activity::AgentRegistry::default()),
         approvals: None,
-        mcp: None,
-        lsp: Arc::new(LspPool::default()),
     }
 }
 
@@ -92,12 +90,12 @@ fn store_handle_is_shared_not_frozen() {
 #[test]
 fn lsp_pool_keyed_by_team_session_workspace() {
     let f = fixture("lsp");
-    let pool = LspPool::default();
-    let a1 = pool.for_workspace(&f.ws_a);
-    let a2 = pool.for_workspace(&f.ws_a);
-    let b = pool.for_workspace(&f.ws_b);
+    let runtimes = kxen_app::workspace_runtime::WorkspaceRuntimeRegistry::default();
+    let a1 = runtimes.runtime(&f.ws_a).unwrap().lsp();
+    let a2 = runtimes.runtime(&f.ws_a).unwrap().lsp();
+    let b = runtimes.runtime(&f.ws_b).unwrap().lsp();
     assert!(Arc::ptr_eq(&a1, &a2), "同 workspace 复用同一 rust-analyzer 管理器");
     assert!(!Arc::ptr_eq(&a1, &b));
-    assert_eq!(a1.root(), f.ws_a.as_path(), "A 的 member 诊断 root 必须是 A");
-    assert_eq!(b.root(), f.ws_b.as_path(), "B 的 member 诊断 root 必须是 B");
+    assert_eq!(a1.root(), f.ws_a.canonicalize().unwrap(), "A 的 member 诊断 root 必须是 A");
+    assert_eq!(b.root(), f.ws_b.canonicalize().unwrap(), "B 的 member 诊断 root 必须是 B");
 }

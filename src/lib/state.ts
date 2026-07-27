@@ -31,7 +31,7 @@ export async function initSessions(): Promise<void> {
   }
   setSessions(list);
   if (!activeSessionId() && list[0]) {
-    setActiveSessionId(list[0].id);
+    await switchSession(list[0].id);
   }
 }
 
@@ -116,19 +116,28 @@ export async function ensureActiveSession(): Promise<string> {
     await refreshSessions();
     // 先迁移草稿键再激活：激活触发的 composer 恢复要读到迁移后的内容
     migrateNewDraft(created.id);
-    setActiveSessionId(created.id);
-    client.rpc("session.foreground", { id: created.id }).catch(() => {}); // 消防式：仅决定 OS 通知弹不弹，失败无感
+    await switchSession(created.id);
     return created.id;
   });
 }
 
-export function switchSession(id: string): void {
+let desiredSessionId = "";
+let activationTail: Promise<void> = Promise.resolve();
+
+export async function switchSession(id: string): Promise<void> {
+  desiredSessionId = id;
+  const activation = activationTail.then(async () => {
+    await client.rpc("session.activate", { id });
+  });
+  activationTail = activation.catch(() => {});
+  await activation;
+  // 快速连续切换按调用顺序提交给后端，只让最后一次意图更新前端。
+  if (desiredSessionId !== id) return;
   setActiveSessionId(id);
   setActiveAgentFocus("");
   // 先清旧名单再立即拉目标会话：等 3s 轮询会把上一会话的 agent 卡在新界面
   setAgents([]);
   void refreshAgents();
-  client.rpc("session.foreground", { id }).catch(() => {}); // 同上，前台标记失败不影响切换
   navigate?.("/");
 }
 
@@ -141,7 +150,7 @@ export async function deleteSession(id: string): Promise<void> {
   await refreshSessions();
   if (!wasActive) return;
   const next = sessions().find((s) => s.directory === dir) ?? sessions()[0];
-  if (next) switchSession(next.id);
+  if (next) await switchSession(next.id);
   else await newSession();
 }
 

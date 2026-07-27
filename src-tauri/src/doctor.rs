@@ -43,10 +43,11 @@ pub struct SystemHealth {
 }
 
 /// 子系统健康汇总：各 manager 现有 status/describe API 的只读拼装，不触发任何启动/连接动作。
-pub async fn system_health(state: &Arc<AppState>) -> SystemHealth {
-    let mcp = state.mcp.status();
+pub async fn system_health(state: &Arc<AppState>) -> Result<SystemHealth, String> {
+    let runtime = state.active_runtime()?;
+    let mcp = runtime.mcp().status();
     let (lsp_root, lsp) = {
-        let lsp = state.lsp.read().expect("lsp").clone();
+        let lsp = runtime.lsp();
         let root = lsp.root().to_string_lossy().into_owned();
         let entries = lsp.status().await.into_iter().map(|(language, status)| LspHealth { language, status }).collect();
         (root, entries)
@@ -56,7 +57,7 @@ pub async fn system_health(state: &Arc<AppState>) -> SystemHealth {
         (mrm.describe().await, mrm.history().await.len())
     };
     let (bus_capacity, bus_receivers) = state.bus.stats();
-    SystemHealth { mcp, lsp_root, lsp, mrm_describe, mrm_dispatches, bus_capacity, bus_receivers }
+    Ok(SystemHealth { mcp, lsp_root, lsp, mrm_describe, mrm_dispatches, bus_capacity, bus_receivers })
 }
 
 /// 渲染当前 store 状态。探测只发生在启动后台任务（keychain 可阻塞），RPC 路径绝不触发 keychain。
@@ -110,17 +111,13 @@ pub fn is_doctor_command(text: &str) -> bool {
 }
 
 /// 报告直出：凭证 + 子系统健康 -> markdown 落盘为 assistant 消息，不经 LLM（否则模型自由发挥，与菜单语义脱节）
-pub async fn reply_with_report(state: &Arc<AppState>, sessions_dir: &std::path::Path, session_id: &str, stream_id: &str) {
+pub async fn reply_with_report(state: &Arc<AppState>, sessions_dir: &std::path::Path, session_id: &str) -> Result<(), String> {
     use kxen_app::core::session as ses;
     let store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
     let mut report = doctor_report(&store);
-    report.system = Some(system_health(state).await);
+    report.system = system_health(state).await.ok();
     let msg = ses::new_message(session_id, ses::Role::Assistant, vec![ses::Part::Text { text: format_markdown(&report) }]);
-    let _ = ses::append_message(sessions_dir, &msg);
-    // 不发 run，done 事件给前端终态（/compact 同模式）
-    state.bus.publish(kxen_app::core::event::Event::LlmDelta(serde_json::json!({
-        "kind": "done", "session_id": session_id, "stream_id": stream_id,
-    })));
+    ses::append_message(sessions_dir, &msg).map(|_| ()).map_err(|e| format!("session append failed: {e}"))
 }
 
 /// 报告渲染为 markdown：/doctor 的会话内呈现（与 RPC 的结构化 JSON 共用同一数据源）

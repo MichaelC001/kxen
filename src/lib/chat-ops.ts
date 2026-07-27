@@ -94,12 +94,12 @@ export interface DiffStatusEntry {
   status: string;
 }
 
-export async function diffStatus(): Promise<DiffStatusEntry[]> {
-  return client.rpc<DiffStatusEntry[]>("diff.status");
+export async function diffStatus(sessionId: string): Promise<DiffStatusEntry[]> {
+  return client.rpc<DiffStatusEntry[]>("diff.status", { session_id: sessionId });
 }
 
-export async function diffFile(path: string): Promise<string> {
-  return client.rpc<string>("diff.file", { path });
+export async function diffFile(sessionId: string, path: string): Promise<string> {
+  return client.rpc<string>("diff.file", { session_id: sessionId, path });
 }
 
 // ---------------- agent 改动快照（本会话口径，与 git status 无关） ----------------

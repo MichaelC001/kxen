@@ -1,7 +1,7 @@
 //! P1-09 session.delete 清理原语 + P1-10 fork id 回归：
 //! cron 按 session 移除、goal 标记 Canceled、team 目录清理、append 对已删会话拒绝、fork 消息 id 重生成。
 
-use kxen_app::agent::team::{LspPool, SpawnDeps, TeamManager};
+use kxen_app::agent::team::{SpawnDeps, TeamManager};
 use kxen_app::core::event::EventBus;
 use kxen_app::core::goal::{Goal, GoalContract, GoalStatus};
 use kxen_app::core::session as ses;
@@ -70,12 +70,10 @@ fn team_deps(fallback: &Path) -> SpawnDeps {
         mrm: Arc::new(std::sync::RwLock::new(Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(
             kxen_app::core::config::Config::default(),
         )))),
-        hooks: None,
+        runtimes: Arc::new(kxen_app::workspace_runtime::WorkspaceRuntimeRegistry::default()),
         extras: Arc::new(kxen_app::agent::agent_loop::SessionExtrasRegistry::default()),
         agents: Arc::new(kxen_app::agent::activity::AgentRegistry::default()),
         approvals: None,
-        mcp: None,
-        lsp: Arc::new(LspPool::default()),
     }
 }
 

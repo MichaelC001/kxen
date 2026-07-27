@@ -3,6 +3,7 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { GitBranch } from "lucide-solid";
 import { diffFile, diffStatus, type DiffStatusEntry } from "../lib/chat-ops";
+import { activeSessionId } from "../lib/state";
 import DockSection from "./DockSection";
 import Markdown from "./Markdown";
 
@@ -20,7 +21,12 @@ export default function DockRepoDiff() {
 
   const reload = async () => {
     // 轮询失败（如非 git 目录）保留旧值，下轮重拉
-    setEntries(await diffStatus().catch(() => entries()));
+    const id = activeSessionId();
+    if (!id) {
+      setEntries([]);
+      return;
+    }
+    setEntries(await diffStatus(id).catch(() => entries()));
   };
 
   onMount(async () => {
@@ -38,7 +44,7 @@ export default function DockRepoDiff() {
       setOpen(null);
       return;
     }
-    const text = await diffFile(path).catch(
+    const text = await diffFile(activeSessionId(), path).catch(
       (e: unknown) => `(加载失败：${e instanceof Error ? e.message : String(e)})`,
     );
     setOpen({ path, text });

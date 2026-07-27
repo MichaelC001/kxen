@@ -15,6 +15,7 @@ vi.mock("../lib/chat", async (importOriginal) => {
 
 import SessionRow from "./SessionRow";
 import { flash } from "../lib/flash";
+import { setActiveSessionId } from "../lib/state";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -48,6 +49,7 @@ afterEach(() => {
   document.body.innerHTML = "";
   for (const m of flash.msgs()) flash.dismiss(m.id);
   h.sessionUpdateMeta.mockReset();
+  setActiveSessionId("");
 });
 
 describe("SessionRow 失败路径", () => {
@@ -89,6 +91,93 @@ describe("SessionRow 失败路径", () => {
     await flush();
     expect(document.body.querySelector("button[title='确认删除']")).toBeNull();
     expect(document.body.querySelector("button[title='删除会话（再点一次确认）']")).not.toBeNull();
+    dispose();
+  });
+});
+
+describe("SessionRow 完整交互", () => {
+  it("运行中置顶行处理打开、拖拽、取消置顶、重命名取消和删除确认", async () => {
+    h.sessionUpdateMeta.mockResolvedValue(undefined);
+    setActiveSessionId("s1");
+    const callbacks = {
+      onOpen: vi.fn(),
+      onDelete: vi.fn(),
+      onChanged: vi.fn(),
+      onDragStart: vi.fn(),
+      onDragOver: vi.fn(),
+      onDragLeave: vi.fn(),
+      onDrop: vi.fn(),
+      onDragEnd: vi.fn(),
+    };
+    const session = { ...S, pinned: true, running: true };
+    const dispose = render(
+      () => <SessionRow session={session} deleting={false} draggable dropTarget {...callbacks} />,
+      document.body,
+    );
+
+    const row = document.body.querySelector<HTMLElement>(".interactive")!;
+    row.click();
+    row.dispatchEvent(new DragEvent("dragstart", { bubbles: true }));
+    row.dispatchEvent(new DragEvent("dragover", { bubbles: true }));
+    row.dispatchEvent(new DragEvent("dragleave", { bubbles: true }));
+    row.dispatchEvent(new DragEvent("drop", { bubbles: true }));
+    row.dispatchEvent(new DragEvent("dragend", { bubbles: true }));
+    expect(callbacks.onOpen).toHaveBeenCalledTimes(1);
+    expect(callbacks.onDragStart).toHaveBeenCalledTimes(1);
+    expect(callbacks.onDragOver).toHaveBeenCalledTimes(1);
+    expect(callbacks.onDragLeave).toHaveBeenCalledTimes(1);
+    expect(callbacks.onDrop).toHaveBeenCalledTimes(1);
+    expect(callbacks.onDragEnd).toHaveBeenCalledTimes(1);
+    expect(row.className).toContain("shadow-");
+
+    document.body.querySelector<HTMLButtonElement>("button[title='取消置顶']")?.click();
+    await vi.waitFor(() =>
+      expect(h.sessionUpdateMeta).toHaveBeenCalledWith("s1", { pinned: false }),
+    );
+    expect(callbacks.onChanged).toHaveBeenCalledTimes(1);
+
+    titleSpan()?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await flush();
+    document.body
+      .querySelector<HTMLInputElement>("input")
+      ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await flush();
+    expect(document.body.querySelector("input")).toBeNull();
+
+    document.body
+      .querySelector<HTMLButtonElement>("button[title='删除会话（会话正在运行，删除将终止）']")
+      ?.click();
+    await flush();
+    document.body
+      .querySelector<HTMLButtonElement>("button[title='会话正在运行，删除将终止']")
+      ?.click();
+    expect(callbacks.onDelete).toHaveBeenCalledTimes(1);
+    dispose();
+  });
+
+  it("删除中状态禁用拖拽并显示 spinner", () => {
+    const dispose = render(
+      () => (
+        <SessionRow
+          session={S}
+          deleting
+          onOpen={() => {}}
+          onDelete={() => {}}
+          onChanged={() => {}}
+          draggable
+          dropTarget={false}
+          onDragStart={() => {}}
+          onDragOver={() => {}}
+          onDragLeave={() => {}}
+          onDrop={() => {}}
+          onDragEnd={() => {}}
+        />
+      ),
+      document.body,
+    );
+    const row = document.body.querySelector<HTMLElement>(".interactive");
+    expect(row?.getAttribute("draggable")).toBe("false");
+    expect(document.body.querySelector("[title='删除中…']")).toBeTruthy();
     dispose();
   });
 });

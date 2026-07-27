@@ -9,6 +9,7 @@ use crate::AppState;
 /// finalize_run 的入参包：字段即 run_llm 原局部变量，打包传入避免一长串位置参数。
 pub(super) struct RunEnd<'a> {
     pub state: &'a Arc<AppState>,
+    pub runtime: Arc<kxen_app::workspace_runtime::WorkspaceRuntime>,
     pub session_id: String,
     pub stream_id: String,
     pub notify: Arc<kxen_app::agent::background::NotifyRouter>,
@@ -24,7 +25,7 @@ pub(super) struct RunEnd<'a> {
 pub(super) async fn finalize_run(end: RunEnd<'_>) {
     use kxen_app::core::session as ses;
 
-    let RunEnd { state, session_id, stream_id, notify, cancel, files, outcome, sessions_dir, transcript, cron_job_id, app } = end;
+    let RunEnd { state, runtime, session_id, stream_id, notify, cancel, files, outcome, sessions_dir, transcript, cron_job_id, app } = end;
 
     // 通知路由收尾：通道残留与此后到达的通知全部入队 + kick 拉活（kick_session 判活，无活跃 run 才起）。
     // 本 run 的收尾 pop（下方）立即消化残留，kick 撞见活跃 run / 空队列即退，不并发起第二个 run。
@@ -46,8 +47,8 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
     // stop hook（run 结束挂点，fire-and-log；Ask 档走审批通道）
     let stop_appr =
         kxen_app::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), Some(&cancel), Some(session_id.as_str()));
-    if let Err(e) = state
-        .hooks
+    if let Err(e) = runtime
+        .hooks()
         .run_named_with_approval(
             "stop",
             &session_id,
@@ -58,7 +59,6 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
     {
         tracing::warn!(error = %e, "stop hook failed");
     }
-    kxen_app::core::shared::lock(&state.run_streams).remove(&stream_id);
     // 用量累计（状态栏 tokens 段；落盘供重启恢复）
     if let Some(stats) = outcome.stats {
         let mut map = kxen_app::core::shared::lock(&state.session_tokens);
@@ -96,9 +96,8 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
         parts.push(ses::Part::Text { text: "(run 异常结束，无输出——请重试或发送「继续」)".into() });
     }
     let assistant_msg = ses::new_message(&session_id, ses::Role::Assistant, parts);
-    if let Err(e) = ses::append_message(&sessions_dir, &assistant_msg) {
-        tracing::error!(error = %e, "session append failed");
-    }
+    append_assistant_and_publish(&sessions_dir, &assistant_msg, &state.bus, &stream_id, &outcome.terminal);
+    kxen_app::core::shared::lock(&state.run_streams).remove(&stream_id);
 
     // 队列下一条：run 进行中收到的消息按序接续（pop 即落盘重写，崩溃窗口丢一条与旧纯内存等价）。
     // pop 前复查本 run token：已 cancel（abort/interrupt）不续跑——收尾 pop 起新 run 会让 abort 失效；
@@ -108,5 +107,95 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
         let stream_id = super::protocol::stream_id("run");
         kxen_app::core::shared::lock(&state.run_streams).insert(stream_id.clone(), session_id.clone());
         super::llm_task::spawn_run(stream_id, session_id, q.text, q.context, q.images, app.clone());
+    }
+}
+
+fn append_assistant_and_publish(
+    sessions_dir: &std::path::Path,
+    assistant_msg: &kxen_app::core::session::Message,
+    bus: &kxen_app::core::event::EventBus,
+    stream_id: &str,
+    intended_terminal: &kxen_app::agent::agent_loop::AgentEvent,
+) {
+    let terminal = match kxen_app::core::session::append_message(sessions_dir, assistant_msg) {
+        Ok(_) => intended_terminal.clone(),
+        Err(error) => {
+            tracing::error!(%error, "session append failed");
+            kxen_app::agent::agent_loop::AgentEvent::Error { message: format!("session append failed: {error}") }
+        }
+    };
+    publish_terminal(bus, &assistant_msg.session_id, stream_id, &terminal);
+}
+
+pub(super) fn publish_terminal(
+    bus: &kxen_app::core::event::EventBus,
+    session_id: &str,
+    stream_id: &str,
+    terminal: &kxen_app::agent::agent_loop::AgentEvent,
+) {
+    let mut payload = match serde_json::to_value(terminal) {
+        Ok(payload) => payload,
+        Err(e) => {
+            tracing::error!(error = %e, "terminal serialization failed");
+            serde_json::json!({ "kind": "error", "message": "terminal serialization failed" })
+        }
+    };
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("session_id".into(), serde_json::json!(session_id));
+        object.insert("stream_id".into(), serde_json::json!(stream_id));
+    }
+    bus.publish(kxen_app::core::event::Event::LlmDelta(payload));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kxen_app::agent::agent_loop::AgentEvent;
+    use kxen_app::core::event::Event;
+    use kxen_app::core::session::{self, Part, Role};
+
+    fn temporary_sessions(tag: &str) -> std::path::PathBuf {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        std::env::temp_dir().join(format!("kxen-finalize-{tag}-{}-{}", std::process::id(), now))
+    }
+
+    #[test]
+    fn terminal_is_published_after_assistant_persistence() {
+        let dir = temporary_sessions("order");
+        let meta = session::create(&dir, "/tmp/work").unwrap();
+        let message = session::new_message(&meta.id, Role::Assistant, vec![Part::Text { text: "done".into() }]);
+        let bus = kxen_app::core::event::EventBus::default();
+        let mut receiver = bus.subscribe();
+
+        append_assistant_and_publish(&dir, &message, &bus, "run_one", &AgentEvent::Done { turns: 1, stats: None });
+
+        let stored = session::load_messages(&dir, &meta.id);
+        assert_eq!(stored.last().map(|item| item.id.as_str()), Some(message.id.as_str()));
+        let Event::LlmDelta(payload) = receiver.try_recv().unwrap() else {
+            panic!("terminal event missing");
+        };
+        assert_eq!(payload["kind"], "done");
+        assert!(receiver.try_recv().is_err());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn persistence_failure_publishes_one_error_terminal() {
+        let dir = temporary_sessions("failure");
+        let meta = session::create(&dir, "/tmp/work").unwrap();
+        session::remove(&dir, &meta.id);
+        let message = session::new_message(&meta.id, Role::Assistant, vec![Part::Text { text: "lost".into() }]);
+        let bus = kxen_app::core::event::EventBus::default();
+        let mut receiver = bus.subscribe();
+
+        append_assistant_and_publish(&dir, &message, &bus, "run_failure", &AgentEvent::Done { turns: 1, stats: None });
+
+        let Event::LlmDelta(payload) = receiver.try_recv().unwrap() else {
+            panic!("terminal event missing");
+        };
+        assert_eq!(payload["kind"], "error");
+        assert!(payload["message"].as_str().unwrap().contains("session append failed"));
+        assert!(receiver.try_recv().is_err());
+        std::fs::remove_dir_all(dir).ok();
     }
 }

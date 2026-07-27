@@ -1,7 +1,7 @@
 // Markdown sanitizer 实测（报告 P1-16）：marked 原样保留 raw HTML，
 // 写 innerHTML 前必须过 DOMPurify——注入面清除 + 正常高亮结构保留。
 import { describe, expect, it } from "vitest";
-import { initMarkdown, renderMarkdown } from "./markdown";
+import { initMarkdown, renderMarkdown, SHIKI_LANGS } from "./markdown";
 
 describe("markdown sanitizer", () => {
   it("script 标签被清除", async () => {
@@ -50,5 +50,14 @@ describe("markdown sanitizer", () => {
     // shiki 高亮颜色在 .code-block 内部，属于 style 例外放行
     expect(html).toContain('class="shiki');
     expect(html).toContain("style=");
+  });
+
+  it("全部声明语言可由 JavaScript RegExp engine 高亮", async () => {
+    await initMarkdown();
+    for (const lang of SHIKI_LANGS) {
+      const html = await renderMarkdown(`\`\`\`${lang}\nvalue = 1\n\`\`\``);
+      expect(html).toContain(`data-lang="${lang}"`);
+      expect(html).toContain('class="shiki');
+    }
   });
 });

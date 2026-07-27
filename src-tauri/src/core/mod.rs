@@ -14,6 +14,7 @@ pub mod rewind_lock;
 pub mod schedule;
 pub mod session;
 pub mod session_export;
+pub mod session_recovery;
 pub mod shared;
 pub mod trust;
 pub mod usage;

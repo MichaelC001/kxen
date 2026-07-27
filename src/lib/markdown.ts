@@ -3,16 +3,14 @@
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import markedShiki from "marked-shiki";
-// 细粒度 core 入口：全量 "shiki" 入口会把全部语言语法（emacs-lisp 780KB、cpp 626KB 等）
-// 都打成构建产物，而运行时只用 SHIKI_LANGS 里这几种
-import { createHighlighterCore, type HighlighterCore } from "shiki/core";
-import { createOnigurumaEngine } from "shiki/engine/oniguruma";
+import type { HighlighterCore } from "shiki/core";
 import { SHIKI_LANGS } from "./langs";
 
 export { SHIKI_LANGS } from "./langs";
 
 let highlighter: HighlighterCore | null = null;
 let ready = false;
+let initPromise: Promise<void> | null = null;
 
 const MERMAID_BLOCK = /```mermaid\s*\n([\s\S]*?)```/g;
 
@@ -39,6 +37,21 @@ const SANITIZE_CONFIG = { FORBID_TAGS: ["style"], FORBID_ATTR: ["style"] };
 
 export async function initMarkdown(): Promise<void> {
   if (ready) return;
+  if (initPromise) return initPromise;
+  initPromise = initializeMarkdown();
+  try {
+    await initPromise;
+  } catch (error) {
+    initPromise = null;
+    throw error;
+  }
+}
+
+async function initializeMarkdown(): Promise<void> {
+  const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] = await Promise.all([
+    import("shiki/core"),
+    import("shiki/engine/javascript"),
+  ]);
   // 显式逐语言 import：不能用模板字符串动态 import（vite 会展开成全量 glob 又把所有语法打回来）
   highlighter = await createHighlighterCore({
     themes: [import("shiki/themes/github-dark.mjs"), import("shiki/themes/github-light.mjs")],
@@ -59,7 +72,7 @@ export async function initMarkdown(): Promise<void> {
       import("shiki/langs/css.mjs"),
       import("shiki/langs/diff.mjs"),
     ],
-    engine: createOnigurumaEngine(import("shiki/wasm")),
+    engine: createJavaScriptRegexEngine(),
   });
   marked.use(
     markedShiki({
@@ -82,6 +95,9 @@ function shikiTheme(): string {
 
 /** 渲染 markdown -> HTML（async：marked-shiki 扩展强制异步 parse）。mermaid 块先转占位 div，随后由 renderMermaid 实例化。 */
 export async function renderMarkdown(text: string): Promise<string> {
+  if (/```(?!mermaid(?:\s|$))/i.test(text)) {
+    await initMarkdown();
+  }
   const withPlaceholders = text.replace(MERMAID_BLOCK, (_, source: string) => {
     return `\n\n<div class="mermaid">${escapeHtml(source.trim())}</div>\n\n`;
   });
@@ -113,7 +129,6 @@ let mermaidSeq = 0;
 
 /** 把容器里的 .mermaid 占位 div 渲染成 SVG（幂等：已渲染的跳过）。 */
 export async function renderMermaid(container: HTMLElement): Promise<void> {
-  if (!ready) return;
   const nodes = container.querySelectorAll<HTMLElement>(".mermaid:not([data-rendered])");
   if (nodes.length === 0) return;
   const mermaid = await ensureMermaid();

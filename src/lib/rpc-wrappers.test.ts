@@ -1,0 +1,150 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const h = vi.hoisted(() => ({
+  fail: new Set<string>(),
+  on: vi.fn((_handler: (payload: unknown) => void) => vi.fn()),
+  rpc: vi.fn(async (method: string) => {
+    if (h.fail.delete(method)) throw new Error(`${method} failed`);
+    if (method === "diff.agent_file") return { text: "agent diff" };
+    return {};
+  }),
+  stream: vi.fn(),
+}));
+
+h.stream.mockImplementation(() => ({ on: h.on }));
+
+vi.mock("./client", () => ({
+  client: {
+    rpc: h.rpc,
+    stream: h.stream,
+  },
+}));
+
+import * as chatOps from "./chat-ops";
+import * as knowledge from "./knowledge";
+import * as provider from "./provider";
+
+beforeEach(() => {
+  h.fail.clear();
+  vi.clearAllMocks();
+  h.stream.mockImplementation(() => ({ on: h.on }));
+});
+
+describe("RPC wrappers", () => {
+  it("chat operations 保持 method 和参数映射", async () => {
+    await chatOps.worktreeList();
+    await chatOps.worktreeCreate("feature");
+    await chatOps.worktreeRemove("feature");
+    await chatOps.worktreeRemove("feature", true);
+    await chatOps.worktreeStatus("/repo");
+    await chatOps.workspaceList();
+    await chatOps.workspaceCurrent();
+    await chatOps.workspaceAdd("/repo");
+    await chatOps.workspaceSwitch("/repo");
+    await chatOps.workspacesOverview();
+    await chatOps.diffStatus("s1");
+    await chatOps.diffFile("s1", "a.ts");
+    await chatOps.agentDiffStatus("s1");
+    expect(await chatOps.agentDiffFile("s1", "a.ts")).toBe("agent diff");
+    await chatOps.goalList();
+    await chatOps.goalFocus();
+    await chatOps.goalFocus("s1");
+    await chatOps.goalTransit("g1", "adjust");
+    await chatOps.taskList();
+    await chatOps.taskKill("t1");
+    await chatOps.taskRestart("t1");
+
+    const handler = vi.fn();
+    const off = vi.fn();
+    h.on.mockImplementationOnce((callback: (payload: unknown) => void) => {
+      callback({ id: 1 });
+      return off;
+    });
+    expect(chatOps.onTopic(["goal.update"], handler)).toBe(off);
+    expect(handler).toHaveBeenCalledWith("", { id: 1 });
+
+    expect(h.rpc).toHaveBeenCalledWith("worktree.remove", {
+      name: "feature",
+      delete_branch: false,
+    });
+    expect(h.rpc).toHaveBeenCalledWith("worktree.remove", {
+      name: "feature",
+      delete_branch: true,
+    });
+    expect(h.rpc).toHaveBeenCalledWith("goal.focus", {});
+    expect(h.rpc).toHaveBeenCalledWith("goal.focus", { session_id: "s1" });
+    expect(h.rpc).toHaveBeenCalledWith("goal.adjust", { id: "g1" });
+  });
+
+  it("diff 降级路径返回稳定空值", async () => {
+    h.fail.add("worktree.status");
+    expect(await chatOps.worktreeStatus("/repo")).toEqual([]);
+    h.fail.add("diff.agent_status");
+    expect(await chatOps.agentDiffStatus("s1")).toEqual([]);
+    h.fail.add("diff.agent_file");
+    expect(await chatOps.agentDiffFile("s1", "a.ts")).toBe("");
+  });
+
+  it("provider wrappers 覆盖可选账号、候选凭证和 region", async () => {
+    await provider.providerList();
+    await provider.providerVerify("anthropic");
+    await provider.providerVerify("anthropic", "work");
+    await provider.providerVerify("anthropic", "work", {
+      access: "access",
+      kind: "oauth",
+      refresh: "refresh",
+      expires: 1,
+      region: "global",
+    });
+    await provider.providerModels("anthropic");
+    await provider.providerModels("anthropic", "work");
+    await provider.providerAccounts();
+    await provider.importAccount("anthropic", "work", "access");
+    await provider.importAccount("anthropic", "work", "access", "oauth", "refresh", 1, "global");
+    await provider.addCustomProvider(
+      "relay",
+      "https://relay.example.com/v1",
+      "key",
+      ["m1"],
+      "openai",
+      ["text"],
+    );
+    await provider.removeCustomProvider("relay");
+    await provider.removeAccount("anthropic", "work");
+    await provider.setAccountRegion("anthropic", "work");
+    await provider.setAccountRegion("anthropic", "work", "global");
+    await provider.providerReprobe();
+    await provider.mrmStats();
+    await provider.testDispatch("lead");
+
+    expect(h.rpc).toHaveBeenCalledWith("provider.verify", {
+      provider: "anthropic",
+      account: "work",
+      access: "access",
+      kind: "oauth",
+      refresh: "refresh",
+      expires: 1,
+      region: "global",
+    });
+    expect(h.rpc).toHaveBeenCalledWith("provider.set_region", {
+      provider: "anthropic",
+      account: "work",
+    });
+  });
+
+  it("knowledge wrappers 保持 scope、slug 和 preview 参数", async () => {
+    await knowledge.knowledgeList();
+    await knowledge.knowledgeAdd("project", "pitfall", "description", "content");
+    await knowledge.knowledgeRemove("project", "slug");
+    await knowledge.knowledgeSetEnabled("project", "slug", false);
+    await knowledge.knowledgeMove("personal", "slug", "project");
+    await knowledge.knowledgeInjectionPreview();
+    await knowledge.knowledgeInjectionPreview("s1");
+    await knowledge.codingRulesGet();
+    await knowledge.codingRulesSet(true);
+
+    expect(h.rpc).toHaveBeenCalledWith("knowledge.injection_preview", {});
+    expect(h.rpc).toHaveBeenCalledWith("knowledge.injection_preview", { session_id: "s1" });
+    expect(h.rpc).toHaveBeenCalledWith("coding_rules.set", { enabled: true });
+  });
+});

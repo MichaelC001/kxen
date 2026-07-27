@@ -85,7 +85,7 @@ describe("NotificationCenter 条目跳转", () => {
     expect(jumpBtns.length).toBe(1); // 仅带 session_id 的一条可点
     expect(jumpBtns[0]?.textContent).toContain("teammate a: 已完成");
     (jumpBtns[0] as HTMLButtonElement).click();
-    expect(activeSessionId()).toBe("s9");
+    await vi.waitFor(() => expect(activeSessionId()).toBe("s9"));
     dispose();
   });
 });

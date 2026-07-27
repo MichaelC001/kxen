@@ -6,7 +6,7 @@ use crate::core::shared::lock;
 use crate::llm::ModelRef;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::TeamState;
@@ -14,6 +14,8 @@ use super::inbox::{append_inbox, drain_inbox};
 use super::relay::{LeadPath, LeadRelay};
 use super::tasks::{claim_task, complete_task, create_task};
 use super::types::SpawnDeps;
+
+mod restore;
 
 pub struct TeamManager {
     root: PathBuf,
@@ -49,70 +51,31 @@ impl TeamManager {
             .unwrap_or_else(|_| self.deps.fallback_workdir.clone())
     }
 
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub fn detach_session(&self, session_id: &str) {
+        if crate::core::ids::validate_id(session_id).is_err() {
+            return;
+        }
+        if let Some(state) = lock(&self.sessions).remove(session_id) {
+            for token in lock(&state.cancels).values() {
+                token.cancel();
+            }
+            for notify in lock(&state.notifies).values() {
+                notify.notify_waiters();
+            }
+        }
+    }
+
     /// 会话删除连带：内存状态与 team 目录一起清（幂等；非法 id 拒在拼路径之前，防目录穿越误删）。
     pub fn drop_session(&self, session_id: &str) {
         if crate::core::ids::validate_id(session_id).is_err() {
             return;
         }
-        lock(&self.sessions).remove(session_id);
+        self.detach_session(session_id);
         let _ = std::fs::remove_dir_all(self.root.join(session_id));
-    }
-
-    /// 重启恢复：扫描各 session 目录的 config/tasks。
-    /// 崩前活跃且 prompt 非空的成员重启 loop（approved 初值从落盘记录推导，重批豁免）；
-    /// 旧版落盘无 prompt 的成员降级 Shutdown（无法重建任务上下文，硬重启等于失忆空跑）。
-    fn restore(self: &Arc<Self>) {
-        let Ok(entries) = std::fs::read_dir(&self.root) else { return };
-        for entry in entries.flatten() {
-            let dir = entry.path();
-            if !dir.is_dir() {
-                continue;
-            }
-            let session_id = entry.file_name().to_string_lossy().into_owned();
-            let Ok(text) = std::fs::read_to_string(dir.join("config.json")) else { continue };
-            let Ok(config) = serde_json::from_str::<Value>(&text) else { continue };
-            let mut members: Vec<super::types::Member> =
-                config.get("members").and_then(|m| serde_json::from_value(m.clone()).ok()).unwrap_or_default();
-            // 重启名单先算好：落盘状态 Working/Idle/AwaitingPlanApproval 都算崩前活跃
-            let restart: Vec<super::types::Member> = members
-                .iter()
-                .filter(|m| {
-                    !m.prompt.is_empty() && !matches!(m.status, super::types::MemberStatus::Shutdown | super::types::MemberStatus::Failed)
-                })
-                .cloned()
-                .collect();
-            for m in &mut members {
-                if m.status != super::types::MemberStatus::Shutdown && m.status != super::types::MemberStatus::Failed {
-                    m.status = if restart.iter().any(|r| r.name == m.name) {
-                        super::types::MemberStatus::Idle
-                    } else {
-                        super::types::MemberStatus::Shutdown
-                    };
-                }
-            }
-            let tasks: Vec<super::types::TeamTask> =
-                std::fs::read_to_string(dir.join("tasks.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-            let next_id = tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1;
-            let _ = std::fs::create_dir_all(dir.join("inboxes"));
-            let workdir = self.session_workdir(&session_id);
-            let state = Arc::new(TeamState {
-                session_id,
-                dir,
-                workdir,
-                manager: Arc::downgrade(self),
-                members: std::sync::Mutex::new(members),
-                cancels: std::sync::Mutex::new(HashMap::new()),
-                notifies: std::sync::Mutex::new(HashMap::new()),
-                tasks: std::sync::Mutex::new(tasks),
-                next_task_id: std::sync::atomic::AtomicU64::new(next_id),
-                deps: self.deps.clone(),
-                bus: self.bus.clone(),
-            });
-            for m in restart {
-                Self::start_member_loop(&state, m.name, m.role, m.prompt, m.model, m.approved);
-            }
-            lock(&self.sessions).insert(state.session_id.clone(), state);
-        }
     }
 
     pub(super) fn state_for(self: &Arc<Self>, session_id: &str) -> Arc<TeamState> {

@@ -133,6 +133,7 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
     try {
       if (!checkName()) return;
       if (kind() === "custom") {
+        const doneName = name().trim();
         const list = models()
           .split(/[,，\s]+/)
           .filter(Boolean);
@@ -149,7 +150,7 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
           caps(),
         );
         resetAccountForm();
-        props.onDone(`自定义提供商 ${name()} 已添加`);
+        props.onDone(`自定义提供商 ${doneName} 已添加`);
         return;
       }
       if (!token().trim()) {
@@ -167,8 +168,9 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
         chosenRegion(),
       );
       const doneName = name();
+      const doneProvider = provider();
       resetAccountForm();
-      props.onDone(`账号 ${provider()}:${doneName} 已添加`);
+      props.onDone(`账号 ${doneProvider}:${doneName} 已添加`);
     } catch (e) {
       setError(formatError(e instanceof Error ? e.message : String(e)));
     } finally {

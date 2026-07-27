@@ -1,6 +1,15 @@
 // 分组名：worktree 目录显示「树名 (worktree)」；撞名上提 worktree 用「仓库/树名」（worktrees/<名> 仍会撞）。
 import { describe, expect, it } from "vitest";
-import { groupName, parseWorktreePath, promotedName } from "./group-name";
+import { baseName, groupName, parentName, parseWorktreePath, promotedName } from "./group-name";
+
+describe("path name fallbacks", () => {
+  it("handles trailing separators, single segments, and empty paths", () => {
+    expect(baseName("/x/app/")).toBe("app");
+    expect(baseName("")).toBe("");
+    expect(parentName("app")).toBe("app");
+    expect(parentName("")).toBe("");
+  });
+});
 
 describe("parseWorktreePath", () => {
   it("命中 <repo>/.kxen/worktrees/<name>", () => {
@@ -13,6 +22,8 @@ describe("parseWorktreePath", () => {
 
   it("非 kxen worktree 路径返回 null（缺 .kxen 段 / 段数不足）", () => {
     expect(parseWorktreePath("/a/b/worktrees/exp")).toBeNull();
+    expect(parseWorktreePath("/repo/not-kxen/worktrees/exp")).toBeNull();
+    expect(parseWorktreePath("/repo/.kxen/not-worktrees/exp")).toBeNull();
     expect(parseWorktreePath("/repo/.kxen/worktrees")).toBeNull();
     expect(parseWorktreePath("/repo")).toBeNull();
   });

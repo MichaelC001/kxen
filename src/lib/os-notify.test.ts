@@ -14,6 +14,12 @@ vi.mock("@tauri-apps/api/event", () => ({
   }),
 }));
 
+vi.mock("./client", () => ({
+  client: {
+    rpc: vi.fn(async () => undefined),
+  },
+}));
+
 import { mountOsNotificationJump } from "./os-notify";
 import { activeSessionId, setActiveSessionId, setSessions } from "./state";
 import { flash } from "./flash";
@@ -31,6 +37,7 @@ describe("os-notify 点击回跳", () => {
     const un = await mountOsNotificationJump();
     expect(h.handler).not.toBeNull();
     h.handler?.({ payload: "s9" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(activeSessionId()).toBe("s9");
     un();
     expect(h.handler).toBeNull();

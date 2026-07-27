@@ -89,10 +89,10 @@ fn handle(stream: TcpStream, tx_slot: Arc<Mutex<Option<Sender<String>>>>) {
     } else if request_line.starts_with("POST") {
         if let Ok(v) = serde_json::from_str::<Value>(&body) {
             // 通知无 id 不产响应；请求产响应经 channel 投递给 SSE 流
-            if let Some(resp) = route_response(&v) {
-                if let Some(tx) = tx_slot.lock().unwrap().clone() {
-                    let _ = tx.send(resp.to_string());
-                }
+            if let Some(resp) = route_response(&v)
+                && let Some(tx) = tx_slot.lock().unwrap().clone()
+            {
+                let _ = tx.send(resp.to_string());
             }
         }
         let accepted = "HTTP/1.1 202 Accepted\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";

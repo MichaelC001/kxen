@@ -138,6 +138,26 @@ pub fn probe_all(store: &mut AuthStore, allow_keychain: bool) -> Vec<(&'static s
         .collect()
 }
 
+pub fn merge_probe_delta(baseline: &AuthStore, probed: &AuthStore, current: &mut AuthStore) {
+    let mut keys: std::collections::HashSet<&String> = baseline.keys().collect();
+    keys.extend(probed.keys());
+    for key in keys {
+        let before = baseline.get(key);
+        let after = probed.get(key);
+        if before == after || current.get(key) != before {
+            continue;
+        }
+        match after {
+            Some(credential) => {
+                current.insert(key.clone(), credential.clone());
+            }
+            None => {
+                current.remove(key);
+            }
+        }
+    }
+}
+
 fn read_env_override(var: &str) -> Option<CredentialKind> {
     let raw = std::env::var(var).ok()?;
     let raw = raw.strip_prefix("file://").map(|p| std::fs::read_to_string(p).ok()).unwrap_or(Some(raw.to_string()))?;
@@ -178,10 +198,46 @@ mod tests {
     }
 
     #[test]
+    fn probe_delta_preserves_concurrent_user_changes() {
+        let old = CredentialKind::Api { key: "old".into(), region: None };
+        let imported = CredentialKind::Api { key: "imported".into(), region: None };
+        let user = CredentialKind::Api { key: "user".into(), region: None };
+        let mut baseline = AuthStore::new();
+        baseline.insert("xai".into(), old);
+        let mut probed = baseline.clone();
+        probed.insert("xai".into(), imported.clone());
+        probed.insert("openai".into(), imported.clone());
+        let mut current = baseline.clone();
+        current.insert("xai".into(), user.clone());
+        current.insert("named".into(), user.clone());
+
+        merge_probe_delta(&baseline, &probed, &mut current);
+
+        assert_eq!(current.get("xai"), Some(&user));
+        assert_eq!(current.get("named"), Some(&user));
+        assert_eq!(current.get("openai"), Some(&imported));
+    }
+
+    #[test]
+    fn probe_delta_does_not_restore_concurrently_deleted_key() {
+        let old = CredentialKind::Api { key: "old".into(), region: None };
+        let imported = CredentialKind::Api { key: "imported".into(), region: None };
+        let mut baseline = AuthStore::new();
+        baseline.insert("xai".into(), old);
+        let mut probed = baseline.clone();
+        probed.insert("xai".into(), imported);
+        let mut current = AuthStore::new();
+
+        merge_probe_delta(&baseline, &probed, &mut current);
+
+        assert!(!current.contains_key("xai"));
+    }
+
+    #[test]
     fn jwt_exp_parses() {
         // exp = 2000000000
         let token = "x.eyJleHAiOjIwMDAwMDAwMDB9.y";
-        assert_eq!(jwt_exp(token), Some(2000000000_000));
+        assert_eq!(jwt_exp(token), Some(2_000_000_000_000));
     }
 
     #[cfg(unix)]

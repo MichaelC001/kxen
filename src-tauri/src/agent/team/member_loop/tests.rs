@@ -8,12 +8,10 @@ fn deps() -> super::super::types::SpawnDeps {
         fallback_workdir: Arc::from(Path::new("/tmp")),
         store: Arc::new(std::sync::Mutex::new(crate::auth::credential::AuthStore::default())),
         mrm: Arc::new(std::sync::RwLock::new(Arc::new(crate::llm::mrm::ModelResourceManager::new(crate::core::config::Config::default())))),
-        hooks: None,
+        runtimes: Arc::new(crate::workspace_runtime::WorkspaceRuntimeRegistry::default()),
         extras: Arc::new(crate::agent::agent_loop::SessionExtrasRegistry::default()),
         agents: Arc::new(crate::agent::activity::AgentRegistry::default()),
         approvals: None,
-        mcp: None,
-        lsp: Arc::new(crate::agent::team::LspPool::default()),
     }
 }
 

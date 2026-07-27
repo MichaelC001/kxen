@@ -16,7 +16,7 @@ export async function forkAt(messageId: string): Promise<void> {
   try {
     const forked = await sessionFork(activeSessionId(), messageId);
     await refreshSessions();
-    switchSession(forked.id);
+    await switchSession(forked.id);
   } catch (e) {
     flashErr(`分叉失败：${formatError(e instanceof Error ? e.message : String(e))}`);
   }
@@ -52,7 +52,7 @@ export async function editResend(
       try {
         const forked = await sessionFork(activeSessionId(), m.messageId);
         await refreshSessions();
-        switchSession(forked.id);
+        await switchSession(forked.id);
         await send(text, context, images);
         return;
       } catch (e) {

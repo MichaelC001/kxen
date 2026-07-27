@@ -18,6 +18,7 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
     let mut turns = 0u32;
     let mut final_text = String::new();
     let mut aborted = false;
+    let mut terminal = None;
 
     // 统计：TTFT（首个 Text/Reasoning delta）/ 总耗时 / tokens
     let started = std::time::Instant::now();
@@ -63,7 +64,9 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
         turns += 1;
         if turns > ctx.max_turns {
             let reason = format!("已达最大轮次（{}），任务未完成——发送「继续」可接着做", ctx.max_turns);
-            (ctx.on_event)(AgentEvent::Error { message: reason.clone() });
+            let event = AgentEvent::Error { message: reason.clone() };
+            (ctx.on_event)(event.clone());
+            terminal = Some(event);
             final_text = reason; // 终态必须落库：run 不许无声结束
             break;
         }
@@ -203,9 +206,16 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
                             }
                         }
                         if produced || !crate::llm::retry::retryable(&e) || attempt + 1 >= crate::llm::retry::MAX_ATTEMPTS {
-                            (ctx.on_event)(AgentEvent::Error { message: e.clone() });
+                            let terminal = AgentEvent::Error { message: e.clone() };
+                            (ctx.on_event)(terminal.clone());
                             // 流错误（凭证缺失/不可重试/已尽）同样落终态，避免会话只剩用户消息
-                            return AgentOutcome { final_text: format!("(错误: {e})"), turns, aborted, stats: stats(ttft, &usage_acc) };
+                            return AgentOutcome {
+                                final_text: format!("(错误: {e})"),
+                                turns,
+                                aborted,
+                                stats: stats(ttft, &usage_acc),
+                                terminal,
+                            };
                         }
                         failed = Some(e);
                         break;
@@ -246,7 +256,9 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
         // wall 超限终止（P2-07）：本轮 tokens 照记，record_turn 复核后落 BudgetLimited；工具不再执行
         if wall_stop {
             let msg = record_goal_turn(ctx, &mut usage_acc, None).unwrap_or_else(|| "goal wall 预算耗尽，停止执行".to_string());
-            (ctx.on_event)(AgentEvent::Error { message: msg.clone() });
+            let event = AgentEvent::Error { message: msg.clone() };
+            (ctx.on_event)(event.clone());
+            terminal = Some(event);
             final_text = msg;
             break;
         }
@@ -255,7 +267,9 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
         if calls.is_empty() {
             // 最终无 tool 回合也记账：这轮 LLM 请求同样烧了 tokens，漏记会虚耗预算
             if let Some(msg) = record_goal_turn(ctx, &mut usage_acc, None) {
-                (ctx.on_event)(AgentEvent::Error { message: msg.clone() });
+                let event = AgentEvent::Error { message: msg.clone() };
+                (ctx.on_event)(event.clone());
+                terminal = Some(event);
                 final_text = msg;
                 break;
             }
@@ -264,7 +278,9 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
                 messages.push(Message::assistant(text.clone()));
             }
             final_text = text;
-            (ctx.on_event)(AgentEvent::Done { turns, stats: stats(ttft, &usage_acc) });
+            let event = AgentEvent::Done { turns, stats: stats(ttft, &usage_acc) };
+            (ctx.on_event)(event.clone());
+            terminal = Some(event);
             break;
         }
 
@@ -276,21 +292,33 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
         }
         // goal 自治接线：每轮按增量记账预算与阻塞（session 粒度：只推进本会话 goal，多会话并发不误伤）
         if let Some(msg) = record_goal_turn(ctx, &mut usage_acc, loop_stop.as_ref().map(|s| s.to_string())) {
-            (ctx.on_event)(AgentEvent::Error { message: msg.clone() });
+            let event = AgentEvent::Error { message: msg.clone() };
+            (ctx.on_event)(event.clone());
+            terminal = Some(event);
             final_text = msg;
             break 'outer;
         }
         if let Some(stop) = loop_stop {
             // 中断空转：硬停本轮，原因作为结果带出（事件已通知前端）
             let reason = stop.to_string();
-            (ctx.on_event)(AgentEvent::Error { message: reason.clone() });
+            let event = AgentEvent::Error { message: reason.clone() };
+            (ctx.on_event)(event.clone());
+            terminal = Some(event);
             final_text = reason;
             break;
         }
     }
 
     if aborted {
-        (ctx.on_event)(AgentEvent::Aborted);
+        let event = AgentEvent::Aborted;
+        (ctx.on_event)(event.clone());
+        terminal = Some(event);
     }
-    AgentOutcome { final_text, turns, aborted, stats: stats(ttft, &usage_acc) }
+    AgentOutcome {
+        final_text,
+        turns,
+        aborted,
+        stats: stats(ttft, &usage_acc),
+        terminal: terminal.unwrap_or_else(|| AgentEvent::Error { message: "run ended without terminal state".into() }),
+    }
 }

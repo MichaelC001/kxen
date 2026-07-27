@@ -9,6 +9,7 @@ import RoutingSection from "../components/settings/RoutingSection";
 import ScheduleSection from "../components/settings/ScheduleSection";
 import UsageSection from "../components/settings/UsageSection";
 import VoiceSection from "../components/settings/VoiceSection";
+import UpdateSection from "../components/settings/UpdateSection";
 import { client } from "../lib/client";
 import { configGet } from "../lib/chat";
 import { flashErr, flashOk } from "../lib/flash";
@@ -129,6 +130,7 @@ export default function Settings() {
                   </For>
                 </div>
               </div>
+              <UpdateSection />
             </div>
           </Show>
 

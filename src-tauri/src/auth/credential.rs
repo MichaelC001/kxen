@@ -3,8 +3,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CredentialKind {
     Oauth {
@@ -103,6 +104,30 @@ pub fn read_auth_file(path: &Path) -> AuthStore {
 }
 
 pub fn write_auth_file(path: &Path, store: &AuthStore) -> crate::core::Result<()> {
+    let _guard = auth_io_lock().lock().expect("auth_io");
+    write_auth_file_unlocked(path, store)
+}
+
+pub fn write_auth_entry(path: &Path, key: &str, credential: Option<&CredentialKind>) -> crate::core::Result<()> {
+    let _guard = auth_io_lock().lock().expect("auth_io");
+    let mut store = read_auth_file(path);
+    match credential {
+        Some(credential) => {
+            store.insert(key.to_string(), credential.clone());
+        }
+        None => {
+            store.remove(key);
+        }
+    }
+    write_auth_file_unlocked(path, &store)
+}
+
+fn auth_io_lock() -> &'static Mutex<()> {
+    static AUTH_IO: OnceLock<Mutex<()>> = OnceLock::new();
+    AUTH_IO.get_or_init(|| Mutex::new(()))
+}
+
+fn write_auth_file_unlocked(path: &Path, store: &AuthStore) -> crate::core::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

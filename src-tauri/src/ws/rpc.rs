@@ -19,7 +19,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
             let mut report = doctor_report(&store);
-            report.system = Some(crate::doctor::system_health(&state).await);
+            report.system = Some(crate::doctor::system_health(&state).await?);
             Ok(serde_json::to_value(report).map_err(|e| e.to_string())?)
         }
         "current_model" => {
@@ -56,6 +56,10 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
         "session.list" => {
             // 全量返回（侧栏树按 workspace 分组，过滤在前端）；附运行中标记
             let state = app.state::<Arc<AppState>>();
+            let restored = super::session_recovery::recover_restored(&state);
+            for id in restored {
+                state.bus.publish(kxen_app::core::event::Event::notify(format!("已从废纸篓恢复会话 {id}"), Some(id)));
+            }
             let running: std::collections::HashSet<String> = kxen_app::core::shared::lock(&state.active_runs).keys().cloned().collect();
             let sessions = kxen_app::core::session::list(&kxen_app::core::paths::sessions_dir());
             Ok(json!(
@@ -86,28 +90,17 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
         }
         "workspace.switch" => {
             let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
-            let dir = std::path::PathBuf::from(path);
-            if !dir.is_dir() {
-                return Err(format!("directory not found: {path}"));
-            }
             let state = app.state::<Arc<AppState>>();
-            *state.active_workspace.write().expect("workspace") = dir.clone();
-            kxen_app::core::workspace::touch(&kxen_app::core::paths::data_dir(), path).map_err(|e| e.to_string())?;
-            // 信任门：未信任且含知识/项目配置 -> 后台审批；hooks 按信任重载（实现见 core/trust.rs）
-            kxen_app::core::trust::gate_async(&dir, &state.approvals, &state.bus);
-            kxen_app::core::trust::reload_hooks_for_workspace(&dir, &state.hooks);
-            // LSP per-workspace 重建：杀旧 server，新根首个 diagnostics 请求再懒启动
-            let old_lsp = std::mem::replace(&mut *state.lsp.write().expect("lsp"), kxen_app::lsp::LspManager::new(dir.clone()));
-            old_lsp.shutdown().await;
-            // MCP 随 workspace 换批：server 冷启动可至 60s，后台 spawn 不卡 RPC
-            {
-                let mcp = state.mcp.clone();
-                let dir2 = dir.clone();
-                tokio::spawn(async move {
-                    kxen_app::mcp::reload_for_workspace(&dir2, &mcp).await;
-                });
-            }
-            Ok(json!(path))
+            let dir = activate_workspace(std::path::Path::new(path), &state)?;
+            Ok(json!(dir.to_string_lossy()))
+        }
+        "session.activate" => {
+            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
+            let state = app.state::<Arc<AppState>>();
+            let meta = kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), id).map_err(|e| e.to_string())?;
+            let dir = activate_workspace(std::path::Path::new(&meta.directory), &state)?;
+            *state.foreground_session.write().map_err(|_| "foreground lock poisoned".to_string())? = id.to_string();
+            Ok(json!({ "id": id, "directory": dir.to_string_lossy() }))
         }
         "session.create" => {
             let state = app.state::<Arc<AppState>>();
@@ -116,10 +109,12 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
                 .and_then(Value::as_str)
                 .map(String::from)
                 .unwrap_or_else(|| state.active_workspace.read().expect("workspace").to_string_lossy().into_owned());
+            let runtime = state.workspace_runtimes.runtime(std::path::Path::new(&directory))?;
+            let directory = runtime.root().to_string_lossy().into_owned();
             let session = kxen_app::core::session::create(&kxen_app::core::paths::sessions_dir(), &directory).map_err(|e| e.to_string())?;
             // session_start hook（fire-and-log；Ask 档走审批通道，临时值活到语句结束可安全借用）
-            let _ = state
-                .hooks
+            let _ = runtime
+                .hooks()
                 .run_named_with_approval(
                     "session_start",
                     &session.id,
@@ -140,7 +135,10 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
             let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
             Ok(json!(kxen_app::core::session::load_messages(&kxen_app::core::paths::sessions_dir(), id)))
         }
-        "session.delete" => super::session_ops::session_delete(&params, &app.state::<Arc<AppState>>()).await,
+        "session.delete" => {
+            let state = app.state::<Arc<AppState>>();
+            super::session_delete::delete(&params, state.inner()).await
+        }
         "session.update_meta" => super::session_ops::session_update_meta(&params),
         "session.set_model" => super::session_ops::session_set_model(&params),
         "session.foreground" => {
@@ -174,7 +172,9 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
                 .map_err(|e| e.to_string())?;
             Ok(json!({ "path": path.to_string_lossy() }))
         }
-        m if m.starts_with("worktree.") || m.starts_with("diff.") => try_worktree_diff(m, &params, &app.state::<Arc<AppState>>()).await,
+        m if m.starts_with("worktree.") || m.starts_with("diff.") => {
+            super::worktree_rpc::try_handle(m, &params, app.state::<Arc<AppState>>().inner()).await
+        }
         "send_message" => {
             let p: super::session_ops::SendMessageParams = serde_json::from_value(params).map_err(|e| e.to_string())?;
             let state = app.state::<Arc<AppState>>();
@@ -292,59 +292,34 @@ pub(super) async fn rpc_call(method: &str, params: Value, app: &AppHandle) -> Re
         other => Err(format!("unknown method: {other}")),
     }
 }
-async fn try_worktree_diff(method: &str, params: &Value, state: &Arc<AppState>) -> Result<Value, String> {
-    match method {
-        "worktree.list" => {
-            let dir = state.active_workspace.read().expect("workspace").clone();
-            let infos = kxen_app::tools::worktree::list(&dir).await?;
-            Ok(json!(
-                infos.iter().map(|i| json!({ "name": i.name, "path": i.path.to_string_lossy(), "branch": i.branch })).collect::<Vec<_>>()
-            ))
+
+fn activate_workspace(path: &std::path::Path, state: &Arc<AppState>) -> Result<std::path::PathBuf, String> {
+    let runtime = state.workspace_runtimes.runtime(path)?;
+    let dir = runtime.root().to_path_buf();
+    *state.active_workspace.write().map_err(|_| "workspace lock poisoned".to_string())? = dir.clone();
+    kxen_app::core::workspace::touch(&kxen_app::core::paths::data_dir(), &dir.to_string_lossy()).map_err(|e| e.to_string())?;
+
+    let trusted_runtime = runtime.clone();
+    kxen_app::core::trust::gate_async(
+        &dir,
+        &state.approvals,
+        &state.bus,
+        Some(std::sync::Arc::new(move |_| {
+            if let Err(e) = trusted_runtime.invalidate_after_trust_change() {
+                tracing::warn!(error = %e, "workspace runtime trust refresh failed");
+                return;
+            }
+            let runtime = trusted_runtime.clone();
+            tokio::spawn(async move {
+                runtime.ensure_mcp().await;
+            });
+        })),
+    );
+
+    tokio::spawn(async move {
+        if let Err(e) = runtime.reload().await {
+            tracing::warn!(error = %e, "workspace runtime reload failed");
         }
-        "worktree.create" => {
-            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
-            let dir = state.active_workspace.read().expect("workspace").clone();
-            let info = kxen_app::tools::worktree::create(&dir, name).await?;
-            Ok(json!({ "name": info.name, "path": info.path.to_string_lossy(), "branch": info.branch }))
-        }
-        "worktree.remove" => {
-            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
-            let delete_branch = params.get("delete_branch").and_then(Value::as_bool).unwrap_or(false);
-            let dir = state.active_workspace.read().expect("workspace").clone();
-            let appr = kxen_app::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), None, None);
-            kxen_app::tools::worktree::remove_with_approval(&dir, name, delete_branch, appr.as_ref()).await?;
-            Ok(json!(true))
-        }
-        "worktree.status" => {
-            // 单棵 worktree 的脏文件清单（看板行内计数数据源）
-            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
-            let entries = kxen_app::tools::worktree::status(std::path::Path::new(path)).await?;
-            Ok(json!(entries))
-        }
-        "diff.status" => {
-            let dir = state.active_workspace.read().expect("workspace").clone();
-            Ok(json!(kxen_app::tools::worktree::status(&dir).await?))
-        }
-        "diff.agent_status" => {
-            // 本会话 agent 改动（快照口径），与 git status 无关
-            let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
-            let entries = kxen_app::core::shared::lock(&state.session_snapshots).get(id).map(|s| s.status()).unwrap_or_default();
-            Ok(serde_json::to_value(entries).map_err(|e| e.to_string())?)
-        }
-        "diff.agent_file" => {
-            let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
-            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
-            let store = kxen_app::core::shared::lock(&state.session_snapshots).get(id).cloned();
-            let p = std::path::Path::new(path);
-            let text = store.and_then(|s| s.diff(p).or_else(|| s.diff_created(p)));
-            Ok(json!({ "text": text.unwrap_or_default() }))
-        }
-        "diff.file" => {
-            let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
-            let dir = state.active_workspace.read().expect("workspace").clone();
-            let text = kxen_app::tools::worktree::diff_file(&dir, path).await?;
-            Ok(json!(text))
-        }
-        other => Err(format!("unknown method: {other}")),
-    }
+    });
+    Ok(dir)
 }

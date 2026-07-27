@@ -28,6 +28,14 @@ pub(super) async fn teammate_loop(
     cancel: CancelToken,
     notify: Arc<Notify>,
 ) {
+    let runtime = match state.deps.runtimes.ready(&state.workdir).await {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            tracing::error!(session = state.session_id, member = name, error = %e, "teammate workspace runtime unavailable");
+            set_status(&state, &name, MemberStatus::Failed);
+            return;
+        }
+    };
     // P0-1 跨 wake 历史：run_turn 就地累积（assistant 调用 + 工具结果 + 末轮文本），wake 只 append 新 inbox；
     // system 不进历史（roster 每轮实时重建），装配时 prepend 新鲜副本
     let mut history: Vec<Message> = Vec::new();
@@ -43,7 +51,7 @@ pub(super) async fn teammate_loop(
         let allowed: Option<&'static [&'static str]> = if approved { None } else { Some(READONLY_TEAM_TOOLS) };
         // 凭证预防刷新：build_ctx 只克隆共享 store 快照，长过期 token 不先换新则当轮失败下轮才自愈
         refresh_store_credentials(&state, &model).await;
-        let mut ctx = build_ctx(&state, &name, &role, &model, allowed, cancel.clone());
+        let mut ctx = build_ctx(&state, &runtime, &name, &role, &model, allowed, cancel.clone());
         if first_round {
             first_round = false;
             // 首轮从 brief 建起（restore 场景并入残存 inbox 与本人未完成 claim，P1-2）
@@ -78,19 +86,18 @@ pub(super) async fn teammate_loop(
                 }
             }
             // teammate_idle hook：exit 非零 = 打回（反馈进 inbox， teammate 继续工作）
-            if let Some(hooks) = &state.deps.hooks {
-                let appr = crate::tools::exec::ApprovalCtx::new(
-                    state.deps.approvals.as_deref(),
-                    Some(&state.bus),
-                    Some(&cancel),
-                    Some(&state.session_id),
-                );
-                if let Err(feedback) = hooks
-                    .run_named_with_approval("teammate_idle", &name, &json!({ "agent": name, "result": outcome.final_text }), appr.as_ref())
-                    .await
-                {
-                    idle_rejected(&state, &name, &feedback);
-                }
+            let appr = crate::tools::exec::ApprovalCtx::new(
+                state.deps.approvals.as_deref(),
+                Some(&state.bus),
+                Some(&cancel),
+                Some(&state.session_id),
+            );
+            if let Err(feedback) = runtime
+                .hooks()
+                .run_named_with_approval("teammate_idle", &name, &json!({ "agent": name, "result": outcome.final_text }), appr.as_ref())
+                .await
+            {
+                idle_rejected(&state, &name, &feedback);
             }
             set_status(&state, &name, MemberStatus::Idle);
         }
@@ -125,6 +132,7 @@ fn idle_rejected(state: &Arc<TeamState>, name: &str, feedback: &str) {
 
 fn build_ctx(
     state: &Arc<TeamState>,
+    runtime: &Arc<crate::workspace_runtime::WorkspaceRuntime>,
     name: &str,
     _role: &str,
     model: &ModelRef,
@@ -151,7 +159,7 @@ fn build_ctx(
         allowed_tools: allowed,
         // lead 与 teammates 同会话作用域：共享该 session 的 extras（todo/挂载工具互通）
         extras: Some(state.deps.extras.extras_for(&state.session_id)),
-        hooks: state.deps.hooks.clone(),
+        hooks: Some(runtime.hooks()),
         loop_detector: crate::agent::loop_detect::LoopDetector::new(),
         cancel: Some(cancel),
         team: state.manager.upgrade(),
@@ -160,8 +168,8 @@ fn build_ctx(
         agents: Some(state.deps.agents.clone()),
         bus: Some(state.bus.clone()),
         approvals: state.deps.approvals.clone(),
-        mcp: state.deps.mcp.clone(),
-        lsp: Some(state.deps.lsp.for_workspace(&state.workdir)),
+        mcp: Some(runtime.mcp()),
+        lsp: Some(runtime.lsp()),
         // teammate 不开通知通道：background 派发只从主会话发起（teammate 走 send_message 回 lead）
         notify: None,
         on_event: Arc::new(move |event| {

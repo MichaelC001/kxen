@@ -8,7 +8,8 @@ pub(super) fn fs_allow_path(params: &Value, state: &crate::AppState) -> Result<V
     let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
     let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
     let canon = std::fs::canonicalize(path).map_err(|e| format!("canonicalize {path}: {e}"))?;
-    let rel = kxen_app::core::attachment::rel_in_workspace(&canon, &state.active_workspace.read().expect("workspace"));
+    let runtime = state.runtime_for_session(session_id)?;
+    let rel = kxen_app::core::attachment::rel_in_workspace(&canon, runtime.root());
     state.picked_files.allow(session_id, canon.clone());
     Ok(json!({ "path": canon.to_string_lossy(), "rel": rel }))
 }

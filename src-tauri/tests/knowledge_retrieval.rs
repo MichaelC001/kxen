@@ -157,7 +157,7 @@ fn conflict_loser_is_the_older_variant() {
 
 #[test]
 fn select_notes_ranks_by_bm25_and_drops_zero_hits() {
-    let notes = vec![
+    let notes = [
         entry(Scope::Project, Kind::Note, "a", "vite devUrl 约定", "devUrl 必须与 vite.config 端口一致", "2026-01-01"),
         entry(Scope::Personal, Kind::Note, "b", "完全不相关", "与前端构建毫无关系的内容", "2026-01-02"),
     ];
@@ -170,7 +170,7 @@ fn select_notes_ranks_by_bm25_and_drops_zero_hits() {
 
 #[test]
 fn select_notes_empty_involved_falls_back_to_recent_top3() {
-    let notes = vec![
+    let notes = [
         entry(Scope::Project, Kind::Note, "d1", "一", "x", "2026-01-01"),
         entry(Scope::Project, Kind::Note, "d2", "二", "x", "2026-01-03"),
         entry(Scope::Project, Kind::Note, "d3", "三", "x", "2026-01-02"),
@@ -184,7 +184,7 @@ fn select_notes_empty_involved_falls_back_to_recent_top3() {
 
 #[test]
 fn select_notes_dedups_same_slug_across_kinds() {
-    let notes = vec![
+    let notes = [
         entry(Scope::Project, Kind::Note, "same", "trash 约定", "用 trash 不用 rm", "2026-01-02"),
         entry(Scope::Project, Kind::Memory, "same", "trash 约定", "用 trash 不用 rm", "2026-01-01"),
     ];
@@ -196,7 +196,7 @@ fn select_notes_dedups_same_slug_across_kinds() {
 
 #[test]
 fn select_notes_conflict_prefers_newer_entry() {
-    let notes = vec![
+    let notes = [
         entry(Scope::Project, Kind::Note, "old", "use trash not rm", "旧表述正文", "2026-01-01"),
         entry(Scope::Project, Kind::Note, "new", "use trash not rm please", "新表述正文", "2026-01-10"),
     ];

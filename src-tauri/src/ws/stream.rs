@@ -2,15 +2,20 @@
 //! - 带 stream_id 的 LlmDelta -> run 流 chunk（done/aborted/error 末块 complete:true 携带 stats），
 //!   同时双写到 llm.delta 订阅流（被动监听方语义统一）
 //! - 其余 topic -> 命中的订阅流 chunk（result 携带 {topic, payload}）
+//!
 //! 会话 ACL：带 session_id 的 LlmDelta 只发给订阅了 `session:<id>` topic 的连接
 //! （别的会话的增量是越权信息）；无 session_id 的全局事件（voice、审批）行为不变。
 
 use serde_json::Value;
 
 use super::protocol::StreamChunk;
-use super::{SubBinding, next_seq};
+use super::{StreamSequences, SubBinding};
 
-pub(super) fn event_to_chunks(event: kxen_app::core::event::Event, subs: &[SubBinding]) -> Vec<StreamChunk> {
+pub(super) fn event_to_chunks(
+    event: kxen_app::core::event::Event,
+    subs: &[SubBinding],
+    sequences: &mut StreamSequences,
+) -> Vec<StreamChunk> {
     use kxen_app::core::event::Event;
     match event {
         Event::LlmDelta(payload) => {
@@ -24,17 +29,20 @@ pub(super) fn event_to_chunks(event: kxen_app::core::event::Event, subs: &[SubBi
             let mut out = Vec::new();
             if let Some(stream_id) = payload.get("stream_id").and_then(Value::as_str).map(String::from) {
                 let kind = payload.get("kind").and_then(Value::as_str).unwrap_or("");
-                let seq = next_seq(&stream_id);
+                let seq = sequences.next(&stream_id);
                 let chunk = if kind == "done" || kind == "aborted" || kind == "error" {
                     StreamChunk::complete(&stream_id, seq, payload.clone())
                 } else {
                     StreamChunk::new(&stream_id, seq, payload.clone())
                 };
                 out.push(chunk);
+                if kind == "done" || kind == "aborted" || kind == "error" {
+                    sequences.remove(&stream_id);
+                }
             }
             // 双写 llm.delta 订阅流（teammate/其他会话的被动监听也走这里）
             if let Some(binding) = subs.iter().find(|b| b.topics.contains("llm.delta")) {
-                let seq = next_seq(&binding.stream_id);
+                let seq = sequences.next(&binding.stream_id);
                 out.push(StreamChunk::new(&binding.stream_id, seq, serde_json::json!({ "topic": "llm.delta", "payload": payload })));
             }
             out
@@ -44,7 +52,7 @@ pub(super) fn event_to_chunks(event: kxen_app::core::event::Event, subs: &[SubBi
             let Some(binding) = subs.iter().find(|b| b.topics.contains(topic)) else {
                 return Vec::new();
             };
-            let seq = next_seq(&binding.stream_id);
+            let seq = sequences.next(&binding.stream_id);
             vec![StreamChunk::new(&binding.stream_id, seq, serde_json::json!({ "topic": topic, "payload": payload }))]
         }
     }
@@ -86,14 +94,14 @@ mod tests {
     #[test]
     fn unsubscribed_connection_gets_nothing() {
         let subs = vec![binding(&["llm.delta"])];
-        assert!(event_to_chunks(delta(Some("s1")), &subs).is_empty());
+        assert!(event_to_chunks(delta(Some("s1")), &subs, &mut StreamSequences::default()).is_empty());
     }
 
     /// 订阅了 session:<id> 的连接正常收到（run 流 + llm.delta 双写）
     #[test]
     fn subscribed_connection_receives() {
         let subs = vec![binding(&["llm.delta", "session:s1"])];
-        let chunks = event_to_chunks(delta(Some("s1")), &subs);
+        let chunks = event_to_chunks(delta(Some("s1")), &subs, &mut StreamSequences::default());
         assert_eq!(chunks.len(), 2);
     }
 
@@ -104,10 +112,10 @@ mod tests {
         let with = vec![binding(&["llm.delta", "session:s1"])];
         let without = vec![binding(&["llm.delta"])];
         let event = delta(Some("s1"));
-        assert_eq!(event_to_chunks(event.clone(), &with).len(), 2);
-        assert!(event_to_chunks(event, &without).is_empty());
+        assert_eq!(event_to_chunks(event.clone(), &with, &mut StreamSequences::default()).len(), 2);
+        assert!(event_to_chunks(event, &without, &mut StreamSequences::default()).is_empty());
         // 全局事件（voice/审批，无 session_id）：行为不变，照常双写
-        let chunks = event_to_chunks(delta(None), &without);
+        let chunks = event_to_chunks(delta(None), &without, &mut StreamSequences::default());
         assert_eq!(chunks.len(), 2);
     }
 
@@ -115,7 +123,7 @@ mod tests {
     #[test]
     fn other_session_does_not_leak() {
         let subs = vec![binding(&["llm.delta", "session:s2"])];
-        assert!(event_to_chunks(delta(Some("s1")), &subs).is_empty());
+        assert!(event_to_chunks(delta(Some("s1")), &subs, &mut StreamSequences::default()).is_empty());
     }
 
     /// done 末块带 complete 标记（ACL 放行后原有语义不变）
@@ -125,7 +133,7 @@ mod tests {
         let event = kxen_app::core::event::Event::LlmDelta(serde_json::json!({
             "kind": "done", "stream_id": "run-t2", "session_id": "s1",
         }));
-        let chunks = event_to_chunks(event, &subs);
+        let chunks = event_to_chunks(event, &subs, &mut StreamSequences::default());
         assert_eq!(chunks[0].stream.complete, Some(true));
         assert_eq!(chunks[1].stream.complete, None, "llm.delta 双写不是末块");
     }
@@ -139,17 +147,17 @@ mod tests {
             }))
         };
         let unsubscribed = vec![binding(&["llm.delta"])];
-        assert!(event_to_chunks(voice(), &unsubscribed).is_empty());
+        assert!(event_to_chunks(voice(), &unsubscribed, &mut StreamSequences::default()).is_empty());
         let subscribed = vec![binding(&["llm.delta", "session:s1"])];
         // 无 stream_id：只有 llm.delta 双写的一份
-        assert_eq!(event_to_chunks(voice(), &subscribed).len(), 1);
+        assert_eq!(event_to_chunks(voice(), &subscribed, &mut StreamSequences::default()).len(), 1);
     }
 
     /// SessionRun 走 session.update topic 且无会话 ACL：只订 topic 的连接就收到（侧栏不逐会话订阅）
     #[test]
     fn session_run_broadcasts_without_acl() {
         let subs = vec![binding(&["session.update"])];
-        let chunks = event_to_chunks(kxen_app::core::event::Event::session_run("s1", true), &subs);
+        let chunks = event_to_chunks(kxen_app::core::event::Event::session_run("s1", true), &subs, &mut StreamSequences::default());
         assert_eq!(chunks.len(), 1);
         let payload = &chunks[0].result["payload"];
         assert_eq!(payload["session_id"], "s1");

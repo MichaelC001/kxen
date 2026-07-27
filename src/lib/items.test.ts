@@ -86,3 +86,155 @@ describe("toItems 落盘审批决定（Part approval）", () => {
     expect(items.map((i) => i.kind)).toEqual(["msg", "approval", "msg"]);
   });
 });
+
+describe("toItems 完整消息还原", () => {
+  it("合并同角色文本与图片并保留 message id", () => {
+    const messages: StoredMessage[] = [
+      {
+        id: "m1",
+        session_id: "s1",
+        role: "user",
+        created_at: 0,
+        parts: [
+          { type: "text", text: "first" },
+          { type: "text", text: "second" },
+          { type: "image", media_type: "image/png", data: "AA==" },
+          { type: "image", media_type: "image/jpeg", data: "BB==" },
+        ],
+      },
+      {
+        id: "m2",
+        session_id: "s1",
+        role: "assistant",
+        created_at: 1,
+        parts: [{ type: "image", media_type: "image/png", data: "CC==" }],
+      },
+    ];
+
+    expect(toItems(messages)).toEqual([
+      {
+        kind: "msg",
+        role: "user",
+        content: "first\nsecond",
+        messageId: "m1",
+        source: undefined,
+        images: [
+          { media_type: "image/png", data: "AA==" },
+          { media_type: "image/jpeg", data: "BB==" },
+        ],
+      },
+      {
+        kind: "msg",
+        role: "assistant",
+        content: "",
+        images: [{ media_type: "image/png", data: "CC==" }],
+        messageId: "m2",
+      },
+    ]);
+  });
+
+  it("restores tool arguments for string and object inputs", () => {
+    const messages: StoredMessage[] = [
+      {
+        id: "m1",
+        session_id: "s1",
+        role: "assistant",
+        created_at: 0,
+        parts: [
+          { type: "tool_call", name: "shell", input: "pwd", args: { cwd: "/repo" }, output: "ok" },
+          { type: "tool_call", name: "read", input: { path: "a" }, output: "" },
+          { type: "tool_call" },
+        ],
+      },
+    ];
+
+    expect(toItems(messages)).toEqual([
+      {
+        kind: "tool",
+        name: "shell",
+        call: "pwd",
+        args: '{\n  "cwd": "/repo"\n}',
+        result: "ok",
+      },
+      {
+        kind: "tool",
+        name: "read",
+        call: '{"path":"a"}',
+        args: undefined,
+        result: undefined,
+      },
+    ]);
+  });
+
+  it("attaches reasoning to assistant text and creates a bubble for reasoning-only messages", () => {
+    const messages: StoredMessage[] = [
+      {
+        id: "m1",
+        session_id: "s1",
+        role: "assistant",
+        created_at: 0,
+        parts: [
+          { type: "reasoning", text: "a" },
+          { type: "reasoning", text: "b" },
+          { type: "text", text: "answer" },
+        ],
+      },
+      {
+        id: "m2",
+        session_id: "s1",
+        role: "assistant",
+        created_at: 1,
+        parts: [{ type: "reasoning", text: "only" }],
+      },
+      {
+        id: "m3",
+        session_id: "s1",
+        role: "user",
+        created_at: 2,
+        parts: [{ type: "reasoning", text: "ignored" }],
+      },
+    ];
+
+    expect(toItems(messages)).toEqual([
+      {
+        kind: "msg",
+        role: "assistant",
+        content: "answer",
+        messageId: "m1",
+        source: undefined,
+        reasoning: "ab",
+      },
+      {
+        kind: "msg",
+        role: "assistant",
+        content: "",
+        reasoning: "only",
+        messageId: "m2",
+      },
+    ]);
+  });
+
+  it("skips system and incomplete parts", () => {
+    const messages: StoredMessage[] = [
+      {
+        id: "sys",
+        session_id: "s1",
+        role: "system",
+        created_at: 0,
+        parts: [{ type: "text", text: "hidden" }],
+      },
+      {
+        id: "m1",
+        session_id: "s1",
+        role: "assistant",
+        created_at: 1,
+        parts: [
+          { type: "text", text: "" },
+          { type: "image", media_type: "image/png" },
+          { type: "approval" },
+        ],
+      },
+    ];
+    expect(toItems(messages)).toEqual([]);
+  });
+});

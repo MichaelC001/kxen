@@ -68,28 +68,10 @@ pub struct SpawnDeps {
     /// 共享句柄而非冻结副本：凭证探测/token 刷新晚于 TeamManager 构造，操作点 lock 取实时快照
     pub store: Arc<std::sync::Mutex<crate::auth::credential::AuthStore>>,
     pub mrm: std::sync::Arc<std::sync::RwLock<std::sync::Arc<ModelResourceManager>>>,
-    pub hooks: Option<Arc<crate::tools::hooks::HookRunner>>,
+    pub runtimes: Arc<crate::workspace_runtime::WorkspaceRuntimeRegistry>,
     pub extras: Arc<crate::agent::agent_loop::SessionExtrasRegistry>,
     pub agents: Arc<crate::agent::activity::AgentRegistry>,
     pub approvals: Option<Arc<crate::agent::approval::ApprovalBroker>>,
-    pub mcp: Option<Arc<crate::mcp::McpManager>>,
-    /// team 自持 LSP 池：AppState 的 LspManager 随 workspace switch 重建，member 不许跟着漂移
-    pub lsp: Arc<LspPool>,
-}
-
-/// per-workspace 懒建复用的 LspManager 池：member 诊断绑各自 team session 目录。
-#[derive(Default)]
-pub struct LspPool {
-    pool: std::sync::Mutex<HashMap<PathBuf, Arc<crate::lsp::LspManager>>>,
-}
-
-impl LspPool {
-    pub fn for_workspace(&self, root: &Path) -> Arc<crate::lsp::LspManager> {
-        crate::core::shared::lock(&self.pool)
-            .entry(root.to_path_buf())
-            .or_insert_with(|| crate::lsp::LspManager::new(root.to_path_buf()))
-            .clone()
-    }
 }
 
 pub(crate) struct TeamState {

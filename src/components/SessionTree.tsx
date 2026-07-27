@@ -103,15 +103,13 @@ export default function SessionTree() {
     });
   };
 
-  const open = async (path: string, id: string) => {
+  const open = async (id: string) => {
     try {
-      await workspaceSwitch(path);
+      await switchSession(id);
     } catch (e) {
-      // 目录被删/无权限时中止：继续切会话会让 statusline/diff/LSP 全对错目录
-      flashErr(`切换目录失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+      flashErr(`切换会话失败：${formatError(e instanceof Error ? e.message : String(e))}`);
       return;
     }
-    switchSession(id);
   };
 
   const quickNew = async (path: string) => {
@@ -244,7 +242,7 @@ export default function SessionTree() {
                       <SessionRow
                         session={s}
                         deleting={deleting().has(s.id)}
-                        onOpen={() => void open(group.path, s.id)}
+                        onOpen={() => void open(s.id)}
                         onDelete={() => void remove(s.id)}
                         onChanged={() => void refreshSessions()}
                         draggable

@@ -7,22 +7,33 @@ use crate::AppState;
 
 pub(super) fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Value {
     let items = kxen_app::core::shared::lock(&state.statusline_items).clone();
+    let workdir = if session_id.is_empty() {
+        state.active_workspace.read().expect("workspace").clone()
+    } else {
+        kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), session_id)
+            .map(|meta| std::path::PathBuf::from(meta.directory))
+            .unwrap_or_else(|_| state.active_workspace.read().expect("workspace").clone())
+    };
 
     // git 分支（5s 缓存）
     let git_branch = {
-        let mut cache = kxen_app::core::shared::lock(&state.git_cache);
-        if cache.0.elapsed() > std::time::Duration::from_secs(5) {
+        let cached = kxen_app::core::shared::lock(&state.git_cache).get(&workdir).cloned();
+        if let Some((at, branch)) = cached
+            && at.elapsed() <= std::time::Duration::from_secs(5)
+        {
+            branch
+        } else {
             let branch = std::process::Command::new("git")
                 .args(["branch", "--show-current"])
-                .current_dir(&*state.active_workspace.read().expect("workspace"))
+                .current_dir(&workdir)
                 .output()
                 .ok()
                 .filter(|o| o.status.success())
                 .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                 .unwrap_or_default();
-            *cache = (std::time::Instant::now(), branch);
+            kxen_app::core::shared::lock(&state.git_cache).insert(workdir.clone(), (std::time::Instant::now(), branch.clone()));
+            branch
         }
-        cache.1.clone()
     };
 
     // statusline 跟当前 session 的 goal 焦点（P2-08）：多会话并发各看各的，空 id 回落全局
@@ -40,7 +51,7 @@ pub(super) fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Valu
 
     json!({
         "items": items,
-        "workdir": state.active_workspace.read().expect("workspace").to_string_lossy(),
+        "workdir": workdir.to_string_lossy(),
         "git_branch": git_branch,
         "goal": focus.map(|g| json!({ "id": g.id, "status": g.status.as_str() })),
         "tasks_running": tasks_running,

@@ -110,7 +110,6 @@ fn adopt_recent(store: &mut AuthStore, key: &str, must_differ_from: Option<&str>
         return false;
     }
     store.insert(key.to_string(), fresh);
-    let _ = crate::auth::credential::write_auth_file(&crate::core::paths::auth_file(), store);
     true
 }
 
@@ -129,7 +128,6 @@ async fn run_grant(store: &mut AuthStore, key: &str, url: &str, client_id: &str,
     }
     let Ok(parsed) = resp.json::<RefreshResponse>().await else { return false };
     apply_refresh(store, key, parsed, refresh, acc_id);
-    let _ = crate::auth::credential::write_auth_file(&crate::core::paths::auth_file(), store);
     true
 }
 
@@ -145,6 +143,9 @@ fn apply_refresh(store: &mut AuthStore, key: &str, parsed: RefreshResponse, old_
     store.insert(key.to_string(), new_cred.clone());
     // 回写登记的共享 store：本 run 外的克隆点（父 run 下一 run / teammate 下一轮 / 下次 dispatch）即时拿到新凭证
     crate::auth::shared_store::propagate(key, &new_cred);
+    if let Err(e) = crate::auth::credential::write_auth_entry(&crate::core::paths::auth_file(), key, Some(&new_cred)) {
+        tracing::error!(error = %e, "oauth credential persistence failed");
+    }
 }
 
 #[cfg(test)]
@@ -238,7 +239,7 @@ mod tests {
         recent().lock().expect("recent").insert(key.clone(), fresh);
         // 与刚失败的 access 同源：不采用（采用等于没换，重试只会再 401）
         assert!(!adopt_recent(&mut store, &key, Some("same")));
-        assert!(store.get(&key).is_none());
+        assert!(!store.contains_key(&key));
         // 异源 fresh（并发 run 已换新）：采用
         assert!(adopt_recent(&mut store, &key, Some("revoked-old")));
         assert!(matches!(store.get(&key), Some(CredentialKind::Oauth { access, .. }) if access == "same"));

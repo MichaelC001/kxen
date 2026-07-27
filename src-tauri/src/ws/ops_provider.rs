@@ -228,18 +228,22 @@ async fn reprobe(app: &AppHandle) -> Result<Value, String> {
     // 首读批准门（设计 4.2）：「重新导入」由用户显式触发、用户在场，逐源请求批准并持久化记忆；
     // 启动期探测无审批交互窗口，未批准源由 probe 跳过（NeedsApproval）
     kxen_app::auth::consent::ensure_consents(&state.approvals, &state.bus).await;
-    let probed = tokio::task::spawn_blocking(|| {
-        let path = kxen_app::core::paths::auth_file();
-        let mut store = kxen_app::auth::credential::read_auth_file(&path);
+    let baseline = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
+    let probed = tokio::task::spawn_blocking(move || {
+        let mut store = baseline.clone();
         let outcomes = kxen_app::auth::probe_all(&mut store, true);
-        let _ = kxen_app::auth::credential::write_auth_file(&path, &store);
-        (store, outcomes)
+        (baseline, store, outcomes)
     })
     .await
     .map_err(|e| e.to_string())?;
-    let (store, outcomes) = probed;
-    *state.auth_store.lock().map_err(|e| e.to_string())? = store.clone();
-    let report = crate::doctor::doctor_report(&store);
+    let (baseline, store, outcomes) = probed;
+    let current = {
+        let mut current = state.auth_store.lock().map_err(|e| e.to_string())?;
+        kxen_app::auth::probe::merge_probe_delta(&baseline, &store, &mut current);
+        kxen_app::auth::credential::write_auth_file(&kxen_app::core::paths::auth_file(), &current).map_err(|e| e.to_string())?;
+        current.clone()
+    };
+    let report = crate::doctor::doctor_report(&current);
     let (lines, issues) = summarize_reprobe(&outcomes);
     Ok(json!({ "report": report, "outcomes": lines, "issues": issues }))
 }
@@ -274,10 +278,10 @@ fn set_region(
     region: Option<&str>,
 ) -> Result<(), String> {
     let spec = kxen_app::providers::find(provider).ok_or_else(|| format!("未知 provider: {provider}"))?;
-    if let Some(r) = region {
-        if !spec.regions.iter().any(|x| x.key == r) {
-            return Err(format!("provider {provider} 无区域 {r}"));
-        }
+    if let Some(r) = region
+        && !spec.regions.iter().any(|x| x.key == r)
+    {
+        return Err(format!("provider {provider} 无区域 {r}"));
     }
     let key = kxen_app::auth::credential::account_id(provider, account);
     let Some(cred) = store.get_mut(&key) else {

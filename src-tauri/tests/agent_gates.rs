@@ -45,16 +45,16 @@ async fn team_tool_is_lead_only() {
 /// task start 过 shell safety：Deny 档直接拒绝，不进 dev_server。
 #[tokio::test]
 async fn task_start_blocked_by_safety() {
-    let mut ctx = test_ctx();
-    let err = execute_task_tool(&json!({ "action": "start", "command": "rm -rf /" }), &mut ctx).await.unwrap_err();
+    let ctx = test_ctx();
+    let err = execute_task_tool(&json!({ "action": "start", "command": "rm -rf /" }), &ctx).await.unwrap_err();
     assert!(err.contains("F1"), "got: {err}");
 }
 
 /// task start 的 Ask 档无审批通道按拒绝处理（不静默放行）。
 #[tokio::test]
 async fn task_start_ask_needs_approval_channel() {
-    let mut ctx = test_ctx();
-    let err = execute_task_tool(&json!({ "action": "start", "command": "sudo ls" }), &mut ctx).await.unwrap_err();
+    let ctx = test_ctx();
+    let err = execute_task_tool(&json!({ "action": "start", "command": "sudo ls" }), &ctx).await.unwrap_err();
     assert!(err.contains("approval"), "got: {err}");
 }
 

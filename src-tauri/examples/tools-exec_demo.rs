@@ -46,7 +46,7 @@ async fn main() {
         ExecParams {
             shell_type: ShellKind::Zsh,
             path: cwd.display().to_string(),
-            command: format!("rm probe.txt; ls probe.txt 2>&1 || echo ABSENT; ls ~/.Trash/probe.txt 2>/dev/null && echo IN_TRASH"),
+            command: "rm probe.txt; ls probe.txt 2>&1 || echo ABSENT; ls ~/.Trash/probe.txt 2>/dev/null && echo IN_TRASH".to_string(),
             timeout_ms: None,
             background: false,
         },

@@ -16,12 +16,21 @@ pub fn run() {
     tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).init();
 
     tauri::async_runtime::block_on(async {
+        let state = match AppState::new() {
+            Ok(state) => Arc::new(state),
+            Err(e) => {
+                tracing::error!(error = %e, "app state initialization failed");
+                return;
+            }
+        };
         let app = tauri::Builder::default()
             .plugin(tauri_plugin_websocket::init())
             .plugin(tauri_plugin_notification::init())
             .plugin(tauri_plugin_dialog::init())
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init())
             .invoke_handler(tauri::generate_handler![ws_port])
-            .manage(Arc::new(AppState::new()))
+            .manage(state)
             .setup(|app| {
                 // macOS 原生编辑菜单：WKWebView 的 Cmd+C/V/X/A/Z 由菜单栏分发，无菜单则编辑快捷键全灭
                 use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
@@ -79,32 +88,46 @@ pub fn run() {
                             RecvVerdict::Stop => break,
                         };
                         // 非前台会话的 run 完成：OS 桌面通知（前台会话用户在看，不打扰）
-                        if let kxen_app::core::event::Event::LlmDelta(payload) = &event {
-                            if payload.get("kind").and_then(|k| k.as_str()) == Some("done") {
-                                let sid = payload.get("session_id").and_then(|s| s.as_str()).unwrap_or("");
-                                let state = handle.state::<Arc<AppState>>();
-                                let fg = state.foreground_session.read().expect("foreground").clone();
-                                if !sid.is_empty() && sid != fg {
-                                    let title = kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), sid)
-                                        .map(|m| m.title)
-                                        .unwrap_or_else(|_| sid.to_string());
-                                    // 点击通知聚焦主窗口并跳来源会话（os_notify 说明为什么不用插件 API）
-                                    os_notify::notify_session_done(&handle, sid, &title);
-                                }
+                        if let kxen_app::core::event::Event::LlmDelta(payload) = &event
+                            && payload.get("kind").and_then(|k| k.as_str()) == Some("done")
+                        {
+                            let sid = payload.get("session_id").and_then(|s| s.as_str()).unwrap_or("");
+                            let state = handle.state::<Arc<AppState>>();
+                            let fg = state.foreground_session.read().expect("foreground").clone();
+                            if !sid.is_empty() && sid != fg {
+                                let title = kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), sid)
+                                    .map(|m| m.title)
+                                    .unwrap_or_else(|_| sid.to_string());
+                                // 点击通知聚焦主窗口并跳来源会话（os_notify 说明为什么不用插件 API）
+                                os_notify::notify_session_done(&handle, sid, &title);
                             }
                         }
                         if let kxen_app::core::event::Event::Notification { text, session_id } = event {
                             // notification hook（全部 Notification 事件的单一收口点；Ask 档走审批）
                             let state = handle.state::<Arc<AppState>>();
-                            let hooks = state.hooks.clone();
+                            let workdir = session_id
+                                .as_deref()
+                                .and_then(|sid| kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), sid).ok())
+                                .map(|meta| std::path::PathBuf::from(meta.directory))
+                                .unwrap_or_else(|| state.active_workspace.read().expect("workspace").clone());
+                            let runtime = state.workspace_runtimes.runtime(&workdir);
                             // broker/bus 克隆进任务（借用无法跨 spawn 的 'static 边界）
                             let broker = state.approvals.clone();
                             let bus = state.bus.clone();
                             let (text2, sid) = (text.clone(), session_id.clone());
                             tauri::async_runtime::spawn(async move {
+                                let runtime = match runtime {
+                                    Ok(runtime) => runtime,
+                                    Err(e) => {
+                                        tracing::warn!(error = %e, "notification workspace runtime unavailable");
+                                        return;
+                                    }
+                                };
                                 let appr = kxen_app::tools::exec::ApprovalCtx::new(Some(broker.as_ref()), Some(&bus), None, None);
                                 let payload = &serde_json::json!({ "text": text2, "session_id": sid });
-                                if let Err(e) = hooks.run_named_with_approval("notification", &text2, payload, appr.as_ref()).await {
+                                if let Err(e) =
+                                    runtime.hooks().run_named_with_approval("notification", &text2, payload, appr.as_ref()).await
+                                {
                                     tracing::warn!(error = %e, "notification hook failed");
                                 }
                             });
@@ -127,7 +150,7 @@ pub fn run() {
                         tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                         ticks += 1;
                         // 后台记忆 consolidation：120 tick（30min）一轮，best-effort
-                        if ticks % 120 == 0 {
+                        if ticks.is_multiple_of(120) {
                             let state = handle.state::<Arc<AppState>>();
                             let model = state.model.lock().map(|m| m.clone()).unwrap_or_default();
                             let store = state.auth_store.lock().map(|s| s.clone()).unwrap_or_default();
@@ -168,26 +191,34 @@ pub fn run() {
                     tauri::async_runtime::spawn(async move {
                         let state = handle.state::<Arc<AppState>>();
                         let workdir = state.active_workspace.read().expect("workspace").clone();
-                        kxen_app::mcp::reload_for_workspace(&workdir, &state.mcp).await;
+                        if let Err(e) = state.workspace_runtimes.ready(&workdir).await {
+                            tracing::warn!(error = %e, "initial workspace runtime failed");
+                        }
                     });
                 }
                 // 凭证探测走后台：keychain 读取可被 ACL 弹窗无限阻塞，绝不能卡启动路径
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    let probed = tokio::task::spawn_blocking(|| {
-                        let path = kxen_app::core::paths::auth_file();
-                        let mut store = kxen_app::auth::credential::read_auth_file(&path);
+                    let Some(state) = handle.try_state::<Arc<AppState>>() else {
+                        return;
+                    };
+                    let baseline = state.auth_store.lock().map(|store| store.clone()).unwrap_or_default();
+                    let probed = tokio::task::spawn_blocking(move || {
+                        let mut store = baseline.clone();
                         let outcomes = kxen_app::auth::probe_all(&mut store, false);
-                        let _ = kxen_app::auth::credential::write_auth_file(&path, &store);
-                        (store, outcomes)
+                        (baseline, store, outcomes)
                     })
                     .await;
-                    if let Ok((store, outcomes)) = probed {
+                    if let Ok((baseline, store, outcomes)) = probed {
                         for (provider, outcome, _) in &outcomes {
                             tracing::info!(provider, ?outcome, "credential probe");
                         }
                         if let Some(state) = handle.try_state::<Arc<AppState>>() {
-                            *state.auth_store.lock().expect("auth_store") = store;
+                            let mut current = state.auth_store.lock().expect("auth_store");
+                            kxen_app::auth::probe::merge_probe_delta(&baseline, &store, &mut current);
+                            if let Err(e) = kxen_app::auth::credential::write_auth_file(&kxen_app::core::paths::auth_file(), &current) {
+                                tracing::error!(error = %e, "credential probe persistence failed");
+                            }
                         }
                     }
                 });

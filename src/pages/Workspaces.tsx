@@ -44,22 +44,32 @@ export default function Workspaces() {
   });
 
   const open = async (path: string, sessionId?: string) => {
+    if (sessionId) {
+      try {
+        await switchSession(sessionId);
+      } catch (e) {
+        flashErr(`切换会话失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+      }
+      return;
+    }
+    const latest = sessions()
+      .filter((s) => s.directory === path)
+      .sort((a, b) => b.updated_at - a.updated_at)[0];
+    if (latest) {
+      try {
+        await switchSession(latest.id);
+      } catch (e) {
+        flashErr(`切换会话失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+      }
+      return;
+    }
     try {
       await workspaceSwitch(path);
     } catch (e) {
       flashErr(`切换工作区失败：${formatError(e instanceof Error ? e.message : String(e))}`);
       return;
     }
-    if (sessionId) {
-      switchSession(sessionId);
-      return;
-    }
-    // 只切 workdir 不切会话 = 旧会话配新目录：落地该工作区最近会话，无则回草稿态
-    const latest = sessions()
-      .filter((s) => s.directory === path)
-      .sort((a, b) => b.updated_at - a.updated_at)[0];
-    if (latest) switchSession(latest.id);
-    else await newSession();
+    await newSession();
   };
 
   return (

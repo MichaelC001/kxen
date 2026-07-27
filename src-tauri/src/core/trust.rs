@@ -3,6 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
+pub type TrustCallback = std::sync::Arc<dyn Fn(&Path) + Send + Sync>;
+
 fn store_file() -> PathBuf {
     // 测试隔离：环境变量覆盖（各测试模块用 Once 设同一值，写序防并行 env 竞态，勿删）
     if let Ok(p) = std::env::var("KXEN_TRUST_FILE") {
@@ -66,7 +68,12 @@ pub fn reload_hooks_for_workspace(workdir: &Path, hooks: &crate::tools::hooks::H
 }
 
 /// workspace 切换后的信任门：未信任且含知识/项目配置 -> 后台审批（不阻塞切换）。
-pub fn gate_async(workdir: &Path, broker: &std::sync::Arc<crate::agent::approval::ApprovalBroker>, bus: &crate::core::event::EventBus) {
+pub fn gate_async(
+    workdir: &Path,
+    broker: &std::sync::Arc<crate::agent::approval::ApprovalBroker>,
+    bus: &crate::core::event::EventBus,
+    on_trusted: Option<TrustCallback>,
+) {
     if !needs_gate(workdir) || is_trusted(workdir) {
         return;
     }
@@ -85,6 +92,9 @@ pub fn gate_async(workdir: &Path, broker: &std::sync::Arc<crate::agent::approval
         let outcome = broker.wait(&id, rx, None).await;
         if matches!(outcome, crate::agent::approval::ApprovalOutcome::Allow) {
             trust(&dir);
+            if let Some(callback) = on_trusted {
+                callback(&dir);
+            }
             bus.publish(crate::core::event::Event::notify(format!("已信任项目 {}", dir.display()), None));
         }
     });

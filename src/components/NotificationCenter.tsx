@@ -66,13 +66,17 @@ export default function NotificationCenter() {
   };
 
   // 跳来源会话：通知到达后会话可能已被删除，悬空切换会让主区变空白
-  const jump = (sid: string) => {
+  const jump = async (sid: string) => {
     if (!sessions().some((s) => s.id === sid)) {
       flashErr("来源会话已删除");
       return;
     }
-    switchSession(sid);
-    setOpen(false);
+    try {
+      await switchSession(sid);
+      setOpen(false);
+    } catch (e) {
+      flashErr(`切换会话失败：${formatError(e instanceof Error ? e.message : String(e))}`);
+    }
   };
 
   return (
