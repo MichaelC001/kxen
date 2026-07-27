@@ -1,6 +1,7 @@
 //! 后台任务注册表（任务三件套的后端 + dev_server 健康检查）。
 
 use crate::core::shared::{SharedStr, lock};
+use crate::tools::shell::ShellKind;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,6 +15,15 @@ pub enum TaskStatus {
     Exited,
     Killed,
     Failed,
+}
+
+/// restart 元数据：dev_server 启动时的 shell 与 ready 配置，restart 须同配置复活（id 不变）。
+#[derive(Debug, Clone)]
+pub struct RestartMeta {
+    pub shell: ShellKind,
+    pub pattern: Option<String>,
+    pub port: Option<u16>,
+    pub timeout_ms: Option<u64>,
 }
 
 pub struct TaskHandle {
@@ -30,6 +40,10 @@ pub struct TaskHandle {
     pub port: Arc<Mutex<Option<u16>>>,
     /// kill() 终止标记：kill 的退出码（-1/143）与自身失败同形，没有它 status 会把 Killed 误报成 Failed
     pub killed: AtomicBool,
+    /// 健康检查失连标记：失连后补 kill 会连 killed 一起置上，没有它 status 会把 Failed 误报成 Killed
+    pub health_failed: AtomicBool,
+    /// dev_server 启动配置（shell/ready）：restart 同配置复活用；exec 背景任务没有，置 None
+    pub restart: Mutex<Option<RestartMeta>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -51,6 +65,8 @@ pub struct TaskRegistry {
 impl TaskHandle {
     pub fn status(&self) -> TaskStatus {
         match *self.exit_code.lock().expect("exit") {
+            // 失连标 Failed 优先于 killed：健康检查失连后补的 kill 会同时置上两个标记
+            Some(_) if self.health_failed.load(Ordering::Relaxed) => TaskStatus::Failed,
             // kill 的退出码（-1/143）与自身失败同形，须靠 killed 标记区分
             Some(_) if self.killed.load(Ordering::Relaxed) => TaskStatus::Killed,
             Some(0) => TaskStatus::Exited,
@@ -169,6 +185,27 @@ mod tests {
     }
 
     #[test]
+    fn health_failed_marks_failed_not_killed() {
+        // 健康检查失连后补 kill：killed 与 health_failed 同置，status 必须报 Failed 而非 Killed
+        let handle = TaskHandle {
+            id: "t".into(),
+            command: SharedStr::from("x"),
+            workdir: SharedStr::from("/tmp"),
+            output: Arc::new(Mutex::new(String::new())),
+            truncated: Arc::new(Mutex::new(false)),
+            started_at: 0,
+            pid: None,
+            exit_code: Arc::new(Mutex::new(Some(143))),
+            child: Arc::new(Mutex::new(None)),
+            port: Arc::new(Mutex::new(None)),
+            killed: AtomicBool::new(true),
+            health_failed: AtomicBool::new(true),
+            restart: Mutex::new(None),
+        };
+        assert_eq!(handle.status(), TaskStatus::Failed);
+    }
+
+    #[test]
     fn append_caps() {
         let out = Arc::new(Mutex::new(String::new()));
         let trunc = Arc::new(Mutex::new(false));
@@ -180,8 +217,8 @@ mod tests {
     #[tokio::test]
     async fn killed_task_reports_killed_not_failed() {
         let registry = Arc::new(TaskRegistry::new());
-        let id =
-            crate::tools::exec::spawn_task(vec!["sleep".into(), "30".into()], "sleep 30", "/tmp", &registry, None).await.expect("spawn");
+        let id = task_id();
+        crate::tools::exec::spawn_task(&id, vec!["sleep".into(), "30".into()], "sleep 30", "/tmp", &registry, None).await.expect("spawn");
         assert!(registry.kill(&id).await);
         let task = registry.get(&id).expect("task");
         for _ in 0..100 {
@@ -196,7 +233,8 @@ mod tests {
     #[tokio::test]
     async fn self_exit_failure_stays_failed() {
         let registry = Arc::new(TaskRegistry::new());
-        let id = crate::tools::exec::spawn_task(vec!["false".into()], "false", "/tmp", &registry, None).await.expect("spawn");
+        let id = task_id();
+        crate::tools::exec::spawn_task(&id, vec!["false".into()], "false", "/tmp", &registry, None).await.expect("spawn");
         let task = registry.get(&id).expect("task");
         for _ in 0..100 {
             if task.status() != TaskStatus::Running {
@@ -210,7 +248,8 @@ mod tests {
     #[tokio::test]
     async fn kill_on_exited_task_keeps_status_and_skips_signals() {
         let registry = Arc::new(TaskRegistry::new());
-        let id = crate::tools::exec::spawn_task(vec!["true".into()], "true", "/tmp", &registry, None).await.expect("spawn");
+        let id = task_id();
+        crate::tools::exec::spawn_task(&id, vec!["true".into()], "true", "/tmp", &registry, None).await.expect("spawn");
         let task = registry.get(&id).expect("task");
         for _ in 0..100 {
             if task.status() != TaskStatus::Running {

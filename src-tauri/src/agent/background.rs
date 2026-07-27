@@ -208,7 +208,9 @@ mod tests {
 
     async fn spawn(registry: &Arc<TaskRegistry>, command: &str) -> String {
         let argv = wrap_command(ShellKind::Zsh, "/tmp", command);
-        crate::tools::exec::spawn_task(argv, command, "/tmp", registry, None).await.expect("spawn")
+        let id = crate::tools::task::task_id();
+        crate::tools::exec::spawn_task(&id, argv, command, "/tmp", registry, None).await.expect("spawn");
+        id
     }
 
     /// 轮 drain 等通知落地（watcher 100ms 一拍，5s 预算足够）

@@ -11,6 +11,7 @@ pub mod context;
 pub mod goal_verify;
 pub mod loop_detect;
 pub mod prompt;
+pub(crate) mod prompt_text;
 pub mod skills;
 pub mod subagent;
 pub mod team;

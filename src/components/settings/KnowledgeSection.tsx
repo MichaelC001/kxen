@@ -3,6 +3,7 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import { ChevronDown, ChevronRight, Eye, Trash2 } from "lucide-solid";
 import EmptyLine from "../EmptyLine";
+import CodingRulesBlock from "./CodingRulesBlock";
 import {
   knowledgeAdd,
   knowledgeInjectionPreview,
@@ -55,7 +56,7 @@ export default function KnowledgeSection() {
   const [content, setContent] = createSignal("");
 
   const reload = async () => {
-    // 首屏两源独立降级：单源失败只缺对应区块；用户操作路径各自显错
+    // 首屏双源独立降级：单源失败只缺对应区块；用户操作路径各自显错
     const [list, prev] = await Promise.all([
       knowledgeList().catch(() => []),
       knowledgeInjectionPreview(activeSessionId() || undefined).catch(() => null),
@@ -127,6 +128,8 @@ export default function KnowledgeSection() {
 
   return (
     <>
+      <CodingRulesBlock />
+
       <div class="flex items-center justify-between">
         <div class="text-xs text-[var(--text-faint)]">
           项目 {enabledOf("project")}/{byScope("project").length} · 个人 {enabledOf("personal")}/

@@ -58,9 +58,16 @@ fn walk(root: &Path, scope: Scope, out: &mut Vec<Entry>) {
                 }
                 let kind = kind_of(root, &path);
                 if let Ok(text) = std::fs::read_to_string(&path) {
-                    let e = parse_entry(scope, kind, &path, &text);
+                    let mut e = parse_entry(scope, kind, &path, &text);
+                    // index.md 是该层目录的人工策展入口（渐进披露）：slug 带 scope 根相对路径，
+                    // 多层目录各自的 index.md 不因同 slug 被 first-wins 去重吞掉；
+                    // 落在 skills/ 下的 index.md 是入口不是 skill，不适用 skill 可见性规范
+                    let is_index = path.file_name().is_some_and(|n| n == "index.md");
+                    if is_index && let Ok(rel) = path.strip_prefix(root) {
+                        e.slug = rel.with_extension("").to_string_lossy().into_owned();
+                    }
                     // skill 无 description 不可被清单/调用发现，按规范跳过
-                    if e.kind == Kind::Skill && e.description.is_empty() {
+                    if !is_index && e.kind == Kind::Skill && e.description.is_empty() {
                         continue;
                     }
                     push_unique(out, e);
@@ -137,6 +144,20 @@ mod tests {
         assert_eq!(styles.len(), 1, "同 (kind, slug) first-wins 去重");
         assert_eq!(styles[0].scope, Scope::Project);
         assert!(styles[0].content.contains("用 trash。"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn index_md_recognized_per_directory_layer() {
+        let dir = fixture("index");
+        std::fs::write(dir.join(".agents/index.md"), "---\ndescription: 总入口\n---\n先看这里。\n").unwrap();
+        std::fs::write(dir.join(".agents/rules/index.md"), "---\ndescription: rules 层入口\n---\n规则地图。\n").unwrap();
+        let home = dir.join("fake-home");
+        let entries = scan_with_home(&dir, &home);
+        let idx: Vec<&Entry> = entries.iter().filter(|e| e.path.ends_with("index.md")).collect();
+        assert_eq!(idx.len(), 2, "多层 index.md 不得被同 slug first-wins 去重: {idx:?}");
+        assert!(idx.iter().any(|e| e.slug == "index"));
+        assert!(idx.iter().any(|e| e.slug == "rules/index"));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

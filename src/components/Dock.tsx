@@ -8,6 +8,7 @@ import {
   onTopic,
   taskKill,
   taskList,
+  taskRestart,
   type AgentDiffEntry,
   type GoalAction,
   type GoalInfo,
@@ -117,14 +118,22 @@ function DockSections(props: {
                         :{t.port}
                       </a>
                     </Show>
-                    <Show when={t.status === "running"}>
+                    <span class="ml-auto flex gap-1">
                       <button
-                        class="pressable ml-auto px-1.5 py-0 rounded text-2xs border border-[var(--border)] text-[var(--err)]"
-                        onClick={() => void taskKill(t.id).then(reloadTasks)}
+                        class="pressable px-1.5 py-0 rounded text-2xs border border-[var(--border)] text-[var(--text-dim)]"
+                        onClick={() => void taskRestart(t.id).then(reloadTasks)}
                       >
-                        终止
+                        重启
                       </button>
-                    </Show>
+                      <Show when={t.status === "running"}>
+                        <button
+                          class="pressable px-1.5 py-0 rounded text-2xs border border-[var(--border)] text-[var(--err)]"
+                          onClick={() => void taskKill(t.id).then(reloadTasks)}
+                        >
+                          终止
+                        </button>
+                      </Show>
+                    </span>
                   </div>
                   <div
                     class="font-mono text-2xs text-[var(--text-dim)] truncate cursor-pointer hover:text-[var(--text)]"

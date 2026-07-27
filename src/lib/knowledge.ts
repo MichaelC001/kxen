@@ -67,3 +67,16 @@ export interface InjectionPreview {
 export function knowledgeInjectionPreview(sessionId?: string): Promise<InjectionPreview> {
   return client.rpc("knowledge.injection_preview", sessionId ? { session_id: sessionId } : {});
 }
+
+export interface CodingRulesInfo {
+  enabled: boolean;
+  content: string;
+}
+
+export function codingRulesGet(): Promise<CodingRulesInfo> {
+  return client.rpc("coding_rules.get");
+}
+
+export function codingRulesSet(enabled: boolean): Promise<void> {
+  return client.rpc("coding_rules.set", { enabled });
+}

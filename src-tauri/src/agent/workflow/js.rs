@@ -19,6 +19,18 @@ globalThis.__kxenFormatResult = (v) => {
 };
 "#;
 
+/// 深冻结工具：CONSTRAINTS 是宿主侧快照，脚本覆写必须无效（模型拿到的是只读约束视图）。
+/// 注入时先 eval 本段，再把 CONSTRAINTS 字面量包进 __kxen_deepFreeze 调用。
+pub(crate) const DEEP_FREEZE_JS: &str = r#"
+globalThis.__kxen_deepFreeze = (o) => {
+  if (o && typeof o === 'object' && !Object.isFrozen(o)) {
+    for (const v of Object.values(o)) globalThis.__kxen_deepFreeze(v);
+    Object.freeze(o);
+  }
+  return o;
+};
+"#;
+
 /// 顶层无 return 的报错文案：直接告诉模型正确写法（静默 "null" 不报错不重试，模型会无声退化成逐条 exec）。
 pub(crate) const NO_RETURN_MSG: &str =
     "workflow script returned nothing: top-level return is required (flat statements, do not wrap in a function)";

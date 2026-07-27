@@ -225,6 +225,9 @@ pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Res
 
 async fn reprobe(app: &AppHandle) -> Result<Value, String> {
     let state = app.state::<Arc<AppState>>();
+    // 首读批准门（设计 4.2）：「重新导入」由用户显式触发、用户在场，逐源请求批准并持久化记忆；
+    // 启动期探测无审批交互窗口，未批准源由 probe 跳过（NeedsApproval）
+    kxen_app::auth::consent::ensure_consents(&state.approvals, &state.bus).await;
     let probed = tokio::task::spawn_blocking(|| {
         let path = kxen_app::core::paths::auth_file();
         let mut store = kxen_app::auth::credential::read_auth_file(&path);
@@ -249,11 +252,12 @@ fn summarize_reprobe(outcomes: &[(&'static str, kxen_app::auth::ProbeOutcome, &'
         kxen_app::auth::ProbeOutcome::Imported => "已从官方源导入",
         kxen_app::auth::ProbeOutcome::Fresh => "已是最新",
         kxen_app::auth::ProbeOutcome::Missing => "未找到官方凭证",
+        kxen_app::auth::ProbeOutcome::NeedsApproval => "首次读取未获批准，已跳过",
     };
     let lines: Vec<String> = outcomes.iter().map(|(_, o, display)| format!("{display}：{}", text(o))).collect();
     let issues: Vec<Value> = outcomes
         .iter()
-        .filter(|(_, o, _)| matches!(o, kxen_app::auth::ProbeOutcome::Missing))
+        .filter(|(_, o, _)| matches!(o, kxen_app::auth::ProbeOutcome::Missing | kxen_app::auth::ProbeOutcome::NeedsApproval))
         .map(|(p, o, display)| {
             let hint = kxen_app::auth::probe::RULES.iter().find(|r| r.provider == *p).map(|r| r.source).unwrap_or("");
             json!({ "text": format!("{display}：{}", text(o)), "hint": hint })

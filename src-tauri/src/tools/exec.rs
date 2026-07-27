@@ -4,9 +4,10 @@ use crate::core::shared::{SharedStr, lock};
 use crate::tools::safety::{Verdict, evaluate_shell_command};
 use crate::tools::shell::{ShellKind, wrap_command};
 use crate::tools::task::{TaskHandle, TaskRegistry, append_capped, task_id};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -43,17 +44,47 @@ pub enum ExecError {
     Spawn(String),
 }
 
+/// 方言陷阱规则（命中即拒 + 纠正文案）：按 shell 过滤，首个命中返回。
+/// 正则预编译；规则只报「该方言下必然/大概率出错」的写法，宁漏勿冤。
+static DIALECT_RULES: LazyLock<Vec<(ShellKind, Regex, &'static str)>> = LazyLock::new(|| {
+    vec![
+        (ShellKind::Zsh, Regex::new(r"\[0\]").unwrap(), "zsh arrays are 1-indexed, not 0-indexed."),
+        (
+            ShellKind::Zsh,
+            Regex::new(r"\$\{[A-Za-z_][A-Za-z0-9_]*,+\}").unwrap(),
+            "zsh has no ${var,,} case expansion (bash 4+). Use ${(L)var} / ${(U)var}.",
+        ),
+        (
+            ShellKind::Zsh,
+            Regex::new(r"(?:^|\s)=[A-Za-z]").unwrap(),
+            "zsh expands `=cmd` to the full path of cmd. Quote it or write the command literally.",
+        ),
+        // $files[@] / ${=files} 是 zsh 合法拆分写法，只拦裸 $var / ${var}（RE2 无 lookahead，用结尾符排除）
+        (
+            ShellKind::Zsh,
+            Regex::new(r"\bfor\s+\w+\s+in\s+(?:\$[A-Za-z_][A-Za-z0-9_]*(?:\s|;|$)|\$\{[A-Za-z_][A-Za-z0-9_]*\})").unwrap(),
+            "zsh does not word-split unquoted variables (no sh_word_split): `for x in $var` iterates once. Use ${=var} or an array.",
+        ),
+        (
+            ShellKind::Bash,
+            Regex::new(r"\b(?:mapfile|readarray)\b").unwrap(),
+            "macOS ships bash 3.2 without mapfile/readarray. Use `while IFS= read -r line; do ...; done`.",
+        ),
+        (ShellKind::Fish, Regex::new(r"\bexport\s").unwrap(), "fish has no `export`. Use `set -x NAME value`."),
+        (ShellKind::Fish, Regex::new(r"\$\(").unwrap(), "fish has no $(...) command substitution. Use (...)."),
+        (ShellKind::Fish, Regex::new(r"&&").unwrap(), "fish <3.0 has no &&. Use `cmd1; and cmd2`."),
+        (ShellKind::Fish, Regex::new(r"\$\?").unwrap(), "fish has no $?. Use $status."),
+    ]
+});
+
 /// 方言校验（命中即拒绝 + 纠正文案）。
 pub fn validate_dialect(kind: ShellKind, command: &str) -> Result<(), ExecError> {
-    let hint = match kind {
-        ShellKind::Fish if command.contains("export ") => Some("fish has no `export`. Use `set -x NAME value`."),
-        ShellKind::Zsh if command.contains("[0]") => Some("zsh arrays are 1-indexed, not 0-indexed."),
-        _ => None,
-    };
-    match hint {
-        Some(h) => Err(ExecError::Dialect(h.to_string())),
-        None => Ok(()),
+    for (k, re, hint) in DIALECT_RULES.iter() {
+        if *k == kind && re.is_match(command) {
+            return Err(ExecError::Dialect((*hint).to_string()));
+        }
     }
+    Ok(())
 }
 
 /// 审批上下文（Ask 档挂起等待用户决定所需的全部句柄）。
@@ -128,7 +159,8 @@ pub async fn exec(
     let argv = wrap_command(params.shell_type, &workdir, &params.command);
 
     if params.background {
-        let id = spawn_task(argv, &params.command, &workdir, registry, None).await?;
+        let id = task_id();
+        spawn_task(&id, argv, &params.command, &workdir, registry, None).await?;
         // 显式 background 给了 timeout_ms 也要挂看门狗：与 auto-bg 同规约，失控长跑进程不能无限存活
         if let Some(timeout_ms) = params.timeout_ms {
             spawn_timeout_watchdog(registry, &id, timeout_ms);
@@ -140,7 +172,8 @@ pub async fn exec(
     let budget = params.timeout_ms.map(|t| t.min(AUTO_BG_BUDGET_MS)).unwrap_or(AUTO_BG_BUDGET_MS);
     let hard_timeout = params.timeout_ms.unwrap_or(120_000);
 
-    let out_id = spawn_task(argv, &params.command, &workdir, registry, None).await?;
+    let out_id = task_id();
+    spawn_task(&out_id, argv, &params.command, &workdir, registry, None).await?;
     let task = registry.get(&out_id).expect("spawned task must be registered");
 
     let wait = wait_task(task.clone());
@@ -190,14 +223,15 @@ async fn wait_task(task: Arc<TaskHandle>) -> (String, i32, bool) {
     }
 }
 
+/// id 由调用方生成：restart 要沿用原 id 重新注册（同配置重启 id 不变）。
 pub async fn spawn_task(
+    id: &str,
     argv: Vec<String>,
     display_command: &str,
     workdir: &str,
     registry: &Arc<TaskRegistry>,
     port: Option<u16>,
-) -> Result<String, ExecError> {
-    let id = task_id();
+) -> Result<(), ExecError> {
     let (bin, args) = argv.split_first().ok_or_else(|| ExecError::Spawn("empty argv".into()))?;
     let mut child = Command::new(bin)
         .args(args)
@@ -218,7 +252,7 @@ pub async fn spawn_task(
     let stderr = child.stderr.take();
 
     let handle = Arc::new(TaskHandle {
-        id: id.clone(),
+        id: id.to_string(),
         command: SharedStr::from(display_command),
         workdir: SharedStr::from(workdir),
         output: output.clone(),
@@ -229,6 +263,8 @@ pub async fn spawn_task(
         child: Arc::new(Mutex::new(None)),
         port: Arc::new(Mutex::new(port)),
         killed: AtomicBool::new(false),
+        health_failed: AtomicBool::new(false),
+        restart: Mutex::new(None),
     });
     registry.register(handle.clone());
 
@@ -265,7 +301,7 @@ pub async fn spawn_task(
         *exit_code.lock().expect("exit") = Some(code);
     });
 
-    Ok(id)
+    Ok(())
 }
 
 #[cfg(test)]

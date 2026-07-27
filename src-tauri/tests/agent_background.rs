@@ -26,6 +26,8 @@ fn test_ctx(notify: Option<Arc<NotifyRouter>>) -> AgentContext {
         custom_providers: Default::default(),
         send_when_running: String::new(),
         embedding: Default::default(),
+        search: Default::default(),
+        coding_rules: Default::default(),
     };
     AgentContext {
         registry: Arc::new(kxen_app::tools::task::TaskRegistry::new()),

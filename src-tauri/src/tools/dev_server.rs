@@ -3,9 +3,10 @@
 use crate::core::shared::lock;
 use crate::tools::exec::{ExecError, spawn_task};
 use crate::tools::shell::{ShellKind, wrap_command};
-use crate::tools::task::TaskRegistry;
+use crate::tools::task::{RestartMeta, TaskRegistry, task_id};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 const READY_DEFAULT_TIMEOUT_MS: u64 = 30_000;
@@ -40,19 +41,32 @@ pub struct DevServerStarted {
 pub async fn dev_server(params: DevServerParams, registry: &Arc<TaskRegistry>) -> Result<DevServerStarted, ExecError> {
     let shell = params.shell.unwrap_or(ShellKind::Zsh);
     let ready = params.ready.unwrap_or(ReadySpec { pattern: None, port: None, timeout_ms: None });
-    let timeout = ready.timeout_ms.unwrap_or(READY_DEFAULT_TIMEOUT_MS);
 
     let argv = wrap_command(shell, &params.workdir, &params.command);
-    let task_id = spawn_task(argv, &params.command, &params.workdir, registry, ready.port).await?;
+    let task_id = task_id();
+    spawn_task(&task_id, argv, &params.command, &params.workdir, registry, ready.port).await?;
     let task = registry.get(&task_id).expect("just spawned");
+    // 重启元数据：restart 要同配置（shell/ready）复活，spawn 时就得存下
+    *lock(&task.restart) = Some(RestartMeta { shell, pattern: ready.pattern.clone(), port: ready.port, timeout_ms: ready.timeout_ms });
 
     // 健康检查后台挂上
     spawn_health_check(task.clone(), registry.clone());
 
+    let url = await_ready(&task, registry, &ready).await?;
+    // 就绪但无 url 是正常成功（pattern 命中但输出解析不到端口）
+    Ok(DevServerStarted { task_id, url, pid: task.pid })
+}
+
+/// 就绪等待 + 失败清理（dev_server 与 restart 共用）：超时杀进程组，提前退出带退出码报错。
+async fn await_ready(
+    task: &Arc<crate::tools::task::TaskHandle>,
+    registry: &Arc<TaskRegistry>,
+    ready: &ReadySpec,
+) -> Result<Option<String>, ExecError> {
+    let timeout = ready.timeout_ms.unwrap_or(READY_DEFAULT_TIMEOUT_MS);
     let result = tokio::time::timeout(Duration::from_millis(timeout), wait_ready(task.clone(), ready.pattern.clone(), ready.port)).await;
     match result {
-        // 就绪但无 url 是正常成功（pattern 命中但输出解析不到端口）
-        Ok(Ready::Ready(url)) => Ok(DevServerStarted { task_id, url, pid: task.pid }),
+        Ok(Ready::Ready(url)) => Ok(url),
         Ok(Ready::Exited(code)) => {
             // 进程就绪前退出：必须报错带退出信息，不得伪装成「成功但 url 为 None」
             let tail = lock(&task.output).clone();
@@ -63,7 +77,7 @@ pub async fn dev_server(params: DevServerParams, registry: &Arc<TaskRegistry>) -
         }
         Err(_) => {
             // readiness 超时：进程必须跟着死（复用进程组 SIGTERM->SIGKILL），不留孤儿
-            registry.kill(&task_id).await;
+            registry.kill(&task.id).await;
             let tail = lock(&task.output).clone();
             Err(ExecError::Spawn(format!("dev server not ready within {timeout}ms. tail:\n{}", crate::tools::task::tail_of(&tail, 800))))
         }
@@ -134,8 +148,8 @@ fn spawn_health_check(task: Arc<crate::tools::task::TaskHandle>, registry: Arc<T
             // port 由 readiness 解析后写回（spawn 时可能没有）：每轮现读，没有就跳过本轮
             let Some(port) = *lock(&task.port) else { continue };
             if tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_err() {
-                // 端口失连：进程活着但服务死了——标 Failed 让 list 可见
-                //（status 目前是 Copy 写在 handle 里，简化：kill 并标记）
+                // 端口失连：进程活着但服务死了——先标 Failed 再 kill，否则 killed 标记会让 list 误报 Killed
+                task.health_failed.store(true, Ordering::Relaxed);
                 let _ = registry.kill(&task.id).await;
                 break;
             }
@@ -143,15 +157,27 @@ fn spawn_health_check(task: Arc<crate::tools::task::TaskHandle>, registry: Arc<T
     });
 }
 
+/// 同配置重启：id 不变（注册表原位替换 handle），dev_server 任务保留 shell 与 ready spec 重新等待就绪。
 pub async fn restart_task(id: &str, registry: &Arc<TaskRegistry>) -> Result<String, ExecError> {
     let task = registry.get(id).ok_or_else(|| ExecError::Spawn(format!("task not found: {id}")))?;
     let (command, workdir) = (task.command.clone(), task.workdir.clone());
-    let port = *lock(&task.port);
+    let meta = lock(&task.restart).clone();
     registry.kill(id).await;
     // 给旧进程退出时间
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let argv = wrap_command(ShellKind::Zsh, &workdir, &command);
-    spawn_task(argv, &command, &workdir, registry, port).await
+    let shell = meta.as_ref().map(|m| m.shell).unwrap_or(ShellKind::Zsh);
+    // 优先用启动时配置的 port；没有配置才沿用上次解析出的（exec 背景任务无 meta 的情形）
+    let port = meta.as_ref().and_then(|m| m.port).or(*lock(&task.port));
+    let argv = wrap_command(shell, &workdir, &command);
+    spawn_task(id, argv, &command, &workdir, registry, port).await?;
+    let task = registry.get(id).expect("just spawned");
+    if let Some(meta) = meta {
+        *lock(&task.restart) = Some(meta.clone());
+        spawn_health_check(task.clone(), registry.clone());
+        let ready = ReadySpec { pattern: meta.pattern, port: meta.port, timeout_ms: meta.timeout_ms };
+        await_ready(&task, registry, &ready).await?;
+    }
+    Ok(id.to_string())
 }
 
 #[cfg(test)]

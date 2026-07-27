@@ -17,18 +17,15 @@ import { editResend as editResendImpl, forkAt, rerun as rerunImpl } from "../lib
 import { createSendFlow } from "../lib/send";
 import { createSessionRewind } from "../lib/rewind";
 import { createSessionModelLabel } from "../lib/session-model";
-import AssistantItem from "../components/AssistantItem";
-import ApprovalCard from "../components/ApprovalCard";
+import SessionItem from "../components/SessionItem";
 import PendingQueue from "../components/PendingQueue";
 import RewindConfirm from "../components/RewindConfirm";
-import UserItem from "../components/UserItem";
 import { activeSessionId, sessions, setHasConversation } from "../lib/state";
 import { onDragStart } from "../lib/drag";
 import ThinkingOrb from "../components/ThinkingOrb";
 import type { OrbState } from "../lib/orb";
 import EmptyHero from "../components/EmptyHero";
 import AgentRunCards from "../components/AgentRunCards";
-import ToolCard from "../components/ToolCard";
 import Composer from "../components/composer/TextComposer";
 import { ArrowDown, Download, FolderOpen } from "lucide-solid";
 import { toItems, type Item } from "../lib/items";
@@ -235,85 +232,22 @@ export default function Session() {
       >
         <div class="w-full space-y-4">
           <For each={items()}>
-            {(item, i) => {
-              if (item.kind === "tool") {
-                return (
-                  <ToolCard
-                    name={item.name}
-                    call={item.call}
-                    args={item.args}
-                    result={item.result}
-                  />
-                );
-              }
-              if (item.kind === "approval") {
-                return (
-                  <ApprovalCard
-                    item={item}
-                    onRespond={(id, allow) => void respondApproval(id, allow)}
-                  />
-                );
-              }
-              if (item.kind === "phase") {
-                if (item.index != null && item.total != null) {
-                  return (
-                    <div class="text-xs text-[var(--text-faint)] flex items-center gap-2">
-                      <span class="inline-block w-1 h-1 rounded-full bg-[var(--accent)]" />
-                      {item.workflow ? `${item.workflow} · ` : ""}phase {item.index}/{item.total} ·{" "}
-                      {item.name}
-                      <span class="w-24 h-1 rounded bg-[var(--bg-overlay)] overflow-hidden">
-                        <span
-                          class="block h-full rounded bg-[var(--accent)] transition-all"
-                          style={{ width: `${Math.min(100, (item.index / item.total) * 100)}%` }}
-                        />
-                      </span>
-                    </div>
-                  );
-                }
-                return (
-                  <div class="text-xs text-[var(--text-faint)] flex items-center gap-2">
-                    <span class="inline-block w-1 h-1 rounded-full bg-[var(--accent)]" />
-                    {item.name}
-                  </div>
-                );
-              }
-              if (item.kind === "compacted") {
-                return (
-                  <details class="text-xs text-[var(--text-faint)] border border-[var(--border)]/50 rounded px-3 py-1.5">
-                    <summary class="cursor-pointer select-none flex items-center gap-2">
-                      <span class="inline-block w-1 h-1 rounded-full bg-[var(--warn)]" />
-                      上下文已自动压缩（auto-compact），展开看摘要
-                    </summary>
-                    <div class="mt-1.5 whitespace-pre-wrap">{item.summary}</div>
-                  </details>
-                );
-              }
-              if (item.role === "user") {
-                return (
-                  <UserItem
-                    item={item}
-                    onFork={() => void forkAt(item.messageId!)}
-                    onEditResend={(text) => void editResendImpl(send, items(), i(), text)}
-                    onRewind={() => void rewindAt(item.messageId!)}
-                    onRetry={() => void retrySend(item)}
-                    onImageLoad={() => scroll()}
-                  />
-                );
-              }
-              // assistant：全宽排版，无气泡（现代 agent UI 形态）
-              return (
-                <AssistantItem
-                  item={item}
-                  streaming={streaming}
-                  live={() => streaming() && i() === items().length - 1}
-                  modelLabel={modelLabel}
-                  onFork={() => void forkAt(item.messageId!)}
-                  onRerun={() => void rerun(i())}
-                  onContinue={() => void send("继续", [], [])}
-                  onRewind={() => void rewindAt(item.messageId!)}
-                />
-              );
-            }}
+            {(item, i) => (
+              <SessionItem
+                item={item}
+                streaming={streaming}
+                live={() => streaming() && i() === items().length - 1}
+                modelLabel={modelLabel}
+                onForkId={(id) => void forkAt(id)}
+                onEditResend={(text) => void editResendImpl(send, items(), i(), text)}
+                onRewindId={(id) => void rewindAt(id)}
+                onRetryItem={(m) => void retrySend(m)}
+                onRerun={() => void rerun(i())}
+                onContinue={() => void send("继续", [], [])}
+                onImageLoad={() => scroll()}
+                onRespondApproval={(id, allow) => void respondApproval(id, allow)}
+              />
+            )}
           </For>
 
           {/* agent 状态卡钉在时间线尾部：空会话恢复 agent 现场时也在 EmptyHero 上方可见 */}

@@ -1,4 +1,4 @@
-//! 读写删工具：read（锚点输出 + offset/limit 分页）/ edit（锚点+兼容双模式 + 免强制先读 + find_shifted 自愈）/ write（trash 删除）。
+//! 读写删工具：read（锚点输出 + offset/limit 分页）/ edit（锚点+兼容双模式 + 免强制先读 + 外部变更检测 + find_shifted 自愈）/ write（trash 删除）。
 
 use crate::tools::hashline::{Anchor, generate_anchors, render_anchored_window};
 use crate::tools::safety::{Verdict, guard_path};
@@ -22,6 +22,8 @@ pub enum FsToolError {
     NoMatch { count: usize },
     #[error("old_string ambiguous: {count} occurrences (expected {expected})")]
     Ambiguous { count: usize, expected: usize },
+    #[error("file changed externally since last read/edit; re-read before anchor edit: {path}")]
+    ExternallyModified { path: String },
 }
 
 // ---------------- 会话内文件新鲜度跟踪（免强制 read-before-edit） ----------------
@@ -39,21 +41,30 @@ impl FileTracker {
         if let Ok(meta) = std::fs::metadata(path)
             && let Ok(mtime) = meta.modified()
         {
-            self.seen.lock().expect("tracker").insert(path.to_path_buf(), (mtime, meta.len()));
+            crate::core::shared::lock(&self.seen).insert(path.to_path_buf(), (mtime, meta.len()));
         }
     }
 
     /// 会话内读过且未外部变更 -> true（可直接 edit）
     pub fn fresh(&self, path: &Path) -> bool {
-        let seen = self.seen.lock().expect("tracker");
+        let seen = crate::core::shared::lock(&self.seen);
         let Some((mtime, size)) = seen.get(path) else { return false };
         let Ok(meta) = std::fs::metadata(path) else { return false };
         meta.modified().ok() == Some(*mtime) && meta.len() == *size
     }
 
+    /// 会话内见过且指纹已变 -> 外部变更。仅 metadata（mtime 快路径），不读文件内容；
+    /// 元数据都拿不到按变更处理：此时绝不能信旧锚点
+    pub fn changed_externally(&self, path: &Path) -> bool {
+        let seen = crate::core::shared::lock(&self.seen);
+        let Some(&(mtime, size)) = seen.get(path) else { return false };
+        let Ok(meta) = std::fs::metadata(path) else { return true };
+        meta.modified().ok() != Some(mtime) || meta.len() != size
+    }
+
     /// 本会话涉及的全部文件（OKF globs 激活的数据源）。
     pub fn files(&self) -> Vec<PathBuf> {
-        self.seen.lock().expect("tracker").keys().cloned().collect()
+        crate::core::shared::lock(&self.seen).keys().cloned().collect()
     }
 }
 
@@ -120,6 +131,11 @@ pub struct EditResult {
 
 pub fn edit(path: &Path, spec: &EditSpec, tracker: &FileTracker, cwd: &str) -> Result<EditResult, FsToolError> {
     safety_check(path, cwd)?;
+    // 锚点绑死行位 + hash，外部变更后不可信，拒绝并提示重读；match 按内容匹配，
+    // 下面这次读取拿到的就是新鲜内容，天然自愈；未变更时 changed_externally 只查 metadata，零额外读文件
+    if tracker.changed_externally(path) && matches!(spec, EditSpec::Anchors { .. }) {
+        return Err(FsToolError::ExternallyModified { path: path.display().to_string() });
+    }
     let text = std::fs::read_to_string(path)?;
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
 
