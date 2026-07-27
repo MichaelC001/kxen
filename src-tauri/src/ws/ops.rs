@@ -314,10 +314,11 @@ async fn test_dispatch(app: &AppHandle, params: &Value) -> Result<Value, String>
     let mrm = state.mrm.read().expect("mrm").clone();
     let resolved = mrm.resolve(role, &store).await.ok_or_else(|| format!("no available model for role {role}"))?;
     let degraded = resolved.degraded_from.clone();
-    let runtime = state.workspace_runtimes.ready(&state.workdir).await?;
+    let active = state.active_workspace.read().map_err(|_| "workspace lock poisoned".to_string())?.clone();
+    let runtime = state.workspace_runtimes.ready(&active).await?;
     let deps = kxen_app::agent::subagent::SubagentDeps {
         registry: state.registry.clone(),
-        workdir: state.workdir.clone(),
+        workdir: Arc::from(runtime.root()),
         store,
         mrm,
         hooks: Some(runtime.hooks()),

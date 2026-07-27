@@ -127,7 +127,7 @@ impl AppState {
         self.extras.extras_for(session_id)
     }
 
-    /// 会话销毁时清 extras（删除会话路径尚未接线，暂无人调）。
+    /// 会话销毁时清理该 Session 的运行期 extras。
     #[allow(dead_code)]
     pub fn drop_extras(&self, session_id: &str) {
         self.extras.drop_extras(session_id);

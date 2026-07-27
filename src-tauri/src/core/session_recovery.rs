@@ -215,6 +215,8 @@ mod tests {
         std::fs::write(sessions.join("ses_one.json"), r#"{"id":"ses_one","title":"one","directory":"/tmp","created_at":1,"updated_at":1}"#)
             .unwrap();
         std::fs::write(sessions.join("ses_one.jsonl"), "message").unwrap();
+        std::fs::write(sessions.join("ses_one.compact.json"), "compact").unwrap();
+        std::fs::write(sessions.join("ses_one.queue.json"), "queue").unwrap();
         std::fs::write(sessions.join("ses_one/artifact.txt"), "artifact").unwrap();
         std::fs::write(teams.join("ses_one/tasks.json"), "[]").unwrap();
 
@@ -258,9 +260,48 @@ mod tests {
         assert_eq!(manifest.last_input, Some(56));
         assert!(sessions.join("ses_one.json").is_file());
         assert!(sessions.join("ses_one.jsonl").is_file());
+        assert_eq!(std::fs::read_to_string(sessions.join("ses_one.compact.json")).unwrap(), "compact");
+        assert_eq!(std::fs::read_to_string(sessions.join("ses_one.queue.json")).unwrap(), "queue");
         assert!(sessions.join("ses_one/artifact.txt").is_file());
         assert!(teams.join("ses_one/tasks.json").is_file());
         complete_restore(&bundle).unwrap();
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    #[test]
+    fn restore_refuses_to_overwrite_existing_session() {
+        let base = std::env::temp_dir().join(format!("kxen-recovery-collision-{}-{}", std::process::id(), now_ms()));
+        let sessions = base.join("sessions");
+        let teams = base.join("teams");
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::write(sessions.join("ses_one.json"), "{}").unwrap();
+        let manifest = RecoveryManifest::new("ses_one");
+        let bundle = stage(&sessions, &teams, &manifest).unwrap();
+        purge_storage(&sessions, &teams, "ses_one");
+        std::fs::write(sessions.join("ses_one.json"), "replacement").unwrap();
+
+        assert!(restore_storage(&sessions, &teams, &bundle).is_err());
+        assert_eq!(std::fs::read_to_string(sessions.join("ses_one.json")).unwrap(), "replacement");
+        assert!(bundle.is_dir(), "失败恢复必须保留 recovery bundle");
+        complete_restore(&bundle).unwrap();
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stage_refuses_symlinked_session_artifact() {
+        let base = std::env::temp_dir().join(format!("kxen-recovery-symlink-{}-{}", std::process::id(), now_ms()));
+        let sessions = base.join("sessions");
+        let teams = base.join("teams");
+        std::fs::create_dir_all(sessions.join("ses_one")).unwrap();
+        std::fs::write(sessions.join("ses_one.json"), "{}").unwrap();
+        let outside = base.join("outside.txt");
+        std::fs::write(&outside, "secret").unwrap();
+        std::os::unix::fs::symlink(&outside, sessions.join("ses_one/link")).unwrap();
+
+        let error = stage(&sessions, &teams, &RecoveryManifest::new("ses_one")).unwrap_err();
+        assert!(error.contains("symlink refused"));
+        assert!(!bundle_path(&sessions, "ses_one").exists());
         std::fs::remove_dir_all(base).ok();
     }
 }

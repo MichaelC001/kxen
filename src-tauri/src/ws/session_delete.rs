@@ -57,11 +57,12 @@ pub(super) async fn delete(params: &Value, state: &Arc<AppState>) -> Result<Valu
         }
     };
 
-    cleanup_references(state, id);
     kxen_app::core::session_recovery::purge_storage(&sessions_dir, state.team.root(), id);
     if let Err(error) = kxen_app::core::session_recovery::discard_bundle(&bundle) {
         return rollback_delete(state, &bundle, error);
     }
+    // 恢复包成功进入废纸篓才提交关联状态清理，否则 rollback 无法重建内存 registry。
+    cleanup_references(state, id);
     Ok(Value::Null)
 }
 

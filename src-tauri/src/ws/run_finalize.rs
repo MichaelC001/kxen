@@ -96,8 +96,9 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
         parts.push(ses::Part::Text { text: "(run 异常结束，无输出——请重试或发送「继续」)".into() });
     }
     let assistant_msg = ses::new_message(&session_id, ses::Role::Assistant, parts);
-    append_assistant_and_publish(&sessions_dir, &assistant_msg, &state.bus, &stream_id, &outcome.terminal);
+    // 客户端收到终态会立即对账；先摘除 run 状态并持久化 Assistant，终态只能是最后一个可见状态变化。
     kxen_app::core::shared::lock(&state.run_streams).remove(&stream_id);
+    append_assistant_and_publish(&sessions_dir, &assistant_msg, &state.bus, &stream_id, &outcome.terminal);
 
     // 队列下一条：run 进行中收到的消息按序接续（pop 即落盘重写，崩溃窗口丢一条与旧纯内存等价）。
     // pop 前复查本 run token：已 cancel（abort/interrupt）不续跑——收尾 pop 起新 run 会让 abort 失效；

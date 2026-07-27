@@ -105,12 +105,9 @@ pub fn run() {
                         if let kxen_app::core::event::Event::Notification { text, session_id } = event {
                             // notification hook（全部 Notification 事件的单一收口点；Ask 档走审批）
                             let state = handle.state::<Arc<AppState>>();
-                            let workdir = session_id
-                                .as_deref()
-                                .and_then(|sid| kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), sid).ok())
-                                .map(|meta| std::path::PathBuf::from(meta.directory))
-                                .unwrap_or_else(|| state.active_workspace.read().expect("workspace").clone());
-                            let runtime = state.workspace_runtimes.runtime(&workdir);
+                            let active = state.active_workspace.read().expect("workspace").clone();
+                            let runtime = notification_workdir(&kxen_app::core::paths::sessions_dir(), &active, session_id.as_deref())
+                                .and_then(|workdir| state.workspace_runtimes.runtime(&workdir));
                             // broker/bus 克隆进任务（借用无法跨 spawn 的 'static 边界）
                             let broker = state.approvals.clone();
                             let bus = state.bus.clone();
@@ -235,9 +232,43 @@ fn main() {
     run();
 }
 
+fn notification_workdir(
+    sessions_dir: &std::path::Path,
+    active_workspace: &std::path::Path,
+    session_id: Option<&str>,
+) -> Result<std::path::PathBuf, String> {
+    match session_id {
+        Some(id) => kxen_app::core::session::load_meta(sessions_dir, id)
+            .map(|meta| std::path::PathBuf::from(meta.directory))
+            .map_err(|error| format!("notification session {id}: {error}")),
+        None => Ok(active_workspace.to_path_buf()),
+    }
+}
+
 /// 前端拿 ws 端口 + 握手 token（替代 window.eval 注入：页面重载后注入丢失的竞态根治）。
 #[tauri::command]
 fn ws_port(state: tauri::State<'_, Arc<AppState>>) -> serde_json::Value {
     let port = *state.ws_port.lock().expect("ws_port");
     serde_json::json!({ "port": port, "token": state.ws_token })
+}
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::notification_workdir;
+
+    #[test]
+    fn notification_session_never_falls_back_to_active_workspace() {
+        let base = std::env::temp_dir().join(format!("kxen-notification-workdir-{}", std::process::id()));
+        let sessions = base.join("sessions");
+        let active = base.join("active");
+        let owned = base.join("owned");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&owned).unwrap();
+        let session = kxen_app::core::session::create(&sessions, owned.to_str().unwrap()).unwrap();
+
+        assert_eq!(notification_workdir(&sessions, &active, None).unwrap(), active);
+        assert_eq!(notification_workdir(&sessions, &active, Some(&session.id)).unwrap(), owned);
+        assert!(notification_workdir(&sessions, &active, Some("ses_missing")).is_err());
+        std::fs::remove_dir_all(base).ok();
+    }
 }
