@@ -1,0 +1,54 @@
+---
+title: Provider、账号和模型
+description: 配置内置 Provider、自定义 Provider、账号和角色路由。
+status: canonical
+sidebar:
+  order: 2
+---
+
+kxen 把 Provider、账号和模型分开管理。
+
+## 内置 Provider
+
+当前注册表包含 OAuth、API key 和本地免认证三类 Provider。设置页展示可用 Provider、账号、模型目录和连接状态。
+
+OAuth Provider 可以读取对应官方客户端已经保存的本地凭证。API key 不应写进项目配置。Ollama 使用本地 OpenAI-compatible 端点。
+
+## 自定义 Provider
+
+自定义 Provider 定义:
+
+```toml
+[custom_providers.example]
+base_url = "https://api.example.com/v1"
+protocol = "openai"
+models = ["example-model"]
+capabilities = ["text"]
+```
+
+`protocol` 支持 `openai` 或 `anthropic`。凭证单独存储，不进入 TOML。
+
+## 角色路由
+
+当前角色包括:
+
+- thinking
+- planning
+- execution
+- review
+- research
+
+每个角色可以绑定 Provider、模型、账号和 fallback 角色。
+
+```toml
+[roles.execution]
+provider = "xai"
+model = "grok-build-0.1"
+fallback = "research"
+```
+
+模型 ID 会随 Provider 更新。文档不把静态种子列表当作实时可用性，最终以应用模型目录和账号状态为准。
+
+## 调度
+
+所有主 Session、Subagent、Workflow Agent 和 Team member 调用都必须经过 MRM。MRM 管理全局并发、Provider 并发、RPM、账号轮转和 fallback。

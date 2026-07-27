@@ -1,0 +1,57 @@
+---
+title: 工具
+description: kxen resident tools、渐进披露工具和执行边界参考。
+status: canonical
+sidebar:
+  order: 2
+---
+
+kxen 把高频工具放入 resident surface，其余工具通过 Tool Search 渐进披露。实际可用工具还受角色权限、Workspace 信任、运行环境和用户审批限制。
+
+## 核心文件和进程工具
+
+| 工具 | 用途 | 关键边界 |
+| --- | --- | --- |
+| `read` | 按行读取文件 | 大文件分页 |
+| `edit` | 使用锚点或精确文本修改 | 目标路径经过 Safety |
+| `write` | 创建或覆盖文件 | 外部变化触发备份保护 |
+| `delete` | 删除文件 | 进入系统废纸篓 |
+| `exec` | 在显式 Shell 中执行命令 | 高风险命令审批或拒绝 |
+| `task` | 管理长任务和开发服务器 | 支持 readiness gate |
+| `glob` | 按模式发现文件 | 遵守 ignore 规则 |
+| `grep` | 搜索文件内容 | 支持 glob 过滤 |
+| `lsp` | 查询语言服务 | 缺少 server 时降级 |
+
+## 编排工具
+
+- `goal`: 创建、激活、暂停、恢复、完成或取消持久目标。
+- `agent`: 按 thinking、planning、execution、review 或 research 角色派发 Subagent。
+- `workflow`: 在 QuickJS 沙箱中执行多阶段 Agent 编排。
+- `team`: 管理 Team member、消息和共享任务。
+- `worktree`: 创建和检查隔离 Git Worktree。
+
+## 知识工具
+
+- `skill`: 按名称加载可复用 Skill。
+- `knowledge`: 增加、查询或删除项目和个人知识。
+- `tool_search`: 按任务发现非 resident 工具。
+
+## 扩展工具
+
+MCP、Browser、Web Search、Schedule、Voice 和其他扩展能力按需加载。工具出现在目录中不表示它在当前机器上可执行。
+
+## LSP 动作
+
+当前 LSP 契约包括:
+
+- diagnostics
+- hover
+- definition
+- references
+- symbols
+
+支持语言为 Rust、TypeScript、JavaScript、Python 和 Go。每个语言的 server 在首次使用时延迟启动。
+
+## 权限
+
+研究和规划角色默认只读。execution 角色可以获得写入和命令工具。角色权限不能覆盖 Safety 的硬拒绝规则。

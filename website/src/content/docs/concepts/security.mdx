@@ -1,0 +1,47 @@
+---
+title: Security Model
+description: kxen 的信任边界、凭证、工具权限、网络检查和恢复保护。
+status: canonical
+sidebar:
+  order: 5
+---
+
+kxen 在用户本机执行模型生成的操作。安全目标不是让模型永不出错，而是让高风险行为在执行层可见、可拒绝和可恢复。
+
+## 信任边界
+
+| 边界 | 规则 |
+| --- | --- |
+| Workspace | 默认只允许操作当前工作目录 |
+| 项目配置 | 未信任 Workspace 不加载 `.kxen/config.toml` |
+| 项目 MCP | 未信任 Workspace 不启动 |
+| 外部文件 | 需要原生文件选择器授权 |
+| 模型调用 | 统一经过 MRM 和 Auth store |
+| 工具调用 | 统一经过角色权限、Safety 和 Approval |
+| 网络请求 | 初始 URL 经过地址和重定向检查 |
+
+## 凭证
+
+API key 和 OAuth token 保存在本地权限受限文件中。凭证不进入项目 TOML、Session prompt、文档和 Git。
+
+Provider 凭证可以来自官方客户端的本地登录状态或用户显式配置。模型只看到调用结果，不获得原始 secret。
+
+## 最小权限
+
+研究和规划角色默认只读。写文件、执行命令和删除数据需要 execution 权限。MCP 工具还可以逐项配置 allow、ask 或 deny。
+
+## 硬保护
+
+Safety 对系统路径、Credential 目录、`.git`、磁盘操作和大范围资源销毁执行硬拒绝。项目规则和用户 Prompt 不能覆盖这些规则。
+
+## 可恢复性
+
+- 文件和 Session 删除进入废纸篓。
+- Checkpoint 使用独立 shadow Git repository。
+- Worktree 隔离并行修改。
+- Approval 结果写入 Session。
+- Abort 使未完成审批失效。
+
+## 已知边界
+
+Browser 页内导航和子资源未形成完整 SSRF 边界。Remote MCP、Browser automation 和自动知识沉淀仍是实验性能力，不能用于无监督处理高敏感数据。

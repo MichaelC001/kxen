@@ -1,0 +1,55 @@
+---
+title: 故障排查
+description: Provider、模型、MCP、LSP、Browser、Session 和构建问题的定位顺序。
+status: canonical
+sidebar:
+  order: 6
+---
+
+故障排查先确认运行真源，再检查界面状态。前端状态不是长任务和模型调用的权威来源。
+
+## Provider 不可用
+
+1. 打开 Settings 中的 Provider diagnostics。
+2. 确认账号存在，凭证未过期。
+3. 刷新模型目录。
+4. 检查角色绑定的 Provider 和模型。
+5. 检查 Provider 并发和 RPM。
+
+模型出现在静态种子表中不表示账号当前可以调用它。
+
+## Session 停止响应
+
+1. 检查 Session 是否仍有 active run。
+2. 检查是否正在等待 Approval。
+3. 检查 pending queue。
+4. 使用 Abort 结束当前 run。
+5. 重新加载 Session，确认 JSONL 已出现终态。
+
+每个 run 都必须结束为完成、取消或错误。只看到流式消息停止不等于后端 run 已结束。
+
+## MCP 无法连接
+
+- 确认 Workspace 已信任。
+- 检查 transport 类型和启动命令或 URL。
+- 对 remote server 重新完成 OAuth。
+- 检查工具级 allow、ask 和 deny。
+- 使用 diagnostics 查看 server、tools 和 resources 数量。
+
+## LSP 不可用
+
+确认对应 language server 已安装并在应用进程的 PATH 中。LSP 延迟启动，首次调用会比后续调用慢。
+
+## Browser 不可用
+
+确认 Google Chrome 已安装，并且没有另一个进程占用调试实例。kxen 不下载独立 Chromium。
+
+## Website 验证
+
+在 `website` package 中运行:
+
+```bash
+pnpm check
+```
+
+该命令依次执行 Nimbus 文档 lint、Astro typecheck 和生产构建。只有三步全部 PASS 才能声明文档站构建通过。

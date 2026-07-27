@@ -1,0 +1,49 @@
+---
+title: Context Engineering
+description: kxen 如何选择、限制、压缩和恢复模型工作上下文。
+status: canonical
+sidebar:
+  order: 2
+---
+
+Context 是当前模型调用的工作集，不是长期存储。kxen 把 Session 历史、项目规则、显式附件、Knowledge 和运行状态按不同方式装入上下文。
+
+## 显式附件
+
+Composer 的 `@` 引用支持文件、目录、网页和文档 URL。
+
+当前限制:
+
+- 单个文件超过 16 KB 时只注入前 1 KB，并提示使用 `read`。
+- 单个文件超过 64 KB 时不直接注入。
+- 一次上下文附件总量上限为 200 KB。
+- 目录列表最多 200 项。
+- 公网图片上限为 5 MB。
+
+路径先 canonicalize，再检查 Workspace 边界、symlink 逃逸和 Safety 保护路径。通过原生文件选择器授权的外部文件可以越过 Workspace 边界，但不能越过 Safety。
+
+## 项目指令
+
+AGENTS.md 和 `.agents/rules/` 保存需要持续生效的约束。`.agents/references/` 只在任务需要时读取，避免把全部资料注入每一轮。
+
+## 历史压缩
+
+模型上下文使用 catalog 中的 context window，找不到时回落到 200000 token。估算用字符数除以 4，超过窗口的 80％ 时触发 compaction。
+
+Compaction:
+
+1. 保留 system message。
+2. 保留最近消息。
+3. 把更旧的 Text 和 Context 蒸馏为工作摘要。
+4. 不改原始 Session JSONL。
+5. 保存 compaction checkpoint，用于重建模型视图。
+
+摘要失败时保留旧段首尾，不丢最近上下文。
+
+## Knowledge 和 Memory
+
+Knowledge 是可检索的项目或个人资料。Memory 是从历史任务沉淀的稳定信息。二者都应通过检索进入上下文，不应无条件加载全部正文。
+
+## 可见失败
+
+附件读取失败、URL 获取失败和超限必须同时对用户和模型可见。静默丢失上下文会让模型在错误前提下继续执行。

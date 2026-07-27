@@ -1,0 +1,33 @@
+---
+title: 第一个 Session
+description: 创建 Workspace、选择模型并完成第一轮 coding 任务。
+status: canonical
+sidebar:
+  order: 3
+---
+
+## 创建 Workspace
+
+在 Workspace 页面添加一个本地仓库目录。Workspace 决定 Session 的工作目录、项目配置、知识范围和工具边界。
+
+## 创建 Session
+
+进入 Workspace 后创建 Session。发送第一条消息时，后端创建持久化 Session，并把消息写入本地 JSONL。
+
+## 选择模型
+
+Composer 中的模型选择器可以覆盖当前 Session 的模型。没有显式选择时，调用根据角色绑定和 MRM 候选链解析。
+
+## 推荐的第一条任务
+
+先让 Agent 读取仓库结构、构建命令和当前状态，再要求它执行一个有明确完成条件的小改动。
+
+```text
+读取当前仓库的 README、构建配置和相关模块。
+只修改指定功能。
+完成后运行现有检查，并报告命令和结果。
+```
+
+## 运行中继续发送
+
+默认策略是 queue。新消息进入 pending queue，在当前 run 完成后继续执行。配置为 interrupt 时，新消息会中断当前 run 后立即处理。

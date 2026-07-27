@@ -1,0 +1,53 @@
+---
+title: Orchestration
+description: Session、Goal、Subagent、Workflow 和 Agent Teams 的组合关系。
+status: canonical
+sidebar:
+  order: 4
+---
+
+Orchestration 决定任务如何拆分、并行、持续和恢复。它不改变底层模型、工具和 Safety 契约。
+
+## 层级
+
+```text
+Workspace
+  Session
+    run
+      Goal
+      Subagent
+      Workflow
+      Team
+        member
+        shared task
+```
+
+Workspace 提供文件边界。Session 提供持久对话边界。run 是一次执行。其他编排对象都与 Session 或 run 关联。
+
+## Goal
+
+Goal 为跨轮任务保存 objective、completion criteria、constraints、预算和状态。complete 需要验证证据，blocked 需要同一阻塞原因连续出现 3 轮。
+
+## Subagent
+
+Subagent 适合单个独立问题域。它获得独立上下文和角色权限，返回结果给调用者。同步派发等待结果，后台派发通过任务通知返回。
+
+## Workflow
+
+Workflow 把 JavaScript 运行在 QuickJS 沙箱中。脚本可以调用 Agent、并行执行任务、标记 phase 并读取 constraints。
+
+沙箱限制内存、栈、运行时间和 Agent 调用数。`run_id` 结合 journal 允许重复运行时复用已经完成的 Agent 结果。
+
+## Agent Teams
+
+Team 适合需要长期协作、共享任务依赖和成员消息的工作。每个 member 有独立 transcript 和 inbox，可以绑定角色、模型和 Worktree。
+
+## 统一控制面
+
+无论使用哪种编排方式:
+
+- 模型调用必须经过 MRM。
+- 工具调用必须经过角色权限和 Safety。
+- Abort 必须能够中断等待。
+- 运行状态必须进入事件流。
+- 最终结果必须写入 Session 或对应持久化对象。
