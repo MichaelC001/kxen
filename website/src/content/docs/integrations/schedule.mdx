@@ -1,0 +1,45 @@
+---
+title: Schedule
+description: 使用 cron 表达式在应用运行期间触发 Session 任务。
+status: canonical
+sidebar:
+  order: 5
+---
+
+Schedule 用于把任务绑定到目标 Session，并按 cron 表达式触发。
+
+## 创建
+
+Schedule 由 Agent 通过 schedule 工具创建。创建时指定:
+
+- cron 表达式。
+- 目标 Session。
+- 需要发送的任务。
+
+## 产品入口
+
+Settings 的定时任务区域显示:
+
+- cron 表达式。
+- 目标 Session。
+- 下次触发时间。
+- 最近执行状态。
+
+用户可以暂停、恢复或删除 Schedule。
+
+## 执行边界
+
+Schedule 只在 kxen 应用运行期间触发，不是 macOS 系统级 cron。应用退出后，不会在后台启动自身执行任务。
+
+触发时仍要检查:
+
+- 目标 Session 是否存在。
+- Session 是否已经有活动 run。
+- MRM 是否有可用模型资源。
+- 工具是否需要 Approval。
+
+Schedule 不能绕过 Session 的并发保护、模型资源限制、Safety 或 Approval。
+
+## 使用方式
+
+适合定期检查、汇总或维护任务。涉及外部发布、删除或其他重要写入时，仍应保留人工确认，不要把定时触发当成永久授权。

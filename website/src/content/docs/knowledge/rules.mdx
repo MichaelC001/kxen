@@ -1,0 +1,47 @@
+---
+title: Rules
+description: 用始终生效、文件匹配和就近规则约束 Agent 行为。
+status: canonical
+sidebar:
+  order: 2
+---
+
+Rules 是需要直接约束 Agent 行为的知识。激活的 Rule 会以完整正文进入 system prompt，优先用于项目约定、操作边界和任务规范。
+
+## 根规则互操作
+
+kxen 识别 Workspace 根目录中的以下文件:
+
+- `file:///path/to/workspace/AGENTS.md`
+- `file:///path/to/workspace/CLAUDE.md`
+- `file:///path/to/workspace/GEMINI.md`
+- `file:///path/to/workspace/.cursorrules`
+
+这些根规则按始终生效处理。
+
+## 分层 AGENTS.md
+
+当任务涉及具体文件时，kxen 会从文件所在目录向 Workspace 根目录查找邻近的 AGENTS.md。更接近目标文件的规则拥有更具体的作用范围。
+
+例如 `file:///path/to/workspace/src/AGENTS.md` 只用于涉及 `src` 子树的任务，不需要污染无关目录的上下文。
+
+## Rule 条目
+
+项目 Rule 可以放在 `file:///path/to/workspace/.agents/rules/`。个人 Rule 可以放在 `file:///Users/you/.agents/rules/`。
+
+Rule frontmatter 支持:
+
+- `alwaysApply`: 始终激活。
+- `globs`: 涉及文件命中模式时激活。
+- `enabled`: 是否参与渲染。
+- `description`: 未激活时在索引中显示的说明。
+
+未激活 Rule 只显示索引，不把正文全部注入。目录中的 index.md 可以提供人工整理的规则地图。
+
+## Built-in Coding Rules
+
+kxen 还包含一组内置 Coding Rules，可在 Knowledge Library 顶部单独启停。它们不是项目 Rule，项目内容不能修改内置 Safety。
+
+## 优先级
+
+Safety 高于所有 Rules。项目 Rule 不能让只读角色获得写权限，也不能关闭危险操作拒绝和 Approval。

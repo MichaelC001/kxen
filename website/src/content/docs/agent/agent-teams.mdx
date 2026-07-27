@@ -1,0 +1,41 @@
+---
+title: Agent Teams
+description: 让多个长期成员通过任务、inbox 和独立转录协作。
+status: canonical
+sidebar:
+  order: 4
+---
+
+Agent Teams 用于多个 Agent 需要持续协作的任务。Team 由 lead 和 member 组成，每个成员可以使用不同角色、模型和 Worktree。
+
+## Team member
+
+每个 member 拥有:
+
+- 独立身份和角色。
+- 独立运行上下文和 transcript。
+- inbox。
+- 当前任务和状态。
+- 可选模型绑定。
+- 可选 Worktree 绑定。
+
+成员可以向 lead 或其他成员发送消息。消息进入目标 inbox，不会拼接到所有成员的上下文中。
+
+## 共享任务
+
+Team 任务记录:
+
+- pending、in_progress 和 completed 状态。
+- assignee。
+- depends_on。
+- 任务描述和结果。
+
+依赖完成后，后续任务才能进入可执行状态。任务状态是 Team 协作真源，不应只依赖自然语言中的"我完成了"。
+
+## 持久化
+
+Team 配置、任务、inbox 和 member transcript 保存在本地应用数据中。关闭界面不会把已经保存的协作记录变成一段普通聊天文本。
+
+## 适用范围
+
+Agent Teams 适合长时间协作和明确分工。一次性的并行分析优先使用 [Workflow](https://kxen.ai/agent/workflow) 或多个 [Subagent](https://kxen.ai/agent/subagent)。

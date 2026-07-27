@@ -1,0 +1,41 @@
+---
+title: LSP
+description: 使用语言服务获取诊断、定义、引用和符号信息。
+status: canonical
+sidebar:
+  order: 2
+---
+
+LSP 为 Agent 提供结构化代码信息。它补充文件搜索和文本读取，不替代编译器、测试或项目自己的静态检查。
+
+## 当前语言
+
+- Rust。
+- TypeScript。
+- JavaScript。
+- Python。
+- Go。
+
+对应 language server 必须已经安装，并且能从 kxen 应用进程的 PATH 中找到。
+
+## 当前动作
+
+- diagnostics。
+- hover。
+- definition。
+- references。
+- symbols。
+
+首次调用时，kxen 按语言延迟启动 server。后续调用复用当前 Workspace 的语言服务进程。
+
+## 降级
+
+缺少 server、初始化失败或文件类型未注册时，LSP 返回不可用状态。基本 Session、文件工具和模型调用仍然可以继续。
+
+## Workspace 边界
+
+语言服务以当前 Workspace 为 root。切换项目后，诊断和符号结果必须来自新的工作目录，不能复用其他仓库的索引。
+
+## 验证
+
+LSP diagnostics 是语言服务的时点结果。完成代码变更时仍应运行项目自己的编译、lint 和测试命令。

@@ -13,6 +13,7 @@
  */
 
 import { getIndexedEntries, type IndexedEntry } from "@cloudflare/nimbus-docs";
+import { utf8Text } from "@/lib/text-response";
 import { config } from "virtual:nimbus/config";
 
 export const prerender = true;
@@ -63,7 +64,5 @@ export async function GET({ props }: { props: SlugProps }) {
     entry.body ?? "",
   ].join("\n");
 
-  return new Response(body, {
-    headers: { "Content-Type": "text/markdown; charset=utf-8" },
-  });
+  return utf8Text(body, "text/markdown");
 }

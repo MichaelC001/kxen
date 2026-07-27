@@ -7,13 +7,13 @@ import { tableScroll } from "@cloudflare/nimbus-docs/markdown";
 const nimbusConfig = defineNimbusConfig({
   site: "https://kxen.ai",
   title: "kxen",
-  description: "macOS Apple Silicon 原生 Coding Agent Harness 的官网与权威文档。",
+  description: "面向复杂软件工程任务的 macOS 原生 Coding Agent Harness。",
   locale: "zh-CN",
   homeLabel: "首页",
   github: null,
   editPattern: null,
-  socialImage: "/icon.png",
-  socialImageAlt: "kxen 文档",
+  socialImage: "/og.png",
+  socialImageAlt: "kxen 产品官网与文档",
 });
 
 export default defineConfig({

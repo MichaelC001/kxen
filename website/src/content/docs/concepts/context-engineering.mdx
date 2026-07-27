@@ -6,11 +6,11 @@ sidebar:
   order: 2
 ---
 
-Context 是当前模型调用的工作集，不是长期存储。kxen 把 Session 历史、项目规则、显式附件、Knowledge 和运行状态按不同方式装入上下文。
+Context 是当前模型调用的工作集，不是长期存储。kxen 把 Session 历史、Rules、显式附件、Notes、Memory 和运行状态按不同方式装入上下文。
 
 ## 显式附件
 
-Composer 的 `@` 引用支持文件、目录、网页和文档 URL。
+Composer 的 `@` 引用支持 Workspace 内文件和目录。图片、拖入文件和大段粘贴内容通过附件系统加入。Web 和 Docs 类型上下文由对应工具入口提供，不由 `@` 文件搜索生成。
 
 当前限制:
 
@@ -20,11 +20,11 @@ Composer 的 `@` 引用支持文件、目录、网页和文档 URL。
 - 目录列表最多 200 项。
 - 公网图片上限为 5 MB。
 
-路径先 canonicalize，再检查 Workspace 边界、symlink 逃逸和 Safety 保护路径。通过原生文件选择器授权的外部文件可以越过 Workspace 边界，但不能越过 Safety。
+路径先 canonicalize，再检查 Workspace 边界、symlink 逃逸和 Safety 保护路径。通过原生文件选择器授权的外部文件可以进入上下文，但不能越过 Safety。
 
 ## 项目指令
 
-AGENTS.md 和 `.agents/rules/` 保存需要持续生效的约束。`.agents/references/` 只在任务需要时读取，避免把全部资料注入每一轮。
+AGENTS.md 和 Rules 保存需要持续生效的约束。References 只在任务需要时读取，避免把全部资料注入每一轮。
 
 ## 历史压缩
 
@@ -42,7 +42,7 @@ Compaction:
 
 ## Knowledge 和 Memory
 
-Knowledge 是可检索的项目或个人资料。Memory 是从历史任务沉淀的稳定信息。二者都应通过检索进入上下文，不应无条件加载全部正文。
+Knowledge Library 是统一管理界面。Notes 和 Memory 通过相关性检索进入上下文，References 按需读取。它们都不应无条件加载全部正文。
 
 ## 可见失败
 

@@ -1,46 +1,35 @@
 ---
 title: 当前状态
-description: 区分已实现、实验性、开发中和未开放的产品能力。
+description: 查看 kxen 开发预览阶段已经落地和尚未开放的范围。
 status: canonical
 sidebar:
   order: 2
 ---
 
-页面状态描述当前开发预览，不等于公开发行承诺。
+kxen 当前处于开发预览阶段。官网只描述已经进入产品主路径的能力，不把正在研究、规划或尚未合并的实现写成产品承诺。
 
-## 已实现
+## 已落地
 
-- Tauri 2 桌面壳和 SolidJS 界面。
-- Workspace、Session、消息流和持久化。
-- Provider 认证、模型目录、账号管理和角色路由。
-- Agent loop、Goal、Workflow、Subagent 和 Agent Teams。
-- 文件、Shell、任务、Web 搜索、Browser、MCP 和 LSP 工具。
-- Knowledge、Memory、Schedule、Voice、Notification 和 Diagnostics。
-- Checkpoint、Rewind、Worktree 和 Diff 呈现。
-
-## 实验性
-
-- 多 Session 和多 Workspace 并发隔离。
-- Workflow crash resume。
-- Checkpoint 和 Rewind 的组合恢复语义。
-- Remote MCP OAuth。
-- 多语言 LSP。
-- Browser 自动化。
-- 自动知识沉淀。
+- Workspace 和 Session 管理。
+- 文本、文件、图片、命令、知识和语音 Composer。
+- 多 Provider、多账号、模型目录和角色路由。
+- Goal、Workflow、Subagent、Agent Teams 和后台任务。
+- 文件工具、Shell、LSP、MCP、Browser、Search 和 Schedule。
+- Rules、References、Skills、Commands、Notes 和 Memory。
+- Safety、Approval、Checkpoint、Rewind 和 Worktree。
 
 ## 未开放
 
-- 正式下载。
-- macOS 签名与公证发行。
-- 自动更新。
-- 公开 GitHub 仓库。
-- 稳定配置兼容承诺。
+- 面向公众的签名安装包。
+- 自动更新通道。
 - Windows、Linux 和 Intel Mac。
+- 云同步和托管执行。
+- 插件市场。
+- 面向第三方的稳定 API。
 
-## 状态判定
+## 状态解释
 
-- PASS 表示当前源码存在完整主链，并通过对应静态或自动检查。
-- FAIL 表示实现、文档或门禁存在直接冲突。
-- UNKNOWN 表示没有完成真实系统、Provider 或桌面交互验收。
-
-功能页不会把 UNKNOWN 写成 PASS。
+- "已落地"表示能力已经存在于当前产品主路径。
+- "未开放"表示用户现在不能把它当成可交付能力。
+- Provider 和模型的实时可用性以应用中的账号状态和模型目录为准。
+- 开发预览不等于公开发行，安装资格单独见 [可用性](https://kxen.ai/overview/availability)。

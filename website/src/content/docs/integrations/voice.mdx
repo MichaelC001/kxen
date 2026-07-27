@@ -1,0 +1,38 @@
+---
+title: Voice
+description: 使用本机或 Provider 转写引擎向 Composer 输入语音。
+status: canonical
+sidebar:
+  order: 4
+---
+
+Voice 把语音转成 Composer 文本。它只负责输入，不改变 Agent 权限或模型路由。
+
+## 产品入口
+
+Composer 中的麦克风按钮可以开始和停止语音输入。长按空格超过 400ms 也可以进入 PTT，松开后结束。
+
+Settings 的语音区域用于配置引擎、fallback、locale 和转写模型。Composer 的麦克风菜单可以快速切换当前可用引擎。
+
+## 引擎
+
+- Apple Speech framework。
+- OpenAI 兼容音频转写。
+- xAI 音频转写。
+- 声明 audio 能力的自定义 Provider。
+
+Apple 引擎在本机识别。Provider 引擎需要对应凭证和网络。
+
+## Fallback
+
+可以为首选引擎配置有序 fallback。首选引擎不可用时，kxen 依次尝试后续引擎，并在 Composer 显示实际使用的引擎。
+
+## 输入行为
+
+转写 partial 会更新当前 Session 草稿。切换 Session 会停止旧会话录音，迟到终稿不会写入新 Session。
+
+录音中直接发送时，Composer 先等待终稿合并，再发送完整文本。重复按 Enter 不会产生两次发送。
+
+## 系统权限
+
+Apple 引擎需要麦克风和语音识别权限。权限未授予时，界面会给出 macOS 系统设置入口提示。

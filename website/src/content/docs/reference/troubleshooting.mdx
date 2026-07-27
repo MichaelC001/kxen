@@ -1,55 +1,47 @@
 ---
 title: 故障排查
-description: Provider、模型、MCP、LSP、Browser、Session 和构建问题的定位顺序。
+description: 按运行真源定位 Provider、Session、MCP、LSP 和 Browser 问题。
 status: canonical
 sidebar:
-  order: 6
+  order: 5
 ---
 
-故障排查先确认运行真源，再检查界面状态。前端状态不是长任务和模型调用的权威来源。
+故障排查先检查后端运行状态，再检查界面呈现。前端停止更新不等于任务已经结束。
 
 ## Provider 不可用
 
-1. 打开 Settings 中的 Provider diagnostics。
-2. 确认账号存在，凭证未过期。
-3. 刷新模型目录。
-4. 检查角色绑定的 Provider 和模型。
-5. 检查 Provider 并发和 RPM。
-
-模型出现在静态种子表中不表示账号当前可以调用它。
+1. 在 Settings 的提供商区域确认账号存在。
+2. 对具体账号执行连接实测。
+3. 主动拉取端点模型目录。
+4. 检查角色绑定的 Provider、模型和账号。
+5. 在模型路由中执行试派发。
+6. 检查 Provider 并发和账号 RPM。
 
 ## Session 停止响应
 
 1. 检查 Session 是否仍有 active run。
 2. 检查是否正在等待 Approval。
-3. 检查 pending queue。
+3. 检查消息队列和后台任务。
 4. 使用 Abort 结束当前 run。
-5. 重新加载 Session，确认 JSONL 已出现终态。
-
-每个 run 都必须结束为完成、取消或错误。只看到流式消息停止不等于后端 run 已结束。
+5. 重新加载 Session，确认时间线出现完成、取消或错误终态。
 
 ## MCP 无法连接
 
-- 确认 Workspace 已信任。
-- 检查 transport 类型和启动命令或 URL。
-- 对 remote server 重新完成 OAuth。
-- 检查工具级 allow、ask 和 deny。
-- 使用 diagnostics 查看 server、tools 和 resources 数量。
+1. 确认 Workspace 已信任。
+2. 检查 transport、命令或远端 URL。
+3. 对远端 server 重新完成 OAuth。
+4. 检查工具级 allow、ask 和 deny。
+5. 在诊断页面检查握手、工具和资源数量。
+6. 手动重启 server。
 
 ## LSP 不可用
 
-确认对应 language server 已安装并在应用进程的 PATH 中。LSP 延迟启动，首次调用会比后续调用慢。
+确认对应 language server 已安装，并且能从应用进程 PATH 中找到。首次调用会延迟启动。仍然失败时，在诊断页面检查具体语言和启动错误。
 
 ## Browser 不可用
 
-确认 Google Chrome 已安装，并且没有另一个进程占用调试实例。kxen 不下载独立 Chromium。
+确认本机已安装 Google Chrome，并且没有冲突调试实例。kxen 不下载独立 Chromium。页面能打开但操作失败时，分别检查导航 URL、页面权限和当前 CDP 连接。
 
-## Website 验证
+## Voice 不可用
 
-在 `website` package 中运行:
-
-```bash
-pnpm check
-```
-
-该命令依次执行 Nimbus 文档 lint、Astro typecheck 和生产构建。只有三步全部 PASS 才能声明文档站构建通过。
+检查麦克风和语音识别系统权限，再检查首选引擎凭证。使用 Composer 的引擎菜单查看不可用原因和实际 fallback。

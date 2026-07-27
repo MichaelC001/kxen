@@ -1,37 +1,37 @@
 ---
 title: 系统要求
-description: kxen 开发预览所需的硬件、系统和工具链。
+description: 运行 kxen 所需的平台、项目工具和模型凭证。
 status: canonical
 sidebar:
   order: 1
 ---
 
-## 运行平台
+## 平台
 
-- Apple Silicon Mac。
 - macOS 14 或更高版本。
-- 可用的 WKWebView。
+- Apple Silicon。
+- 可用 `zsh`。
+- Google Chrome 仅在使用 Browser 能力时需要。
 
-Intel Mac、Windows 和 Linux 不在当前支持范围。
+## 项目工具
 
-## 开发工具链
+- Git 仓库用于 Worktree、Checkpoint 和变更视图。
+- 对应语言的 language server 用于 LSP。
+- MCP server 的运行时由用户自行提供。
 
-- Rust stable，支持 edition 2024。
-- Node.js 24。
-- pnpm 11.15.1。
-- Xcode Command Line Tools。
-- Tauri 2 所需的 macOS 开发组件。
+## 模型
 
-## 可选工具
+至少需要一个可用 Provider。可以使用:
 
-- `rust-analyzer`
-- `typescript-language-server`
-- `pyright-langserver`
-- `gopls`
-- Google Chrome
+- 支持的订阅 OAuth。
+- API key。
+- 本地 Ollama。
+- OpenAI 或 Anthropic 兼容端点。
 
-缺少可选 LSP 或 Chrome 时，对应工具降级为不可用，不影响基本 Session 和模型调用。
+凭证可用性必须通过应用中的连接实测确认。模型名称出现在目录中不代表当前账号拥有调用权限。
 
-## Provider 准备
+## 权限
 
-Provider 账号和模型可用性由本机凭证、API 配置和实时模型目录共同决定。不要把凭证写入仓库、文档或 Shell 历史。
+应用会在使用对应能力时请求文件夹、麦克风、语音识别或自动化权限。不使用对应能力时不需要提前授予。
+
+满足这些条件后，继续注册 [第一个 Workspace](https://kxen.ai/getting-started/first-workspace)。

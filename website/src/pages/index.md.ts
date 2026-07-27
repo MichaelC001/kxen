@@ -1,9 +1,8 @@
 import { homeSource } from "../lib/home-content";
+import { utf8Text } from "../lib/text-response";
 
 export const prerender = true;
 
 export function GET() {
-  return new Response(homeSource, {
-    headers: { "Content-Type": "text/markdown; charset=utf-8" },
-  });
+  return utf8Text(homeSource, "text/markdown");
 }

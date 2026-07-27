@@ -1,0 +1,45 @@
+---
+title: 工具系统
+description: 了解 resident tools、按需工具、角色权限和运行状态。
+status: canonical
+sidebar:
+  order: 6
+---
+
+工具让 Agent 读取项目、修改文件、运行命令、访问语言服务和调用外部集成。工具目录不是权限目录，出现在目录中的工具不一定能在当前角色或机器上执行。
+
+## Resident tools
+
+高频工具直接提供给模型:
+
+- `read`
+- `edit`
+- `write`
+- `delete`
+- `exec`
+- `task`
+- `glob`
+- `grep`
+- `lsp`
+
+文件工具受 Workspace 和路径边界限制。`delete` 进入 macOS 废纸篓。`exec` 要求显式 Shell dialect，并把长命令转为后台任务。
+
+## 按需工具
+
+低频工具通过 tool search 渐进披露，例如 Goal、Workflow、Team、Knowledge、Schedule、MCP 和 Browser。模型先发现契约，再调用具体工具，避免一次性把全部工具说明塞入上下文。
+
+## 权限来源
+
+工具是否可用由以下条件共同决定:
+
+- Agent 角色和 permission profile。
+- Workspace 信任。
+- 本机运行时和外部服务状态。
+- Safety 判定。
+- 用户 Approval。
+
+研究和规划角色默认没有写入和命令权限。execution 角色可以获得更完整的工具面，但仍不能覆盖 Safety 的硬拒绝。
+
+## 可观察性
+
+时间线显示工具名称、关键参数摘要、执行状态和结果。长输出会截断展示，但实际任务状态仍由后端工具运行记录决定。

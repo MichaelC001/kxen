@@ -1,33 +1,44 @@
 ---
 title: 第一个 Session
-description: 创建 Workspace、选择模型并完成第一轮 coding 任务。
+description: 在 Workspace 中完成一次可观察、可验证的 Agent 任务。
 status: canonical
 sidebar:
   order: 3
 ---
 
-## 创建 Workspace
+## 创建
 
-在 Workspace 页面添加一个本地仓库目录。Workspace 决定 Session 的工作目录、项目配置、知识范围和工具边界。
+1. 从目标 Workspace 创建 Session。
+2. 在 Composer 的模型选择器中确认 Provider 和模型。
+3. 输入一个范围明确、结果可验证的任务。
 
-## 创建 Session
-
-进入 Workspace 后创建 Session。发送第一条消息时，后端创建持久化 Session，并把消息写入本地 JSONL。
-
-## 选择模型
-
-Composer 中的模型选择器可以覆盖当前 Session 的模型。没有显式选择时，调用根据角色绑定和 MRM 候选链解析。
-
-## 推荐的第一条任务
-
-先让 Agent 读取仓库结构、构建命令和当前状态，再要求它执行一个有明确完成条件的小改动。
+推荐的首个任务:
 
 ```text
-读取当前仓库的 README、构建配置和相关模块。
-只修改指定功能。
-完成后运行现有检查，并报告命令和结果。
+读取当前 README，说明项目的启动命令和主要模块，不修改文件。
 ```
 
-## 运行中继续发送
+首个任务使用只读目标，便于确认文件读取、模型响应、状态栏和取消路径。
 
-默认策略是 queue。新消息进入 pending queue，在当前 run 完成后继续执行。配置为 interrupt 时，新消息会中断当前 run 后立即处理。
+## 观察
+
+运行期间检查:
+
+- 当前模型和上下文占用。
+- 工具调用及其参数摘要。
+- Approval 请求。
+- 后台任务状态。
+- TTFT、耗时、输出速率和 token 使用。
+
+需要停止时使用 Abort。默认情况下，运行中发送的新消息进入当前 Session 的等待队列。
+
+## 验证
+
+如果后续任务修改文件:
+
+1. 查看 Session changes。
+2. 运行项目自己的检查命令。
+3. 确认没有未解释的外部文件变化。
+4. 需要时从消息位置 Rewind。
+
+完成首次闭环后，分别阅读 [Session](https://kxen.ai/workspace/session)、[Composer](https://kxen.ai/workspace/composer) 和 [上下文](https://kxen.ai/workspace/context)。

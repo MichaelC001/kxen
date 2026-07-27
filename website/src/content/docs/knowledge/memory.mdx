@@ -1,0 +1,46 @@
+---
+title: Memory
+description: 从历史工作中检索与当前文件和任务相关的长期知识。
+status: canonical
+sidebar:
+  order: 7
+---
+
+Memory 保存从历史 Session 和长期工作中提炼出的稳定信息。它用于在新任务中恢复相关事实，不用于重放完整对话。
+
+## 来源
+
+Memory 可以来自:
+
+- Agent 主动通过 knowledge 工具沉淀。
+- Session 删除前的尽力蒸馏。
+- 后台 consolidation。
+- 用户维护的长期条目。
+
+自动沉淀不能把失败输出写成事实，也不能静默覆盖项目 Rules。
+
+## 检索
+
+Memory 与 Notes 一起参与检索:
+
+1. 使用涉及文件和描述生成查询。
+2. 使用 BM25 进行文本相关性排序。
+3. 配置 embedding 后加入语义召回。
+4. 对项目 scope、较新条目和冲突版本调整权重。
+5. 对同 slug 结果去重并截取最相关条目。
+
+没有涉及文件时，系统回退到最近日期的 3 条内容。单条注入正文最多使用 500 个字符，避免长期知识无限占用上下文。
+
+## 冲突处理
+
+内容高度相似但事实不同的条目会被视为潜在冲突，较旧版本降低权重。项目条目优先于个人条目，但 Memory 仍不能覆盖 Safety 和激活的项目 Rules。
+
+## Scope
+
+项目 Memory 位于 `file:///path/to/workspace/.agents/memory/`。个人 Memory 位于 `file:///Users/you/.agents/memory/`。
+
+项目 Memory 应只保存团队长期需要的事实。个人偏好、个人工具习惯和跨项目经验保存在个人 scope。
+
+## 与 Session 的区别
+
+Session 是完整执行历史。Memory 是从历史中选出的稳定知识。删除 Session 不保证每条内容都会转成 Memory，因此重要信息应显式沉淀。

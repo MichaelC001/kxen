@@ -1,0 +1,51 @@
+---
+title: Commands
+description: 用行首 Slash Command 显式触发内置动作和自定义模板。
+status: canonical
+sidebar:
+  order: 5
+---
+
+Command 是由用户显式触发的命令入口。它适合高频动作和需要明确参数提示的任务模板。
+
+## 产品入口
+
+在 Composer 行首输入 `/` 查看 Command。`Cmd+K` 命令面板也可以搜索并插入 Command。
+
+Slash Command 只在消息行首触发。正文中间的 `/` 不会展开成 Command，避免普通路径或文本被误识别。
+
+## 内置 Command
+
+当前内置 Command 包括:
+
+- `/write-goal`
+- `/ultracode`
+- `/ultraplan`
+- `/ultrareview`
+- `/doctor`
+- `/clear`
+- `/model`
+- `/abort`
+
+每个内置 Command 拥有自己的处理逻辑，不从知识目录读取模板正文。
+
+## 自定义 Command
+
+项目 Command 放在 `file:///path/to/workspace/.agents/commands/`，个人 Command 放在 `file:///Users/you/.agents/commands/`。
+
+自定义 Command 支持:
+
+- `description`
+- `argument-hint`
+- `needs`
+- `$ARGUMENTS` 和位置参数
+
+发送时，kxen 展开模板和依赖知识，再交给当前 Session 处理。
+
+## 信任边界
+
+未信任 Workspace 的项目 Command 可以出现在索引中，但不会展开项目提供的正文。Command 不能通过模板获得当前角色没有的工具，也不能绕开 Safety。
+
+## 与 Skills 的区别
+
+Command 始终由用户通过 `/` 显式触发。Skill 既可以由用户触发，也可以在允许时由模型按需加载。

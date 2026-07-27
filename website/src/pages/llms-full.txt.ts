@@ -3,6 +3,7 @@
 // delete this route to change the site's corpus policy.
 import { renderCorpusMarkdown } from "@cloudflare/nimbus-docs";
 import { homeBody, homeDescription, homeTitle } from "../lib/home-content";
+import { utf8Text } from "../lib/text-response";
 
 export const prerender = true;
 
@@ -18,7 +19,5 @@ export async function GET() {
     homeBody,
   ].join("\n");
 
-  return new Response(`${corpus}\n\n---\n\n${home}\n`, {
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
-  });
+  return utf8Text(`${corpus}\n\n---\n\n${home}\n`, "text/plain");
 }

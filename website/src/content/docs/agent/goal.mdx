@@ -1,0 +1,40 @@
+---
+title: Goal
+description: 用目标、完成判据和预算管理跨多轮任务。
+status: canonical
+sidebar:
+  order: 1
+---
+
+Goal 用于需要跨多轮持续执行的软件工程任务。它把任务目标、完成条件、预算和状态保存在 Session 之外，避免长任务只依赖当前对话窗口。
+
+## 创建
+
+使用 `/write-goal` 交互式定义 Goal，或让 Agent 通过 Goal 工具创建。一个有效 Goal 包含:
+
+- objective。
+- 可观察的 completion criteria。
+- 可选 token、turn 和 wall clock 预算。
+
+完成条件应该能够通过命令结果、文件状态、测试数量或其他明确证据验证。
+
+## 生命周期
+
+```text
+create -> active -> complete
+                 -> blocked
+                 -> paused
+                 -> budget_limited
+```
+
+Goal 可以激活、暂停、恢复、完成或取消。只有完成条件逐条验证通过后才能进入 complete。
+
+同一阻塞原因连续出现 3 轮后，Goal 才能进入 blocked。预算触顶使用 budget_limited，不应伪装成任务完成。
+
+## 产品呈现
+
+当前 Goal 会显示在右侧 Dock、状态栏和 Workspaces 看板。Goal 状态来自后端持久化记录，不由当前页面是否打开决定。
+
+## 适用范围
+
+Goal 解决"持续做什么和何时算完成"。需要并行、分支或循环执行时，在 Goal 内使用 [Workflow](https://kxen.ai/agent/workflow)。

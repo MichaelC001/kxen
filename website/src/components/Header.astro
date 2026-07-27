@@ -5,7 +5,6 @@ import { LinkButton } from "./ui/link-button";
 import { ThemeToggle } from "./ui/theme-toggle";
 import { SearchTrigger } from "./ui/search";
 import { config } from "virtual:nimbus/config";
-import { getSidebarSections } from "@cloudflare/nimbus-docs";
 
 interface Props {
   /** Astro collection id for the current page, forwarded from DocsLayout. */
@@ -20,15 +19,27 @@ interface Props {
   showSidebar?: boolean;
 }
 
-// `entryId` is part of Props as a forward-compat hook (the version-switcher
-// recipe reads it) but the base Header doesn't use it — leave it off the
-// destructure to avoid an unused-var warning.
-const { collection, showSidebar = true } = Astro.props;
+// Collection and entry IDs remain forward-compat hooks for versioned docs.
+const { showSidebar = true } = Astro.props;
 
 // Normalize trailing slash so isActive matches sidebar hrefs.
 const currentSlug = Astro.url.pathname.replace(/\/$/, "") || "/";
-const sections = await getSidebarSections(currentSlug, { collection });
-const showSections = sections.length >= 2;
+const primaryNav = [
+  { label: "产品", href: "/overview", active: currentSlug.startsWith("/overview") },
+  {
+    label: "开始使用",
+    href: "/getting-started",
+    active: currentSlug.startsWith("/getting-started"),
+  },
+  {
+    label: "文档",
+    href: "/workspace",
+    active:
+      currentSlug !== "/" &&
+      !currentSlug.startsWith("/overview") &&
+      !currentSlug.startsWith("/getting-started"),
+  },
+];
 ---
 
 <header class="sticky top-0 z-30 border-b border-border bg-card/80 backdrop-blur-lg">
@@ -41,24 +52,22 @@ const showSections = sections.length >= 2;
         </span>
       </a>
 
-      {showSections && (
-        <nav aria-label="Sections" class="hidden md:flex items-center gap-1 ml-4 pl-4 border-l border-border h-6">
-          {sections.map((section) => (
+      <nav aria-label="主要导航" class="hidden md:flex items-center gap-1 ml-4 pl-4 border-l border-border h-6">
+          {primaryNav.map((item) => (
             <a
-              href={section.href}
-              aria-current={section.isActive ? "page" : undefined}
+              href={item.href}
+              aria-current={item.active ? "page" : undefined}
               class:list={[
                 "px-2 py-1 rounded-md text-[0.8125rem] font-medium no-underline transition-colors",
-                section.isActive
+                item.active
                   ? "text-foreground bg-accent"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent/60",
               ]}
             >
-              {section.label}
+              {item.label}
             </a>
           ))}
-        </nav>
-      )}
+      </nav>
     </div>
 
     <div class="flex items-center gap-2">

@@ -1,0 +1,35 @@
+---
+title: Approval
+description: 在具体高风险工具调用执行前获取用户决定。
+status: canonical
+sidebar:
+  order: 8
+---
+
+Approval 处理存在合法用途、但不应由模型自行决定的高风险操作。它发生在工具真正执行之前。
+
+## 触发条件
+
+典型 Ask 操作包括:
+
+- `git push --force`
+- 裸 `git reset --hard`
+- `sudo`
+- `git clean -f`
+- `kill -9`
+- 包发布和软件卸载
+- 递归权限变更
+
+Safety 硬拒绝的操作不会进入 Approval，因为用户确认也不能把 Deny 变成 Allow。
+
+## 用户看到什么
+
+Approval 显示具体命令或操作、请求原因和当前 Session。用户可以允许或拒绝，决定会记录到 Session 时间线。
+
+允许只针对当前具体调用，不创建永久全局放行规则。命令、目标或参数变化后需要重新判定。
+
+## 取消和超时
+
+Abort 优先于 Approval。正在等待的调用在 Session 取消后按拒绝处理，不会保持悬挂，也不会在后台恢复执行。
+
+Approval 超时或连接中断时不执行操作。用户没有看到确认结果时，不能把请求已显示当作命令已执行。

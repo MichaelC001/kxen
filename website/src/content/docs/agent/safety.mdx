@@ -1,0 +1,42 @@
+---
+title: Safety
+description: 在工具执行层识别、拒绝或升级高风险操作。
+status: canonical
+sidebar:
+  order: 7
+---
+
+Safety 是 kxen 的执行层硬边界。Prompt、Rules、Skills、项目配置和模型输出都不能关闭它。
+
+## 判定结果
+
+每次受保护操作会进入以下结果之一:
+
+- Allow: 直接执行。
+- Ask: 进入 Approval。
+- Deny: 拒绝执行。
+- Recoverable: 允许可恢复操作并记录风险。
+
+Deny 优先于 Ask，Ask 优先于 Recoverable。
+
+## 硬拒绝范围
+
+Safety 拒绝无法安全收窄或后果不可接受的操作，包括:
+
+- 磁盘格式化、分区和系统擦除。
+- 系统关机、重启和安全配置破坏。
+- Keychain、GPG 私钥和 Credential 根目录销毁。
+- 数据库、Cloud 项目、Kubernetes namespace 和基础设施全量销毁。
+- 批量删除 Git refs。
+- 以系统目录、home 根或 `.git` 为目标的破坏性文件操作。
+- 删除目标包含未展开变量，导致范围无法静态判定。
+
+## 可恢复删除
+
+文件工具和 Session 删除使用 macOS 废纸篓。Shell 中的 `trash` 被识别为可恢复删除。可恢复不代表可以删除系统目录或 `.git`。
+
+## 网络边界
+
+Web 和远端 MCP 的初始 URL 经过地址检查。loopback、link-local 和内部地址不会被当作普通公网目标。Browser 页内导航和子资源不构成完整 SSRF 边界，因此 Browser 仍需要受控使用。
+
+需要用户决定的高风险操作见 [Approval](https://kxen.ai/agent/approval)。

@@ -1,44 +1,44 @@
 ---
 title: 数据存储
-description: kxen 的本地配置、Session、Goal、认证、缓存和恢复数据位置。
+description: 查询配置、Session、Goal、Team、认证、缓存和恢复数据的位置。
 status: canonical
 sidebar:
-  order: 4
+  order: 2
 ---
 
-kxen 采用本地优先存储。当前没有 kxen 云同步服务。
+kxen 采用本地优先存储，当前没有 kxen 云同步服务。
 
 ## 目录
 
 | 数据 | macOS 位置 |
 | --- | --- |
-| 用户配置 | home 下的 `.config/kxen/` |
-| 应用数据 | `Library/Application Support/kxen/` |
-| 缓存 | `Library/Caches/kxen/` |
-| 项目配置 | Workspace 根下的 `.kxen/` |
-| 项目知识 | Workspace 根下的 `.agents/` |
-| 个人知识 | home 下的 `.agents/` |
+| 用户配置 | `file:///Users/you/.config/kxen/` |
+| 应用数据 | `file:///Users/you/Library/Application%20Support/kxen/` |
+| 缓存 | `file:///Users/you/Library/Caches/kxen/` |
+| 项目配置 | `file:///path/to/workspace/.kxen/` |
+| 项目知识 | `file:///path/to/workspace/.agents/` |
+| 个人知识 | `file:///Users/you/.agents/` |
 
 ## Session
 
-每个 Session 使用一个 JSON meta 文件和一个 JSONL 消息文件。消息采用追加写，meta 通过临时文件和 rename 更新。Session 可以包含文本、隐藏上下文、工具调用、推理、图片和审批结果。
+每个 Session 使用一个 JSON meta 文件和一个 JSONL 消息文件。消息追加写入，meta 通过临时文件和 rename 更新。
 
-图片以内联数据保存，使 Session 在 fork、导出、rewind 和删除时保持自包含。
+Session 可以包含文本、隐藏上下文、工具调用、推理、图片和 Approval 结果。图片以内联数据保存，使 fork、导出、rewind 和删除保持自包含。
 
 ## Goal 和 Team
 
-Goal 保存在应用数据目录中的 `goals` 子目录。Team 配置、共享任务、inbox 和 member transcript 保存在 `teams` 子目录。
+Goal 保存在应用数据的 goals 子目录。Team 配置、共享任务、inbox 和 member transcript 保存在 teams 子目录。
 
 ## 凭证
 
-认证数据保存在权限受限的 `auth.json`。配置文件只保存 Provider 和路由选择，不保存 API key 或 OAuth token。
+认证数据保存在权限受限的 auth.json。配置文件只保存路由选择，不保存 API key 或 OAuth token。
 
-删除或复制认证数据前必须退出应用并确认文件权限。认证文件不得提交到 Git。
+认证文件不得提交到 Git。复制或删除认证数据前先退出应用，并确认目标文件权限。
 
 ## Checkpoint
 
-Checkpoint 使用独立 shadow Git repository，不写入 Workspace 自身的 `.git`。Rewind 会改变 Workspace 文件状态，执行前必须查看影响范围。
+Checkpoint 使用独立 shadow Git repository，不写入 Workspace 自身的 `.git`。
 
-## 删除和恢复
+## 删除
 
-生产环境中的 Session 删除进入 macOS 废纸篓。清理应用数据会同时影响 Session、Goal、认证和运行恢复信息，不能把它当作普通缓存清理。
+生产环境中的文件和 Session 删除进入 macOS 废纸篓。清理整个应用数据目录会同时影响 Session、Goal、Team、认证和恢复状态，不能当作普通缓存清理。

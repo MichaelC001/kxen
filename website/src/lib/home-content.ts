@@ -1,7 +1,7 @@
 export const homeTitle = "kxen";
-export const homeDescription = "macOS Apple Silicon 原生 Coding Agent Harness 的官网与权威文档。";
+export const homeDescription = "面向复杂软件工程任务的 macOS 原生 Coding Agent Harness。";
 
-export const homeBody = `kxen 是一个面向复杂软件工程任务的原生 Coding Agent Harness。它把模型调用、目标管理、动态工作流、子代理、工具执行、安全边界和本地知识放进同一个 macOS 应用。
+export const homeBody = `kxen 是一个面向复杂软件工程任务的 macOS 原生 Coding Agent Harness。它让用户在一个本地应用中组织工作目录、会话、模型、目标和 Agent 执行过程。
 
 当前版本是开发预览。公开发行、签名下载和自动更新尚未开放。
 
@@ -9,7 +9,10 @@ export const homeBody = `kxen 是一个面向复杂软件工程任务的原生 C
 
 - [产品概览](https://kxen.ai/overview/)
 - [开始使用](https://kxen.ai/getting-started/)
-- [使用指南](https://kxen.ai/guides/)
+- [Workspace](https://kxen.ai/workspace/workspace/)
+- [Agent 与任务](https://kxen.ai/agent/)
+- [知识与定制](https://kxen.ai/knowledge/)
+- [集成能力](https://kxen.ai/integrations/)
 - [参考手册](https://kxen.ai/reference/)
 - [核心概念](https://kxen.ai/concepts/)
 

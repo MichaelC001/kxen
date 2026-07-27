@@ -1,0 +1,32 @@
+---
+title: Rewind
+description: 从指定消息恢复对话和对应的 Workspace 文件状态。
+status: canonical
+sidebar:
+  order: 2
+---
+
+Rewind 把 Session 和 Workspace 回退到某条消息对应的恢复点。它不是普通消息删除，因为操作会改变真实文件。
+
+## 发起
+
+在 Session 时间线的可恢复消息上选择 Rewind。执行前，kxen 检查:
+
+- 当前是否存在活动 run。
+- Checkpoint 是否属于当前 Session 和 Workspace。
+- 工作树是否存在未保存修改。
+- 恢复范围是否需要用户确认。
+
+## 影响
+
+Rewind 会删除目标消息之后的 Session 历史，并恢复 Checkpoint 记录的文件状态。后续工具结果、Approval 记录和 Assistant 输出不再属于当前时间线。
+
+## 保护用户修改
+
+当文件在 Checkpoint 之外发生变化时，Rewind 不能静默丢弃这些修改。界面需要展示影响范围，并在无法安全恢复时停止操作。
+
+## 与 Fork 的区别
+
+Fork 从历史消息创建新的 Session，保留原 Session 和当前文件状态。Rewind 修改当前 Session 和文件状态。
+
+只想从旧对话继续探索时使用 Fork。明确需要撤回 Agent 文件修改时才使用 Rewind。

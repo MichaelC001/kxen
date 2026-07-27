@@ -1,0 +1,32 @@
+---
+title: Workspace
+description: 使用本地项目目录限定配置、知识、工具和执行状态。
+status: canonical
+sidebar:
+  order: 1
+---
+
+Workspace 是 kxen 对本地项目的注册记录，也是所有项目级能力的安全边界。
+
+## 产品入口
+
+左侧栏显示已经注册的 Workspace。用户可以通过 macOS 原生目录选择器添加项目，也可以在 Workspace 下创建、切换和整理 Session。
+
+## Workspace 决定什么
+
+- Session 的默认工作目录。
+- 项目配置和项目知识的查找根。
+- MCP、LSP 和 Hook 的项目生命周期。
+- 文件工具允许访问的默认范围。
+- Checkpoint 和 Worktree 的仓库上下文。
+- Git 状态、变更视图和项目级诊断。
+
+## 信任状态
+
+Workspace 信任控制项目提供的配置、MCP、Skill、Command 和知识注入。未信任项目的内容可以被索引，但不能直接进入模型提示词或可执行工具面。
+
+个人范围配置和知识跟随用户，不因项目未信任而停用。
+
+## 使用边界
+
+Workspace 不是任意目录字符串。切换 Workspace 时，依赖工作目录的服务必须使用新的项目上下文。不要把 home 根目录作为普通 Workspace，也不要用一个 Workspace 混合多个无关仓库。

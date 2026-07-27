@@ -13,7 +13,7 @@ kxen 在用户本机执行模型生成的操作。安全目标不是让模型永
 | 边界 | 规则 |
 | --- | --- |
 | Workspace | 默认只允许操作当前工作目录 |
-| 项目配置 | 未信任 Workspace 不加载 `.kxen/config.toml` |
+| 项目配置 | 未信任 Workspace 不加载项目 TOML |
 | 项目 MCP | 未信任 Workspace 不启动 |
 | 外部文件 | 需要原生文件选择器授权 |
 | 模型调用 | 统一经过 MRM 和 Auth store |
@@ -32,7 +32,7 @@ Provider 凭证可以来自官方客户端的本地登录状态或用户显式�
 
 ## 硬保护
 
-Safety 对系统路径、Credential 目录、`.git`、磁盘操作和大范围资源销毁执行硬拒绝。项目规则和用户 Prompt 不能覆盖这些规则。
+Safety 对系统路径、Credential 目录、Git 元数据、磁盘操作和大范围资源销毁执行硬拒绝。项目 Rules 和用户 Prompt 不能覆盖这些规则。
 
 ## 可恢复性
 

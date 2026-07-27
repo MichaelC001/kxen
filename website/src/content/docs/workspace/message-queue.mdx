@@ -1,0 +1,27 @@
+---
+title: 消息队列
+description: 控制 Session 正在运行时新消息的处理顺序。
+status: canonical
+sidebar:
+  order: 6
+---
+
+消息队列解决同一个 Session 在 Agent 尚未完成时再次发送消息的问题。
+
+## Queue 模式
+
+`queue` 是默认行为。新消息进入当前 Session 的等待队列，当前 run 完成后按顺序继续处理。它适合补充后续任务，不会打断正在执行的工具调用。
+
+## Interrupt 模式
+
+`interrupt` 会先取消当前 run，再处理新消息。它适合立即纠正方向，但当前回合尚未完成的结果不会继续执行。
+
+设置入口位于 Settings 的通用区域。修改后对后续发送生效。
+
+## Abort
+
+Abort 直接取消当前 run，优先于 Approval 等待和长命令等待。取消后必须产生明确终态。等待队列不会把已经取消的工具调用恢复到后台继续执行。
+
+## 使用边界
+
+队列只保证同一 Session 内的消息顺序。不同 Session、Subagent、Workflow Agent 和 Team member 由各自的运行状态和 MRM 资源限制协调。

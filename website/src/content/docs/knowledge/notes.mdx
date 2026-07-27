@@ -1,0 +1,39 @@
+---
+title: Notes
+description: 保存原子、可维护的纠正、约定、陷阱和偏好。
+status: canonical
+sidebar:
+  order: 6
+---
+
+Note 是可以直接沉淀的短知识条目。它适合记录未来任务仍然有用、但不应升级成硬规则的事实。
+
+## 产品入口
+
+在 Settings 的知识库 OKF 区域手动写入 Note。用户需要选择 scope、类型、描述和正文。
+
+Agent 也可以通过 knowledge 工具添加 Note。个人 scope 是默认选择，只有团队需要共享的稳定事实才写入项目 scope。
+
+## Note 类型
+
+- correction: 对错误认识的纠正。
+- convention: 稳定约定。
+- pitfall: 容易重复踩到的陷阱。
+- preference: 用户偏好。
+- note: 不属于以上类型的长期信息。
+
+## 编写方式
+
+一条 Note 只表达一个事实。描述用于检索和列表展示，正文提供能够在后续任务中直接使用的信息。
+
+不要把一次执行日志、失败输出、临时计划或未确认推断写成 Note。发生事实变化时，更新原条目，避免保留互相冲突的多份版本。
+
+## Scope
+
+项目 Note 位于 `file:///path/to/workspace/.agents/notes/`，可以随 Git 共享。个人 Note 位于 `file:///Users/you/.agents/notes/`，跨项目使用。
+
+同 slug 的项目条目覆盖个人条目。移动 scope 时 kind 和内容保持不变。
+
+## 注入方式
+
+Note 与 Memory 共享相关性检索。它不是始终注入的 Rule，也不是需要显式调用的 Skill。具体检索过程见 [Memory](https://kxen.ai/knowledge/memory)。

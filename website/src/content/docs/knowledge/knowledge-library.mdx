@@ -1,0 +1,45 @@
+---
+title: Knowledge Library
+description: 在一个界面管理项目和个人范围的全部知识条目。
+status: canonical
+sidebar:
+  order: 1
+---
+
+Knowledge Library 是 kxen 统一知识系统的管理界面。它使用同一套条目格式保存不同知识类型，但保留各自的加载和调用语义。
+
+## 产品入口
+
+在 Settings 的知识库 OKF 区域查看。页面先按 scope 分成项目和个人，再按 kind 分组。
+
+当前 kind 包括:
+
+- rule
+- reference
+- skill
+- command
+- note
+- memory
+- history
+
+## Scope
+
+项目范围保存在 Workspace 的知识目录中，可以随 Git 共享。个人范围保存在当前用户的知识目录中，跨项目生效。
+
+同 kind、同 slug 同时存在时，项目条目覆盖个人条目。界面会标记被项目版本遮蔽的个人条目。
+
+## 管理动作
+
+- 启用或停用条目。
+- 在项目和个人 scope 之间移动。
+- 删除到 macOS 废纸篓。
+- 手动写入 Note。
+- 查看下一轮 system prompt 的知识注入预览。
+
+启停会立即影响下一次知识渲染。移动 scope 保留条目 kind，不会把 Rule 自动转换成 Note。
+
+## 信任边界
+
+未信任 Workspace 的项目知识可以出现在索引和管理界面中，但不会把正文注入模型，也不会开放项目 Skill 和 Command 的执行面。
+
+具体激活规则由各能力页面说明，Knowledge Library 本身不改变条目的语义。

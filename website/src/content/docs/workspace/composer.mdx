@@ -1,0 +1,36 @@
+---
+title: Composer
+description: 组合任务文本、附件、命令、知识、模型和语音输入。
+status: canonical
+sidebar:
+  order: 4
+---
+
+Composer 是 Session 的统一输入界面。它负责把自然语言、上下文和显式控制转换成一次 Agent 请求。
+
+## 支持的输入
+
+- 普通文本。
+- 文件和目录引用。
+- 图片附件。
+- 大段粘贴内容。
+- Slash Command 和 Skill。
+- Knowledge 写入目标。
+- 语音转写。
+
+## 快捷触发
+
+- `@` 搜索并引用 Workspace 内的文件或目录。
+- `/` 只在行首触发 Command 和可调用 Skill。
+- `#` 选择项目或个人知识写入目标。
+- 长按空格进入语音输入。
+
+输入法组字期间，Enter 不会误发送。每个 Session 保存自己的 Composer 草稿，切换后可以恢复未发送文本。
+
+## 发送前
+
+Composer 会显示当前模型和 token 估算。附件会在发送时解析成上下文或图片载荷。文件仍受 Workspace 边界和 Safety 约束，添加到 Composer 不代表 Agent 获得越界访问权限。
+
+## 运行中发送
+
+默认行为是把新消息加入等待队列。用户也可以在设置中改为先中断当前 run，再处理新消息。具体状态见 [消息队列](https://kxen.ai/workspace/message-queue)。

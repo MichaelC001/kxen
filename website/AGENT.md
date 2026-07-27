@@ -10,13 +10,19 @@
 
 ## 内容
 
-- `overview`: 产品定位和状态。
-- `getting-started`: 可用性、系统要求和首次使用。
-- `guides`: 面向任务的产品指南。
-- `reference`: 当前产品行为和配置。
-- `concepts`: 用户需要理解的 Runtime 概念。
+- `overview`: 产品定位、产品能力、当前状态和可用性。
+- `getting-started`: 系统要求、首个 Workspace 和首个 Session。
+- `workspace`: Workspace、看板、Session、Composer 和上下文。
+- `models`: Provider、账号、模型、路由和用量。
+- `agent`: Goal、Workflow、Subagent、Team、任务、工具和执行安全。
+- `knowledge`: Knowledge Library、Rules、References、Skills、Commands、Notes 和 Memory。
+- `integrations`: MCP、LSP、Browser、Voice 和 Schedule。
+- `recovery`: Checkpoint、Rewind 和 Worktree。
+- `reference`: 配置、存储、快捷键、诊断和故障排查。
+- `concepts`: 用户需要理解的 Runtime 原理。
 
 页面 H1 由 frontmatter `title` 生成，正文不重复 H1。每页必须有 `description` 和 `status`。
+一级栏目只负责分类和导航。一个能力只能由一个权威页面完整解释，禁止把多个能力合并成一个标题或一篇正文。
 
 ## 修改流程
 
@@ -38,7 +44,7 @@ pnpm check
 
 ## Nimbus
 
-- 组件必须注册到 `src/components.ts`。
+- 全局组件必须在组件注册表中登记。
 - 保留 `AgentDirective`。
 - 保留每页 Markdown alternate、`llms.txt`、`llms-full.txt`、Pagefind、sitemap、robots、404 和 Open Graph。
 - Nimbus 项目: [https://github.com/cloudflare/nimbus](https://github.com/cloudflare/nimbus)

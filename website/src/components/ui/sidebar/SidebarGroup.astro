@@ -61,7 +61,7 @@ function hasActiveDescendant(items: SidebarItem[]): boolean {
 }
 
 const hasActive = Boolean(indexIsCurrent) || hasActiveDescendant(items);
-const isOpen = Boolean(hasActive || collapsed === false || collapsed === undefined);
+const isOpen = Boolean(hasActive || collapsed === false);
 
 // Shared classes for the row that holds the label + caret in both
 // rendering modes (landing-as-link vs. label-as-trigger).

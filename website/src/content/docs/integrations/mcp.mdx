@@ -1,0 +1,47 @@
+---
+title: MCP
+description: 连接本地或远端 Model Context Protocol server。
+status: canonical
+sidebar:
+  order: 1
+---
+
+MCP 让 kxen 接入外部工具、资源和 Prompt。每个 server 拥有独立 transport、认证、工具策略和运行状态。
+
+## Transport
+
+kxen 支持:
+
+- stdio。
+- Streamable HTTP。
+- SSE。
+
+stdio server 由本机命令启动。远端 server 使用 URL，并可以附带固定 header 或 OAuth 配置。
+
+## Scope
+
+用户 MCP 对所有 Workspace 可见。项目 MCP 属于当前 Workspace，同名项目 server 覆盖用户 server。
+
+项目 MCP 只在 Workspace 已信任时启动。未信任项目不能通过 MCP 配置让本机执行仓库提供的命令。
+
+## 工具策略
+
+每个 MCP 工具可以设置:
+
+- allow。
+- ask。
+- deny。
+
+ask 会在调用前进入 Approval。deny 工具不会因为模型请求而执行。MCP 工具还要经过角色权限和通用 Safety。
+
+## 产品入口
+
+Settings 的高级区域显示 MCP server 状态、工具和资源数量。用户可以发起远端交互授权、轮询授权结果和手动重启 server。
+
+## 凭证
+
+远端 token、OAuth secret 和固定敏感 header 不应提交到项目仓库。项目配置可以描述连接，但 Secret 保存在本地安全位置。
+
+## 故障边界
+
+server 进程存在不等于 MCP 已完成握手。诊断时分别检查 transport、认证、初始化、工具清单和具体调用结果。

@@ -1,0 +1,31 @@
+---
+title: Provider
+description: 连接订阅服务、API 平台、本地模型和兼容端点。
+status: canonical
+sidebar:
+  order: 1
+---
+
+Provider 描述模型服务的协议、端点、认证方式、区域、能力和默认模型。它不等于账号，也不等于具体模型。
+
+## 产品入口
+
+在 Settings 的提供商区域查看 Provider 和账号状态。Provider 注册表是界面名称、认证类型、区域和默认模型的权威来源。
+
+## Provider 类型
+
+- 订阅 OAuth Provider。
+- API key Provider。
+- 本地免认证 Provider，例如 Ollama。
+- 自定义 OpenAI 兼容端点。
+- 自定义 Anthropic 兼容端点。
+
+## 自定义 Provider
+
+创建自定义 Provider 时需要提供名称、base URL、协议、模型 ID、API key 和能力。能力可以包含 text、vision 和 audio。
+
+自定义 Provider 的配置和凭证分开保存。配置记录端点和模型，凭证进入本地认证存储，不进入项目仓库。
+
+## 可用性
+
+Provider 出现在注册表中，只表示 kxen 知道如何连接它。实际可用性还取决于账号凭证、区域、模型权限、服务状态和本机网络。使用账号行中的连接实测确认当前状态。

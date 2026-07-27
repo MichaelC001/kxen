@@ -1,5 +1,6 @@
 // Root /llms.txt — sectioned index for AI agents.
 import { getIndexedTopLevel } from "@cloudflare/nimbus-docs";
+import { utf8Text } from "@/lib/text-response";
 import { config } from "virtual:nimbus/config";
 
 export const prerender = true;
@@ -49,7 +50,5 @@ export async function GET() {
 
   lines.push("");
 
-  return new Response(lines.join("\n"), {
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
-  });
+  return utf8Text(lines.join("\n"), "text/plain");
 }

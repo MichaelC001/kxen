@@ -1,0 +1,31 @@
+---
+title: Session
+description: 保存对话、模型选择、工具调用和可恢复的执行历史。
+status: canonical
+sidebar:
+  order: 3
+---
+
+Session 是用户与 Agent 协作的基本单位。它绑定一个工作目录，并保存从用户消息到工具执行结果的完整时间线。
+
+## 产品入口
+
+每个 Workspace 下都有独立的 Session 列表。Session 支持创建、切换、重命名、置顶、排序和删除。
+
+## 保存的内容
+
+- 标题、工作目录和当前模型。
+- 用户消息和 Assistant 消息。
+- 工具调用、工具结果和 Approval 结果。
+- 推理、图片和隐藏上下文。
+- 父 Session、Goal、Team、Schedule 和恢复点关联。
+
+Session 消息使用追加写历史。删除 Session 会停止活动 run，并进入 macOS 废纸篓。
+
+## 时间线操作
+
+用户可以编辑并重新发送消息，从指定消息创建分叉，重新运行 Assistant 回合，以及导出当前 Session。分叉保留原 Session，不会把两个后续执行混进同一条时间线。
+
+## 状态边界
+
+每个 run 必须结束为完成、取消或错误。界面停止流式更新不代表后端 run 已结束。活动状态、等待队列和 Approval 共同决定 Session 是否仍在运行。

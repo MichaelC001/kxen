@@ -1,16 +1,21 @@
 ---
 title: 配置
-description: 用户配置、项目配置、角色路由、资源限制、Hook、Voice、Search 和 Embedding 参考。
+description: 查询用户配置、项目覆盖、角色路由、资源限制和扩展设置。
 status: canonical
 sidebar:
   order: 1
 ---
 
-kxen 使用 TOML 配置。用户配置位于 macOS home 下的 `.config/kxen/config.toml`。受信任 Workspace 可以通过根目录中的 `.kxen/config.toml` 覆盖用户配置。
+kxen 使用 TOML 保存非敏感配置。
 
-项目配置只在 Workspace 已被信任时加载。项目级表项覆盖同名用户级表项，Hook 列表按事件追加。
+## 配置层级
 
-## 完整示例
+- 用户配置: `file:///Users/you/.config/kxen/config.toml`
+- 项目配置: `file:///path/to/workspace/.kxen/config.toml`
+
+项目配置只在 Workspace 已信任时加载。项目级表项覆盖同名用户级表项，Hook 列表按事件追加。
+
+## 示例
 
 ```toml
 send_when_running = "queue"
@@ -28,9 +33,6 @@ model = "grok-build-0.1"
 account = "work"
 fallback = "research"
 
-[statusline]
-items = ["workdir", "git", "goal", "tasks", "tokens", "ctx", "model"]
-
 [voice]
 engine = "apple"
 fallback = ["openai"]
@@ -44,50 +46,31 @@ base_url = "http://localhost:11434"
 
 [search]
 engine = "auto"
-google_cx = ""
-searxng_url = ""
 
 [custom_providers.example]
 base_url = "https://api.example.com/v1"
 protocol = "openai"
 models = ["example-model"]
 capabilities = ["text"]
-
-[[hooks.pre_tool_use]]
-matcher = "exec|write|edit"
-command = "scripts/check-tool.sh"
 ```
 
-## roles
+## 资源限制
 
-内置角色为 thinking、planning、execution、review 和 research。
-
-每个角色支持:
-
-- `provider`: Provider ID。
-- `model`: 模型 ID。
-- `account`: 可选账号名。
-- `fallback`: 可选降级角色。
-
-模型 ID 以应用中的实时目录为准。静态文档不承诺 Provider 始终提供某个模型。
-
-## limits
-
-- `global_concurrent`: 所有模型调用共享的全局并发上限，默认值是 8。
+- `global_concurrent`: 所有模型调用的全局并发上限，默认值为 8。
 - `limits.providers.<id>.concurrent`: Provider 并发上限。
 - `limits.providers.<id>.rpm`: 每个账号的 60 秒请求上限。
 
-Provider 的多个账号共享 Provider 并发池，RPM 按账号分别记账。
+多个账号共享 Provider 并发池，RPM 按账号分别记录。
 
-## send_when_running
+## 运行中消息
 
-- `queue`: 默认值。新消息进入当前 Session 的 pending queue。
-- `interrupt`: 取消当前 run，再处理新消息。
+- `queue`: 新消息进入等待队列。
+- `interrupt`: 取消当前 run 后处理新消息。
 
-## hooks
+## Hook
 
-Hook 事件支持一个或多个命令。`matcher` 是工具名正则，省略时匹配全部工具。Hook 不能绕开执行层 Safety 和 Approval。
+Hook 可以在工具事件上运行命令，并通过 matcher 限定工具名。Hook 仍受 Workspace 信任、Shell Safety 和 Approval 约束。
 
 ## 凭证
 
-API key、OAuth access token 和 refresh token 不写入 TOML。凭证由本地认证存储管理，项目仓库必须保持零明文。
+API key、OAuth access token 和 refresh token 不写入 TOML。配置文件只引用 Provider、账号名、模型和非敏感端点信息。

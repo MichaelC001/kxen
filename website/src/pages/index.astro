@@ -25,7 +25,7 @@ import { homeDescription, homeTitle } from "../lib/home-content";
           一个原生、可控、面向复杂软件工程任务的 Coding Agent Harness。
         </p>
         <p class="mt-4 max-w-2xl text-base text-muted-foreground leading-relaxed sm:text-lg">
-          为 macOS Apple Silicon 构建。统一管理模型、目标、工作流、子代理、工具、安全边界和本地知识。
+          为 macOS Apple Silicon 构建。把 Workspace、Session、模型、目标和 Agent 执行过程放进一个本地应用。
         </p>
         <div class="mt-8 flex flex-wrap gap-3">
           <a href="/overview" class="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground no-underline transition-colors hover:bg-primary-hover">
@@ -39,25 +39,46 @@ import { homeDescription, homeTitle } from "../lib/home-content";
 
       <div class="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <a
-          href="/guides/orchestration"
+          href="/workspace/workspace"
           class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
         >
-          <div class="font-semibold text-foreground">目标与编排</div>
-          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">Goal、Workflow、Subagent 和 Agent Teams 共享一个执行模型。</div>
+          <div class="font-semibold text-foreground">Workspace</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">以本地项目为边界组织配置、知识、工具和执行状态。</div>
         </a>
         <a
-          href="/concepts/mrm"
+          href="/workspace/composer"
           class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
         >
-          <div class="font-semibold text-foreground">多模型调度</div>
-          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">用角色、账号、并发和降级链统一管理所有模型调用。</div>
+          <div class="font-semibold text-foreground">Composer</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">组合文本、文件、图片、命令、知识和语音输入。</div>
         </a>
         <a
-          href="/reference/safety"
+          href="/agent/goal"
           class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
         >
-          <div class="font-semibold text-foreground">执行安全</div>
-          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">危险操作在执行层统一拦截，删除默认进入废纸篓。</div>
+          <div class="font-semibold text-foreground">Goal</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">用可验证的完成条件管理跨多轮的软件工程任务。</div>
+        </a>
+        <a
+          href="/models/model-routing"
+          class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
+        >
+          <div class="font-semibold text-foreground">模型路由</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">按角色配置 Provider、模型、账号和降级链。</div>
+        </a>
+        <a
+          href="/knowledge/knowledge-library"
+          class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
+        >
+          <div class="font-semibold text-foreground">Knowledge Library</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">统一管理项目和个人范围的规则、资料与长期知识。</div>
+        </a>
+        <a
+          href="/agent/safety"
+          class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
+        >
+          <div class="font-semibold text-foreground">Safety</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">在工具执行层拒绝、审批或记录高风险操作。</div>
         </a>
       </div>
 
