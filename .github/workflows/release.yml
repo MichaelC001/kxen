@@ -116,7 +116,7 @@ jobs:
           printf '%s' "$APPLE_API_PRIVATE_KEY" > "$KXEN_API_KEY_PATH"
           printf 'APPLE_API_KEY_PATH=%s\n' "$KXEN_API_KEY_PATH" >> "$GITHUB_ENV"
       - name: Build signed and notarized bundle
-        run: pnpm tauri:build -- --target aarch64-apple-darwin
+        run: pnpm tauri:build --target aarch64-apple-darwin
       - name: Stage release assets
         id: stage
         run: node scripts/stage-release.mjs

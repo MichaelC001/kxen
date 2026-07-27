@@ -96,7 +96,8 @@
 - [ ] 创建 Cloudflare R2 bucket `kxen-releases`。
 - [ ] 创建 `https://releases.kxen.ai` 和 `https://releases.kxen.ai/latest.json`。
 - [x] GitHub workflow 构建 macOS ARM64 DMG 和 updater artifact。
-- [ ] 执行 Developer ID 签名、Apple notarization 和 staple。
+- [x] 执行 Developer ID Application 本地签名验证。
+- [ ] 执行 Apple notarization 和 staple。
 - [ ] 发布 `v0.1.0` development preview。
 - [ ] 官网增加下载入口并更新当前可用性。
 
@@ -118,10 +119,12 @@
 - [x] npm production audit
 - [x] `cargo audit`
 - [x] 根应用 production build
-- [ ] Tauri ARM64 bundle build
+- [x] Tauri ARM64 bundle build
 - [x] 网站 `pnpm check`
-- [ ] Browser 桌面、移动、搜索和下载流程
-- [ ] `codesign`、`spctl`、`stapler`、DMG 安装和 updater 签名
+- [x] Browser 桌面、移动、Mermaid 和搜索流程
+- [ ] Browser 下载流程
+- [x] `codesign` 和 DMG checksum
+- [ ] `spctl`、`stapler`、DMG 安装和 updater 签名
 - [ ] GitHub required checks
 - [ ] Cloudflare R2 HTTPS 和 updater endpoint
 
