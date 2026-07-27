@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "kxen-docs",
+  "name": "kxen",
   "account_id": "86e4d320a5d69fb54f9721fb219a4902",
   "compatibility_date": "2026-07-27",
   "workers_dev": false,
