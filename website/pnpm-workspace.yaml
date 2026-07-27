@@ -1,3 +1,5 @@
+overrides:
+  lodash-es: 4.18.1
 # Declines install scripts for esbuild and sharp (they ship prebuilds),
 # clearing pnpm's build-scripts gate. Adding a package here lets it run scripts.
 packages: []

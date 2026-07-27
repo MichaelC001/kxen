@@ -23,6 +23,16 @@ export default defineConfig({
   // Astro 7's Vite 8 bundler).
   vite: {
     plugins: [tailwindcss()],
+    resolve: {
+      alias: [
+        {
+          find: /^vscode-jsonrpc\/lib\/common\/(?:events|cancellation)\.js$/,
+          // Langium 3 imports the legacy subpath, but vscode-jsonrpc 9 only
+          // exports the same public event and cancellation APIs from its root.
+          replacement: "vscode-jsonrpc",
+        },
+      ],
+    },
   },
   // Hover-prefetch link targets so full-page navigations feel instant without
   // a client-side router.
