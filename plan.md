@@ -59,6 +59,7 @@
 
 - [x] 确认 `https://kxen.ai` 所在 Cloudflare account: Qingmu，Account ID `86e4d320a5d69fb54f9721fb219a4902`
 - [x] 配置 Workers Static Assets、Qingmu Account ID 和 `https://kxen.ai` Custom Domain
-- [ ] 部署 Workers Static Assets
-- [ ] 绑定 `https://kxen.ai`
-- [ ] 验证 HTTPS、DNS、页面、搜索和 Agent surfaces
+- [x] 关联 Cloudflare Workers Builds: `main` -> `website` -> `pnpm run build` -> `npx wrangler deploy`
+- [x] 通过 Cloudflare Workers Builds 部署 Workers Static Assets
+- [x] 绑定 `https://kxen.ai`
+- [x] 验证 HTTPS、DNS、页面、Pagefind assets 和 Agent surfaces
