@@ -1,6 +1,6 @@
 # kxen 产品官网与文档计划
 
-- 状态: IN_PROGRESS
+- 状态: COMPLETED
 - 分支: `docs/website-capabilities`
 - 基线 commit: `c5ab71bbf5659bece107f2cd1c32425617436f1e`
 - 隔离工作区: `file:///Users/xiaobai/Code/SelfCode/kxen-docs-capabilities`
@@ -44,6 +44,7 @@
 - [x] `https://kxen.ai/llms.txt`
 - [x] `https://kxen.ai/llms-full.txt`
 - [x] 每页 Markdown 和 MDX alternate
+- [x] Mermaid 图表按需加载、明暗主题、错误状态和全屏查看
 
 ## 4. 验证
 
@@ -54,6 +55,7 @@
 - [x] `pnpm typecheck`
 - [x] `pnpm build`
 - [x] Pagefind index、404 和 Agent surfaces 静态及 HTTP 检查
+- [x] 8 个 Mermaid 图表页面、动态资源、Markdown twins 和 BOM 检查
 - [ ] Browser 桌面视口、移动视口和搜索交互，SKIP: 当前没有可用 Browser 或 Chrome 连接
 - [x] 根应用依赖和运行逻辑零改动
 
@@ -64,6 +66,6 @@
 - [x] 关联 Cloudflare Workers Builds: `main` -> `website` -> `pnpm run build` -> `npx wrangler deploy`
 - [x] 通过 Cloudflare Workers Builds 部署 Workers Static Assets
 - [x] 绑定 `https://kxen.ai`
-- [ ] 提交并 fast-forward 推送 `main`
-- [ ] 验证 Cloudflare Workers Builds 自动发布
-- [ ] 验证 HTTPS、页面、Pagefind assets 和 Agent surfaces
+- [x] 提交并 fast-forward 推送 `main`
+- [x] 验证 Cloudflare Workers Builds 自动发布
+- [x] 验证 HTTPS、页面、Pagefind assets 和 Agent surfaces
