@@ -10,17 +10,23 @@ Orchestration 决定任务如何拆分、并行、持续和恢复。它不改变
 
 ## 层级
 
-```text
-Workspace
-  Session
-    run
-      Goal
-      Subagent
-      Workflow
-      Team
-        member
-        shared task
-```
+<pre class="mermaid">{`
+flowchart TB
+  Workspace --> Session
+  Session --> Run["run"]
+  Run --> Goal
+  Run --> Subagent
+  Run --> Workflow
+  Run --> Team
+  Team --> Member["member"]
+  Team --> Task["shared task"]
+  Subagent --> MRM
+  Workflow --> MRM
+  Member --> MRM
+  Subagent --> Safety
+  Workflow --> Safety
+  Member --> Safety
+`}</pre>
 
 Workspace 提供文件边界。Session 提供持久对话边界。run 是一次执行。其他编排对象都与 Session 或 run 关联。
 

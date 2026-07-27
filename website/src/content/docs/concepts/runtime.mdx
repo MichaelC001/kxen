@@ -10,17 +10,17 @@ kxen 是一个 Tauri 2 macOS 应用。SolidJS 前端负责交互，Rust 后端�
 
 ## 分层
 
-```text
-SolidJS UI
-    |
-WebSocket RPC 和 Stream
-    |
-Rust AppState
-    |
-Session、Agent、MRM、Tools、Knowledge、MCP、LSP
-    |
-本地文件、进程、Provider 和系统能力
-```
+<pre class="mermaid">{`
+flowchart TB
+  UI["SolidJS UI"]
+  State["Rust AppState"]
+  Runtime["Session、Agent、MRM、Tools、Knowledge、MCP、LSP"]
+  Host["本地文件、进程、Provider 和系统能力"]
+  UI -->|"WebSocket RPC"| State
+  State -->|"Stream 事件"| UI
+  State --> Runtime
+  Runtime --> Host
+`}</pre>
 
 UI 不直接调用 Provider，也不直接拥有 Agent run。后端通过 RPC 接收操作，通过 Stream 推送 token、工具、审批、活动状态和终态事件。
 

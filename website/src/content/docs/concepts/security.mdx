@@ -8,17 +8,28 @@ sidebar:
 
 kxen 在用户本机执行模型生成的操作。安全目标不是让模型永不出错，而是让高风险行为在执行层可见、可拒绝和可恢复。
 
+<pre class="mermaid">{`
+flowchart LR
+  Intent["模型工具请求"] --> Permission["角色权限"]
+  Permission --> Safety["Safety 检查"]
+  Safety -->|"低风险"| Execute["执行"]
+  Safety -->|"需要确认"| Approval["Approval"]
+  Approval -->|"允许"| Execute
+  Approval -->|"拒绝"| Stop["停止"]
+  Execute --> Recovery["Checkpoint 和事件记录"]
+`}</pre>
+
 ## 信任边界
 
-| 边界 | 规则 |
-| --- | --- |
-| Workspace | 默认只允许操作当前工作目录 |
-| 项目配置 | 未信任 Workspace 不加载项目 TOML |
-| 项目 MCP | 未信任 Workspace 不启动 |
-| 外部文件 | 需要原生文件选择器授权 |
-| 模型调用 | 统一经过 MRM 和 Auth store |
-| 工具调用 | 统一经过角色权限、Safety 和 Approval |
-| 网络请求 | 初始 URL 经过地址和重定向检查 |
+| 边界      | 规则                                 |
+| --------- | ------------------------------------ |
+| Workspace | 默认只允许操作当前工作目录           |
+| 项目配置  | 未信任 Workspace 不加载项目 TOML     |
+| 项目 MCP  | 未信任 Workspace 不启动              |
+| 外部文件  | 需要原生文件选择器授权               |
+| 模型调用  | 统一经过 MRM 和 Auth store           |
+| 工具调用  | 统一经过角色权限、Safety 和 Approval |
+| 网络请求  | 初始 URL 经过地址和重定向检查        |
 
 ## 凭证
 

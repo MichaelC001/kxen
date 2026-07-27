@@ -8,6 +8,21 @@ sidebar:
 
 消息队列解决同一个 Session 在 Agent 尚未完成时再次发送消息的问题。
 
+<pre class="mermaid">{`
+stateDiagram-v2
+  state "当前 run" as Running
+  state "等待队列" as Queued
+  state "取消当前 run" as Cancelling
+  state "已取消" as Cancelled
+  [*] --> Running
+  Running --> Queued: queue
+  Queued --> Running: 当前 run 完成
+  Running --> Cancelling: interrupt
+  Cancelling --> Running: 启动新 run
+  Running --> Cancelled: Abort
+  Cancelled --> [*]
+`}</pre>
+
 ## Queue 模式
 
 `queue` 是默认行为。新消息进入当前 Session 的等待队列，当前 run 完成后按顺序继续处理。它适合补充后续任务，不会打断正在执行的工具调用。

@@ -16,3 +16,13 @@ sidebar:
 - [Worktree](https://kxen.ai/recovery/worktree) 隔离并行修改。
 
 它们都涉及文件状态，但不会替代用户自己的 Git 提交和分支管理。
+
+<pre class="mermaid">{`
+flowchart LR
+  Change["文件变化"] --> Checkpoint["Checkpoint"]
+  Checkpoint --> Continue["继续执行"]
+  Continue -->|"回到指定消息"| Rewind["Rewind"]
+  Continue -->|"隔离并行修改"| Worktree["Worktree"]
+  Rewind --> Restore["恢复文件和对话视图"]
+  Worktree --> Integrate["审查后合并修改"]
+`}</pre>

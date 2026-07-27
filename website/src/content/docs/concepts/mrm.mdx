@@ -8,6 +8,17 @@ sidebar:
 
 MRM 是 Model Resource Manager。主 Session、Subagent、Workflow Agent 和 Team member 的模型调用都必须经过 MRM。
 
+<pre class="mermaid">{`
+flowchart LR
+  Request["角色申请"] --> Binding["角色绑定"]
+  Binding --> Candidates["Provider、模型和账号候选"]
+  Candidates --> Limits["凭证、RPM 和并发检查"]
+  Limits --> Dispatch["分配 Grant 并调用"]
+  Limits -->|"首选不可用"| Fallback["fallback 角色"]
+  Fallback --> Candidates
+  Dispatch --> Record["dispatch record"]
+`}</pre>
+
 ## 输入
 
 一次申请包含角色和当前 Auth store。角色绑定提供首选 Provider、模型、可选账号和 fallback 角色。

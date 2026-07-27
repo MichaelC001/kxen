@@ -8,6 +8,20 @@ sidebar:
 
 Context 是当前模型调用的工作集，不是长期存储。kxen 把 Session 历史、Rules、显式附件、Notes、Memory 和运行状态按不同方式装入上下文。
 
+<pre class="mermaid">{`
+flowchart LR
+  Session["Session 历史"] --> Select["选择和限制"]
+  Rules["Rules"] --> Select
+  Attachments["显式附件"] --> Select
+  Notes["Notes"] --> Retrieve["相关性检索"]
+  Memory["Memory"] --> Retrieve
+  References["References"] --> Demand["按需读取"]
+  Retrieve --> Select
+  Demand --> Select
+  Select --> Compact["窗口阈值和 Compaction"]
+  Compact --> Context["模型调用上下文"]
+`}</pre>
+
 ## 显式附件
 
 Composer 的 `@` 引用支持 Workspace 内文件和目录。图片、拖入文件和大段粘贴内容通过附件系统加入。Web 和 Docs 类型上下文由对应工具入口提供，不由 `@` 文件搜索生成。
