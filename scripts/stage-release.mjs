@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { basename, join } from "node:path";
@@ -47,6 +48,15 @@ const dmgSource = exactlyOne(
 if (!artifacts.includes(signatureSource)) {
   throw new Error(`updater signature missing for ${basename(updaterSource)}`);
 }
+for (const [path, label] of [
+  [updaterSource, "updater artifact"],
+  [signatureSource, "updater signature"],
+  [dmgSource, "DMG artifact"],
+]) {
+  if (statSync(path).size === 0) {
+    throw new Error(`${label} is empty: ${basename(path)}`);
+  }
+}
 
 const output = join(root, "release-assets");
 mkdirSync(output, { recursive: true });
@@ -60,6 +70,9 @@ copyFileSync(signatureSource, signaturePath);
 copyFileSync(dmgSource, dmgPath);
 
 const signature = readFileSync(signatureSource, "utf8").trim();
+if (!signature) {
+  throw new Error(`updater signature is empty: ${basename(signatureSource)}`);
+}
 const baseUrl = `https://releases.kxen.ai/${tag}`;
 const manifestPath = join(output, "latest.json");
 writeFileSync(
