@@ -29,6 +29,8 @@ fn test_deps() -> SubagentDeps {
         search: Default::default(),
         coding_rules: Default::default(),
         experimental: Default::default(),
+        web: Default::default(),
+        tray: Default::default(),
     };
     SubagentDeps {
         registry: Arc::new(kxen_app::tools::task::TaskRegistry::new()),

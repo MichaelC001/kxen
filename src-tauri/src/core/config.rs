@@ -9,7 +9,10 @@ pub(crate) use custom_provider::{custom_provider_def_checked, endpoint_is_explic
 #[path = "config/document.rs"]
 mod document;
 mod load;
+#[path = "config/web_tray.rs"]
+mod web_tray;
 pub use document::{merge_voice_engine, validate_user_document};
+pub use web_tray::{TrayConfig, WebConfig};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -29,6 +32,10 @@ pub struct Config {
     pub coding_rules: CodingRulesConfig,
     /// 涉及外发内容或扩大宿主机能力面的实验功能，全部缺省关闭。
     pub experimental: ExperimentalConfig,
+    /// 内嵌 Web 服务（桌面 bin 常驻；浏览器访问开关与监听参数）
+    pub web: WebConfig,
+    /// 系统托盘（左键默认动作、关窗行为；per-client UI state，只存用户级）
+    pub tray: TrayConfig,
 }
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -211,6 +218,8 @@ impl Config {
             validate_custom_provider_endpoint(searxng_url)
                 .map_err(|error| crate::core::Error::Custom(format!("config validate {source}: search.searxng_url {error}")))?;
         }
+        self.tray.validate(source)?;
+        self.web.validate(source)?;
         for (name, def) in &self.custom_providers {
             crate::auth::credential::validate_custom_name(name)
                 .map_err(|error| crate::core::Error::Custom(format!("config validate {source}: custom_providers.{name} {error}")))?;
@@ -334,3 +343,5 @@ pub fn experimental_config() -> ExperimentalConfig {
 mod search_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod web_tray_tests;

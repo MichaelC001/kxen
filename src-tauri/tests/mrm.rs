@@ -35,6 +35,8 @@ fn config_with(roles: &[(&str, &str, &str, Option<&str>)], providers: &[(&str, O
         search: Default::default(),
         coding_rules: Default::default(),
         experimental: Default::default(),
+        web: Default::default(),
+        tray: Default::default(),
     }
 }
 

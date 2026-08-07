@@ -29,6 +29,8 @@ fn test_ctx(notify: Option<Arc<NotifyRouter>>) -> AgentContext {
         search: Default::default(),
         coding_rules: Default::default(),
         experimental: Default::default(),
+        web: Default::default(),
+        tray: Default::default(),
     };
     AgentContext {
         registry: Arc::new(kxen_app::tools::task::TaskRegistry::new()),
