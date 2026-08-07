@@ -92,6 +92,15 @@ for platform in "${platforms[@]}"; do
   fi
   updater_original="$(kxen_release_updater_original_name "$platform" "$version")"
   kxen_verify_updater_signature "$updater_path" "$signature_path" "$updater_original"
+  # macOS 的 kxen tar.gz 内必须是 Developer ID 签名的二进制。
+  # publish 段在 Linux runner 上做全平台核对,无 codesign 时跳过(release.yml 构建腿与本地路径都会执行)。
+  if [[ "$(kxen_release_os "$platform")" == macos ]] && command -v codesign >/dev/null 2>&1; then
+    web_asset="$(kxen_release_web_asset "$platform")"
+    cli_verify_dir="$(mktemp -d "${TMPDIR:-/tmp}/kxen-cli-verify.XXXXXX")"
+    tar -xzf "$asset_dir/$web_asset" -C "$cli_verify_dir"
+    codesign --verify --deep --strict --verbose=2 "$cli_verify_dir/kxen"
+    rm -rf "$cli_verify_dir"
+  fi
 done
 
 if [[ "$check_manifests" == 1 ]]; then

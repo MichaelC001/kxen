@@ -294,17 +294,6 @@ jobs:
             --issuer "$APPLE_API_ISSUER" \
             --wait
           xcrun stapler staple "$dmg_path"
-      - name: Clear temporary signing material
-        if: ${{ always() && matrix.signed }}
-        shell: bash
-        run: |
-          security delete-keychain "$RUNNER_TEMP/kxen-signing.keychain-db" 2>/dev/null || true
-          for path in "$RUNNER_TEMP/kxen-certificate.p12" "$RUNNER_TEMP/app-store-connect.p8"; do
-            if [[ -f "$path" ]]; then
-              : > "$path"
-              chmod 000 "$path"
-            fi
-          done
       - name: Verify signed app, DMG, and updater artifacts
         if: matrix.signed
         shell: bash
@@ -317,6 +306,46 @@ jobs:
         run: >-
           cargo build --manifest-path src-tauri/Cargo.toml --release
           -p kxen --target ${{ matrix.target }}
+      # kxen 是裸 Mach-O,不签名会被 Gatekeeper 拦截;与 .app/DMG 共用同一证书和公证链。
+      # 必须在 Clear temporary signing material 之前完成签名和公证。
+      - name: Sign and notarize kxen CLI
+        if: matrix.signed
+        shell: bash
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          cli_path="src-tauri/target/${{ matrix.target }}/release/kxen"
+          if [[ ! -f "$cli_path" ]]; then
+            printf 'kxen binary not found: %s\n' "$cli_path"
+            exit 1
+          fi
+          codesign --sign "$APPLE_SIGNING_IDENTITY" \
+            --options runtime --timestamp \
+            "$cli_path"
+          codesign --verify --strict --verbose=2 "$cli_path"
+          # 裸二进制无法 staple ticket;公证提交 zip,ticket 在线生效,
+          # zip 仅用于提交,已签名二进制照常打进 tar.gz。
+          cli_zip="$RUNNER_TEMP/kxen-notarize-${{ matrix.platform }}.zip"
+          ditto -c -k --keepParent "$cli_path" "$cli_zip"
+          xcrun notarytool submit "$cli_zip" \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+          rm -f "$cli_zip"
+      - name: Clear temporary signing material
+        if: ${{ always() && matrix.signed }}
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/kxen-signing.keychain-db" 2>/dev/null || true
+          for path in "$RUNNER_TEMP/kxen-certificate.p12" "$RUNNER_TEMP/app-store-connect.p8"; do
+            if [[ -f "$path" ]]; then
+              : > "$path"
+              chmod 000 "$path"
+            fi
+          done
       - name: Prepare verified release asset set
         shell: bash
         env:

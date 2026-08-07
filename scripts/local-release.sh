@@ -121,6 +121,26 @@ build_assets() {
   xcrun stapler staple "$dmg_path"
 
   bash "$script_dir/verify-macos-release.sh"
+
+  # 与 release.yml 的 Sign and notarize kxen CLI 步骤一致:同一 Developer ID 身份签名,
+  # zip 提交公证后丢弃,ticket 在线生效;prepare-release-assets.sh 会再做 codesign --verify。
+  cargo build --manifest-path src-tauri/Cargo.toml --release \
+    -p kxen --target aarch64-apple-darwin
+  local identity
+  identity="$(awk '{ print $2 }' <<< "$identity_line")"
+  local cli_path cli_zip_dir
+  cli_path="src-tauri/target/aarch64-apple-darwin/release/kxen"
+  codesign --sign "$identity" --options runtime --timestamp "$cli_path"
+  codesign --verify --strict --verbose=2 "$cli_path"
+  cli_zip_dir="$(mktemp -d "${TMPDIR:-/tmp}/kxen-notarize.XXXXXX")"
+  ditto -c -k --keepParent "$cli_path" "$cli_zip_dir/kxen.zip"
+  xcrun notarytool submit "$cli_zip_dir/kxen.zip" \
+    --key "$APPLE_API_KEY_PATH" \
+    --key-id "$APPLE_API_KEY" \
+    --issuer "$APPLE_API_ISSUER" \
+    --wait
+  rm -rf "$cli_zip_dir"
+
   bash "$script_dir/prepare-release-assets.sh" \
     macos-aarch64 "$release_tag" "$repository" "$bundle_root" "$asset_dir"
 

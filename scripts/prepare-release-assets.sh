@@ -79,6 +79,10 @@ if [[ ! -f "$web_dir/$web_binary" ]]; then
   printf 'kxen binary not found: %s\n' "$web_dir/$web_binary"
   exit 1
 fi
+# macOS 的 kxen 必须已 Developer ID 签名(release.yml 在构建腿签名并公证);未签名即失败,不打包。
+if [[ "$(kxen_release_os "$platform")" == macos ]]; then
+  codesign --verify --deep --strict --verbose=2 "$web_dir/$web_binary"
+fi
 web_out="$(cd "$output_dir" && pwd)/$web_asset"
 if [[ "$web_asset" == *.zip ]]; then
   (cd "$web_dir" && 7z a -tzip "$web_out" "$web_binary" >/dev/null)
