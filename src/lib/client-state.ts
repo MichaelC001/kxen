@@ -1,4 +1,3 @@
-import type WebSocket from "@tauri-apps/plugin-websocket";
 import type { StreamChunk } from "./client-types";
 
 export interface ActiveConnection {

@@ -1,18 +1,16 @@
 use serde_json::{Value, json};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager};
 
 use crate::AppState;
 
 pub(super) const METHODS: &[&str] = &["recovery.clear", "recovery.inspect", "recovery.repair"];
 
-pub(super) fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, String> {
+pub(super) fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<Value, String> {
     let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
-    let state = app.state::<Arc<AppState>>();
     match method {
-        "recovery.inspect" => inspect(id, state.inner()),
-        "recovery.repair" => repair(id, state.inner()),
-        "recovery.clear" => clear(id, state.inner()),
+        "recovery.inspect" => inspect(id, state),
+        "recovery.repair" => repair(id, state),
+        "recovery.clear" => clear(id, state),
         _ => Err(format!("unknown recovery method: {method}")),
     }
 }

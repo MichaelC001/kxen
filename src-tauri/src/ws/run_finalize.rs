@@ -2,7 +2,6 @@
 //! stop hook、用量累计、cron 回写、转录落盘与 pending queue 续跑。
 
 use std::sync::Arc;
-use tauri::AppHandle;
 
 use crate::AppState;
 
@@ -26,13 +25,12 @@ pub(super) struct RunEnd<'a> {
     pub sessions_dir: std::path::PathBuf,
     pub transcript: Arc<std::sync::Mutex<Vec<kxen_app::core::session::Part>>>,
     pub cron_job_id: Option<String>,
-    pub app: AppHandle,
 }
 
 pub(super) async fn finalize_run(end: RunEnd<'_>) {
     use kxen_app::core::session as ses;
 
-    let RunEnd { state, runtime, session_id, stream_id, notify, cancel, files, outcome, sessions_dir, transcript, cron_job_id, app } = end;
+    let RunEnd { state, runtime, session_id, stream_id, notify, cancel, files, outcome, sessions_dir, transcript, cron_job_id } = end;
 
     // 通知路由收尾：通道残留与此后到达的通知全部入队 + kick 拉活（kick_session 判活，无活跃 run 才起）。
     // 本 run 的收尾 pop（下方）立即消化残留，kick 撞见活跃 run / 空队列即退，不并发起第二个 run。
@@ -111,10 +109,10 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
 
     // Queue delivery 在用户消息幂等落盘后已经 ack。terminal 后先 claim 下一条，再原子换代；
     // 无下一条则释放旧槽并 post-release kick 复查，覆盖 late enqueue 的让位窗口。
-    handoff_pending(state, session_id, &cancel, &app);
+    handoff_pending(state, session_id, &cancel);
 }
 
-pub(super) fn handoff_pending(state: &Arc<AppState>, session_id: String, cancel: &kxen_app::agent::cancel::CancelToken, app: &AppHandle) {
+pub(super) fn handoff_pending(state: &Arc<AppState>, session_id: String, cancel: &kxen_app::agent::cancel::CancelToken) {
     let handoff =
         super::run_slot::claim_queued_handoff(&state.active_runs, &kxen_app::core::paths::sessions_dir(), &session_id, cancel, || {
             state.pending_messages.claim(&session_id)
@@ -126,14 +124,14 @@ pub(super) fn handoff_pending(state: &Arc<AppState>, session_id: String, cancel:
             // 这次 kick 会在槽位释放后接住它；更晚的 enqueue 会自行 kick，不会丢唤醒。
             super::queue_retry::reset_retry(&session_id);
             release_current_slot(state, &session_id, cancel);
-            super::pending::kick_session(app.clone(), session_id);
+            super::pending::kick_session(state.clone(), session_id);
             return;
         }
         Err(error) => {
             tracing::error!(session = session_id, %error, "pending queue handoff failed after run");
             state.bus.publish(kxen_app::core::event::Event::notify(format!("队列续跑失败：{error}"), Some(session_id.clone())));
             release_current_slot(state, &session_id, cancel);
-            super::queue_retry::schedule_retry(app.clone(), session_id);
+            super::queue_retry::schedule_retry(state.clone(), session_id);
             return;
         }
     };
@@ -148,7 +146,7 @@ pub(super) fn handoff_pending(state: &Arc<AppState>, session_id: String, cancel:
             queue_delivery_id: Some(q.id),
             queue_created_at: Some(q.created_at),
             schedule_job_id: q.schedule_job_id,
-            app: app.clone(),
+            state: state.clone(),
         },
         next_cancel,
     );

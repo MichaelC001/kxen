@@ -10,8 +10,7 @@ description = "kxen - macOS Apple Silicon coding agent harness (Tauri + Rust)"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2.11", features = [] }
-tauri-plugin-websocket = "2"
+tauri = { version = "2.11", features = ["tray-icon", "image-png"] }
 tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 similar = "2"
@@ -44,16 +43,14 @@ reqwest = { version = "0.13", default-features = false, features = [
   "query",
 ] }
 futures = "0.3"
-tokio-tungstenite = "0.26"
+axum = { version = "0.8", features = ["ws"] }
+rust-embed = { version = "8", features = ["mime-guess"] }
 dirs = "6"
 base64 = "0.22"
 time = { version = "0.3", features = ["parsing", "formatting"] }
 rquickjs = { version = "0.12", features = ["futures"] }
 cron = "0.12"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-objc2 = "0.6"
-objc2-foundation = "0.3"
-block2 = "0.6"
 trash = "5"
 cap-std = "4.0.2"
 # browser 工具的 CDP 驱动（系统 Chrome headless）；default-features 只含 bytes（screencast 用），关掉求最小依赖树；
@@ -65,6 +62,18 @@ tauri-plugin-dialog = "2.7.2"
 notify-rust = "4"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-opener = "2"
+# tray「复制访问链接」写系统剪贴板（tauri 2 core 无剪贴板 API，JS 插件路径在纯 Rust tray 侧不可用）
+arboard = "3"
+
+# voice 的 Speech.framework / AVFAudio 手写绑定（voice/objc.rs）只在 macOS 编译
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+block2 = "0.6"
+
+[workspace]
+members = ["crates/kxen-web"]
 
 [profile.release]
 opt-level = 3

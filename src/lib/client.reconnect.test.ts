@@ -1,73 +1,77 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const h = vi.hoisted(() => ({ connect: vi.fn(), invoke: vi.fn() }));
+const h = vi.hoisted(() => ({ invoke: vi.fn() }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: h.invoke }));
-vi.mock("@tauri-apps/plugin-websocket", () => ({ default: { connect: h.connect } }));
 
-type Event =
-  | { type: "Text"; data: string }
-  | { type: "Close"; data: { code: number; reason: string } | null };
+// 原生 WebSocket 假实现：行为队列控制每个新实例 open 还是 error。
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = [];
+  static behaviors: Array<"open" | "error"> = [];
 
-function socketHarness() {
-  let listener: ((event: Event) => void) | undefined;
-  const send = vi.fn((_payload: string) => Promise.resolve());
-  const disconnect = vi.fn(() => Promise.resolve());
-  return {
-    send,
-    disconnect,
-    socket: {
-      addListener(next: (event: Event) => void) {
-        listener = next;
-        return () => {
-          listener = undefined;
-        };
-      },
-      send,
-      disconnect,
-    },
-    emit(value: unknown) {
-      listener?.({ type: "Text", data: JSON.stringify(value) });
-    },
-    close() {
-      listener?.({ type: "Close", data: { code: 1006, reason: "lost" } });
-    },
-    frame(index = -1) {
-      const call = index < 0 ? send.mock.calls.at(index) : send.mock.calls[index];
-      if (!call) throw new Error(`missing frame ${index}`);
-      return JSON.parse(String(call[0])) as {
-        id: string;
-        method: string;
-        params: unknown;
-        options?: { stream?: boolean };
-      };
-    },
-  };
+  onopen: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onmessage: ((event: { data: unknown }) => void) | null = null;
+  onclose: (() => void) | null = null;
+  send = vi.fn();
+  close = vi.fn();
+
+  constructor(public url: string) {
+    FakeWebSocket.instances.push(this);
+    const behavior = FakeWebSocket.behaviors.shift() ?? "open";
+    queueMicrotask(() => {
+      if (behavior === "error") this.onerror?.();
+      else this.onopen?.();
+    });
+  }
+
+  emit(value: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(value) });
+  }
+
+  closeFromServer(): void {
+    this.onclose?.();
+  }
+
+  frame(index = -1) {
+    const call = index < 0 ? this.send.mock.calls.at(index) : this.send.mock.calls[index];
+    if (!call) throw new Error(`missing frame ${index}`);
+    return JSON.parse(String(call[0])) as {
+      id: string;
+      method: string;
+      params: unknown;
+      options?: { stream?: boolean };
+    };
+  }
 }
 
 async function flush(): Promise<void> {
   for (let index = 0; index < 12; index += 1) await Promise.resolve();
 }
 
+function socketAt(index: number): FakeWebSocket {
+  const socket = FakeWebSocket.instances[index];
+  if (!socket) throw new Error(`missing socket instance ${index}`);
+  return socket;
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.resetModules();
-  h.connect.mockReset();
+  FakeWebSocket.instances = [];
+  FakeWebSocket.behaviors = [];
+  vi.stubGlobal("WebSocket", FakeWebSocket);
   h.invoke.mockReset().mockResolvedValue({ port: 3131, token: "secret" });
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
 describe("client reconnect", () => {
   it("Close 后隔离旧连接，部分恢复仍 resync，并只重试失败订阅", async () => {
-    const first = socketHarness();
-    const restored = socketHarness();
-    h.connect
-      .mockResolvedValueOnce(first.socket)
-      .mockRejectedValueOnce(new Error("still offline"))
-      .mockResolvedValueOnce(restored.socket);
+    FakeWebSocket.behaviors = ["open", "error", "open"];
     const { client } = await import("./client");
     const values: unknown[] = [];
     const resync = vi.fn();
@@ -75,6 +79,7 @@ describe("client reconnect", () => {
     const off = client.stream("notification").on((value) => values.push(value));
     const offTask = client.stream("task.update").on(vi.fn());
     await flush();
+    const first = socketAt(0);
     const initial = first.send.mock.calls.map((_, index) => first.frame(index));
     expect(initial.map((frame) => frame.params)).toEqual([
       { topics: ["notification"] },
@@ -85,26 +90,21 @@ describe("client reconnect", () => {
     }
     await flush();
 
-    let rejectOldSend = (_error: Error): void => {};
-    first.send.mockImplementationOnce(
-      () =>
-        new Promise<void>((_resolve, reject) => {
-          rejectOldSend = reject;
-        }),
-    );
+    // 断连瞬间进行中的 RPC：随连接代际一并失败
     const staleCall = client.rpc("delayed-send");
     await flush();
 
-    first.close();
-    expect(first.disconnect).toHaveBeenCalledOnce();
+    first.closeFromServer();
+    expect(first.close).toHaveBeenCalledOnce();
     await expect(staleCall).rejects.toThrow("connection lost");
     await vi.advanceTimersByTimeAsync(1_000);
     await flush();
-    expect(h.connect).toHaveBeenCalledTimes(2);
+    expect(FakeWebSocket.instances).toHaveLength(2);
     await vi.advanceTimersByTimeAsync(1_000);
     await flush();
-    expect(h.connect).toHaveBeenCalledTimes(3);
+    expect(FakeWebSocket.instances).toHaveLength(3);
 
+    const restored = socketAt(2);
     const reopening = restored.send.mock.calls.map((_, index) => restored.frame(index));
     expect(reopening).toHaveLength(2);
     const successful = reopening.find(
@@ -151,7 +151,7 @@ describe("client reconnect", () => {
     ).toHaveLength(1);
     restored.emit({ id: secondRetry.id, result: { stream_id: "sub-task" } });
     await flush();
-    expect(h.connect).toHaveBeenCalledTimes(3);
+    expect(FakeWebSocket.instances).toHaveLength(3);
     expect(resync).toHaveBeenCalledOnce();
 
     restored.emit({
@@ -160,9 +160,7 @@ describe("client reconnect", () => {
     });
     expect(values).toEqual(["after reconnect"]);
 
-    // 旧连接的 send Promise 晚到失败，不能清掉已建立的新连接。
-    rejectOldSend(new Error("late old failure"));
-    await flush();
+    // 新连接健康：旧连接的代际已被隔离，RPC 走 restored
     const healthy = client.rpc("doctor");
     await flush();
     const healthyFrame = restored.frame();

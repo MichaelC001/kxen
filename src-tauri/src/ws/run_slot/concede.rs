@@ -15,12 +15,11 @@ pub(in crate::ws) fn concede(
     stream_id: &str,
     payload: ConcedePayload,
     queue_delivery_id: Option<&str>,
-    app: &tauri::AppHandle,
 ) {
     match queue_delivery_id {
         Some(delivery_id) => {
             super::super::queue_delivery::release(state, session_id, delivery_id);
-            super::super::queue_retry::schedule_retry(app.clone(), session_id.to_string());
+            super::super::queue_retry::schedule_retry(state.clone(), session_id.to_string());
         }
         None => match state.pending_messages.enqueue(session_id, payload.text, payload.context, payload.images) {
             Ok(n) => state

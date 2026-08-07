@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
-  connect: vi.fn(),
   invoke: vi.fn(),
 }));
 
@@ -9,54 +8,51 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: h.invoke,
 }));
 
-vi.mock("@tauri-apps/plugin-websocket", () => ({
-  default: {
-    connect: h.connect,
-  },
-}));
+// 原生 WebSocket 假实现：行为队列控制每个新实例 open 还是 error；
+// sendHook 对所有实例生效（断连重连会换实例，失败注入必须跨实例）。
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = [];
+  static behaviors: Array<"open" | "error"> = [];
+  static sendHook: ((payload: unknown) => void) | undefined;
 
-interface SocketHarness {
-  listener: ((event: SocketEvent) => void) | undefined;
-  send: ReturnType<typeof vi.fn>;
-  disconnect: ReturnType<typeof vi.fn>;
-  socket: {
-    addListener: (listener: (event: SocketEvent) => void) => () => void;
-    send: ReturnType<typeof vi.fn>;
-    disconnect: ReturnType<typeof vi.fn>;
-  };
+  onopen: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onmessage: ((event: { data: unknown }) => void) | null = null;
+  onclose: (() => void) | null = null;
+  send = vi.fn((payload: unknown) => {
+    FakeWebSocket.sendHook?.(payload);
+  });
+  close = vi.fn();
+
+  constructor(public url: string) {
+    FakeWebSocket.instances.push(this);
+    const behavior = FakeWebSocket.behaviors.shift() ?? "open";
+    queueMicrotask(() => {
+      if (behavior === "error") this.onerror?.();
+      else this.onopen?.();
+    });
+  }
+
+  emit(value: unknown): void {
+    this.onmessage?.({ data: typeof value === "string" ? value : JSON.stringify(value) });
+  }
+
+  closeFromServer(): void {
+    this.onclose?.();
+  }
 }
 
-type SocketEvent =
-  | { type: "Text"; data: string }
-  | { type: "Binary"; data: number[] }
-  | { type: "Close"; data: { code: number; reason: string } | null };
-
-function socketHarness(): SocketHarness {
-  const harness: SocketHarness = {
-    listener: undefined,
-    send: vi.fn(() => Promise.resolve()),
-    disconnect: vi.fn(() => Promise.resolve()),
-    socket: {
-      addListener(listener) {
-        harness.listener = listener;
-        return () => {
-          harness.listener = undefined;
-        };
-      },
-      send: vi.fn(),
-      disconnect: vi.fn(),
-    },
-  };
-  harness.socket.send = harness.send;
-  harness.socket.disconnect = harness.disconnect;
-  return harness;
+function lastSocket(): FakeWebSocket {
+  const socket = FakeWebSocket.instances.at(-1);
+  if (!socket) throw new Error("missing socket instance");
+  return socket;
 }
 
 async function flush(): Promise<void> {
   for (let index = 0; index < 8; index += 1) await Promise.resolve();
 }
 
-function sentFrame(socket: SocketHarness, index = -1) {
+function sentFrame(socket: FakeWebSocket, index = -1) {
   const call = index < 0 ? socket.send.mock.calls.at(index) : socket.send.mock.calls[index];
   if (!call) throw new Error(`missing sent frame ${index}`);
   return JSON.parse(String(call[0])) as {
@@ -67,75 +63,73 @@ function sentFrame(socket: SocketHarness, index = -1) {
   };
 }
 
-function emit(socket: SocketHarness, value: unknown): void {
-  socket.listener?.({
-    type: "Text",
-    data: typeof value === "string" ? value : JSON.stringify(value),
-  });
-}
-
 beforeEach(() => {
   vi.useRealTimers();
   vi.resetModules();
-  h.connect.mockReset();
+  FakeWebSocket.instances = [];
+  FakeWebSocket.behaviors = [];
+  FakeWebSocket.sendHook = undefined;
+  vi.stubGlobal("WebSocket", FakeWebSocket);
   h.invoke.mockReset();
   h.invoke.mockResolvedValue({ port: 3131, token: "secret token" });
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
 describe("client transport", () => {
   it("handles endpoint retry, RPC frames, streams, send failures, and timeout", async () => {
     vi.useFakeTimers();
-    const socket = socketHarness();
     h.invoke
       .mockResolvedValueOnce({ port: 0, token: "boot" })
       .mockRejectedValueOnce(new Error("not ready"))
       .mockResolvedValueOnce({ port: 3131, token: "old token" })
       .mockResolvedValue({ port: 4242, token: "secret token" });
-    h.connect.mockRejectedValueOnce(new Error("dial failed")).mockResolvedValue(socket.socket);
+    FakeWebSocket.behaviors = ["error", "open"];
     const { client } = await import("./client");
     const resync = vi.fn();
     const offResync = client.onResync(resync);
 
     await expect(client.rpc("before-ready")).rejects.toThrow("websocket server is not ready");
-    expect(h.connect).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(0);
     await expect(client.rpc("not-ready")).rejects.toThrow("not ready");
-    await expect(client.rpc("failed-dial")).rejects.toThrow("dial failed");
+    await expect(client.rpc("failed-dial")).rejects.toThrow("websocket connect failed");
     const result = client.rpc<string>("echo", { value: 1 });
     await flush();
     expect(h.invoke).toHaveBeenCalledTimes(4);
-    expect(h.connect.mock.calls.map(([url]) => url)).toEqual([
-      "ws://127.0.0.1:3131/?token=old%20token",
-      "ws://127.0.0.1:4242/?token=secret%20token",
+    expect(FakeWebSocket.instances.map((socket) => socket.url)).toEqual([
+      "ws://127.0.0.1:3131/ws?token=old%20token",
+      "ws://127.0.0.1:4242/ws?token=secret%20token",
     ]);
+    const socket = lastSocket();
     const resultFrame = sentFrame(socket);
     expect(resultFrame).toMatchObject({ method: "echo", params: { value: 1 } });
 
-    socket.listener?.({ type: "Binary", data: [1] });
-    emit(socket, "{not json");
-    emit(socket, { id: "unknown", result: "ignored" });
-    emit(socket, { stream: { id: "sys.resync", seq: 1 }, result: null });
+    // 非字符串载荷（binary）与不合法 JSON 都被忽略
+    socket.onmessage?.({ data: new Uint8Array([1]) });
+    socket.emit("{not json");
+    socket.emit({ id: "unknown", result: "ignored" });
+    socket.emit({ stream: { id: "sys.resync", seq: 1 }, result: null });
     expect(resync).toHaveBeenCalledOnce();
-    emit(socket, { id: resultFrame.id, result: "ok" });
+    socket.emit({ id: resultFrame.id, result: "ok" });
     await expect(result).resolves.toBe("ok");
 
     const failure = client.rpc("fail");
     await flush();
     const errorFrame = sentFrame(socket);
     expect(errorFrame.params).toEqual({});
-    emit(socket, { id: errorFrame.id, error: { code: -32603, message: "denied", data: { h: 1 } } });
+    socket.emit({ id: errorFrame.id, error: { code: -32603, message: "denied", data: { h: 1 } } });
     await expect(failure).rejects.toThrow("denied");
     // 错误帧的 code/data 随 Error 上抛：-32601 与 -32603 前端可区分（rewind 的 message 内嵌 JSON 不动）
     const { RpcError } = await import("./client");
     await expect(failure).rejects.toBeInstanceOf(RpcError);
     await expect(failure).rejects.toMatchObject({ code: -32603, data: { h: 1 } });
-    expect(h.connect).toHaveBeenCalledTimes(2);
+    expect(FakeWebSocket.instances).toHaveLength(2);
 
     offResync();
-    emit(socket, { stream: { id: "sys.resync", seq: 2 }, result: null });
+    socket.emit({ stream: { id: "sys.resync", seq: 2 }, result: null });
     expect(resync).toHaveBeenCalledOnce();
 
     const subscriptionValues: unknown[] = [];
@@ -152,28 +146,28 @@ describe("client transport", () => {
       params: { topics: ["task.update", "llm.delta"] },
       options: { stream: true },
     });
-    emit(socket, { id: subscribe.id, result: { stream_id: "sub-1" } });
+    socket.emit({ id: subscribe.id, result: { stream_id: "sub-1" } });
     await flush();
 
-    emit(socket, {
+    socket.emit({
       stream: { id: "sub-new", seq: 1 },
       result: { topic: "llm.delta", payload: { text: "a" } },
     });
-    emit(socket, {
+    socket.emit({
       stream: { id: "sub-new", seq: 2 },
       result: { topic: "other", payload: "ignored" },
     });
     // filter 负路径：无 text 字段的 payload 被派生流滤掉
-    emit(socket, {
+    socket.emit({
       stream: { id: "sub-new", seq: 3 },
       result: { topic: "llm.delta", payload: { n: 1 } },
     });
     // run 流原始帧（无 {topic, payload} 包装）不进 sub 处理器
-    emit(socket, { stream: { id: "run-1", seq: 4 }, result: 3 });
+    socket.emit({ stream: { id: "run-1", seq: 4 }, result: 3 });
     expect(subscriptionValues).toEqual(["a"]);
 
     offSubscription();
-    emit(socket, {
+    socket.emit({
       stream: { id: "sub-new", seq: 5 },
       result: { topic: "llm.delta", payload: { text: "b" } },
     });
@@ -185,14 +179,20 @@ describe("client transport", () => {
       method: "rpc.unsubscribe",
       params: { stream_id: "sub-1" },
     });
-    emit(socket, { id: unsubscribe.id, result: null });
+    socket.emit({ id: unsubscribe.id, result: null });
 
-    socket.send.mockRejectedValueOnce(new Error("send failed"));
+    // 原生 send 同步抛错 -> Promise reject（旧 plugin 异步 reject 语义的等价转换）。
+    // send 失败会 drop 连接，下一次 RPC 换新实例：失败注入挂在跨实例的 sendHook 上。
+    FakeWebSocket.sendHook = () => {
+      throw new Error("send failed");
+    };
     await expect(client.rpc("send-error")).rejects.toThrow("send failed");
-    socket.send.mockRejectedValueOnce("closed");
+    FakeWebSocket.sendHook = () => {
+      throw "closed";
+    };
     await expect(client.rpc("send-string-error")).rejects.toThrow("closed");
+    FakeWebSocket.sendHook = undefined;
 
-    socket.send.mockResolvedValue(undefined);
     const timeout = client.rpc("slow");
     const timeoutAssertion = expect(timeout).rejects.toThrow("rpc timeout: slow");
     await flush();

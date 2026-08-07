@@ -1,8 +1,6 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use tauri::AppHandle;
-
 use crate::AppState;
 
 pub(super) struct EarlyEnd<'a> {
@@ -12,7 +10,6 @@ pub(super) struct EarlyEnd<'a> {
     pub(super) stream_id: &'a str,
     pub(super) cancel: &'a kxen_app::agent::cancel::CancelToken,
     pub(super) schedule_job_id: Option<&'a str>,
-    pub(super) app: &'a AppHandle,
 }
 
 impl EarlyEnd<'_> {
@@ -61,10 +58,10 @@ impl EarlyEnd<'_> {
         }
         match delivery.continuation() {
             super::super::queue_delivery::Continuation::Immediate => {
-                super::super::run_finalize::handoff_pending(self.state, self.session_id.to_string(), self.cancel, self.app);
+                super::super::run_finalize::handoff_pending(self.state, self.session_id.to_string(), self.cancel);
             }
             super::super::queue_delivery::Continuation::Delayed => {
-                super::super::queue_retry::schedule_retry(self.app.clone(), self.session_id.to_string());
+                super::super::queue_retry::schedule_retry(self.state.clone(), self.session_id.to_string());
             }
         }
     }

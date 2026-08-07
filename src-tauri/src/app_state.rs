@@ -2,15 +2,29 @@
 
 use std::sync::{Arc, Mutex};
 
+/// OS 通知点击后的回跳目标：桌面 bin 注入「聚焦主窗口 + emit 前端事件」实现，
+/// 未注入（无头 server / 测试）为 no-op——通知仍投递，点击无回跳。
+pub trait NotifyTarget: Send + Sync {
+    fn focus_and_emit(&self, session_id: &str);
+}
+
+struct NoopNotify;
+
+impl NotifyTarget for NoopNotify {
+    fn focus_and_emit(&self, _session_id: &str) {}
+}
+
 pub struct AppState {
     /// 单实例文件锁：所有 data_dir JSON store 的进程内事务假设由此提升为跨进程安全。
     _instance_lock: std::fs::File,
     /// 共享句柄（Arc 内层不变）：TeamManager SpawnDeps 持同一把锁，凭证探测/刷新后操作点可见
     pub auth_store: Arc<Mutex<kxen_app::auth::credential::AuthStore>>,
-    /// ws 服务端口（serve 成功后写入，ws_port command 用）
-    pub(crate) ws_port: Mutex<u16>,
-    /// ws 握手 token（启动时 /dev/urandom 生成，ws_port command 一并发给前端）
+    /// ws 服务端口（serve 成功后由 bin 写回，ws_port command 用）
+    pub ws_port: Mutex<u16>,
+    /// ws 握手 token（启动时随机生成，ws_port command 一并发给前端）
     pub ws_token: String,
+    /// OS 通知点击回跳（默认 no-op；桌面 bin 在 setup 注入窗口实现，见 os_notify）
+    pub notify: std::sync::RwLock<Arc<dyn NotifyTarget>>,
     pub bus: kxen_app::core::event::EventBus,
     pub registry: std::sync::Arc<kxen_app::tools::task::TaskRegistry>,
     /// 角色路由可热更新（设置页改角色 -> 重建换 Arc）；与 SpawnDeps 共享同一 RwLock 句柄
@@ -51,7 +65,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub(crate) fn new() -> Result<Self, String> {
+    pub fn new() -> Result<Self, String> {
         let data_dir = kxen_app::core::paths::data_dir();
         ensure_private_data_dir(&data_dir)?;
         let instance_lock = acquire_instance_lock(&data_dir)?;
@@ -129,6 +143,7 @@ impl AppState {
             auth_store: store,
             ws_port: Mutex::new(0),
             ws_token: crate::ws::gen_ws_token().map_err(|error| format!("generate websocket token: {error}"))?,
+            notify: std::sync::RwLock::new(Arc::new(NoopNotify)),
             bus,
             registry,
             extras,
@@ -262,6 +277,7 @@ mod tests {
         assert_eq!(initial_workdir(std::path::Path::new("/"), None), std::path::PathBuf::from("/"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn initial_workdir_unwritable_falls_back_to_home() {
         use std::os::unix::fs::PermissionsExt;

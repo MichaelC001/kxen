@@ -2,7 +2,6 @@
 
 use serde_json::{Value, json};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager};
 
 #[cfg(test)]
 pub(super) use super::ops_config::update_toml_then;
@@ -55,32 +54,31 @@ const METHODS: &[&str] = &[
 ];
 
 /// 返回 Some(result) 表示命中；None 表示不是本组方法。
-pub(super) async fn try_handle(method: &str, params: &Value, app: &AppHandle) -> Option<Result<Value, String>> {
+pub(super) async fn try_handle(method: &str, params: &Value, state: &Arc<AppState>) -> Option<Result<Value, String>> {
     if super::ops_provider::METHODS.contains(&method) {
-        return Some(super::ops_provider::handle(method, params, app).await);
+        return Some(super::ops_provider::handle(method, params, state).await);
     }
     if super::ops_workspace::METHODS.contains(&method) {
-        return Some(super::ops_workspace::handle(method, params, app).await);
+        return Some(super::ops_workspace::handle(method, params, state).await);
     }
     if super::ops_knowledge::METHODS.contains(&method) {
-        return Some(super::ops_knowledge::handle(method, params, app).await);
+        return Some(super::ops_knowledge::handle(method, params, state).await);
     }
     if super::ops_mcp::METHODS.contains(&method) {
-        return Some(super::ops_mcp::handle(method, params, app).await);
+        return Some(super::ops_mcp::handle(method, params, state).await);
     }
     if super::ops_recovery::METHODS.contains(&method) {
-        return Some(super::ops_recovery::handle(method, params, app));
+        return Some(super::ops_recovery::handle(method, params, state));
     }
     if !METHODS.contains(&method) {
         return None;
     }
-    Some(handle(method, params, app).await)
+    Some(handle(method, params, state).await)
 }
 
-async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, String> {
+async fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<Value, String> {
     match method {
         "mrm.stats" => {
-            let state = app.state::<Arc<AppState>>();
             let mrm = state.active_runtime()?.mrm();
             Ok(json!({
                 "describe": mrm.describe().await,
@@ -89,10 +87,9 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
                 "metering_warning": kxen_app::core::usage_trend::warning(),
             }))
         }
-        "agent.test_dispatch" => test_dispatch(app, params).await,
+        "agent.test_dispatch" => test_dispatch(state, params).await,
         "schedule.list" => Ok(serde_json::to_value(kxen_app::core::schedule::list()?).map_err(|e| e.to_string())?),
         "usage.overview" => {
-            let state = app.state::<Arc<AppState>>();
             let tokens = kxen_app::core::shared::lock(&state.session_tokens).clone();
             let totals = usage_totals(&tokens);
             let history = {
@@ -147,14 +144,12 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             let _lifecycle = kxen_app::core::session_lifecycle::admit_schedule_mutation(id)?;
             Ok(json!(kxen_app::core::schedule::set_enabled(id, enabled)?))
         }
-        "diagnostics.export" => super::ops_diagnostics::export(app).await,
+        "diagnostics.export" => super::ops_diagnostics::export(state).await,
         "notifications.list" => {
-            let state = app.state::<Arc<AppState>>();
             let buf = state.notifications.lock().map_err(|e| e.to_string())?;
             Ok(json!(buf.iter().map(|n| json!({ "at": n.at, "text": n.text, "session_id": n.session_id })).collect::<Vec<_>>()))
         }
         "notifications.clear" => {
-            let state = app.state::<Arc<AppState>>();
             let mut buf = state.notifications.lock().map_err(|e| e.to_string())?;
             let previous = buf.clone();
             buf.clear();
@@ -166,7 +161,6 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
         }
         "voice.engines" => {
             let config = load_config()?;
-            let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?;
             Ok(json!({
                 "engine": config.voice.engine,
@@ -178,7 +172,6 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
         "voice.set_provider_key" => {
             let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
             let key = params.get("key").and_then(Value::as_str).ok_or("missing key")?;
-            let state = app.state::<Arc<AppState>>();
             let mut store = state.auth_store.lock().map_err(|e| e.to_string())?;
             let path = kxen_app::core::paths::auth_file();
             kxen_app::voice::provider::set_key(&mut store, provider, key, &path)?;
@@ -211,8 +204,8 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             })?;
             Ok(json!({ "send_when_running": policy }))
         }
-        "config.set_experimental" => super::settings::set_experimental(params, &app.state::<Arc<AppState>>()).await,
-        "config.set_limits" => super::settings::set_limits(params, &app.state::<Arc<AppState>>()),
+        "config.set_experimental" => super::settings::set_experimental(params, state).await,
+        "config.set_limits" => super::settings::set_limits(params, state),
         "voice.start" => {
             let config = load_config()?;
             let locale = params.get("locale").and_then(Value::as_str).unwrap_or(&config.voice.locale);
@@ -223,7 +216,6 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
             if let Some(e) = engine_override {
                 voice.engine = e.to_string();
             }
-            let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
             let started = kxen_app::voice::start(&voice, &store, locale, state.bus.clone(), session_id)?;
             Ok(json!({ "engine": started, "recording": true }))
@@ -231,7 +223,6 @@ async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, 
         "voice.stop" => {
             let config = load_config()?;
             let session_id = params.get("session_id").and_then(Value::as_str).unwrap_or("");
-            let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
             let runtime = if session_id.is_empty() { state.active_runtime()? } else { state.runtime_for_session(session_id)? };
             let mrm = runtime.mrm();
@@ -254,9 +245,8 @@ fn load_config() -> Result<kxen_app::core::config::Config, String> {
 #[cfg(test)]
 mod tests;
 
-async fn test_dispatch(app: &AppHandle, params: &Value) -> Result<Value, String> {
+async fn test_dispatch(state: &Arc<AppState>, params: &Value) -> Result<Value, String> {
     let role = params.get("role").and_then(Value::as_str).ok_or("missing role")?;
-    let state = app.state::<Arc<AppState>>();
     let store = state.auth_store.lock().map_err(|e| e.to_string())?.clone();
     let active = state.active_workspace.read().map_err(|_| "workspace lock poisoned".to_string())?.clone();
     let runtime = state.workspace_runtimes.ready(&active).await?;

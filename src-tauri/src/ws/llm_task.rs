@@ -1,11 +1,9 @@
 //! LLM 任务：send_message 触发的 agent run。
 use kxen_app::llm::Message;
 use std::sync::Arc;
-use tauri::Manager;
 
 use super::queue_delivery::DeliveryOutcome;
 use super::run_finalize::finish_direct;
-use crate::AppState;
 
 mod checkpoint;
 #[path = "llm_task/early.rs"]
@@ -22,9 +20,9 @@ pub(super) async fn run_llm(input: RunInput) {
 async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_app::agent::cancel::CancelToken>) {
     use kxen_app::core::session as ses;
 
-    let spawn::RunInput { stream_id, session_id, text, context, images, queue_delivery_id, queue_created_at, schedule_job_id, app } = input;
+    let spawn::RunInput { stream_id, session_id, text, context, images, queue_delivery_id, queue_created_at, schedule_job_id, state } =
+        input;
 
-    let state = app.state::<Arc<AppState>>();
     let sessions_dir = kxen_app::core::paths::sessions_dir();
 
     let cancel = match preclaimed {
@@ -36,7 +34,6 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_app::agen
                 &stream_id,
                 super::run_slot::ConcedePayload { text, context, images },
                 queue_delivery_id.as_deref(),
-                &app,
             );
             return;
         }
@@ -47,7 +44,6 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_app::agen
                 &stream_id,
                 super::run_slot::ConcedePayload { text: text.clone(), context: context.clone(), images: images.clone() },
                 queue_delivery_id.as_deref(),
-                &app,
             );
         }) {
             Ok(Some(cancel)) => cancel,
@@ -58,7 +54,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_app::agen
             }
         },
     };
-    let _run_slot = super::run_slot::RunSlot { state: state.inner().clone(), session_id: session_id.clone(), cancel: cancel.clone() };
+    let _run_slot = super::run_slot::RunSlot { state: state.clone(), session_id: session_id.clone(), cancel: cancel.clone() };
     let early = early::EarlyEnd {
         state: &state,
         sessions_dir: &sessions_dir,
@@ -66,7 +62,6 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_app::agen
         stream_id: &stream_id,
         cancel: &cancel,
         schedule_job_id: schedule_job_id.as_deref(),
-        app: &app,
     };
 
     let session_meta = match ses::load_meta(&sessions_dir, &session_id) {
@@ -190,14 +185,14 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_app::agen
             return;
         }
     };
-    if let Err(terminal) = super::llm_oauth::refresh(state.inner(), &mut store, &model, &cancel, bound_goal_id.as_deref()).await {
+    if let Err(terminal) = super::llm_oauth::refresh(&state, &mut store, &model, &cancel, bound_goal_id.as_deref()).await {
         early.finish(delivery, true, None, terminal);
         return;
     }
     // 先持久化并确认本轮用户输入，再做可能失败的 compaction。这样 checkpoint 写失败、
     // Provider 超时或取消都不会让 direct/queue 输入消失。
     if let Err((terminal, provider_model)) = super::llm_compaction::compact_if_needed(super::llm_compaction::CompactionInput {
-        state: state.inner(),
+        state: &state,
         sessions_dir: &sessions_dir,
         session_id: &session_id,
         model: &model,
@@ -312,7 +307,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_app::agen
     };
     let outcome = kxen_app::agent::agent_loop::run_turn(&mut ctx, &mut messages).await;
     super::run_finalize::finalize_run(super::run_finalize::RunEnd {
-        state: state.inner(),
+        state: &state,
         runtime,
         session_id,
         stream_id,
@@ -323,7 +318,6 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_app::agen
         sessions_dir,
         transcript,
         cron_job_id: schedule_job_id,
-        app: app.clone(),
     })
     .await;
 }

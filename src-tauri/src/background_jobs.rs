@@ -2,20 +2,19 @@ use crate::AppState;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
 
 const SCHEDULE_INTERVAL: Duration = Duration::from_secs(15);
 const CONSOLIDATION_INTERVAL: Duration = Duration::from_secs(30 * 60);
 
-pub(super) fn spawn(app: AppHandle) {
-    let schedule_handle = app.clone();
-    tauri::async_runtime::spawn(run_periodic(SCHEDULE_INTERVAL, move || {
-        let handle = schedule_handle.clone();
-        async move { dispatch_schedule_tick(handle) }
+pub fn spawn(state: Arc<AppState>) {
+    let schedule_state = state.clone();
+    tokio::spawn(run_periodic(SCHEDULE_INTERVAL, move || {
+        let state = schedule_state.clone();
+        async move { dispatch_schedule_tick(state) }
     }));
-    tauri::async_runtime::spawn(run_periodic(CONSOLIDATION_INTERVAL, move || {
-        let handle = app.clone();
-        async move { consolidate_knowledge(handle).await }
+    tokio::spawn(run_periodic(CONSOLIDATION_INTERVAL, move || {
+        let state = state.clone();
+        async move { consolidate_knowledge(state).await }
     }));
 }
 
@@ -30,11 +29,10 @@ where
     }
 }
 
-async fn consolidate_knowledge(handle: AppHandle) {
+async fn consolidate_knowledge(state: Arc<AppState>) {
     if !kxen_app::core::config::experimental_config().automatic_knowledge_distillation {
         return;
     }
-    let state = handle.state::<Arc<AppState>>();
     let store = kxen_app::core::shared::lock(&state.auth_store).clone();
     let result = kxen_app::knowledge::consolidate::run_once_with(&store, &state.session_tokens, |session| {
         consolidation_route(&state.workspace_runtimes, &store, session)
@@ -69,16 +67,13 @@ fn consolidation_route(
     Ok(kxen_app::knowledge::consolidate::SessionRoute { mrm, model })
 }
 
-fn dispatch_schedule_tick(handle: AppHandle) {
+fn dispatch_schedule_tick(state: Arc<AppState>) {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|duration| duration.as_millis() as u64).unwrap_or(0);
     let candidates = match kxen_app::core::schedule::due_candidates(now) {
         Ok(candidates) => candidates,
         Err(error) => {
             tracing::error!(%error, "schedule tick failed");
-            handle
-                .state::<Arc<AppState>>()
-                .bus
-                .publish(kxen_app::core::event::Event::notify(format!("定时任务读取或保存失败：{error}"), None));
+            state.bus.publish(kxen_app::core::event::Event::notify(format!("定时任务读取或保存失败：{error}"), None));
             Vec::new()
         }
     };
@@ -103,17 +98,16 @@ fn dispatch_schedule_tick(handle: AppHandle) {
                 continue;
             }
         };
-        dispatch_schedule_job(&handle, job, now, lifecycle);
+        dispatch_schedule_job(&state, job, now, lifecycle);
     }
 }
 
 fn dispatch_schedule_job(
-    handle: &AppHandle,
+    state: &Arc<AppState>,
     job: kxen_app::core::schedule::CronJob,
     now: u64,
     _lifecycle: kxen_app::core::session_lifecycle::MutationGuard,
 ) {
-    let state = handle.state::<Arc<AppState>>();
     let Some(dispatch_id) = job.dispatch_id.clone() else {
         tracing::error!(cron_job_id = job.id, "claimed schedule is missing dispatch id");
         return;
@@ -140,7 +134,7 @@ fn dispatch_schedule_job(
                 format!("cron 已进入持久队列（第 {position} 条）"),
                 Some(job.session_id.clone()),
             ));
-            crate::ws::pending::kick_session(handle.clone(), job.session_id);
+            crate::ws::pending::kick_session(state.clone(), job.session_id);
         }
         Err(error) => {
             tracing::error!(cron_job_id = job.id, %error, "cron durable enqueue or acknowledgement failed");

@@ -2,16 +2,14 @@
 
 use serde_json::{Value, json};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager};
 
 use crate::AppState;
 
 pub(super) const METHODS: &[&str] = &["workspaces.overview"];
 
-pub(super) async fn handle(method: &str, _params: &Value, app: &AppHandle) -> Result<Value, String> {
+pub(super) async fn handle(method: &str, _params: &Value, state: &Arc<AppState>) -> Result<Value, String> {
     match method {
         "workspaces.overview" => {
-            let state = app.state::<Arc<AppState>>();
             let sessions = kxen_app::core::session::list_checked(&kxen_app::core::paths::sessions_dir())
                 .map_err(|error| format!("session catalog unavailable: {error}"))?;
             let running: std::collections::HashSet<String> = kxen_app::core::shared::lock(&state.active_runs).keys().cloned().collect();
@@ -23,7 +21,7 @@ pub(super) async fn handle(method: &str, _params: &Value, app: &AppHandle) -> Re
             let goals = kxen_app::core::goal::Goal::list_checked(&kxen_app::core::paths::goals_dir()).map_err(|error| error.to_string())?;
             let worktrees = gather_worktrees(&workspaces).await?;
             // 聚合内 dirty_count 是同步 git spawn（每 workspace 一次）：移出 async worker，不卡运行时
-            let cards = tauri::async_runtime::spawn_blocking(move || {
+            let cards = tokio::task::spawn_blocking(move || {
                 kxen_app::core::workspace::overview(workspaces, &sessions, &running, &queued, &goals, &cron, &worktrees)
             })
             .await

@@ -1,15 +1,13 @@
-//! pending queue 的 AppHandle 侧接线（P1-13）：启动恢复续跑。
+//! pending queue 的 AppState 侧接线（P1-13）：启动恢复续跑。
 
 use std::sync::Arc;
-use tauri::{AppHandle, Manager};
 
 use crate::AppState;
 
 /// 启动恢复：上次退出前排队的消息逐 session claim 首条续跑，run 收尾 ack 后依次消化剩余。
 /// 立即续跑而非等用户再发消息：「已排队」是后端对用户消息的承诺，重启不该变成无限搁置。
-pub(crate) fn restore_queues(app: AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        let state = app.state::<Arc<AppState>>();
+pub fn restore_queues(state: Arc<AppState>) {
+    tokio::spawn(async move {
         let ready = state.pending_messages.restore();
         if let Some(error) = state.pending_messages.store_error() {
             state.bus.publish(kxen_app::core::event::Event::notify(format!("待处理队列存储不可用，已阻止后续覆盖：{error}"), None));
@@ -45,7 +43,7 @@ pub(crate) fn restore_queues(app: AppHandle) {
                     Ok(None) => continue,
                     Err(error) => {
                         tracing::error!(session = sid, %error, "pending queue run claim failed during restore");
-                        super::queue_retry::schedule_retry(app.clone(), sid.clone());
+                        super::queue_retry::schedule_retry(state.clone(), sid.clone());
                         continue;
                     }
                 };
@@ -60,7 +58,7 @@ pub(crate) fn restore_queues(app: AppHandle) {
                     queue_delivery_id: Some(q.id),
                     queue_created_at: Some(q.created_at),
                     schedule_job_id: q.schedule_job_id,
-                    app: app.clone(),
+                    state: state.clone(),
                 },
                 cancel,
             );
@@ -89,9 +87,8 @@ fn report_session_recovery(state: &AppState) {
 }
 
 /// P0-2b 续跑触发：delivery claim 与 run lease 原子完成；落败 kick 不接触 in_flight。
-pub(crate) fn kick_session(app: AppHandle, sid: String) {
-    tauri::async_runtime::spawn(async move {
-        let state = app.state::<Arc<AppState>>();
+pub(crate) fn kick_session(state: Arc<AppState>, sid: String) {
+    tokio::spawn(async move {
         let (q, cancel) = match super::run_slot::claim_queued_run(&state.active_runs, &kxen_app::core::paths::sessions_dir(), &sid, || {
             state.pending_messages.claim(&sid)
         }) {
@@ -105,7 +102,7 @@ pub(crate) fn kick_session(app: AppHandle, sid: String) {
             }
             Err(error) => {
                 tracing::error!(session = sid, %error, "pending queue run claim failed");
-                super::queue_retry::schedule_retry(app.clone(), sid.clone());
+                super::queue_retry::schedule_retry(state.clone(), sid.clone());
                 return;
             }
         };
@@ -120,22 +117,22 @@ pub(crate) fn kick_session(app: AppHandle, sid: String) {
                 queue_delivery_id: Some(q.id),
                 queue_created_at: Some(q.created_at),
                 schedule_job_id: q.schedule_job_id,
-                app: app.clone(),
+                state: state.clone(),
             },
             cancel,
         );
     });
 }
 
-/// P0-2 桥接：relay 的 kick 回调在本层注入（kxen_app 够不着 run_llm 的 spawn 口）
-pub(crate) fn wire_team_kick(app: &AppHandle) {
-    let handle = app.clone();
-    app.state::<Arc<AppState>>().team.relay().set_kick(move |sid| kick_session(handle.clone(), sid));
+/// P0-2 桥接：relay 的 kick 回调在本层注入（kxen_app agent 层够不着 run_llm 的 spawn 口）
+pub fn wire_team_kick(state: &Arc<AppState>) {
+    let kick_state = state.clone();
+    state.team.relay().set_kick(move |sid| kick_session(kick_state.clone(), sid));
 }
 
 /// background late 通知的续跑触发接线：notify.close 的 late 闭包入队后拉活，
 /// 与 team kick 共用原子 queue/run admission。
-pub(crate) fn wire_background_kick(app: &AppHandle) {
-    let handle = app.clone();
-    kxen_app::agent::background::set_late_kick(move |sid| kick_session(handle.clone(), sid));
+pub fn wire_background_kick(state: &Arc<AppState>) {
+    let kick_state = state.clone();
+    kxen_app::agent::background::set_late_kick(move |sid| kick_session(kick_state.clone(), sid));
 }

@@ -5,10 +5,10 @@
 //!   3.0 的 rpc.subscribe 必须声明 options.stream=true；2.0 与缺版本请求保持兼容。
 //!   （run 取消不走流控制，走 session.abort）
 //!
-//! 端口启动时随机分配，前端经 ws_port command 获取。
+//! 传输入口在 `web` 模块（axum 单端点 + 握手检查）；此处只保留连接核心与协议路由。
 
 mod active_context;
-mod connection;
+pub mod connection;
 pub(crate) mod llm_compaction;
 mod llm_context;
 mod llm_input;
@@ -44,32 +44,13 @@ mod worktree_rpc;
 
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
-use tauri::AppHandle;
-use tokio::net::TcpListener;
-use tokio_tungstenite::tungstenite::handshake::server::{Callback, ErrorResponse, Request as WsRequest, Response as WsResponse};
-use tokio_tungstenite::tungstenite::http;
 
-/// WS 握手 token：/dev/urandom 32 字节 hex（零新依赖）。每次启动重生成，前端经 ws_port command 获取。
+pub use connection::Frame;
+
+/// WS 握手 token：2x uuid v4 拼 32 字节 hex（跨平台，免 /dev/urandom）。每次启动重生成，前端经 ws_port command 获取。
 /// 本机随机端口不能裸奔：同机恶意进程可连端口发 RPC，token 是唯一防线。
 pub(crate) fn gen_ws_token() -> std::io::Result<String> {
-    use std::io::Read;
-    let mut buf = [0u8; 32];
-    std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut buf))?;
-    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
-}
-
-/// Origin 白名单：无 Origin（非浏览器客户端）与 Tauri webview / 本地 dev 前端放行。
-fn origin_allowed(origin: Option<&str>) -> bool {
-    match origin {
-        None => true,
-        Some(o) => matches!(o, "tauri://localhost" | "http://tauri.localhost" | "http://localhost:7823"),
-    }
-}
-
-/// 握手 URI query 里的 ?token= 提取（token 是 hex，无需 URL decode）。
-fn token_from_query(uri: &str) -> Option<String> {
-    let query = uri.split('?').nth(1)?;
-    query.split('&').find_map(|pair| pair.strip_prefix("token=").map(String::from))
+    Ok(format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple()))
 }
 
 #[derive(Default)]
@@ -101,37 +82,6 @@ struct SubBinding {
     topics: HashSet<String>,
 }
 
-struct HandshakeGuard {
-    expected: String,
-}
-
-impl Callback for HandshakeGuard {
-    fn on_request(self, request: &WsRequest, response: WsResponse) -> Result<WsResponse, ErrorResponse> {
-        let origin = request.headers().get("origin").and_then(|value| value.to_str().ok());
-        let token_ok = token_from_query(&request.uri().to_string()).is_some_and(|token| token == self.expected);
-        if origin_allowed(origin) && token_ok {
-            return Ok(response);
-        }
-        Err(http::Response::builder()
-            .status(http::StatusCode::FORBIDDEN)
-            .body(Some("ws handshake rejected: bad origin or token".to_string()))
-            .expect("403 response"))
-    }
-}
-
-// ---------------- 启动 ----------------
-
-pub async fn serve(app: AppHandle) -> std::io::Result<u16> {
-    let listener = TcpListener::bind("127.0.0.1:0").await?;
-    let port = listener.local_addr()?.port();
-    tokio::spawn(async move {
-        while let Ok((stream, _)) = listener.accept().await {
-            tokio::spawn(connection::handle(stream, app.clone()));
-        }
-    });
-    Ok(port)
-}
-
 /// resync 控制帧的固定 stream id：前端按此识别「丢增量，需全量重拉」。
 const RESYNC_STREAM_ID: &str = "sys.resync";
 
@@ -147,26 +97,6 @@ fn resync_chunk(dropped: u64, sequences: &mut StreamSequences) -> protocol::Stre
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn origin_whitelist() {
-        // 无 Origin（非浏览器客户端）放行
-        assert!(origin_allowed(None));
-        for ok in ["tauri://localhost", "http://tauri.localhost", "http://localhost:7823"] {
-            assert!(origin_allowed(Some(ok)), "{ok} 应放行");
-        }
-        for bad in ["http://evil.com", "https://localhost:7823", "http://localhost:1", "null"] {
-            assert!(!origin_allowed(Some(bad)), "{bad} 应拒绝");
-        }
-    }
-
-    #[test]
-    fn token_from_query_extracts() {
-        assert_eq!(token_from_query("/?token=abc123"), Some("abc123".to_string()));
-        assert_eq!(token_from_query("/?x=1&token=zz&y=2"), Some("zz".to_string()));
-        assert_eq!(token_from_query("/"), None);
-        assert_eq!(token_from_query("/?x=1"), None);
-    }
 
     #[test]
     fn ws_token_is_random_hex() {

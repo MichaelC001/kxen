@@ -48,7 +48,6 @@ export default defineConfig({
       "@tauri-apps/plugin-dialog",
       "@tauri-apps/plugin-process",
       "@tauri-apps/plugin-updater",
-      "@tauri-apps/plugin-websocket",
       "shiki/core",
       "shiki/engine/javascript",
       "shiki/themes/github-dark.mjs",

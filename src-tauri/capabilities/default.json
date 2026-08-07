@@ -5,7 +5,6 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "websocket:default",
     "core:window:allow-start-dragging",
     "dialog:default",
     "updater:default",

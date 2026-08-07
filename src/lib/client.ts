@@ -1,5 +1,5 @@
 // JSON-RPC 3.0 客户端：单连接多路复用、连接代际隔离与稳定本地订阅身份。
-import WebSocket, { type Message } from "@tauri-apps/plugin-websocket";
+// 传输统一为原生 WebSocket：桌面 webview 与浏览器走同一个 axum /ws 端点。
 import {
   RpcError,
   TopicStream,
@@ -43,10 +43,13 @@ async function ensureConn(): Promise<ActiveConnection> {
   if (connecting) return connecting;
   const attempt = (async () => {
     const endpoint = getEndpoint();
-    const { port, token } = await endpoint;
-    let ws: WebSocket;
+    const ws = new WebSocket((await endpoint).url);
     try {
-      ws = await WebSocket.connect(`ws://127.0.0.1:${port}/?token=${encodeURIComponent(token)}`);
+      await new Promise<void>((resolve, reject) => {
+        ws.onopen = () => resolve();
+        ws.onerror = () => reject(new Error("websocket connect failed"));
+        ws.onclose = () => reject(new Error("websocket connect failed"));
+      });
     } catch (error) {
       resetEndpoint(endpoint);
       throw error;
@@ -59,7 +62,16 @@ async function ensureConn(): Promise<ActiveConnection> {
       removeListener: () => {},
     };
     active = connection;
-    connection.removeListener = ws.addListener((message) => handleMessage(connection, message));
+    const onMessage = (event: MessageEvent) => handleMessage(connection, event);
+    const onClose = () => drop(connection);
+    ws.onopen = null;
+    ws.onerror = null;
+    ws.onmessage = onMessage;
+    ws.onclose = onClose;
+    connection.removeListener = () => {
+      ws.onmessage = null;
+      ws.onclose = null;
+    };
     connection.heartbeat = setInterval(() => heartbeat(connection), HEARTBEAT_INTERVAL_MS);
     return connection;
   })();
@@ -71,15 +83,11 @@ async function ensureConn(): Promise<ActiveConnection> {
   }
 }
 
-function handleMessage(connection: ActiveConnection, message: Message): void {
-  if (message.type === "Close") {
-    drop(connection);
-    return;
-  }
-  if (active !== connection || message.type !== "Text") return;
+function handleMessage(connection: ActiveConnection, event: MessageEvent): void {
+  if (active !== connection || typeof event.data !== "string") return;
   let frame: RpcResponse & StreamChunk;
   try {
-    frame = JSON.parse(message.data) as RpcResponse & StreamChunk;
+    frame = JSON.parse(event.data) as RpcResponse & StreamChunk;
   } catch {
     return;
   }
@@ -115,7 +123,12 @@ function drop(connection: ActiveConnection): void {
   resetEndpoint();
   if (connection.heartbeat) clearInterval(connection.heartbeat);
   connection.removeListener();
-  void connection.ws.disconnect().catch(() => {});
+  // 原生 WebSocket.close 在 CONNECTING/CLOSED 态调用安全；异常兜底不阻断断连清理
+  try {
+    connection.ws.close();
+  } catch {
+    // 忽略 close 异常
+  }
   for (const [id, entry] of pending) {
     if (entry.connection !== connection) continue;
     pending.delete(id);
@@ -224,13 +237,16 @@ function sendCall<T>(
       params: params ?? {},
       ...(options ? { options } : {}),
     };
-    connection.ws.send(JSON.stringify(frame)).catch((error: unknown) => {
+    // 原生 WebSocket.send 同步抛错（CLOSING/CLOSED 或缓冲溢出）：转 Promise reject 保持旧失败语义
+    try {
+      connection.ws.send(JSON.stringify(frame));
+    } catch (error) {
       if (pending.get(id) !== entry) return;
       pending.delete(id);
       clearTimeout(timer);
       reject(error instanceof Error ? error : new Error(String(error)));
       drop(connection);
-    });
+    }
   });
 }
 

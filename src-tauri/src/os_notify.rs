@@ -3,6 +3,7 @@
 //! mobile-only，桌面 show() 拿不到点击回调。改走其底层 notify-rust 的 wait_for_action：
 //! 投递路径同一实现，多拿点击语义 -> 聚焦主窗口 + emit 事件由前端切会话。
 
+use kxen_app::app_state::NotifyTarget;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// 前端切会话事件（payload = session_id；App.tsx 经 lib/os-notify.ts 挂 listen）。
@@ -66,13 +67,34 @@ pub fn should_notify_done(payload: &serde_json::Value, foreground_session: &str)
     !sid.is_empty() && sid != foreground_session
 }
 
-/// 发「kxen 会话完成」桌面通知；点击通知体 -> 聚焦主窗口 + emit CLICK_EVENT。
-pub fn notify_session_done(app: &AppHandle, session_id: &str, title: &str) {
+/// 桌面 NotifyTarget：聚焦主窗口 + emit CLICK_EVENT 由前端切会话。
+/// 窗口 handle 只在 bin 可得，lib 侧 AppState 默认 no-op（os_notify 说明为什么不用插件 API）。
+struct DesktopNotify {
+    app: AppHandle,
+}
+
+impl NotifyTarget for DesktopNotify {
+    fn focus_and_emit(&self, session_id: &str) {
+        if let Some(w) = self.app.get_webview_window("main") {
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+        let _ = self.app.emit(CLICK_EVENT, session_id);
+    }
+}
+
+/// AppState.notify 的桌面实现（bin 在 setup 注入）。
+pub fn desktop_target(app: &AppHandle) -> std::sync::Arc<dyn NotifyTarget> {
+    std::sync::Arc::new(DesktopNotify { app: app.clone() })
+}
+
+/// 发「kxen 会话完成」桌面通知；点击通知体 -> 经 NotifyTarget 聚焦主窗口 + 跳回来源会话。
+pub fn notify_session_done(target: std::sync::Arc<dyn NotifyTarget>, session_id: &str, title: &str) {
     let Ok(handle) = notify_rust::Notification::new().summary("kxen 会话完成").body(title).show() else {
         tracing::warn!("desktop notification failed");
         return;
     };
-    let app = app.clone();
     let sid = session_id.to_string();
     // wait_for_action 阻塞到用户点击/关闭：交给单线程 dispatcher 串行等待，不占 async runtime worker。
     DISPATCHER.enqueue(Box::new(move || {
@@ -81,12 +103,7 @@ pub fn notify_session_done(app: &AppHandle, session_id: &str, title: &str) {
             if action != "default" {
                 return;
             }
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
-            let _ = app.emit(CLICK_EVENT, sid);
+            target.focus_and_emit(&sid);
         });
     }));
 }

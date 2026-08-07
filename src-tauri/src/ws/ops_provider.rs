@@ -1,8 +1,7 @@
-//! provider RPC host adapter：Tauri state extraction、审批与真实网络调用。
+//! provider RPC host adapter：AppState 提取、审批与真实网络调用。
 
 use serde_json::{Value, json};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager};
 
 use crate::AppState;
 
@@ -28,7 +27,7 @@ pub(super) const METHODS: &[&str] = &[
     "models.catalog",
 ];
 
-pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, String> {
+pub(super) async fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<Value, String> {
     match method {
         "provider.list" => {
             let out: Vec<Value> = kxen_app::providers::all()
@@ -61,7 +60,6 @@ pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Res
                 kxen_app::auth::credential::validate_account_selector(account)?;
             }
             let model = params.get("model").and_then(Value::as_str);
-            let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|error| error.to_string())?.clone();
             let store = match params.get("access").and_then(Value::as_str) {
                 Some(access) => kxen_app::llm::verify::store_with_temp_cred(
@@ -91,53 +89,33 @@ pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Res
             if let Some(account) = account {
                 kxen_app::auth::credential::validate_account_selector(account)?;
             }
-            let state = app.state::<Arc<AppState>>();
             let store = state.auth_store.lock().map_err(|error| error.to_string())?.clone();
             let mrm = state.active_runtime()?.mrm();
             let out = kxen_app::llm::models::fetch_models(&mrm, &store, provider, account, 15).await;
             Ok(json!({ "models": out.models, "source": out.source, "detail": out.detail }))
         }
         "models.catalog" => serde_json::to_value(kxen_app::llm::catalog::catalog()).map_err(|error| error.to_string()),
-        "provider.accounts" => {
-            let state = app.state::<Arc<AppState>>();
-            account_store::accounts(&state.auth_store, &kxen_app::core::paths::config_dir().join("config.toml"))
-        }
-        "provider.import_account" => {
-            let state = app.state::<Arc<AppState>>();
-            account_store::import_account(params, &state.auth_store, &kxen_app::core::paths::auth_file())
-        }
-        "provider.remove_account" => {
-            let state = app.state::<Arc<AppState>>();
-            account_store::remove_account(params, &state.auth_store, &kxen_app::core::paths::auth_file())
-        }
-        "provider.set_region" => {
-            let state = app.state::<Arc<AppState>>();
-            account_store::update_region(params, &state.auth_store, &kxen_app::core::paths::auth_file())
-        }
-        "provider.add_custom" => {
-            let state = app.state::<Arc<AppState>>();
-            account_store::add_custom_with_runtime(
-                params,
-                &state.auth_store,
-                &kxen_app::core::paths::config_dir().join("config.toml"),
-                &kxen_app::core::paths::auth_file(),
-                &state.workspace_runtimes,
-            )
-        }
-        "provider.remove_custom" => {
-            let state = app.state::<Arc<AppState>>();
-            account_store::remove_custom_with_runtime(
-                params,
-                &state.auth_store,
-                &kxen_app::core::paths::config_dir().join("config.toml"),
-                &kxen_app::core::paths::auth_file(),
-                &state.workspace_runtimes,
-            )
-        }
+        "provider.accounts" => account_store::accounts(&state.auth_store, &kxen_app::core::paths::config_dir().join("config.toml")),
+        "provider.import_account" => account_store::import_account(params, &state.auth_store, &kxen_app::core::paths::auth_file()),
+        "provider.remove_account" => account_store::remove_account(params, &state.auth_store, &kxen_app::core::paths::auth_file()),
+        "provider.set_region" => account_store::update_region(params, &state.auth_store, &kxen_app::core::paths::auth_file()),
+        "provider.add_custom" => account_store::add_custom_with_runtime(
+            params,
+            &state.auth_store,
+            &kxen_app::core::paths::config_dir().join("config.toml"),
+            &kxen_app::core::paths::auth_file(),
+            &state.workspace_runtimes,
+        ),
+        "provider.remove_custom" => account_store::remove_custom_with_runtime(
+            params,
+            &state.auth_store,
+            &kxen_app::core::paths::config_dir().join("config.toml"),
+            &kxen_app::core::paths::auth_file(),
+            &state.workspace_runtimes,
+        ),
         "provider.oauth_begin" => {
             let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
             let account = params.get("account").and_then(Value::as_str).unwrap_or("default");
-            let state = app.state::<Arc<AppState>>();
             let auth_store = Arc::clone(&state.auth_store);
             let on_success: kxen_app::auth::oauth_login::OnSuccess = Arc::new(move |provider, account, credential| {
                 let key = kxen_app::auth::credential::account_id(provider, account);
@@ -181,13 +159,12 @@ pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Res
             let out = kxen_app::llm::models::probe_custom_models(base_url, api_key, protocol, 15).await;
             Ok(json!({ "models": out.models, "source": out.source, "detail": out.detail }))
         }
-        "provider.reprobe" => reprobe(app).await,
+        "provider.reprobe" => reprobe(state).await,
         other => Err(format!("unknown provider method: {other}")),
     }
 }
 
-async fn reprobe(app: &AppHandle) -> Result<Value, String> {
-    let state = app.state::<Arc<AppState>>();
+async fn reprobe(state: &Arc<AppState>) -> Result<Value, String> {
     kxen_app::auth::consent::ensure_consents(&state.approvals, &state.bus).await?;
     let baseline = state.auth_store.lock().map_err(|error| error.to_string())?.clone();
     let (baseline, probed, outcomes) = tokio::task::spawn_blocking(move || {

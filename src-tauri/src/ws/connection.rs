@@ -1,22 +1,32 @@
 //! 单连接多路复用。读取、事件接收与 RPC 执行彼此独立，慢 RPC 不阻塞心跳或事件。
+//!
+//! 核心是传输无关的：握手（token/Origin/Host）与协议帧适配在 `web` 模块完成，
+//! 这里只消费/产出自有 `Frame`（Vec<u8> 载荷便于跨 channel 传递）。
 
 use std::future::Future;
 use std::sync::Arc;
 
-use futures::{SinkExt, StreamExt};
+use futures::{Sink, SinkExt, Stream, StreamExt};
 use serde_json::{Value, json};
-use tauri::{AppHandle, Manager};
-use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
-use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use super::protocol::{CallError, Request, Response};
 use super::request::SystemAction;
-use super::{HandshakeGuard, StreamSequences, SubBinding};
+use super::{StreamSequences, SubBinding};
 use crate::AppState;
 
 const OUTBOUND_CAPACITY: usize = 256;
+
+/// 传输无关的连接帧：web 模块的 axum adapter 负责 Message <-> Frame 双向映射。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Frame {
+    Text(Vec<u8>),
+    Binary(Vec<u8>),
+    Ping(Vec<u8>),
+    Pong(Vec<u8>),
+    Close,
+}
 
 enum FrameOutcome {
     Reply(Response),
@@ -30,7 +40,7 @@ struct CallTasks {
 }
 
 impl CallTasks {
-    fn spawn<F>(&mut self, id: Value, future: F, outbound: mpsc::Sender<WsMessage>)
+    fn spawn<F>(&mut self, id: Value, future: F, outbound: mpsc::Sender<Frame>)
     where
         F: Future<Output = Result<Value, CallError>> + Send + 'static,
     {
@@ -56,22 +66,22 @@ impl Drop for CallTasks {
     }
 }
 
-pub(super) async fn handle(stream: TcpStream, app: AppHandle) {
-    let expected = app.state::<Arc<AppState>>().ws_token.clone();
-    let Ok(ws) = tokio_tungstenite::accept_hdr_async(stream, HandshakeGuard { expected }).await else {
-        return;
-    };
-    let (mut sink, mut source) = ws.split();
-    let (outbound, mut outbound_rx) = mpsc::channel::<WsMessage>(OUTBOUND_CAPACITY);
+pub async fn handle<I, O>(source: I, sink: O, state: Arc<AppState>)
+where
+    I: Stream<Item = Frame> + Unpin,
+    O: Sink<Frame, Error = std::io::Error> + Unpin + Send + 'static,
+{
+    let (mut sink, mut source) = (sink, source);
+    let (outbound, mut outbound_rx) = mpsc::channel::<Frame>(OUTBOUND_CAPACITY);
     let mut writer = tokio::spawn(async move {
-        while let Some(message) = outbound_rx.recv().await {
-            sink.send(message).await?;
+        while let Some(frame) = outbound_rx.recv().await {
+            sink.send(frame).await?;
         }
-        Ok::<(), tokio_tungstenite::tungstenite::Error>(())
+        Ok::<(), std::io::Error>(())
     });
     let mut subscriptions = Vec::<SubBinding>::new();
     let mut sequences = StreamSequences::default();
-    let mut bus = app.state::<Arc<AppState>>().bus.subscribe();
+    let mut bus = state.bus.subscribe();
     let mut calls = CallTasks::default();
 
     'connection: loop {
@@ -82,8 +92,10 @@ pub(super) async fn handle(stream: TcpStream, app: AppHandle) {
                     tracing::warn!(%error, "connection-owned RPC task failed");
                 }
             }
-            message = source.next() => match message {
-                Some(Ok(WsMessage::Text(text))) => {
+            frame = source.next() => match frame {
+                Some(Frame::Text(bytes)) => {
+                    // 无效 UTF-8 视为协议违例直接断开（tungstenite 时代等价于握手后读错误）
+                    let Ok(text) = String::from_utf8(bytes) else { break };
                     match route_frame(&text, &mut subscriptions, &mut sequences) {
                         FrameOutcome::Reply(response) => {
                             if send_json(&outbound, &response).await.is_err() { break; }
@@ -92,17 +104,17 @@ pub(super) async fn handle(stream: TcpStream, app: AppHandle) {
                             let id = request.id;
                             let method = request.method;
                             let params = request.params;
-                            let rpc_app = app.clone();
-                            let future = async move { super::rpc::rpc_call(&method, params, &rpc_app).await };
+                            let rpc_state = state.clone();
+                            let future = async move { super::rpc::rpc_call(&method, params, &rpc_state).await };
                             calls.spawn(id, future, outbound.clone());
                         }
                     }
                 }
-                Some(Ok(WsMessage::Ping(payload))) => {
-                    if outbound.send(WsMessage::Pong(payload)).await.is_err() { break; }
+                Some(Frame::Ping(payload)) => {
+                    if outbound.send(Frame::Pong(payload)).await.is_err() { break; }
                 }
-                Some(Ok(WsMessage::Close(_))) | Some(Err(_)) | None => break,
-                _ => {}
+                Some(Frame::Binary(_)) | Some(Frame::Pong(_)) => {}
+                Some(Frame::Close) | None => break,
             },
             event = bus.recv() => {
                 use tokio::sync::broadcast::error::RecvError;
@@ -150,14 +162,14 @@ fn route_frame(text: &str, subscriptions: &mut Vec<SubBinding>, sequences: &mut 
 }
 
 #[cfg(test)]
-fn spawn_response<F>(id: Value, future: F, outbound: mpsc::Sender<WsMessage>)
+fn spawn_response<F>(id: Value, future: F, outbound: mpsc::Sender<Frame>)
 where
     F: Future<Output = Result<Value, CallError>> + Send + 'static,
 {
     tokio::spawn(response_task(id, future, outbound));
 }
 
-async fn response_task<F>(id: Value, future: F, outbound: mpsc::Sender<WsMessage>)
+async fn response_task<F>(id: Value, future: F, outbound: mpsc::Sender<Frame>)
 where
     F: Future<Output = Result<Value, CallError>> + Send + 'static,
 {
@@ -171,9 +183,9 @@ where
     let _ = send_json(&outbound, &response).await;
 }
 
-async fn send_json(outbound: &mpsc::Sender<WsMessage>, value: &impl serde::Serialize) -> Result<(), ()> {
+async fn send_json(outbound: &mpsc::Sender<Frame>, value: &impl serde::Serialize) -> Result<(), ()> {
     let text = serde_json::to_string(value).map_err(|_| ())?;
-    outbound.send(WsMessage::Text(text.into())).await.map_err(|_| ())
+    outbound.send(Frame::Text(text.into_bytes())).await.map_err(|_| ())
 }
 
 #[cfg(test)]
@@ -193,9 +205,9 @@ mod tests {
             },
             outbound.clone(),
         );
-        outbound.send(WsMessage::Text("heartbeat".into())).await.unwrap();
+        outbound.send(Frame::Text(b"heartbeat".to_vec())).await.unwrap();
         let next = tokio::time::timeout(std::time::Duration::from_millis(100), received.recv()).await.unwrap();
-        assert_eq!(next, Some(WsMessage::Text("heartbeat".into())));
+        assert_eq!(next, Some(Frame::Text(b"heartbeat".to_vec())));
     }
 
     #[tokio::test]

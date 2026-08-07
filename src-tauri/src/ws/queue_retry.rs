@@ -1,10 +1,10 @@
 //! Pending delivery 的有上限指数退避拉活器。
 
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
-use tauri::AppHandle;
+use crate::AppState;
 
 const BASE_DELAY_MS: u64 = 250;
 const MAX_DELAY_MS: u64 = 30_000;
@@ -58,17 +58,17 @@ fn retry_delay(attempts: u32) -> Duration {
     Duration::from_millis(BASE_DELAY_MS.saturating_mul(multiplier).min(MAX_DELAY_MS))
 }
 
-pub(super) fn schedule_retry(app: AppHandle, session_id: String) {
+pub(super) fn schedule_retry(state: Arc<AppState>, session_id: String) {
     let Some((ticket, delay)) = kxen_app::core::shared::lock(&RETRIES).reserve(&session_id) else {
         return;
     };
     tracing::warn!(session = session_id, delay_ms = delay.as_millis(), "pending queue retry scheduled");
-    tauri::async_runtime::spawn(async move {
+    tokio::spawn(async move {
         tokio::time::sleep(delay).await;
         if !kxen_app::core::shared::lock(&RETRIES).take_due(&session_id, ticket) {
             return;
         }
-        super::pending::kick_session(app, session_id);
+        super::pending::kick_session(state, session_id);
     });
 }
 
