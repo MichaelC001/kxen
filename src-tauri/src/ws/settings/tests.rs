@@ -90,10 +90,10 @@ fn invalid_role_account_is_rejected_before_config_write() {
 
 #[test]
 fn statusline_usage_reports_storage_degradation_separately() {
-    let tokens = kxen_app::core::usage::SessionUsage { input: 120, output: 30, ..Default::default() };
+    let tokens = kxen_gui::core::usage::SessionUsage { input: 120, output: 30, ..Default::default() };
     let report = session_usage_report(
         tokens,
-        kxen_app::core::usage::UsageCompleteness {
+        kxen_gui::core::usage::UsageCompleteness {
             usage_complete: false,
             storage_complete: false,
             storage_warning: Some("disk full".into()),
@@ -114,7 +114,7 @@ fn statusline_session_never_falls_back_to_active_workspace() {
     let owned = root.join("owned");
     std::fs::create_dir_all(&active).unwrap();
     std::fs::create_dir_all(&owned).unwrap();
-    let session = kxen_app::core::session::create(&sessions, owned.to_str().unwrap()).unwrap();
+    let session = kxen_gui::core::session::create(&sessions, owned.to_str().unwrap()).unwrap();
 
     assert_eq!(statusline_workdir(&sessions, "", &active).unwrap(), active);
     assert_eq!(statusline_workdir(&sessions, &session.id, &active).unwrap(), owned);

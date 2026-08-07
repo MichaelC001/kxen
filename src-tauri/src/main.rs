@@ -1,18 +1,18 @@
 mod os_notify;
 mod tray;
 
-use kxen_app::AppState;
-use kxen_app::web::{WebServer, WebServerHandle};
+use kxen_gui::AppState;
+use kxen_gui::web::{WebServer, WebServerHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 /// 用户配置加载失败时回退默认（web.enabled=true / bind=127.0.0.1 / port=7824 / tray 全开），不阻塞启动。
-fn load_user_config() -> kxen_app::core::config::Config {
-    let path = kxen_app::core::paths::config_dir().join("config.toml");
-    kxen_app::core::config::Config::load(&path, None).unwrap_or_else(|error| {
+fn load_user_config() -> kxen_gui::core::config::Config {
+    let path = kxen_gui::core::paths::config_dir().join("config.toml");
+    kxen_gui::core::config::Config::load(&path, None).unwrap_or_else(|error| {
         tracing::warn!(%error, "user config load failed, falling back to defaults");
-        kxen_app::core::config::Config::default()
+        kxen_gui::core::config::Config::default()
     })
 }
 
@@ -99,7 +99,7 @@ pub fn run() {
                 }
                 let state = app.state::<Arc<AppState>>().inner().clone();
                 // OS 通知点击回跳注入桌面实现（AppState 默认 no-op；窗口 handle 只在 bin 可得）
-                *kxen_app::core::shared::write(&state.notify) = os_notify::desktop_target(app.handle());
+                *kxen_gui::core::shared::write(&state.notify) = os_notify::desktop_target(app.handle());
                 // 单一 Web 端点（/ws + dist 静态托管）：GUI 启动即常驻，webview 与浏览器同路。
                 // [web] 配置驱动 bind/端口/浏览器访问开关；端口占用回退随机；实际端口写回 state.ws_port。
                 let bind: std::net::IpAddr = config_setup.web.bind.parse().unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
@@ -111,7 +111,7 @@ pub fn run() {
                 match started {
                     Ok(handle) => {
                         let port = handle.port();
-                        *kxen_app::core::shared::lock(&state.ws_port) = port;
+                        *kxen_gui::core::shared::lock(&state.ws_port) = port;
                         if let Ok(mut slot) = web_handle_setup.lock() {
                             *slot = Some(handle);
                         }
@@ -135,14 +135,14 @@ pub fn run() {
                     Err(error) => tracing::error!(error = %error, "tray setup failed"),
                 }
                 // 崩溃前排队的消息恢复续跑；teammate -> lead 与 background late 通知在无活跃 run 时的续跑触发
-                kxen_app::ws::pending::restore_queues(state.clone());
-                kxen_app::ws::pending::wire_team_kick(&state);
-                kxen_app::ws::pending::wire_background_kick(&state);
+                kxen_gui::ws::pending::restore_queues(state.clone());
+                kxen_gui::ws::pending::wire_team_kick(&state);
+                kxen_gui::ws::pending::wire_background_kick(&state);
                 // 通知落盘：bus 订阅一条，Notification 事件进环形缓冲（通知中心数据源）
                 {
                     let state = state.clone();
                     tauri::async_runtime::spawn(async move {
-                        use kxen_app::core::event::{RecvVerdict, recv_verdict};
+                        use kxen_gui::core::event::{RecvVerdict, recv_verdict};
                         let mut rx = state.bus.subscribe();
                         // Lagged 跳过继续收（静默退出 = 通知中心永久停更），Closed（app 退出）才停
                         loop {
@@ -152,21 +152,21 @@ pub fn run() {
                                 RecvVerdict::Stop => break,
                             };
                             // 非前台会话的 run 完成：OS 桌面通知（前台会话用户在看，不打扰）
-                            if let kxen_app::core::event::Event::LlmDelta(payload) = &event {
-                                let fg = kxen_app::core::shared::read(&state.foreground_session).clone();
+                            if let kxen_gui::core::event::Event::LlmDelta(payload) = &event {
+                                let fg = kxen_gui::core::shared::read(&state.foreground_session).clone();
                                 if os_notify::should_notify_done(payload, &fg) {
                                     let sid = payload.get("session_id").and_then(|s| s.as_str()).unwrap_or("");
-                                    let title = kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), sid)
+                                    let title = kxen_gui::core::session::load_meta(&kxen_gui::core::paths::sessions_dir(), sid)
                                         .map(|m| m.title)
                                         .unwrap_or_else(|_| sid.to_string());
                                     // 点击通知经 NotifyTarget 聚焦主窗口并跳来源会话（os_notify 说明为什么不用插件 API）
-                                    os_notify::notify_session_done(kxen_app::core::shared::read(&state.notify).clone(), sid, &title);
+                                    os_notify::notify_session_done(kxen_gui::core::shared::read(&state.notify).clone(), sid, &title);
                                 }
                             }
-                            if let kxen_app::core::event::Event::Notification { text, session_id } = event {
+                            if let kxen_gui::core::event::Event::Notification { text, session_id } = event {
                                 // notification hook（全部 Notification 事件的单一收口点；Ask 档走审批）
-                                let active = kxen_app::core::shared::read(&state.active_workspace).clone();
-                                let runtime = notification_workdir(&kxen_app::core::paths::sessions_dir(), &active, session_id.as_deref())
+                                let active = kxen_gui::core::shared::read(&state.active_workspace).clone();
+                                let runtime = notification_workdir(&kxen_gui::core::paths::sessions_dir(), &active, session_id.as_deref())
                                     .and_then(|workdir| state.workspace_runtimes.runtime(&workdir));
                                 // broker/bus 克隆进任务（借用无法跨 spawn 的 'static 边界）
                                 let broker = state.approvals.clone();
@@ -180,7 +180,7 @@ pub fn run() {
                                             return;
                                         }
                                     };
-                                    let appr = kxen_app::tools::exec::ApprovalCtx::new(Some(broker.as_ref()), Some(&bus), None, None);
+                                    let appr = kxen_gui::tools::exec::ApprovalCtx::new(Some(broker.as_ref()), Some(&bus), None, None);
                                     let payload = &serde_json::json!({ "text": text2, "session_id": sid });
                                     if let Err(e) =
                                         runtime.hooks().run_named_with_approval("notification", &text2, payload, appr.as_ref()).await
@@ -192,10 +192,10 @@ pub fn run() {
                                     .duration_since(std::time::UNIX_EPOCH)
                                     .map(|d| d.as_millis() as u64)
                                     .unwrap_or(0);
-                                let mut buf = kxen_app::core::shared::lock(&state.notifications);
+                                let mut buf = kxen_gui::core::shared::lock(&state.notifications);
                                 let previous = buf.clone();
-                                kxen_app::core::notifications::push(&mut buf, now, text, session_id);
-                                if let Err(error) = kxen_app::core::notifications::persist_checked(&buf) {
+                                kxen_gui::core::notifications::push(&mut buf, now, text, session_id);
+                                if let Err(error) = kxen_gui::core::notifications::persist_checked(&buf) {
                                     *buf = previous;
                                     tracing::error!(%error, "notification persistence failed");
                                 }
@@ -204,12 +204,12 @@ pub fn run() {
                     });
                 }
                 // cron 与 Knowledge consolidation 使用独立时钟和任务。Provider 慢请求不得阻塞定时消息。
-                kxen_app::background_jobs::spawn(state.clone());
+                kxen_gui::background_jobs::spawn(state.clone());
                 // MCP servers：信任门 + 双 scope 加载后台启动（server 冷启动可至 60s，绝不阻塞启动路径）
                 {
                     let state = state.clone();
                     tauri::async_runtime::spawn(async move {
-                        let workdir = kxen_app::core::shared::read(&state.active_workspace).clone();
+                        let workdir = kxen_gui::core::shared::read(&state.active_workspace).clone();
                         if let Err(e) = state.workspace_runtimes.ready(&workdir).await {
                             tracing::warn!(error = %e, "initial workspace runtime failed");
                         }
@@ -217,10 +217,10 @@ pub fn run() {
                 }
                 // 凭证探测走后台：keychain 读取可被 ACL 弹窗无限阻塞，绝不能卡启动路径
                 tauri::async_runtime::spawn(async move {
-                    let baseline = kxen_app::core::shared::lock(&state.auth_store).clone();
+                    let baseline = kxen_gui::core::shared::lock(&state.auth_store).clone();
                     let probed = tokio::task::spawn_blocking(move || {
                         let mut store = baseline.clone();
-                        let outcomes = kxen_app::auth::probe_all(&mut store, false);
+                        let outcomes = kxen_gui::auth::probe_all(&mut store, false);
                         (baseline, store, outcomes)
                     })
                     .await;
@@ -228,9 +228,9 @@ pub fn run() {
                         for (provider, outcome, _) in &outcomes {
                             tracing::info!(provider, ?outcome, "credential probe");
                         }
-                        let mut current = kxen_app::core::shared::lock(&state.auth_store);
-                        match kxen_app::auth::credential::update_auth_file(&kxen_app::core::paths::auth_file(), |disk| {
-                            kxen_app::auth::probe::merge_probe_delta(&baseline, &store, disk);
+                        let mut current = kxen_gui::core::shared::lock(&state.auth_store);
+                        match kxen_gui::auth::credential::update_auth_file(&kxen_gui::core::paths::auth_file(), |disk| {
+                            kxen_gui::auth::probe::merge_probe_delta(&baseline, &store, disk);
                             Ok(())
                         }) {
                             Ok(persisted) => *current = persisted,
@@ -264,7 +264,7 @@ fn notification_workdir(
     session_id: Option<&str>,
 ) -> Result<std::path::PathBuf, String> {
     match session_id {
-        Some(id) => kxen_app::core::session::load_meta(sessions_dir, id)
+        Some(id) => kxen_gui::core::session::load_meta(sessions_dir, id)
             .map(|meta| std::path::PathBuf::from(meta.directory))
             .map_err(|error| format!("notification session {id}: {error}")),
         None => Ok(active_workspace.to_path_buf()),
@@ -273,13 +273,13 @@ fn notification_workdir(
 
 #[cfg(test)]
 fn should_dispatch_schedule(sessions_dir: &std::path::Path, session_id: &str) -> Result<bool, String> {
-    kxen_app::core::session_recovery::is_tombstoned(sessions_dir, session_id).map(|tombstoned| !tombstoned)
+    kxen_gui::core::session_recovery::is_tombstoned(sessions_dir, session_id).map(|tombstoned| !tombstoned)
 }
 
 /// 前端拿 ws 端口 + 握手 token（替代 window.eval 注入：页面重载后注入丢失的竞态根治）。
 #[tauri::command]
 fn ws_port(state: tauri::State<'_, Arc<AppState>>) -> Result<serde_json::Value, String> {
-    let port = *kxen_app::core::shared::lock(&state.ws_port);
+    let port = *kxen_gui::core::shared::lock(&state.ws_port);
     ws_endpoint(port, &state.ws_token)
 }
 

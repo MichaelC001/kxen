@@ -15,20 +15,20 @@ pub(super) use terminal::{finish_persisted, publish_direct_scheduled};
 /// finalize_run 的入参包：字段即 run_llm 原局部变量，打包传入避免一长串位置参数。
 pub(super) struct RunEnd<'a> {
     pub state: &'a Arc<AppState>,
-    pub runtime: Arc<kxen_app::workspace_runtime::WorkspaceRuntime>,
+    pub runtime: Arc<kxen_gui::workspace_runtime::WorkspaceRuntime>,
     pub session_id: String,
     pub stream_id: String,
-    pub notify: Arc<kxen_app::agent::background::NotifyRouter>,
-    pub cancel: kxen_app::agent::cancel::CancelToken,
+    pub notify: Arc<kxen_gui::agent::background::NotifyRouter>,
+    pub cancel: kxen_gui::agent::cancel::CancelToken,
     pub files: Vec<std::path::PathBuf>,
-    pub outcome: kxen_app::agent::agent_loop::AgentOutcome,
+    pub outcome: kxen_gui::agent::agent_loop::AgentOutcome,
     pub sessions_dir: std::path::PathBuf,
-    pub transcript: Arc<std::sync::Mutex<Vec<kxen_app::core::session::Part>>>,
+    pub transcript: Arc<std::sync::Mutex<Vec<kxen_gui::core::session::Part>>>,
     pub cron_job_id: Option<String>,
 }
 
 pub(super) async fn finalize_run(end: RunEnd<'_>) {
-    use kxen_app::core::session as ses;
+    use kxen_gui::core::session as ses;
 
     let RunEnd { state, runtime, session_id, stream_id, notify, cancel, files, outcome, sessions_dir, transcript, cron_job_id } = end;
 
@@ -38,15 +38,15 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
         let state = Arc::clone(state);
         let sid = session_id.clone();
         let sessions_dir = sessions_dir.clone();
-        std::sync::Arc::new(move |notice: kxen_app::agent::background::RoutedNotice| {
-            match kxen_app::agent::background::deliver_late(&state.pending_messages, &sessions_dir, &sid, notice)? {
-                kxen_app::agent::background::LateDelivery::Queued => {
-                    kxen_app::agent::background::kick_late(&sid);
+        std::sync::Arc::new(move |notice: kxen_gui::agent::background::RoutedNotice| {
+            match kxen_gui::agent::background::deliver_late(&state.pending_messages, &sessions_dir, &sid, notice)? {
+                kxen_gui::agent::background::LateDelivery::Queued => {
+                    kxen_gui::agent::background::kick_late(&sid);
                     Ok(())
                 }
-                kxen_app::agent::background::LateDelivery::Preserved { warning } => {
+                kxen_gui::agent::background::LateDelivery::Preserved { warning } => {
                     tracing::error!(session = sid, %warning, "late background notification used durable fallback");
-                    state.bus.publish(kxen_app::core::event::Event::notify(warning, Some(sid.clone())));
+                    state.bus.publish(kxen_gui::core::event::Event::notify(warning, Some(sid.clone())));
                     Ok(())
                 }
             }
@@ -54,21 +54,21 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
     });
     if let Err(error) = close_result {
         tracing::error!(session = session_id, %error, "late background notification persistence failed");
-        state.bus.publish(kxen_app::core::event::Event::notify(
+        state.bus.publish(kxen_gui::core::event::Event::notify(
             format!("后台任务结果保存失败，需要检查本地存储：{error}"),
             Some(session_id.clone()),
         ));
     }
     // P0-2a 摘除：此后 teammate -> lead 报告走 pending queue 续跑路（relay 查无 router）
     state.team.relay().unregister(&session_id, &notify);
-    kxen_app::core::shared::lock(&state.session_involved).insert(session_id.clone(), files);
+    kxen_gui::core::shared::lock(&state.session_involved).insert(session_id.clone(), files);
     // active_runs 槽位必须覆盖 stop hook、Assistant 落盘与 terminal 发布。
     // Queue handoff 在这些收尾完成后原子换代；无后续队列时由调用栈中的 RunSlot drop 释放。
     // run 收尾清掉本 session 挂起的审批：等待方按 deny 唤醒，防 pending 泄漏（session 删除同理可达）
     state.approvals.cancel_session(&session_id);
     // stop hook（run 结束挂点，fire-and-log；Ask 档走审批通道）
     let stop_appr =
-        kxen_app::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), Some(&cancel), Some(session_id.as_str()));
+        kxen_gui::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), Some(&cancel), Some(session_id.as_str()));
     if let Err(e) = runtime
         .hooks()
         .run_named_with_approval(
@@ -85,10 +85,10 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
     // 此处只保存主 run 的上下文水位。
     if let Some(stats) = outcome.stats {
         // ctx 水位取最近一次请求的 input（累计值不代表窗口占用）
-        kxen_app::core::shared::lock(&state.session_last_input).insert(session_id.clone(), stats.last_input_tokens);
+        kxen_gui::core::shared::lock(&state.session_last_input).insert(session_id.clone(), stats.last_input_tokens);
     }
 
-    let mut parts = kxen_app::core::shared::lock(&transcript).clone();
+    let mut parts = kxen_gui::core::shared::lock(&transcript).clone();
     if !outcome.final_text.is_empty() {
         parts.push(ses::Part::Text { text: outcome.final_text });
     }
@@ -112,9 +112,9 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
     handoff_pending(state, session_id, &cancel);
 }
 
-pub(super) fn handoff_pending(state: &Arc<AppState>, session_id: String, cancel: &kxen_app::agent::cancel::CancelToken) {
+pub(super) fn handoff_pending(state: &Arc<AppState>, session_id: String, cancel: &kxen_gui::agent::cancel::CancelToken) {
     let handoff =
-        super::run_slot::claim_queued_handoff(&state.active_runs, &kxen_app::core::paths::sessions_dir(), &session_id, cancel, || {
+        super::run_slot::claim_queued_handoff(&state.active_runs, &kxen_gui::core::paths::sessions_dir(), &session_id, cancel, || {
             state.pending_messages.claim(&session_id)
         });
     let (q, next_cancel) = match handoff {
@@ -129,7 +129,7 @@ pub(super) fn handoff_pending(state: &Arc<AppState>, session_id: String, cancel:
         }
         Err(error) => {
             tracing::error!(session = session_id, %error, "pending queue handoff failed after run");
-            state.bus.publish(kxen_app::core::event::Event::notify(format!("队列续跑失败：{error}"), Some(session_id.clone())));
+            state.bus.publish(kxen_gui::core::event::Event::notify(format!("队列续跑失败：{error}"), Some(session_id.clone())));
             release_current_slot(state, &session_id, cancel);
             super::queue_retry::schedule_retry(state.clone(), session_id);
             return;
@@ -152,16 +152,16 @@ pub(super) fn handoff_pending(state: &Arc<AppState>, session_id: String, cancel:
     );
 }
 
-fn release_current_slot(state: &Arc<AppState>, session_id: &str, cancel: &kxen_app::agent::cancel::CancelToken) {
-    kxen_app::agent::cancel::remove_if_current(&mut kxen_app::core::shared::lock(&state.active_runs), session_id, cancel);
+fn release_current_slot(state: &Arc<AppState>, session_id: &str, cancel: &kxen_gui::agent::cancel::CancelToken) {
+    kxen_gui::agent::cancel::remove_if_current(&mut kxen_gui::core::shared::lock(&state.active_runs), session_id, cancel);
 }
 
 pub(super) fn publish_terminal(
-    bus: &kxen_app::core::event::EventBus,
+    bus: &kxen_gui::core::event::EventBus,
     session_id: &str,
     stream_id: &str,
-    terminal: &kxen_app::agent::agent_loop::AgentEvent,
-    model: Option<&kxen_app::llm::ModelRef>,
+    terminal: &kxen_gui::agent::agent_loop::AgentEvent,
+    model: Option<&kxen_gui::llm::ModelRef>,
 ) {
     let mut payload = match serde_json::to_value(terminal) {
         Ok(payload) => payload,
@@ -177,10 +177,10 @@ pub(super) fn publish_terminal(
             object.insert("model".into(), serde_json::json!({ "provider": model.provider, "model": model.model }));
         }
     }
-    bus.publish(kxen_app::core::event::Event::LlmDelta(payload));
+    bus.publish(kxen_gui::core::event::Event::LlmDelta(payload));
 }
 
-pub(super) fn finish_direct(state: &Arc<AppState>, session_id: &str, stream_id: &str, terminal: kxen_app::agent::agent_loop::AgentEvent) {
+pub(super) fn finish_direct(state: &Arc<AppState>, session_id: &str, stream_id: &str, terminal: kxen_gui::agent::agent_loop::AgentEvent) {
     publish_terminal(&state.bus, session_id, stream_id, &terminal, None);
 }
 
@@ -192,10 +192,10 @@ pub(super) fn cap_output(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kxen_app::agent::agent_loop::AgentEvent;
-    use kxen_app::core::event::Event;
-    use kxen_app::core::session::{self, Part, Role};
-    use kxen_app::llm::ModelRef;
+    use kxen_gui::agent::agent_loop::AgentEvent;
+    use kxen_gui::core::event::Event;
+    use kxen_gui::core::session::{self, Part, Role};
+    use kxen_gui::llm::ModelRef;
 
     fn temporary_sessions(tag: &str) -> std::path::PathBuf {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
@@ -208,7 +208,7 @@ mod tests {
         let meta = session::create(&dir, "/tmp/work").unwrap();
         let mut message = session::new_message(&meta.id, Role::Assistant, vec![Part::Text { text: "done".into() }]);
         message.model = Some(ModelRef::new("anthropic", "claude-sonnet-4-6"));
-        let bus = kxen_app::core::event::EventBus::default();
+        let bus = kxen_gui::core::event::EventBus::default();
         let mut receiver = bus.subscribe();
 
         let mut recorded = Vec::new();
@@ -244,7 +244,7 @@ mod tests {
         let meta = session::create(&dir, "/tmp/work").unwrap();
         session::remove(&dir, &meta.id);
         let message = session::new_message(&meta.id, Role::Assistant, vec![Part::Text { text: "lost".into() }]);
-        let bus = kxen_app::core::event::EventBus::default();
+        let bus = kxen_gui::core::event::EventBus::default();
         let mut receiver = bus.subscribe();
 
         let mut recorded = Vec::new();
@@ -276,7 +276,7 @@ mod tests {
         let meta = session::create(&dir, "/tmp/work").unwrap();
         let user = session::new_message(&meta.id, Role::User, vec![Part::Text { text: "hello".into() }]);
         session::append_message(&dir, &user).unwrap();
-        let bus = kxen_app::core::event::EventBus::default();
+        let bus = kxen_gui::core::event::EventBus::default();
         let mut receiver = bus.subscribe();
 
         let message = terminal::early_message(&meta.id, None, &AgentEvent::Error { message: "provider unavailable".into() });
@@ -318,7 +318,7 @@ mod tests {
         let dir = temporary_sessions("schedule-failure");
         let meta = session::create(&dir, "/tmp/work").unwrap();
         let message = session::new_message(&meta.id, Role::Assistant, vec![Part::Text { text: "done".into() }]);
-        let bus = kxen_app::core::event::EventBus::default();
+        let bus = kxen_gui::core::event::EventBus::default();
         let mut receiver = bus.subscribe();
 
         let may_handoff =

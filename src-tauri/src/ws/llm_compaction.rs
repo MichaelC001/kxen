@@ -2,57 +2,57 @@
 
 use std::path::Path;
 
-use kxen_app::agent::agent_loop::AgentEvent;
-use kxen_app::llm::ModelRef;
+use kxen_gui::agent::agent_loop::AgentEvent;
+use kxen_gui::llm::ModelRef;
 
 pub(super) struct CompactionInput<'a> {
     pub(super) state: &'a crate::AppState,
     pub(super) sessions_dir: &'a Path,
     pub(super) session_id: &'a str,
     pub(super) model: &'a ModelRef,
-    pub(super) store: &'a kxen_app::auth::credential::AuthStore,
-    pub(super) mrm: &'a kxen_app::llm::mrm::ModelResourceManager,
-    pub(super) cancel: &'a kxen_app::agent::cancel::CancelToken,
+    pub(super) store: &'a kxen_gui::auth::credential::AuthStore,
+    pub(super) mrm: &'a kxen_gui::llm::mrm::ModelResourceManager,
+    pub(super) cancel: &'a kxen_gui::agent::cancel::CancelToken,
     pub(super) goal_id: Option<&'a str>,
 }
 
 pub(super) async fn compact_if_needed(input: CompactionInput<'_>) -> Result<(), (AgentEvent, Option<ModelRef>)> {
     let CompactionInput { state, sessions_dir, session_id, model, store, mrm, cancel, goal_id } = input;
-    let history = kxen_app::core::session::load_history_checked(sessions_dir, session_id)
+    let history = kxen_gui::core::session::load_history_checked(sessions_dir, session_id)
         .map_err(|error| (AgentEvent::Error { message: format!("session history unavailable: {error}") }, None))?;
-    let messages = kxen_app::agent::compact::flatten_stored(&history);
-    if !kxen_app::agent::compact::needs_compact(&messages, model) {
+    let messages = kxen_gui::agent::compact::flatten_stored(&history);
+    if !kxen_gui::agent::compact::needs_compact(&messages, model) {
         return Ok(());
     }
 
-    let timeout = provider_timeout_for_goal(goal_id, Some(kxen_app::agent::compact::COMPACT_TIMEOUT))
+    let timeout = provider_timeout_for_goal(goal_id, Some(kxen_gui::agent::compact::COMPACT_TIMEOUT))
         .map_err(|message| (AgentEvent::Error { message }, None))?
         .expect("compaction cap always produces a timeout");
 
-    state.bus.publish(kxen_app::core::event::Event::notify("上下文超阈值，正在自动压缩历史", Some(session_id.to_string())));
+    state.bus.publish(kxen_gui::core::event::Event::notify("上下文超阈值，正在自动压缩历史", Some(session_id.to_string())));
     let mut metering = CompactionMeter::begin(state, session_id, goal_id).map_err(|event| (event, None))?;
-    let options = kxen_app::agent::compact::CompactSessionOptions {
+    let options = kxen_gui::agent::compact::CompactSessionOptions {
         mrm: Some(mrm),
         keep_recent: 6,
         timeout,
         cancel: Some(cancel),
         start_barrier: Some(Box::new(metering.start_barrier())),
     };
-    match kxen_app::agent::compact::compact_session(sessions_dir, session_id, model, store, options).await {
+    match kxen_gui::agent::compact::compact_session(sessions_dir, session_id, model, store, options).await {
         Ok(Some(report)) => {
             let model_used = report.model_used.clone();
             metering.settle(report.request_started, report.usage, report.metering_warning).map_err(|event| (event, model_used))?;
-            state.bus.publish(kxen_app::core::event::Event::notify(
+            state.bus.publish(kxen_gui::core::event::Event::notify(
                 format!("上下文已自动压缩：约 {} -> {} tokens", report.before, report.after),
                 Some(session_id.to_string()),
             ));
         }
         Ok(None) => metering.settle(false, None, None).map_err(|event| (event, None))?,
-        Err(kxen_app::agent::compact::CompactError::Cancelled { request_started, usage, metering_warning, model_used, .. }) => {
+        Err(kxen_gui::agent::compact::CompactError::Cancelled { request_started, usage, metering_warning, model_used, .. }) => {
             metering.settle(request_started, usage, metering_warning).map_err(|event| (event, model_used.clone()))?;
             return Err((AgentEvent::Aborted, model_used));
         }
-        Err(kxen_app::agent::compact::CompactError::Persist { message, request_started, usage, metering_warning, model_used, .. }) => {
+        Err(kxen_gui::agent::compact::CompactError::Persist { message, request_started, usage, metering_warning, model_used, .. }) => {
             metering.settle(request_started, usage, metering_warning).map_err(|event| (event, model_used.clone()))?;
             return Err((AgentEvent::Error { message: format!("compaction checkpoint save failed: {message}") }, model_used));
         }
@@ -66,29 +66,29 @@ pub(super) fn provider_timeout_for_goal(
     cap: Option<std::time::Duration>,
 ) -> Result<Option<std::time::Duration>, String> {
     let budget = match goal_id {
-        Some(goal_id) => kxen_app::core::goal::Goal::load(&kxen_app::core::paths::goals_dir(), goal_id)
+        Some(goal_id) => kxen_gui::core::goal::Goal::load(&kxen_gui::core::paths::goals_dir(), goal_id)
             .map_err(|error| format!("goal state load failed: {error}"))?
-            .runtime_budget(kxen_app::core::shared::now_ms()),
-        None => kxen_app::core::goal::RuntimeBudget::Unbounded,
+            .runtime_budget(kxen_gui::core::shared::now_ms()),
+        None => kxen_gui::core::goal::RuntimeBudget::Unbounded,
     };
     match budget {
-        kxen_app::core::goal::RuntimeBudget::Unbounded => Ok(cap),
-        kxen_app::core::goal::RuntimeBudget::WallRemaining(remaining) => Ok(Some(cap.map_or(remaining, |limit| limit.min(remaining)))),
-        kxen_app::core::goal::RuntimeBudget::Stop(status) => Err(format!("goal 当前状态 {} 禁止 Provider 调用", status.as_str())),
+        kxen_gui::core::goal::RuntimeBudget::Unbounded => Ok(cap),
+        kxen_gui::core::goal::RuntimeBudget::WallRemaining(remaining) => Ok(Some(cap.map_or(remaining, |limit| limit.min(remaining)))),
+        kxen_gui::core::goal::RuntimeBudget::Stop(status) => Err(format!("goal 当前状态 {} 禁止 Provider 调用", status.as_str())),
     }
 }
 
 pub(crate) struct CompactionMeter {
-    reporter: kxen_app::agent::agent_loop::UsageReporter,
-    attempt: kxen_app::core::usage::ProviderAttempt,
-    bus: kxen_app::core::event::EventBus,
+    reporter: kxen_gui::agent::agent_loop::UsageReporter,
+    attempt: kxen_gui::core::usage::ProviderAttempt,
+    bus: kxen_gui::core::event::EventBus,
     session_id: String,
 }
 
 impl CompactionMeter {
     pub(crate) fn begin(state: &crate::AppState, session_id: &str, goal_id: Option<&str>) -> Result<Self, AgentEvent> {
         let reporter =
-            kxen_app::agent::agent_loop::UsageReporter::new(session_id.to_string(), state.session_tokens.clone(), state.bus.clone());
+            kxen_gui::agent::agent_loop::UsageReporter::new(session_id.to_string(), state.session_tokens.clone(), state.bus.clone());
         let attempt =
             reporter.begin(goal_id).map_err(|error| AgentEvent::Error { message: format!("compaction usage claim failed: {error}") })?;
         Ok(Self { reporter, attempt, bus: state.bus.clone(), session_id: session_id.to_string() })
@@ -105,7 +105,7 @@ impl CompactionMeter {
     pub(crate) fn settle(
         mut self,
         request_started: bool,
-        usage: Option<kxen_app::llm::managed::TokenUsage>,
+        usage: Option<kxen_gui::llm::managed::TokenUsage>,
         metering_warning: Option<String>,
     ) -> Result<(), AgentEvent> {
         if !request_started {
@@ -114,7 +114,7 @@ impl CompactionMeter {
                 .discard_unstarted(&self.attempt)
                 .map_err(|error| AgentEvent::Error { message: format!("unused compaction usage claim cleanup failed: {error}") })?;
             if let Some(warning) = warning {
-                self.bus.publish(kxen_app::core::event::Event::notify(format!("用量持久化已修复：{warning}"), Some(self.session_id)));
+                self.bus.publish(kxen_gui::core::event::Event::notify(format!("用量持久化已修复：{warning}"), Some(self.session_id)));
             }
             return Ok(());
         }
@@ -131,13 +131,13 @@ impl CompactionMeter {
             .settle(&self.attempt)
             .map_err(|error| AgentEvent::Error { message: format!("usage settlement failed: {error}") })?;
         for warning in outcome.durability_warnings {
-            self.bus.publish(kxen_app::core::event::Event::notify(format!("用量持久化已修复：{warning}"), Some(self.session_id.clone())));
+            self.bus.publish(kxen_gui::core::event::Event::notify(format!("用量持久化已修复：{warning}"), Some(self.session_id.clone())));
         }
         if let Some(message) = outcome.stop_message {
             return Err(AgentEvent::Error { message });
         }
         if let Some(warning) = metering_warning {
-            self.bus.publish(kxen_app::core::event::Event::notify(format!("用量计量降级：{warning}"), Some(self.session_id)));
+            self.bus.publish(kxen_gui::core::event::Event::notify(format!("用量计量降级：{warning}"), Some(self.session_id)));
         }
         Ok(())
     }
@@ -150,18 +150,18 @@ pub(super) fn save_run_checkpoint(
     sessions_dir: &Path,
     session_id: &str,
     summary: &str,
-    covered: &[kxen_app::llm::Message],
+    covered: &[kxen_gui::llm::Message],
 ) -> Result<(), String> {
-    let history = kxen_app::core::session::load_history_checked(sessions_dir, session_id)
+    let history = kxen_gui::core::session::load_history_checked(sessions_dir, session_id)
         .map_err(|error| format!("session history unavailable: {error}"))?;
-    let existing = kxen_app::core::session::load_compaction_checked(sessions_dir, session_id)
+    let existing = kxen_gui::core::session::load_compaction_checked(sessions_dir, session_id)
         .map_err(|error| format!("compaction checkpoint unavailable: {error}"))?;
     let flattened = history
         .iter()
         .enumerate()
         .filter_map(|(index, stored)| {
-            kxen_app::agent::compact::flatten_stored(std::slice::from_ref(stored)).into_iter().next().map(|message| {
-                let boundary = if index == 0 && message.content.starts_with(kxen_app::core::session::COMPACT_MARK) {
+            kxen_gui::agent::compact::flatten_stored(std::slice::from_ref(stored)).into_iter().next().map(|message| {
+                let boundary = if index == 0 && message.content.starts_with(kxen_gui::core::session::COMPACT_MARK) {
                     existing.as_ref().map(|checkpoint| checkpoint.upto_message_id.clone()).unwrap_or_else(|| stored.id.clone())
                 } else {
                     stored.id.clone()
@@ -178,10 +178,10 @@ pub(super) fn save_run_checkpoint(
         boundary = Some(persisted.1.clone());
     }
     let boundary = boundary.ok_or_else(|| "compaction summary does not cover a persisted history prefix".to_string())?;
-    kxen_app::core::session::save_compaction(
+    kxen_gui::core::session::save_compaction(
         sessions_dir,
         session_id,
-        &kxen_app::core::session::Compaction::new(boundary, summary.to_string()),
+        &kxen_gui::core::session::Compaction::new(boundary, summary.to_string()),
     )
     .map_err(|error| format!("compaction checkpoint save failed: {error}"))
 }
@@ -189,7 +189,7 @@ pub(super) fn save_run_checkpoint(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kxen_app::core::session::{self, Part, Role};
+    use kxen_gui::core::session::{self, Part, Role};
 
     #[test]
     fn run_checkpoint_keeps_uncovered_recent_messages() {
@@ -200,7 +200,7 @@ mod tests {
             session::append_message(&dir, &message).expect("append");
         }
         let raw = session::load_messages(&dir, &session.id);
-        let covered = kxen_app::agent::compact::flatten_stored(&raw[..4]);
+        let covered = kxen_gui::agent::compact::flatten_stored(&raw[..4]);
 
         save_run_checkpoint(&dir, &session.id, "summary through message 3", &covered).expect("checkpoint");
 

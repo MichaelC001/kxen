@@ -15,7 +15,7 @@ pub(super) async fn agents_stop(params: &Value, state: &Arc<AppState>) -> Result
         return Ok(json!(false));
     };
     let stopped = match agent.kind {
-        kxen_app::agent::activity::AgentKind::Teammate => {
+        kxen_gui::agent::activity::AgentKind::Teammate => {
             state.team.lead_action(session_id, &json!({ "action": "shutdown", "name": name })).await.is_ok()
         }
         _ => state.agents.cancel(session_id, name),

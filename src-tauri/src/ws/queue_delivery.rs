@@ -121,8 +121,8 @@ mod tests {
         }
 
         let state = Arc::new(crate::AppState::new().unwrap());
-        let sessions = kxen_app::core::paths::sessions_dir();
-        let session = kxen_app::core::session::create(&sessions, std::env::temp_dir().to_str().unwrap()).unwrap();
+        let sessions = kxen_gui::core::paths::sessions_dir();
+        let session = kxen_gui::core::session::create(&sessions, std::env::temp_dir().to_str().unwrap()).unwrap();
         let id = session.id.as_str();
 
         assert_eq!(settle(&state, id, None, false).unwrap(), DeliveryOutcome::Direct);
@@ -140,7 +140,7 @@ mod tests {
         assert_eq!(mismatch.outcome, DeliveryOutcome::InFlight);
         assert!(mismatch.message.contains("mismatch"));
 
-        let queue_file = kxen_app::core::pending_queue::file_path(&sessions, id);
+        let queue_file = kxen_gui::core::pending_queue::file_path(&sessions, id);
         std::fs::remove_file(&queue_file).unwrap();
         std::fs::create_dir(&queue_file).unwrap();
         let persistence = settle(&state, id, Some(&released.id), true).unwrap_err();

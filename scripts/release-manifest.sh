@@ -103,8 +103,8 @@ kxen_release_updater_original_name() {
 
 kxen_release_web_asset() {
   case "$1" in
-    windows-*) printf 'kxen-web-%s.zip\n' "$1" ;;
-    macos-* | linux-*) printf 'kxen-web-%s.tar.gz\n' "$1" ;;
+    windows-*) printf 'kxen-%s.zip\n' "$1" ;;
+    macos-* | linux-*) printf 'kxen-%s.tar.gz\n' "$1" ;;
     *) return 1 ;;
   esac
 }
@@ -144,7 +144,7 @@ kxen_release_asset_map() {
   esac
 }
 
-# 一个平台的全部稳定 asset 名(桌面 bundle + kxen-web 包),每行一个。
+# 一个平台的全部稳定 asset 名(桌面 bundle + kxen 包),每行一个。
 kxen_release_assets() {
   local platform="$1"
   kxen_release_asset_map "$platform" | cut -d'|' -f3

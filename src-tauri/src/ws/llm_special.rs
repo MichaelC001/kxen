@@ -2,8 +2,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::AppState;
-use kxen_app::agent::agent_loop::AgentEvent;
-use kxen_app::core::session as ses;
+use kxen_gui::agent::agent_loop::AgentEvent;
+use kxen_gui::core::session as ses;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SpecialKind {
@@ -16,7 +16,7 @@ pub(super) enum SpecialResult {
     Handled {
         terminal: AgentEvent,
         persist_terminal: bool,
-        persist_model: Option<kxen_app::llm::ModelRef>,
+        persist_model: Option<kxen_gui::llm::ModelRef>,
         delivery: super::queue_delivery::DeliveryOutcome,
     },
 }
@@ -27,7 +27,7 @@ pub(super) async fn handle(
     state: &Arc<AppState>,
     sessions_dir: &Path,
     session_id: &str,
-    cancel: &kxen_app::agent::cancel::CancelToken,
+    cancel: &kxen_gui::agent::cancel::CancelToken,
     goal_id: Option<&str>,
 ) -> SpecialResult {
     let Some(kind) = special_kind(text) else {
@@ -87,10 +87,10 @@ async fn compact_session(
     sessions_dir: &Path,
     session_id: &str,
     delivery_id: Option<&str>,
-    cancel: &kxen_app::agent::cancel::CancelToken,
+    cancel: &kxen_gui::agent::cancel::CancelToken,
     goal_id: Option<&str>,
-) -> (AgentEvent, Option<kxen_app::llm::ModelRef>) {
-    let store = kxen_app::core::shared::lock(&state.auth_store).clone();
+) -> (AgentEvent, Option<kxen_gui::llm::ModelRef>) {
+    let store = kxen_gui::core::shared::lock(&state.auth_store).clone();
     let model = match super::session_ops::routed_session_model(Some(session_id), state, &store).await {
         Ok(model) => model,
         Err(message) => return (AgentEvent::Error { message }, None),
@@ -99,23 +99,23 @@ async fn compact_session(
         Ok(runtime) => runtime.mrm(),
         Err(message) => return (AgentEvent::Error { message }, None),
     };
-    let timeout = match super::llm_compaction::provider_timeout_for_goal(goal_id, Some(kxen_app::agent::compact::COMPACT_TIMEOUT)) {
+    let timeout = match super::llm_compaction::provider_timeout_for_goal(goal_id, Some(kxen_gui::agent::compact::COMPACT_TIMEOUT)) {
         Ok(Some(timeout)) => timeout,
-        Ok(None) => kxen_app::agent::compact::COMPACT_TIMEOUT,
+        Ok(None) => kxen_gui::agent::compact::COMPACT_TIMEOUT,
         Err(message) => return (AgentEvent::Error { message }, None),
     };
     let mut metering = match super::llm_compaction::CompactionMeter::begin(state, session_id, goal_id) {
         Ok(metering) => metering,
         Err(event) => return (event, None),
     };
-    let options = kxen_app::agent::compact::CompactSessionOptions {
+    let options = kxen_gui::agent::compact::CompactSessionOptions {
         mrm: Some(&mrm),
         keep_recent: 4,
         timeout,
         cancel: Some(cancel),
         start_barrier: Some(Box::new(metering.start_barrier())),
     };
-    let (notice, model_used) = match kxen_app::agent::compact::compact_session(sessions_dir, session_id, &model, &store, options).await {
+    let (notice, model_used) = match kxen_gui::agent::compact::compact_session(sessions_dir, session_id, &model, &store, options).await {
         Ok(Some(report)) => {
             let model_used = report.model_used.clone();
             if let Err(event) = metering.settle(report.request_started, report.usage, report.metering_warning) {
@@ -129,13 +129,13 @@ async fn compact_session(
             }
             ("历史太短，无需压缩".to_string(), None)
         }
-        Err(kxen_app::agent::compact::CompactError::Cancelled { request_started, usage, metering_warning, model_used, .. }) => {
+        Err(kxen_gui::agent::compact::CompactError::Cancelled { request_started, usage, metering_warning, model_used, .. }) => {
             if let Err(event) = metering.settle(request_started, usage, metering_warning) {
                 return (event, model_used);
             }
             return (AgentEvent::Aborted, model_used);
         }
-        Err(kxen_app::agent::compact::CompactError::Persist { message, request_started, usage, metering_warning, model_used, .. }) => {
+        Err(kxen_gui::agent::compact::CompactError::Persist { message, request_started, usage, metering_warning, model_used, .. }) => {
             if let Err(event) = metering.settle(request_started, usage, metering_warning) {
                 return (event, model_used);
             }

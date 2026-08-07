@@ -8,7 +8,7 @@ pub(super) struct EarlyEnd<'a> {
     pub(super) sessions_dir: &'a Path,
     pub(super) session_id: &'a str,
     pub(super) stream_id: &'a str,
-    pub(super) cancel: &'a kxen_app::agent::cancel::CancelToken,
+    pub(super) cancel: &'a kxen_gui::agent::cancel::CancelToken,
     pub(super) schedule_job_id: Option<&'a str>,
 }
 
@@ -16,7 +16,7 @@ impl EarlyEnd<'_> {
     pub(super) fn finish_blocked(
         &self,
         delivery: super::super::queue_delivery::DeliveryOutcome,
-        terminal: kxen_app::agent::agent_loop::AgentEvent,
+        terminal: kxen_gui::agent::agent_loop::AgentEvent,
     ) {
         super::super::run_finalize::publish_direct_scheduled(
             self.state,
@@ -31,8 +31,8 @@ impl EarlyEnd<'_> {
         &self,
         delivery: super::super::queue_delivery::DeliveryOutcome,
         persist_terminal: bool,
-        model: Option<&kxen_app::llm::ModelRef>,
-        terminal: kxen_app::agent::agent_loop::AgentEvent,
+        model: Option<&kxen_gui::llm::ModelRef>,
+        terminal: kxen_gui::agent::agent_loop::AgentEvent,
     ) {
         let terminal_committed = if persist_terminal {
             super::super::run_finalize::finish_persisted(

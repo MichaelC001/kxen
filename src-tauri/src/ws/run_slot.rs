@@ -10,14 +10,14 @@ use crate::AppState;
 mod concede;
 pub(super) use concede::{ConcedePayload, concede};
 
-type ActiveRuns = Mutex<std::collections::HashMap<String, kxen_app::agent::cancel::CancelToken>>;
+type ActiveRuns = Mutex<std::collections::HashMap<String, kxen_gui::agent::cancel::CancelToken>>;
 
 #[cfg(test)]
 pub(super) fn claim_run(
     active_runs: &ActiveRuns,
     sessions_dir: &std::path::Path,
     session_id: &str,
-) -> Result<Option<kxen_app::agent::cancel::CancelToken>, String> {
+) -> Result<Option<kxen_gui::agent::cancel::CancelToken>, String> {
     claim_run_with(active_runs, sessions_dir, session_id, || {})
 }
 
@@ -27,16 +27,16 @@ pub(super) fn claim_run_with(
     sessions_dir: &std::path::Path,
     session_id: &str,
     on_busy: impl FnOnce(),
-) -> Result<Option<kxen_app::agent::cancel::CancelToken>, String> {
-    let mut runs = kxen_app::core::shared::lock(active_runs);
-    if kxen_app::core::session_recovery::is_tombstoned(sessions_dir, session_id)? {
+) -> Result<Option<kxen_gui::agent::cancel::CancelToken>, String> {
+    let mut runs = kxen_gui::core::shared::lock(active_runs);
+    if kxen_gui::core::session_recovery::is_tombstoned(sessions_dir, session_id)? {
         return Err(format!("session deletion in progress: {session_id}"));
     }
     if runs.contains_key(session_id) {
         on_busy();
         return Ok(None);
     }
-    let cancel = kxen_app::agent::cancel::CancelToken::new();
+    let cancel = kxen_gui::agent::cancel::CancelToken::new();
     runs.insert(session_id.to_string(), cancel.clone());
     Ok(Some(cancel))
 }
@@ -47,16 +47,16 @@ pub(super) fn claim_queued_run<T>(
     sessions_dir: &std::path::Path,
     session_id: &str,
     claim: impl FnOnce() -> Result<Option<T>, String>,
-) -> Result<Option<(T, kxen_app::agent::cancel::CancelToken)>, String> {
-    let mut runs = kxen_app::core::shared::lock(active_runs);
-    if kxen_app::core::session_recovery::is_tombstoned(sessions_dir, session_id)? {
+) -> Result<Option<(T, kxen_gui::agent::cancel::CancelToken)>, String> {
+    let mut runs = kxen_gui::core::shared::lock(active_runs);
+    if kxen_gui::core::session_recovery::is_tombstoned(sessions_dir, session_id)? {
         return Err(format!("session deletion in progress: {session_id}"));
     }
     if runs.contains_key(session_id) {
         return Ok(None);
     }
     let Some(delivery) = claim()? else { return Ok(None) };
-    let cancel = kxen_app::agent::cancel::CancelToken::new();
+    let cancel = kxen_gui::agent::cancel::CancelToken::new();
     runs.insert(session_id.to_string(), cancel.clone());
     Ok(Some((delivery, cancel)))
 }
@@ -66,11 +66,11 @@ pub(super) fn claim_queued_handoff<T>(
     active_runs: &ActiveRuns,
     sessions_dir: &std::path::Path,
     session_id: &str,
-    current: &kxen_app::agent::cancel::CancelToken,
+    current: &kxen_gui::agent::cancel::CancelToken,
     claim: impl FnOnce() -> Result<Option<T>, String>,
-) -> Result<Option<(T, kxen_app::agent::cancel::CancelToken)>, String> {
-    let mut runs = kxen_app::core::shared::lock(active_runs);
-    if kxen_app::core::session_recovery::is_tombstoned(sessions_dir, session_id)? {
+) -> Result<Option<(T, kxen_gui::agent::cancel::CancelToken)>, String> {
+    let mut runs = kxen_gui::core::shared::lock(active_runs);
+    if kxen_gui::core::session_recovery::is_tombstoned(sessions_dir, session_id)? {
         return Err(format!("session deletion in progress: {session_id}"));
     }
     let Some(active) = runs.get(session_id) else {
@@ -80,13 +80,13 @@ pub(super) fn claim_queued_handoff<T>(
         return Err(format!("run slot generation changed before queue handoff: {session_id}"));
     }
     let Some(delivery) = claim()? else { return Ok(None) };
-    let next = kxen_app::agent::cancel::CancelToken::new();
+    let next = kxen_gui::agent::cancel::CancelToken::new();
     runs.insert(session_id.to_string(), next.clone());
     Ok(Some((delivery, next)))
 }
 
-pub(super) fn is_current(active_runs: &ActiveRuns, session_id: &str, token: &kxen_app::agent::cancel::CancelToken) -> bool {
-    kxen_app::core::shared::lock(active_runs).get(session_id).is_some_and(|active| active.same_generation(token))
+pub(super) fn is_current(active_runs: &ActiveRuns, session_id: &str, token: &kxen_gui::agent::cancel::CancelToken) -> bool {
+    kxen_gui::core::shared::lock(active_runs).get(session_id).is_some_and(|active| active.same_generation(token))
 }
 
 /// interrupt 持久化替代消息并 cancel 当前代，但保留槽到 finalize handoff。
@@ -95,7 +95,7 @@ pub(super) fn interrupt_current<T>(
     session_id: &str,
     enqueue: impl FnOnce() -> Result<T, String>,
 ) -> Result<Option<T>, String> {
-    let runs = kxen_app::core::shared::lock(active_runs);
+    let runs = kxen_gui::core::shared::lock(active_runs);
     let Some(cancel) = runs.get(session_id) else { return Ok(None) };
     let queued = enqueue()?;
     cancel.cancel();
@@ -109,8 +109,8 @@ pub(super) fn abort_current<T>(
     session_id: &str,
     clear: impl FnOnce() -> Result<T, String>,
 ) -> Result<(T, bool), String> {
-    let runs = kxen_app::core::shared::lock(active_runs);
-    if kxen_app::core::session_recovery::is_tombstoned(sessions_dir, session_id)? {
+    let runs = kxen_gui::core::shared::lock(active_runs);
+    if kxen_gui::core::session_recovery::is_tombstoned(sessions_dir, session_id)? {
         return Err(format!("session deletion in progress: {session_id}"));
     }
     let cleared = clear()?;
@@ -122,13 +122,13 @@ pub(super) fn abort_current<T>(
 pub(super) struct RunSlot {
     pub state: Arc<AppState>,
     pub session_id: String,
-    pub cancel: kxen_app::agent::cancel::CancelToken,
+    pub cancel: kxen_gui::agent::cancel::CancelToken,
 }
 
 impl Drop for RunSlot {
     fn drop(&mut self) {
-        kxen_app::agent::cancel::remove_if_current(
-            &mut kxen_app::core::shared::lock(&self.state.active_runs),
+        kxen_gui::agent::cancel::remove_if_current(
+            &mut kxen_gui::core::shared::lock(&self.state.active_runs),
             &self.session_id,
             &self.cancel,
         );
@@ -159,7 +159,7 @@ mod tests {
             handle.join().unwrap();
         }
         assert_eq!(winners.load(std::sync::atomic::Ordering::SeqCst), 1);
-        assert_eq!(kxen_app::core::shared::lock(&*runs).len(), 1);
+        assert_eq!(kxen_gui::core::shared::lock(&*runs).len(), 1);
     }
 
     #[test]
@@ -169,11 +169,11 @@ mod tests {
         let first = claim_run(&runs, &sessions, "s").unwrap().expect("first claim wins");
         assert!(claim_run(&runs, &sessions, "s").unwrap().is_none());
         // 代际不符的摘除不得释放槽位（interrupt 接管场景）
-        let intruder = kxen_app::agent::cancel::CancelToken::new();
-        kxen_app::agent::cancel::remove_if_current(&mut kxen_app::core::shared::lock(&runs), "s", &intruder);
+        let intruder = kxen_gui::agent::cancel::CancelToken::new();
+        kxen_gui::agent::cancel::remove_if_current(&mut kxen_gui::core::shared::lock(&runs), "s", &intruder);
         assert!(claim_run(&runs, &sessions, "s").unwrap().is_none());
         // 本 run 收尾摘除后槽位可再抢
-        kxen_app::agent::cancel::remove_if_current(&mut kxen_app::core::shared::lock(&runs), "s", &first);
+        kxen_gui::agent::cancel::remove_if_current(&mut kxen_gui::core::shared::lock(&runs), "s", &first);
         assert!(claim_run(&runs, &sessions, "s").unwrap().is_some());
         // 不同 session 互不阻塞
         assert!(claim_run(&runs, &sessions, "other").unwrap().is_some());
@@ -183,13 +183,13 @@ mod tests {
     fn deletion_tombstone_blocks_claim() {
         let runs = ActiveRuns::default();
         let sessions = std::env::temp_dir().join(format!("kxen-run-delete-{}", uuid::Uuid::new_v4()));
-        let guard = kxen_app::core::session_recovery::begin_deletion(&sessions, "ses_one").unwrap();
+        let guard = kxen_gui::core::session_recovery::begin_deletion(&sessions, "ses_one").unwrap();
         let error = match claim_run(&runs, &sessions, "ses_one") {
             Err(error) => error,
             Ok(_) => panic!("deletion tombstone must block claim"),
         };
         assert!(error.contains("deletion in progress"));
-        assert!(kxen_app::core::shared::lock(&runs).is_empty());
+        assert!(kxen_gui::core::shared::lock(&runs).is_empty());
         let abort_error =
             abort_current(&runs, &sessions, "ses_one", || -> Result<(), String> { panic!("clear must not run") }).unwrap_err();
         assert!(abort_error.contains("deletion in progress"));
@@ -209,7 +209,7 @@ mod tests {
         assert!(is_current(&runs, "s", &next));
         assert!(!is_current(&runs, "s", &current));
         assert!(claim_run(&runs, &sessions, "s").unwrap().is_none(), "handoff 不得暴露可抢占空窗");
-        kxen_app::agent::cancel::remove_if_current(&mut kxen_app::core::shared::lock(&runs), "s", &current);
+        kxen_gui::agent::cancel::remove_if_current(&mut kxen_gui::core::shared::lock(&runs), "s", &current);
         assert!(is_current(&runs, "s", &next), "旧 RunSlot drop 不得摘除新代 token");
     }
 
@@ -269,7 +269,7 @@ mod tests {
                 barrier.wait();
                 let result = claim_queued_run(&runs, &sessions, "s", || {
                     claim_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    Ok(kxen_app::core::shared::lock(&delivery).take())
+                    Ok(kxen_gui::core::shared::lock(&delivery).take())
                 })
                 .unwrap();
                 if result.is_some() {
@@ -283,7 +283,7 @@ mod tests {
         }
         assert_eq!(winners.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(claim_calls.load(std::sync::atomic::Ordering::SeqCst), 1, "losing kick must not reuse the in-flight delivery");
-        assert_eq!(kxen_app::core::shared::lock(&*runs).len(), 1);
+        assert_eq!(kxen_gui::core::shared::lock(&*runs).len(), 1);
     }
 
     #[test]

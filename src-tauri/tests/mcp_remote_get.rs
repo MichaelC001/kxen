@@ -4,8 +4,8 @@
 mod common;
 
 use common::json_rpc::{http_response, json_frame};
-use kxen_app::mcp::client::McpClient;
-use kxen_app::mcp::config::{ConfigScope, RemoteConfig, RemoteKind, ServerConfig};
+use kxen_gui::mcp::client::McpClient;
+use kxen_gui::mcp::config::{ConfigScope, RemoteConfig, RemoteKind, ServerConfig};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};

@@ -47,7 +47,7 @@ pub fn web_access_label(bind_host: &str, port: u16) -> String {
 }
 
 pub fn user_config_path() -> PathBuf {
-    kxen_app::core::paths::config_dir().join("config.toml")
+    kxen_gui::core::paths::config_dir().join("config.toml")
 }
 
 /// 用户 config.toml 的 read-modify-write（写前整文档校验 + tmp/rename 原子替换）。
@@ -68,7 +68,7 @@ fn persist_config_at(path: &Path, mutate: impl FnOnce(&mut toml::Table)) -> Resu
         toml::from_str(&text).map_err(|error| format!("config parse {}: {error}", path.display()))?
     };
     mutate(&mut doc);
-    kxen_app::core::config::validate_user_document(&doc, &path.display().to_string()).map_err(|error| error.to_string())?;
+    kxen_gui::core::config::validate_user_document(&doc, &path.display().to_string()).map_err(|error| error.to_string())?;
     let parent = path.parent().ok_or_else(|| format!("config path has no parent: {}", path.display()))?;
     std::fs::create_dir_all(parent).map_err(|error| format!("config mkdir {}: {error}", parent.display()))?;
     let tmp = path.with_extension("toml.tmp");
@@ -162,7 +162,7 @@ mod tests {
         let text = std::fs::read_to_string(&path).expect("read back");
         assert!(text.contains("enabled = false"), "{text}");
         assert!(text.contains("port = 9000"), "其他键必须保留: {text}");
-        let config = kxen_app::core::config::Config::load(&path, None).expect("reload persisted config");
+        let config = kxen_gui::core::config::Config::load(&path, None).expect("reload persisted config");
         assert!(!config.web.enabled);
         assert_eq!(config.web.port, 9000);
         assert_eq!(config.tray.default_open, "browser");

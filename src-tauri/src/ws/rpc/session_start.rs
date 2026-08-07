@@ -2,15 +2,15 @@
 //! 否则 session-scoped Ask 在前端能订阅 `session:<id>` 前就阻塞 RPC。
 
 pub(super) fn spawn(
-    hooks: std::sync::Arc<kxen_app::tools::hooks::HookRunner>,
-    approvals: std::sync::Arc<kxen_app::agent::approval::ApprovalBroker>,
-    bus: kxen_app::core::event::EventBus,
+    hooks: std::sync::Arc<kxen_gui::tools::hooks::HookRunner>,
+    approvals: std::sync::Arc<kxen_gui::agent::approval::ApprovalBroker>,
+    bus: kxen_gui::core::event::EventBus,
     session_id: String,
     directory: String,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let payload = serde_json::json!({ "id": session_id, "directory": directory });
-        let approval = kxen_app::tools::exec::ApprovalCtx::new(Some(approvals.as_ref()), Some(&bus), None, Some(session_id.as_str()));
+        let approval = kxen_gui::tools::exec::ApprovalCtx::new(Some(approvals.as_ref()), Some(&bus), None, Some(session_id.as_str()));
         if let Err(error) = hooks.run_named_with_approval("session_start", &session_id, &payload, approval.as_ref()).await {
             tracing::warn!(%error, "session_start hook failed");
         }
@@ -23,16 +23,16 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_returns_before_approval_and_pending_is_session_recoverable() {
-        let config: kxen_app::core::config::Config = toml::from_str(
+        let config: kxen_gui::core::config::Config = toml::from_str(
             r#"
 [[hooks.session_start]]
 command = "git push --force origin main"
 "#,
         )
         .unwrap();
-        let hooks = std::sync::Arc::new(kxen_app::tools::hooks::HookRunner::from_config(&config, std::path::Path::new("/tmp")));
-        let broker = std::sync::Arc::new(kxen_app::agent::approval::ApprovalBroker::with_timeout(std::time::Duration::from_secs(5)));
-        let bus = kxen_app::core::event::EventBus::new(8);
+        let hooks = std::sync::Arc::new(kxen_gui::tools::hooks::HookRunner::from_config(&config, std::path::Path::new("/tmp")));
+        let broker = std::sync::Arc::new(kxen_gui::agent::approval::ApprovalBroker::with_timeout(std::time::Duration::from_secs(5)));
+        let bus = kxen_gui::core::event::EventBus::new(8);
 
         let task = spawn(hooks, broker.clone(), bus, "session-new".into(), "/tmp".into());
         assert!(!task.is_finished(), "session.create 可先返回，hook 在后台等待审批");

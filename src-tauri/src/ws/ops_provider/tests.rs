@@ -1,6 +1,6 @@
 use super::*;
-use kxen_app::auth::ProbeOutcome::*;
-use kxen_app::auth::credential::CredentialKind;
+use kxen_gui::auth::ProbeOutcome::*;
+use kxen_gui::auth::credential::CredentialKind;
 
 #[test]
 fn auth_commit_holds_memory_lock_until_snapshot_is_published() {
@@ -16,7 +16,7 @@ fn auth_commit_holds_memory_lock_until_snapshot_is_published() {
             worker_release.wait();
             let mut persisted = AuthStore::new();
             persisted.insert("xai".into(), CredentialKind::Api { key: "new".into(), region: None });
-            Ok(kxen_app::auth::credential::AuthUpdate::Durable(persisted))
+            Ok(kxen_gui::auth::credential::AuthUpdate::Durable(persisted))
         })
         .expect("commit")
     });
@@ -61,7 +61,7 @@ fn reprobe_summary_maps_chinese_and_collects_missing() {
 
 #[test]
 fn set_region_validates_and_updates_api_cred() {
-    let mut store = kxen_app::auth::credential::AuthStore::new();
+    let mut store = kxen_gui::auth::credential::AuthStore::new();
     store.insert("kimi:work".into(), CredentialKind::Api { key: "k".into(), region: None });
     store.insert("kimi".into(), CredentialKind::Oauth { access: "a".into(), refresh: String::new(), expires: 0, account_id: None });
 
@@ -90,7 +90,7 @@ fn account_crud_keeps_disk_memory_and_listing_consistent() {
     .expect("import account");
     assert_eq!(imported["id"], "kimi:work");
     assert_eq!(store.lock().unwrap()["kimi:work"].region(), Some("intl"));
-    assert_eq!(kxen_app::auth::credential::read_auth_file(&auth_path).unwrap()["kimi:work"].bearer(), "secret");
+    assert_eq!(kxen_gui::auth::credential::read_auth_file(&auth_path).unwrap()["kimi:work"].bearer(), "secret");
 
     let listed = accounts(&store, &config_path).expect("list accounts");
     assert!(listed.as_array().unwrap().iter().any(|entry| entry["id"] == "kimi:work" && entry["region"] == "intl"));
@@ -135,8 +135,8 @@ fn account_postcommit_warning_publishes_disk_snapshot_to_memory() {
     let root = std::env::temp_dir().join(format!("kxen-provider-account-postcommit-{}", uuid::Uuid::new_v4()));
     let auth_path = root.join("auth.json");
     let store = Mutex::new(AuthStore::new());
-    kxen_app::auth::credential::write_auth_file(&auth_path, &AuthStore::new()).unwrap();
-    kxen_app::auth::credential::fail_next_auth_dir_sync();
+    kxen_gui::auth::credential::write_auth_file(&auth_path, &AuthStore::new()).unwrap();
+    kxen_gui::auth::credential::fail_next_auth_dir_sync();
 
     let error = import_account(
         &json!({ "provider": "kimi", "account": "work", "kind": "api", "access": "new-secret", "region": "intl" }),
@@ -146,7 +146,7 @@ fn account_postcommit_warning_publishes_disk_snapshot_to_memory() {
     .expect_err("visible account commit with unsynced parent must report indeterminate durability");
 
     assert!(error.contains("durability is indeterminate"), "{error}");
-    let disk = kxen_app::auth::credential::read_auth_file(&auth_path).unwrap();
+    let disk = kxen_gui::auth::credential::read_auth_file(&auth_path).unwrap();
     assert_eq!(disk["kimi:work"].bearer(), "new-secret");
     assert_eq!(store.lock().unwrap()["kimi:work"].bearer(), "new-secret");
     std::fs::remove_dir_all(root).ok();
@@ -161,7 +161,7 @@ fn reprobe_commit_merges_delta_before_publishing_memory_snapshot() {
     probed.insert("xai".into(), CredentialKind::Api { key: "probed".into(), region: None });
     let mut concurrent = AuthStore::new();
     concurrent.insert("anthropic".into(), CredentialKind::Api { key: "concurrent".into(), region: None });
-    kxen_app::auth::credential::write_auth_file(&auth_path, &concurrent).unwrap();
+    kxen_gui::auth::credential::write_auth_file(&auth_path, &concurrent).unwrap();
     let memory = Mutex::new(baseline.clone());
 
     let persisted = commit_reprobe(&memory, &auth_path, &baseline, &probed).expect("merge reprobe");
@@ -169,7 +169,7 @@ fn reprobe_commit_merges_delta_before_publishing_memory_snapshot() {
     assert_eq!(persisted["xai"].bearer(), "probed");
     assert_eq!(persisted["anthropic"].bearer(), "concurrent");
     assert_eq!(*memory.lock().unwrap(), persisted);
-    assert_eq!(kxen_app::auth::credential::read_auth_file(&auth_path).unwrap(), persisted);
+    assert_eq!(kxen_gui::auth::credential::read_auth_file(&auth_path).unwrap(), persisted);
     std::fs::remove_dir_all(root).ok();
 }
 
@@ -206,7 +206,7 @@ fn custom_provider_transaction_commits_add_and_remove_to_both_files() {
     let config = std::fs::read_to_string(&config_path).unwrap();
     assert!(config.contains("https://example.test/v1"));
     assert_eq!(persisted[provider].bearer(), "secret");
-    assert_eq!(kxen_app::auth::credential::read_auth_file(&auth_path).unwrap()[provider].bearer(), "secret");
+    assert_eq!(kxen_gui::auth::credential::read_auth_file(&auth_path).unwrap()[provider].bearer(), "secret");
 
     let (persisted, warning) = transact_custom_provider(
         &config_path,
@@ -217,7 +217,7 @@ fn custom_provider_transaction_commits_add_and_remove_to_both_files() {
             Ok(())
         },
         |store| {
-            for key in kxen_app::auth::credential::accounts_of(store, provider) {
+            for key in kxen_gui::auth::credential::accounts_of(store, provider) {
                 store.remove(&key);
             }
             Ok(())
@@ -227,9 +227,9 @@ fn custom_provider_transaction_commits_add_and_remove_to_both_files() {
     assert!(warning.is_none());
     let config: toml::Table = toml::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     assert!(config["custom_providers"].as_table().unwrap().get("lab").is_none());
-    assert!(kxen_app::auth::credential::accounts_of(&persisted, provider).is_empty());
-    let disk = kxen_app::auth::credential::read_auth_file(&auth_path).unwrap();
-    assert!(kxen_app::auth::credential::accounts_of(&disk, provider).is_empty());
+    assert!(kxen_gui::auth::credential::accounts_of(&persisted, provider).is_empty());
+    let disk = kxen_gui::auth::credential::read_auth_file(&auth_path).unwrap();
+    assert!(kxen_gui::auth::credential::accounts_of(&disk, provider).is_empty());
     std::fs::remove_dir_all(root).ok();
 }
 
@@ -244,10 +244,10 @@ fn custom_provider_second_step_failure_restores_config_and_auth() {
         "[custom_providers.lab]\nbase_url = \"https://old.example.test/v1\"\nmodels = [\"lab-model\"]\nprotocol = \"openai\"\ncapabilities = [\"text\"]\n",
     )
     .unwrap();
-    let mut original_auth = kxen_app::auth::credential::AuthStore::new();
+    let mut original_auth = kxen_gui::auth::credential::AuthStore::new();
     original_auth.insert("custom:lab".into(), CredentialKind::Api { key: "old".into(), region: None });
     original_auth.insert("xai".into(), CredentialKind::Api { key: "unrelated".into(), region: None });
-    kxen_app::auth::credential::write_auth_file(&auth_path, &original_auth).unwrap();
+    kxen_gui::auth::credential::write_auth_file(&auth_path, &original_auth).unwrap();
 
     let error = transact_custom_provider(
         &config_path,
@@ -268,7 +268,7 @@ fn custom_provider_second_step_failure_restores_config_and_auth() {
     assert!(error.contains("config compensation: PASS"), "{error}");
     let restored_config: toml::Table = toml::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     assert_eq!(restored_config["custom_providers"]["lab"]["base_url"].as_str(), Some("https://old.example.test/v1"));
-    assert_eq!(kxen_app::auth::credential::read_auth_file(&auth_path).unwrap(), original_auth);
+    assert_eq!(kxen_gui::auth::credential::read_auth_file(&auth_path).unwrap(), original_auth);
     std::fs::remove_dir_all(root).ok();
 }
 
@@ -279,9 +279,9 @@ fn custom_provider_compensation_failure_is_combined_and_diagnostic() {
     let auth_path = root.join("auth.json");
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(&config_path, "marker = \"original\"\n").unwrap();
-    let mut original_auth = kxen_app::auth::credential::AuthStore::new();
+    let mut original_auth = kxen_gui::auth::credential::AuthStore::new();
     original_auth.insert("custom:lab".into(), CredentialKind::Api { key: "old".into(), region: None });
-    kxen_app::auth::credential::write_auth_file(&auth_path, &original_auth).unwrap();
+    kxen_gui::auth::credential::write_auth_file(&auth_path, &original_auth).unwrap();
     std::fs::create_dir(auth_path.with_extension("json.tmp")).unwrap();
 
     let error = transact_custom_provider(
@@ -299,6 +299,6 @@ fn custom_provider_compensation_failure_is_combined_and_diagnostic() {
     assert!(error.contains("auth compensation: FAIL"), "{error}");
     assert!(error.contains("config compensation: PASS"), "{error}");
     assert_eq!(std::fs::read_to_string(&config_path).unwrap(), "marker = \"original\"\n");
-    assert_eq!(kxen_app::auth::credential::read_auth_file(&auth_path).unwrap(), original_auth);
+    assert_eq!(kxen_gui::auth::credential::read_auth_file(&auth_path).unwrap(), original_auth);
     std::fs::remove_dir_all(root).ok();
 }

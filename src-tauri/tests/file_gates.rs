@@ -10,7 +10,7 @@ fn file_size_gate() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut offenders = Vec::new();
     visit(&root.join("src"), &["rs"], MAX_LINES, &mut offenders);
-    // 无头 server bin（crates/kxen-web/src）同门禁
+    // 无头 server bin（crates/kxen/src）同门禁
     visit(&root.join("crates"), &["rs"], MAX_LINES, &mut offenders);
     // 前端已上移至仓库根的 src/（src-tauri 的上一级）
     visit(&root.join("../src"), &["ts", "tsx"], MAX_LINES, &mut offenders);

@@ -5,8 +5,8 @@ use crate::AppState;
 /// 抢槽落败时，用户直发入队，queue delivery 则释放回队列。
 pub(in crate::ws) struct ConcedePayload {
     pub(in crate::ws) text: String,
-    pub(in crate::ws) context: Vec<kxen_app::agent::context::ContextItem>,
-    pub(in crate::ws) images: Vec<kxen_app::llm::types::ImagePart>,
+    pub(in crate::ws) context: Vec<kxen_gui::agent::context::ContextItem>,
+    pub(in crate::ws) images: Vec<kxen_gui::llm::types::ImagePart>,
 }
 
 pub(in crate::ws) fn concede(
@@ -24,12 +24,12 @@ pub(in crate::ws) fn concede(
         None => match state.pending_messages.enqueue(session_id, payload.text, payload.context, payload.images) {
             Ok(n) => state
                 .bus
-                .publish(kxen_app::core::event::Event::notify(format!("运行中，消息已排队（第 {n} 条）"), Some(session_id.to_string()))),
+                .publish(kxen_gui::core::event::Event::notify(format!("运行中，消息已排队（第 {n} 条）"), Some(session_id.to_string()))),
             Err(error) => super::super::run_finalize::finish_direct(
                 state,
                 session_id,
                 stream_id,
-                kxen_app::agent::agent_loop::AgentEvent::Error { message: format!("pending queue enqueue failed: {error}") },
+                kxen_gui::agent::agent_loop::AgentEvent::Error { message: format!("pending queue enqueue failed: {error}") },
             ),
         },
     }

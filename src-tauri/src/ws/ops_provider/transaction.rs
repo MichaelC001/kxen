@@ -1,6 +1,6 @@
 //! 自定义 provider 跨 config.toml/auth.json 的 crash-safe 补偿事务。
 
-use kxen_app::auth::credential::{AuthStore, CredentialKind};
+use kxen_gui::auth::credential::{AuthStore, CredentialKind};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -23,7 +23,7 @@ pub(super) fn transact_custom_provider_with_runtime(
     config_path: &Path,
     auth_path: &Path,
     provider: &str,
-    runtimes: &kxen_app::workspace_runtime::WorkspaceRuntimeRegistry,
+    runtimes: &kxen_gui::workspace_runtime::WorkspaceRuntimeRegistry,
     update_config: impl FnOnce(&mut toml::Table) -> Result<(), String>,
     update_auth: impl FnOnce(&mut AuthStore) -> Result<(), String>,
 ) -> Result<(AuthStore, Option<String>), String> {
@@ -31,7 +31,7 @@ pub(super) fn transact_custom_provider_with_runtime(
     let result = super::super::ops_config::update_toml_transaction_staged(
         config_path,
         |original_config| {
-            let auth = kxen_app::auth::credential::read_auth_file(auth_path).map_err(|error| error.to_string())?;
+            let auth = kxen_gui::auth::credential::read_auth_file(auth_path).map_err(|error| error.to_string())?;
             let durability_warning = write_journal(
                 config_path,
                 &TransactionJournal {
@@ -109,12 +109,12 @@ pub(super) fn transact_custom_provider(
     update_config: impl FnOnce(&mut toml::Table) -> Result<(), String>,
     update_auth: impl FnOnce(&mut AuthStore) -> Result<(), String>,
 ) -> Result<(AuthStore, Option<String>), String> {
-    let runtimes = kxen_app::workspace_runtime::WorkspaceRuntimeRegistry::with_user_config(config_path.to_path_buf())?;
+    let runtimes = kxen_gui::workspace_runtime::WorkspaceRuntimeRegistry::with_user_config(config_path.to_path_buf())?;
     transact_custom_provider_with_runtime(config_path, auth_path, provider, &runtimes, update_config, update_auth)
 }
 
 fn rollback_runtime_and_stores(
-    runtime: &mut kxen_app::workspace_runtime::RuntimeConfigUpdate,
+    runtime: &mut kxen_gui::workspace_runtime::RuntimeConfigUpdate,
     config_path: &Path,
     auth_path: &Path,
     prefix: String,
@@ -138,8 +138,8 @@ pub(crate) fn recover_custom_provider_transaction(config_path: &Path, auth_path:
             *document = journal.original_config.clone();
             Ok(())
         })?;
-        kxen_app::auth::credential::update_auth_file(auth_path, |disk| {
-            for key in kxen_app::auth::credential::accounts_of(disk, &journal.provider) {
+        kxen_gui::auth::credential::update_auth_file(auth_path, |disk| {
+            for key in kxen_gui::auth::credential::accounts_of(disk, &journal.provider) {
                 disk.remove(&key);
             }
             disk.extend(journal.original_auth.clone());
@@ -159,7 +159,7 @@ fn update_auth_with_compensation(
     update: impl FnOnce(&mut AuthStore) -> Result<(), String>,
 ) -> Result<AuthStore, String> {
     let mut baseline = None;
-    let updated = kxen_app::auth::credential::update_auth_file(auth_path, |disk| {
+    let updated = kxen_gui::auth::credential::update_auth_file(auth_path, |disk| {
         baseline = Some(custom_auth_entries(disk, provider));
         update(disk)
     });
@@ -169,8 +169,8 @@ fn update_auth_with_compensation(
             let Some(entries) = baseline else {
                 return Err(format!("auth update failed before mutation: {error}; auth compensation: SKIP"));
             };
-            match kxen_app::auth::credential::update_auth_file(auth_path, |disk| {
-                for key in kxen_app::auth::credential::accounts_of(disk, provider) {
+            match kxen_gui::auth::credential::update_auth_file(auth_path, |disk| {
+                for key in kxen_gui::auth::credential::accounts_of(disk, provider) {
                     disk.remove(&key);
                 }
                 disk.extend(entries);
@@ -184,7 +184,7 @@ fn update_auth_with_compensation(
 }
 
 fn custom_auth_entries(store: &AuthStore, provider: &str) -> Vec<(String, CredentialKind)> {
-    kxen_app::auth::credential::accounts_of(store, provider)
+    kxen_gui::auth::credential::accounts_of(store, provider)
         .into_iter()
         .filter_map(|key| store.get(&key).cloned().map(|credential| (key, credential)))
         .collect()

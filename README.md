@@ -11,7 +11,7 @@ macOS、Windows 和 Linux 上的 Coding Agent 工作台，也可以用浏览器�
 - macOS(Apple Silicon、Intel): DMG，经过 Developer ID 签名和 Apple 公证，打开后把 `Kxen.app` 拖入「应用程序」，需要 macOS 14 及以上版本。
 - Windows(x64、ARM64): NSIS 安装包，暂无 Authenticode 签名，SmartScreen 提示时选择 More info -> Run anyway。
 - Linux(x86_64、ARM64): AppImage 与 deb。
-- kxen-web 无头 server(六个平台的 tar.gz/zip): 启动后打印带 token 的访问 URL，浏览器（含 tailscale 远程）打开即可使用全部功能，用法见官网 Web 模式文档。
+- kxen 无头 server(六个平台的 tar.gz/zip): 启动后打印带 token 的访问 URL，浏览器（含 tailscale 远程）打开即可使用全部功能，用法见官网 Web 模式文档。
 
 桌面应用内置自动更新（deb 除外）。每个版本附带 `SHA256SUMS` 和 updater 签名，可校验下载产物。
 

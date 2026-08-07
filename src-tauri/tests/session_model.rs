@@ -1,7 +1,7 @@
 //! session metadata 的 model 覆盖：持久化往返 / 旧格式缺省兼容 / fork 继承 / 优先级。
 
-use kxen_app::core::session as ses;
-use kxen_app::llm::ModelRef;
+use kxen_gui::core::session as ses;
+use kxen_gui::llm::ModelRef;
 
 fn tmp_dir(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("kxen-ses-model-{tag}-{}", std::process::id()))

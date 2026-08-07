@@ -2,8 +2,8 @@
 //! app 的 main.rs 只做 tauri 装配，examples 依赖本库目标。
 
 // 原 bin 私有模块（app_state / background_jobs / doctor / goal_rpc / ws）下沉进 lib 后，
-// 文件内既有 `kxen_app::` 引用经此别名在 lib crate 内继续解析，避免逐文件改写路径。
-extern crate self as kxen_app;
+// 文件内既有 `kxen_gui::` 引用经此别名在 lib crate 内继续解析，避免逐文件改写路径。
+extern crate self as kxen_gui;
 
 pub mod agent;
 pub mod app_state;

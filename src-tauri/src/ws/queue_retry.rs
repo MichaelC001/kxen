@@ -59,13 +59,13 @@ fn retry_delay(attempts: u32) -> Duration {
 }
 
 pub(super) fn schedule_retry(state: Arc<AppState>, session_id: String) {
-    let Some((ticket, delay)) = kxen_app::core::shared::lock(&RETRIES).reserve(&session_id) else {
+    let Some((ticket, delay)) = kxen_gui::core::shared::lock(&RETRIES).reserve(&session_id) else {
         return;
     };
     tracing::warn!(session = session_id, delay_ms = delay.as_millis(), "pending queue retry scheduled");
     tokio::spawn(async move {
         tokio::time::sleep(delay).await;
-        if !kxen_app::core::shared::lock(&RETRIES).take_due(&session_id, ticket) {
+        if !kxen_gui::core::shared::lock(&RETRIES).take_due(&session_id, ticket) {
             return;
         }
         super::pending::kick_session(state, session_id);
@@ -73,7 +73,7 @@ pub(super) fn schedule_retry(state: Arc<AppState>, session_id: String) {
 }
 
 pub(super) fn reset_retry(session_id: &str) {
-    kxen_app::core::shared::lock(&RETRIES).reset(session_id);
+    kxen_gui::core::shared::lock(&RETRIES).reset(session_id);
 }
 
 #[cfg(test)]

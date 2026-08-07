@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 内嵌 Web 服务：`/ws` 在桌面端常驻（webview 自用），`enabled` 只管浏览器访问（静态托管）。
-/// 桌面端 bind 保持 127.0.0.1，对外暴露由 kxen-web `--bind` 负责。
+/// 桌面端 bind 保持 127.0.0.1，对外暴露由 kxen `--bind` 负责。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WebConfig {

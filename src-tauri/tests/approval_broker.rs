@@ -1,13 +1,13 @@
 //! 审批 broker 集成测试：
 //! 超时/中断/清场语义 + resolved 事件 + 决定落盘（Part::Approval）+ pending 快照。
 
-use kxen_app::agent::approval::{ApprovalBroker, ApprovalOutcome, request_approval};
-use kxen_app::core::event::{Event, EventBus};
-use kxen_app::core::session as ses;
-use kxen_app::core::session::Part;
+use kxen_gui::agent::approval::{ApprovalBroker, ApprovalOutcome, request_approval};
+use kxen_gui::core::event::{Event, EventBus};
+use kxen_gui::core::session as ses;
+use kxen_gui::core::session::Part;
 
 fn tmp_dir(tag: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("kxen-appr-{tag}-{}", std::process::id()))
+    std::env::temp_dir().join(format!("kxen-guir-{tag}-{}", std::process::id()))
 }
 
 /// 落盘的审批决定（command, decision）按写入序收集。
@@ -35,7 +35,7 @@ async fn timeout_yields_timeout_outcome() {
 async fn abort_wakes_as_deny() {
     let broker = ApprovalBroker::with_timeout(std::time::Duration::from_secs(60));
     let (id, rx) = broker.register("s1", "cmd", "r");
-    let token = kxen_app::agent::cancel::CancelToken::new();
+    let token = kxen_gui::agent::cancel::CancelToken::new();
     let t2 = token.clone();
     let waiter = tokio::spawn(async move { broker.wait(&id, rx, Some(&t2)).await });
     tokio::task::yield_now().await;
@@ -118,7 +118,7 @@ async fn abort_publishes_cancelled() {
     let mut sub = bus.subscribe();
     let broker = ApprovalBroker::with_timeout(std::time::Duration::from_secs(60)).with_bus(bus);
     let (id, rx) = broker.register("s1", "cmd", "r");
-    let token = kxen_app::agent::cancel::CancelToken::new();
+    let token = kxen_gui::agent::cancel::CancelToken::new();
     let t2 = token.clone();
     let waiter = tokio::spawn(async move { broker.wait(&id, rx, Some(&t2)).await });
     tokio::task::yield_now().await;
@@ -163,7 +163,7 @@ async fn request_approval_omits_session_id_when_empty() {
     let bus = EventBus::new(16);
     let mut sub = bus.subscribe();
     let broker = ApprovalBroker::with_timeout(std::time::Duration::from_millis(50));
-    let ctx = kxen_app::tools::exec::ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "" };
+    let ctx = kxen_gui::tools::exec::ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "" };
     let outcome = request_approval(&ctx, "git worktree remove wt1", "r").await;
     assert_eq!(outcome, ApprovalOutcome::Timeout);
     let event = sub.try_recv().expect("必须发 approval 请求帧");
@@ -179,7 +179,7 @@ async fn request_approval_keeps_session_id_when_present() {
     let bus = EventBus::new(16);
     let mut sub = bus.subscribe();
     let broker = ApprovalBroker::with_timeout(std::time::Duration::from_millis(50));
-    let ctx = kxen_app::tools::exec::ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "s1" };
+    let ctx = kxen_gui::tools::exec::ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "s1" };
     let outcome = request_approval(&ctx, "cmd", "r").await;
     assert_eq!(outcome, ApprovalOutcome::Timeout);
     let event = sub.try_recv().expect("必须发 approval 请求帧");
@@ -260,7 +260,7 @@ async fn abort_persists_cancel_decision() {
     let s = ses::create(&dir, "/tmp/work").unwrap();
     let broker = ApprovalBroker::new().with_sessions_dir(dir.clone());
     let (id, rx) = broker.register(&s.id, "abort-cmd", "r");
-    let token = kxen_app::agent::cancel::CancelToken::new();
+    let token = kxen_gui::agent::cancel::CancelToken::new();
     let t2 = token.clone();
     let waiter = tokio::spawn(async move { broker.wait(&id, rx, Some(&t2)).await });
     tokio::task::yield_now().await;

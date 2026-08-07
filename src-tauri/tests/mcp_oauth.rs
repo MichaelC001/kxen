@@ -3,12 +3,12 @@
 mod common;
 
 use common::oauth_mock::{ENV_LOCK, RefreshOutcome, http_client, start_mock};
-use kxen_app::mcp::Guard;
-use kxen_app::mcp::McpManager;
-use kxen_app::mcp::config::{ConfigScope, OAuthConfig, RemoteConfig, RemoteKind, ServerConfig};
-use kxen_app::mcp::oauth::{self, AuthServerMeta};
-use kxen_app::mcp::oauth_flow::{self, TokenGrant};
-use kxen_app::mcp::oauth_store::{StoredToken, TokenStore};
+use kxen_gui::mcp::Guard;
+use kxen_gui::mcp::McpManager;
+use kxen_gui::mcp::config::{ConfigScope, OAuthConfig, RemoteConfig, RemoteKind, ServerConfig};
+use kxen_gui::mcp::oauth::{self, AuthServerMeta};
+use kxen_gui::mcp::oauth_flow::{self, TokenGrant};
+use kxen_gui::mcp::oauth_store::{StoredToken, TokenStore};
 use serde_json::json;
 use std::collections::HashMap;
 

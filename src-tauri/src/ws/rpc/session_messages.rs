@@ -4,14 +4,14 @@ use std::sync::Arc;
 use crate::AppState;
 
 pub(super) fn load(sessions_dir: &Path, id: &str) -> Result<serde_json::Value, String> {
-    let messages = kxen_app::core::session::load_messages_checked(sessions_dir, id).map_err(|error| error.to_string())?;
+    let messages = kxen_gui::core::session::load_messages_checked(sessions_dir, id).map_err(|error| error.to_string())?;
     serde_json::to_value(messages).map_err(|error| error.to_string())
 }
 
 pub(super) fn clear_pending(state: &Arc<AppState>, id: &str) -> Result<serde_json::Value, String> {
-    let sessions_dir = kxen_app::core::paths::sessions_dir();
-    let _runs = kxen_app::core::shared::lock(&state.active_runs);
-    if kxen_app::core::session_recovery::is_tombstoned(&sessions_dir, id)? {
+    let sessions_dir = kxen_gui::core::paths::sessions_dir();
+    let _runs = kxen_gui::core::shared::lock(&state.active_runs);
+    if kxen_gui::core::session_recovery::is_tombstoned(&sessions_dir, id)? {
         return Err(format!("session deletion in progress: {id}"));
     }
     let cleared = state.pending_messages.clear_queued(id)?;
@@ -21,7 +21,7 @@ pub(super) fn clear_pending(state: &Arc<AppState>, id: &str) -> Result<serde_jso
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kxen_app::core::session::{self, Part, Role};
+    use kxen_gui::core::session::{self, Part, Role};
 
     fn temporary_sessions(tag: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("kxen-rpc-messages-{tag}-{}", uuid::Uuid::new_v4()))

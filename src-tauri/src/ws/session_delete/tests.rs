@@ -24,11 +24,11 @@ fn recovery_manifest_captures_blocked_knowledge_usage_before_cleanup() {
     }
 
     let state = Arc::new(crate::AppState::new().expect("isolated app state"));
-    let sessions = kxen_app::core::paths::sessions_dir();
+    let sessions = kxen_gui::core::paths::sessions_dir();
     let workspace = std::env::temp_dir().join(format!("kxen-delete-knowledge-workspace-{}", uuid::Uuid::new_v4()));
-    let session = kxen_app::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
+    let session = kxen_gui::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
     let operation_id = "meter_delete_knowledge_unknown";
-    let attempt_root = kxen_app::core::paths::data_dir().join("consolidation-attempts");
+    let attempt_root = kxen_gui::core::paths::data_dir().join("consolidation-attempts");
     std::fs::create_dir_all(&attempt_root).unwrap();
     std::fs::write(
         attempt_root.join(format!("{}.json", session.id)),
@@ -45,7 +45,7 @@ fn recovery_manifest_captures_blocked_knowledge_usage_before_cleanup() {
         .unwrap(),
     )
     .unwrap();
-    let lease = kxen_app::knowledge::consolidate::try_acquire_session_lease(&session.id).unwrap();
+    let lease = kxen_gui::knowledge::consolidate::try_acquire_session_lease(&session.id).unwrap();
 
     let manifest = prepare_recovery_manifest(&state, &session.id, &lease).unwrap();
     let usage = manifest.usage.expect("manifest must capture UNKNOWN usage");
@@ -75,21 +75,21 @@ async fn delete_transaction_commits_storage_and_reference_cleanup() {
     }
 
     let state = Arc::new(crate::AppState::new().expect("isolated app state"));
-    let sessions = kxen_app::core::paths::sessions_dir();
+    let sessions = kxen_gui::core::paths::sessions_dir();
     let workspace = std::env::temp_dir().join(format!("kxen-delete-workspace-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&workspace).unwrap();
-    let session = kxen_app::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
-    let message = kxen_app::core::session::new_message(
+    let session = kxen_gui::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
+    let message = kxen_gui::core::session::new_message(
         &session.id,
-        kxen_app::core::session::Role::User,
-        vec![kxen_app::core::session::Part::Text { text: "delete me".into() }],
+        kxen_gui::core::session::Role::User,
+        vec![kxen_gui::core::session::Part::Text { text: "delete me".into() }],
     );
-    kxen_app::core::session::append_message(&sessions, &message).unwrap();
+    kxen_gui::core::session::append_message(&sessions, &message).unwrap();
     state.pending_messages.enqueue(&session.id, "queued".into(), vec![], vec![]).unwrap();
-    kxen_app::core::shared::lock(&state.session_tokens)
-        .insert(session.id.clone(), kxen_app::core::usage::SessionUsage { input: 4, output: 2, ..Default::default() });
-    let mut goal = kxen_app::core::goal::Goal::create(
-        kxen_app::core::goal::GoalContract {
+    kxen_gui::core::shared::lock(&state.session_tokens)
+        .insert(session.id.clone(), kxen_gui::core::usage::SessionUsage { input: 4, output: 2, ..Default::default() });
+    let mut goal = kxen_gui::core::goal::Goal::create(
+        kxen_gui::core::goal::GoalContract {
             objective: "delete session safely".into(),
             completion_criteria: "pending usage is settled first".into(),
             constraints: None,
@@ -100,24 +100,24 @@ async fn delete_transaction_commits_storage_and_reference_cleanup() {
     .unwrap();
     goal.session_id = Some(session.id.clone());
     goal.activate().unwrap();
-    goal.save(&kxen_app::core::paths::goals_dir()).unwrap();
-    let attempts = kxen_app::core::usage::ProviderAttemptStore::global();
+    goal.save(&kxen_gui::core::paths::goals_dir()).unwrap();
+    let attempts = kxen_gui::core::usage::ProviderAttemptStore::global();
     attempts.begin_with_id("meter_delete_pending", &session.id, Some(&goal.id)).unwrap();
     attempts.begin_with_id("meter_other_pending", "ses_other", None).unwrap();
-    kxen_app::core::shared::lock(&state.session_last_input).insert(session.id.clone(), 4);
+    kxen_gui::core::shared::lock(&state.session_last_input).insert(session.id.clone(), 4);
     *state.foreground_session.write().unwrap() = session.id.clone();
 
     assert_eq!(delete(&json!({ "id": session.id, "distill": false }), &state).await.unwrap(), Value::Null);
     assert!(!sessions.join(format!("{}.json", session.id)).exists());
     assert!(!sessions.join(format!("{}.jsonl", session.id)).exists());
     assert!(state.pending_messages.snapshot(&session.id).unwrap().is_empty());
-    assert!(!kxen_app::core::shared::lock(&state.session_tokens).contains_key(&session.id));
+    assert!(!kxen_gui::core::shared::lock(&state.session_tokens).contains_key(&session.id));
     let remaining_attempts = attempts.load_all().unwrap();
     assert_eq!(remaining_attempts.len(), 1, "delete must settle only the target session's Provider claims");
     assert_eq!(remaining_attempts[0].session_id, "ses_other");
-    assert!(!kxen_app::core::shared::lock(&state.session_last_input).contains_key(&session.id));
+    assert!(!kxen_gui::core::shared::lock(&state.session_last_input).contains_key(&session.id));
     assert!(state.foreground_session.read().unwrap().is_empty());
-    assert!(!kxen_app::core::session_recovery::is_tombstoned(&sessions, &session.id).unwrap());
+    assert!(!kxen_gui::core::session_recovery::is_tombstoned(&sessions, &session.id).unwrap());
     std::fs::remove_dir_all(workspace).ok();
 }
 
@@ -137,13 +137,13 @@ async fn delete_stops_before_goal_and_usage_removal_when_pending_metering_cannot
     }
 
     let state = Arc::new(crate::AppState::new().expect("isolated app state"));
-    let sessions = kxen_app::core::paths::sessions_dir();
+    let sessions = kxen_gui::core::paths::sessions_dir();
     let workspace = std::env::temp_dir().join(format!("kxen-delete-failure-workspace-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&workspace).unwrap();
-    let session = kxen_app::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
-    kxen_app::core::shared::lock(&state.session_tokens).insert(session.id.clone(), Default::default());
-    let mut goal = kxen_app::core::goal::Goal::create(
-        kxen_app::core::goal::GoalContract {
+    let session = kxen_gui::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
+    kxen_gui::core::shared::lock(&state.session_tokens).insert(session.id.clone(), Default::default());
+    let mut goal = kxen_gui::core::goal::Goal::create(
+        kxen_gui::core::goal::GoalContract {
             objective: "retain goal on failed delete".into(),
             completion_criteria: "metering settles first".into(),
             constraints: None,
@@ -153,8 +153,8 @@ async fn delete_stops_before_goal_and_usage_removal_when_pending_metering_cannot
     )
     .unwrap();
     goal.session_id = Some(session.id.clone());
-    goal.save(&kxen_app::core::paths::goals_dir()).unwrap();
-    let attempts = kxen_app::core::usage::ProviderAttemptStore::global();
+    goal.save(&kxen_gui::core::paths::goals_dir()).unwrap();
+    let attempts = kxen_gui::core::usage::ProviderAttemptStore::global();
     let mut blocked = attempts.begin_with_id("meter_delete_blocked", &session.id, Some("goal_missing")).unwrap();
     // Prepared 但未 Started 的 claim 未跨网络边界，reconcile 会直接丢弃；
     // 只有 Started 后 settle 失败才构成删除屏障。
@@ -162,11 +162,11 @@ async fn delete_stops_before_goal_and_usage_removal_when_pending_metering_cannot
 
     let error = delete(&json!({ "id": session.id, "distill": false }), &state).await.unwrap_err();
     assert!(error.contains("settle pending Provider usage"), "unexpected delete error: {error}");
-    assert!(kxen_app::core::goal::Goal::load(&kxen_app::core::paths::goals_dir(), &goal.id).is_ok());
-    assert!(kxen_app::core::shared::lock(&state.session_tokens).contains_key(&session.id));
+    assert!(kxen_gui::core::goal::Goal::load(&kxen_gui::core::paths::goals_dir(), &goal.id).is_ok());
+    assert!(kxen_gui::core::shared::lock(&state.session_tokens).contains_key(&session.id));
     assert_eq!(attempts.load_all().unwrap().len(), 1);
-    assert!(!kxen_app::core::session_recovery::is_tombstoned(&sessions, &session.id).unwrap());
-    assert!(kxen_app::core::session::load_meta(&sessions, &session.id).is_ok(), "failed delete must keep the Session usable");
+    assert!(!kxen_gui::core::session_recovery::is_tombstoned(&sessions, &session.id).unwrap());
+    assert!(kxen_gui::core::session::load_meta(&sessions, &session.id).is_ok(), "failed delete must keep the Session usable");
     assert!(state.team.list_json(&session.id).is_ok(), "failed delete must restore Team admission");
     std::fs::remove_dir_all(workspace).ok();
 }
@@ -187,17 +187,17 @@ async fn delete_establishes_tombstone_then_waits_for_active_consolidation_lease(
     }
 
     let state = Arc::new(crate::AppState::new().expect("isolated app state"));
-    let sessions = kxen_app::core::paths::sessions_dir();
+    let sessions = kxen_gui::core::paths::sessions_dir();
     let workspace = std::env::temp_dir().join(format!("kxen-delete-lease-workspace-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&workspace).unwrap();
-    let session = kxen_app::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
-    let lease = kxen_app::knowledge::consolidate::acquire_session_lease(&session.id).await.unwrap();
+    let session = kxen_gui::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
+    let lease = kxen_gui::knowledge::consolidate::acquire_session_lease(&session.id).await.unwrap();
     let params = json!({ "id": session.id, "distill": false });
     let deleting = delete(&params, &state);
     tokio::pin!(deleting);
 
     assert!(tokio::time::timeout(std::time::Duration::from_millis(50), &mut deleting).await.is_err());
-    assert!(kxen_app::core::session_recovery::is_tombstoned(&sessions, &session.id).unwrap());
+    assert!(kxen_gui::core::session_recovery::is_tombstoned(&sessions, &session.id).unwrap());
     assert!(sessions.join(format!("{}.json", session.id)).exists(), "delete must not purge while consolidation owns the lease");
     drop(lease);
     assert_eq!(tokio::time::timeout(std::time::Duration::from_secs(3), &mut deleting).await.unwrap().unwrap(), Value::Null);

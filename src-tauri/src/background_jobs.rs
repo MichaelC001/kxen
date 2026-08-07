@@ -30,17 +30,17 @@ where
 }
 
 async fn consolidate_knowledge(state: Arc<AppState>) {
-    if !kxen_app::core::config::experimental_config().automatic_knowledge_distillation {
+    if !kxen_gui::core::config::experimental_config().automatic_knowledge_distillation {
         return;
     }
-    let store = kxen_app::core::shared::lock(&state.auth_store).clone();
-    let result = kxen_app::knowledge::consolidate::run_once_with(&store, &state.session_tokens, |session| {
+    let store = kxen_gui::core::shared::lock(&state.auth_store).clone();
+    let result = kxen_gui::knowledge::consolidate::run_once_with(&store, &state.session_tokens, |session| {
         consolidation_route(&state.workspace_runtimes, &store, session)
     })
     .await;
     for diagnostic in &result.diagnostics {
         tracing::error!(error = %diagnostic, "memory consolidation failed");
-        state.bus.publish(kxen_app::core::event::Event::notify(format!("后台知识整理失败：{diagnostic}"), None));
+        state.bus.publish(kxen_gui::core::event::Event::notify(format!("后台知识整理失败：{diagnostic}"), None));
     }
     if result.written > 0 {
         tracing::info!(written = result.written, "memory consolidation distilled");
@@ -48,45 +48,45 @@ async fn consolidate_knowledge(state: Arc<AppState>) {
 }
 
 fn consolidation_route(
-    runtimes: &kxen_app::workspace_runtime::WorkspaceRuntimeRegistry,
-    store: &kxen_app::auth::credential::AuthStore,
-    session: &kxen_app::core::session::Session,
-) -> Result<kxen_app::knowledge::consolidate::SessionRoute, String> {
+    runtimes: &kxen_gui::workspace_runtime::WorkspaceRuntimeRegistry,
+    store: &kxen_gui::auth::credential::AuthStore,
+    session: &kxen_gui::core::session::Session,
+) -> Result<kxen_gui::knowledge::consolidate::SessionRoute, String> {
     let runtime = runtimes.runtime(std::path::Path::new(&session.directory))?;
     let mrm = runtime.mrm();
     let default = match mrm.role("chat") {
         Some(binding) => {
-            let mut model = kxen_app::llm::ModelRef::new(binding.provider, binding.model);
+            let mut model = kxen_gui::llm::ModelRef::new(binding.provider, binding.model);
             model.account = binding.account;
             model
         }
-        None => kxen_app::llm::ModelRef::new("xai", "grok-build-0.1"),
+        None => kxen_gui::llm::ModelRef::new("xai", "grok-build-0.1"),
     };
-    let mut model = kxen_app::core::session::effective_model(session.model.as_ref(), &default).clone();
-    model.account = kxen_app::auth::credential::effective_account_name(store, &model.provider, model.account.as_deref());
-    Ok(kxen_app::knowledge::consolidate::SessionRoute { mrm, model })
+    let mut model = kxen_gui::core::session::effective_model(session.model.as_ref(), &default).clone();
+    model.account = kxen_gui::auth::credential::effective_account_name(store, &model.provider, model.account.as_deref());
+    Ok(kxen_gui::knowledge::consolidate::SessionRoute { mrm, model })
 }
 
 fn dispatch_schedule_tick(state: Arc<AppState>) {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|duration| duration.as_millis() as u64).unwrap_or(0);
-    let candidates = match kxen_app::core::schedule::due_candidates(now) {
+    let candidates = match kxen_gui::core::schedule::due_candidates(now) {
         Ok(candidates) => candidates,
         Err(error) => {
             tracing::error!(%error, "schedule tick failed");
-            state.bus.publish(kxen_app::core::event::Event::notify(format!("定时任务读取或保存失败：{error}"), None));
+            state.bus.publish(kxen_gui::core::event::Event::notify(format!("定时任务读取或保存失败：{error}"), None));
             Vec::new()
         }
     };
     for candidate in candidates {
         let lifecycle =
-            match kxen_app::core::session_lifecycle::admit_mutation(&kxen_app::core::paths::sessions_dir(), &candidate.session_id) {
+            match kxen_gui::core::session_lifecycle::admit_mutation(&kxen_gui::core::paths::sessions_dir(), &candidate.session_id) {
                 Ok(lifecycle) => lifecycle,
                 Err(error) => {
                     tracing::info!(session = candidate.session_id, cron_job_id = candidate.id, %error, "schedule claim rejected");
                     continue;
                 }
             };
-        let job = match kxen_app::core::schedule::claim_due(&candidate.id, now) {
+        let job = match kxen_gui::core::schedule::claim_due(&candidate.id, now) {
             Ok(Some(job)) if job.session_id == candidate.session_id => job,
             Ok(Some(job)) => {
                 tracing::error!(cron_job_id = job.id, "schedule Session binding changed before claim");
@@ -104,9 +104,9 @@ fn dispatch_schedule_tick(state: Arc<AppState>) {
 
 fn dispatch_schedule_job(
     state: &Arc<AppState>,
-    job: kxen_app::core::schedule::CronJob,
+    job: kxen_gui::core::schedule::CronJob,
     now: u64,
-    _lifecycle: kxen_app::core::session_lifecycle::MutationGuard,
+    _lifecycle: kxen_gui::core::session_lifecycle::MutationGuard,
 ) {
     let Some(dispatch_id) = job.dispatch_id.clone() else {
         tracing::error!(cron_job_id = job.id, "claimed schedule is missing dispatch id");
@@ -114,15 +114,15 @@ fn dispatch_schedule_job(
     };
     let queued = state.pending_messages.enqueue_existing_committed(
         &job.session_id,
-        kxen_app::core::pending_queue::QueuedMessage {
+        kxen_gui::core::pending_queue::QueuedMessage {
             id: dispatch_id.clone(),
-            created_at: kxen_app::core::shared::now_ms(),
+            created_at: kxen_gui::core::shared::now_ms(),
             text: format!("[cron {}] {}", job.id, job.prompt),
             context: vec![],
             images: vec![],
             schedule_job_id: Some(job.id.clone()),
         },
-        || match kxen_app::core::schedule::ack_dispatch(&job.id, &dispatch_id, now) {
+        || match kxen_gui::core::schedule::ack_dispatch(&job.id, &dispatch_id, now) {
             Ok(true) => Ok(()),
             Ok(false) => Err(format!("schedule disappeared before dispatch acknowledgement: {}", job.id)),
             Err(error) => Err(error),
@@ -130,7 +130,7 @@ fn dispatch_schedule_job(
     );
     match queued {
         Ok(position) => {
-            state.bus.publish(kxen_app::core::event::Event::notify(
+            state.bus.publish(kxen_gui::core::event::Event::notify(
                 format!("cron 已进入持久队列（第 {position} 条）"),
                 Some(job.session_id.clone()),
             ));
@@ -140,7 +140,7 @@ fn dispatch_schedule_job(
             tracing::error!(cron_job_id = job.id, %error, "cron durable enqueue or acknowledgement failed");
             state
                 .bus
-                .publish(kxen_app::core::event::Event::notify(format!("cron 消息入队失败，将保留并重试：{error}"), Some(job.session_id)));
+                .publish(kxen_gui::core::event::Event::notify(format!("cron 消息入队失败，将保留并重试：{error}"), Some(job.session_id)));
         }
     }
 }
@@ -187,8 +187,8 @@ mod tests {
         let workspace_b = root.join("b");
         std::fs::create_dir_all(&workspace_a).unwrap();
         std::fs::create_dir_all(&workspace_b).unwrap();
-        let runtimes = kxen_app::workspace_runtime::WorkspaceRuntimeRegistry::default();
-        let session = |id: &str, directory: &std::path::Path, model: &str| kxen_app::core::session::Session {
+        let runtimes = kxen_gui::workspace_runtime::WorkspaceRuntimeRegistry::default();
+        let session = |id: &str, directory: &std::path::Path, model: &str| kxen_gui::core::session::Session {
             id: id.into(),
             title: id.into(),
             directory: directory.to_string_lossy().into_owned(),
@@ -198,9 +198,9 @@ mod tests {
             message_revision: 0,
             pinned: false,
             sort_order: None,
-            model: Some(kxen_app::llm::ModelRef::new("xai", model)),
+            model: Some(kxen_gui::llm::ModelRef::new("xai", model)),
         };
-        let auth = kxen_app::auth::credential::AuthStore::new();
+        let auth = kxen_gui::auth::credential::AuthStore::new();
         let route_a = consolidation_route(&runtimes, &auth, &session("ses_a", &workspace_a, "model-a")).unwrap();
         let route_b = consolidation_route(&runtimes, &auth, &session("ses_b", &workspace_b, "model-b")).unwrap();
 

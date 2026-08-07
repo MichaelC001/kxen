@@ -45,18 +45,18 @@ async fn mcp_auth(params: &Value, state: &Arc<AppState>) -> Result<Value, String
                     Ok(()) => format!("MCP server {server} 认证完成，已重连"),
                     Err(e) => format!("MCP server {server} 认证完成，但重连失败: {e}"),
                 };
-                bus.publish(kxen_app::core::event::Event::notify(note, None));
+                bus.publish(kxen_gui::core::event::Event::notify(note, None));
             }
             Err(e) => {
                 mcp.set_auth_error(&server, Some(e.clone()));
-                bus.publish(kxen_app::core::event::Event::notify(format!("MCP server {server} 认证失败: {e}"), None));
+                bus.publish(kxen_gui::core::event::Event::notify(format!("MCP server {server} 认证失败: {e}"), None));
             }
         }
     });
     Ok(json!({ "authorize_url": url, "opened": opened }))
 }
 
-/// 开浏览器：桌面 GUI 平台用各自系统 opener；失败或无 GUI（kxen-web 无头服务器）返回 false，
+/// 开浏览器：桌面 GUI 平台用各自系统 opener；失败或无 GUI（kxen 无头服务器）返回 false，
 /// 调用方把 URL 给前端展示（web 模式前端本就在浏览器，直接展示/复制链接即可）。
 pub(super) fn open_browser(url: &str) -> bool {
     #[cfg(target_os = "macos")]

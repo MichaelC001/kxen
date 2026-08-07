@@ -15,12 +15,12 @@ mod session_start;
 #[path = "rpc/workspace_activation.rs"]
 mod workspace_activation;
 
-fn task_owner(params: &Value) -> Result<Option<kxen_app::tools::task::TaskOwner>, String> {
+fn task_owner(params: &Value) -> Result<Option<kxen_gui::tools::task::TaskOwner>, String> {
     let Some(session_id) = params.get("session_id").and_then(Value::as_str).filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
-    let meta = kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), session_id).map_err(|e| e.to_string())?;
-    kxen_app::tools::task::TaskOwner::new(session_id, &meta.directory).map(Some)
+    let meta = kxen_gui::core::session::load_meta(&kxen_gui::core::paths::sessions_dir(), session_id).map_err(|e| e.to_string())?;
+    kxen_gui::tools::task::TaskOwner::new(session_id, &meta.directory).map(Some)
 }
 
 pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>) -> Result<Value, super::protocol::CallError> {
@@ -58,30 +58,30 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
             let task = state.registry.get(&owner, id).ok_or_else(|| format!("task not found: {id}"))?;
             let command = task.command.to_string();
             let workdir = task.workdir.to_string();
-            let appr = kxen_app::tools::exec::ApprovalCtx::new(
+            let appr = kxen_gui::tools::exec::ApprovalCtx::new(
                 Some(state.approvals.as_ref()),
                 Some(&state.bus),
                 None,
                 params.get("session_id").and_then(Value::as_str),
             );
-            kxen_app::tools::exec::safety_gate(&command, &workdir, appr.as_ref()).await.map_err(|e| e.to_string())?;
-            let task_id = kxen_app::tools::dev_server::restart_task(id, &owner, &state.registry).await.map_err(|e| e.to_string())?;
+            kxen_gui::tools::exec::safety_gate(&command, &workdir, appr.as_ref()).await.map_err(|e| e.to_string())?;
+            let task_id = kxen_gui::tools::dev_server::restart_task(id, &owner, &state.registry).await.map_err(|e| e.to_string())?;
             Ok(json!({ "task_id": task_id }))
         }
         m if m.starts_with("goal.") => crate::goal_rpc::call(m, params, state).await,
         "workspace.list" => {
-            Ok(json!(kxen_app::core::workspace::list(&kxen_app::core::paths::data_dir()).map_err(|error| error.to_string())?))
+            Ok(json!(kxen_gui::core::workspace::list(&kxen_gui::core::paths::data_dir()).map_err(|error| error.to_string())?))
         }
         "session.list" => {
             // 全量返回（侧栏树按 workspace 分组，过滤在前端）；附运行中标记
             let restored = super::session_recovery::recover_restored(state)?;
             state.team.resume_paused()?;
             for id in restored {
-                state.bus.publish(kxen_app::core::event::Event::notify(format!("已从废纸篓恢复会话 {id}"), Some(id)));
+                state.bus.publish(kxen_gui::core::event::Event::notify(format!("已从废纸篓恢复会话 {id}"), Some(id)));
             }
-            let running: std::collections::HashSet<String> = kxen_app::core::shared::lock(&state.active_runs).keys().cloned().collect();
+            let running: std::collections::HashSet<String> = kxen_gui::core::shared::lock(&state.active_runs).keys().cloned().collect();
             let sessions =
-                kxen_app::core::session::list_checked(&kxen_app::core::paths::sessions_dir()).map_err(|error| error.to_string())?;
+                kxen_gui::core::session::list_checked(&kxen_gui::core::paths::sessions_dir()).map_err(|error| error.to_string())?;
             Ok(json!(
                 sessions
                     .into_iter()
@@ -95,7 +95,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
             ))
         }
         "workspace.current" => {
-            let active = kxen_app::core::shared::read(&state.active_workspace).to_string_lossy().into_owned();
+            let active = kxen_gui::core::shared::read(&state.active_workspace).to_string_lossy().into_owned();
             Ok(json!(active))
         }
         "workspace.add" => {
@@ -104,7 +104,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
             if !dir.is_dir() {
                 return Err(format!("directory not found: {path}").into());
             }
-            kxen_app::core::workspace::touch(&kxen_app::core::paths::data_dir(), path).map_err(|e| e.to_string())?;
+            kxen_gui::core::workspace::touch(&kxen_gui::core::paths::data_dir(), path).map_err(|e| e.to_string())?;
             Ok(json!(path))
         }
         "workspace.switch" => {
@@ -114,7 +114,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
         }
         "session.activate" => {
             let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
-            let meta = kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), id).map_err(|e| e.to_string())?;
+            let meta = kxen_gui::core::session::load_meta(&kxen_gui::core::paths::sessions_dir(), id).map_err(|e| e.to_string())?;
             let dir = workspace_activation::activate(std::path::Path::new(&meta.directory), Some(id), state)?;
             Ok(json!({ "id": id, "directory": dir.to_string_lossy() }))
         }
@@ -123,17 +123,17 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
                 .get("directory")
                 .and_then(Value::as_str)
                 .map(String::from)
-                .unwrap_or_else(|| kxen_app::core::shared::read(&state.active_workspace).to_string_lossy().into_owned());
+                .unwrap_or_else(|| kxen_gui::core::shared::read(&state.active_workspace).to_string_lossy().into_owned());
             let runtime = state.workspace_runtimes.runtime(std::path::Path::new(&directory))?;
             let directory = runtime.root().to_string_lossy().into_owned();
-            let session = kxen_app::core::session::create(&kxen_app::core::paths::sessions_dir(), &directory).map_err(|e| e.to_string())?;
+            let session = kxen_gui::core::session::create(&kxen_gui::core::paths::sessions_dir(), &directory).map_err(|e| e.to_string())?;
             // 先返回 id，前端才能订阅 session:<id> 并应答 Ask hook；后台 pending 快照负责事件空窗恢复。
             session_start::spawn(runtime.hooks(), state.approvals.clone(), state.bus.clone(), session.id.clone(), directory);
             Ok(json!(session))
         }
         "session.messages" => {
             let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
-            session_messages::load(&kxen_app::core::paths::sessions_dir(), id)
+            session_messages::load(&kxen_gui::core::paths::sessions_dir(), id)
         }
         "session.delete" => super::session_delete::delete(&params, state).await,
         "session.update_meta" => super::session_ops::session_update_meta(&params),
@@ -142,7 +142,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
             let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let message_id = params.get("message_id").and_then(Value::as_str).ok_or("missing message_id")?;
             let session =
-                kxen_app::core::session::fork(&kxen_app::core::paths::sessions_dir(), session_id, message_id).map_err(|e| e.to_string())?;
+                kxen_gui::core::session::fork(&kxen_gui::core::paths::sessions_dir(), session_id, message_id).map_err(|e| e.to_string())?;
             Ok(json!(session))
         }
         "session.rewind" => super::session_ops::session_rewind(&params, state),
@@ -157,26 +157,26 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
         "session.export" => {
             let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let out = params.get("path").and_then(Value::as_str).map(std::path::PathBuf::from);
-            let path = kxen_app::core::session_export::export_to_file(&kxen_app::core::paths::sessions_dir(), session_id, out.as_deref())
+            let path = kxen_gui::core::session_export::export_to_file(&kxen_gui::core::paths::sessions_dir(), session_id, out.as_deref())
                 .map_err(|e| e.to_string())?;
             Ok(json!({ "path": path.to_string_lossy() }))
         }
         m if m.starts_with("worktree.") || m.starts_with("diff.") => super::worktree_rpc::try_handle(m, &params, state).await,
         "send_message" => {
             let p: super::session_ops::SendMessageParams = serde_json::from_value(params).map_err(|e| e.to_string())?;
-            if kxen_app::core::shared::lock(&state.active_runs).contains_key(&p.session_id) {
-                let config_path = kxen_app::core::paths::config_dir().join("config.toml");
-                let cfg = kxen_app::core::config::Config::load(&config_path, None)
+            if kxen_gui::core::shared::lock(&state.active_runs).contains_key(&p.session_id) {
+                let config_path = kxen_gui::core::paths::config_dir().join("config.toml");
+                let cfg = kxen_gui::core::config::Config::load(&config_path, None)
                     .map_err(|error| format!("config load {}: {error}", config_path.display()))?;
                 let policy = if cfg.send_when_running.is_empty() { "queue" } else { cfg.send_when_running.as_str() };
                 if policy != "interrupt" {
                     // enqueue 与 finalize slot release 串行，handoff 或 post-release kick 必能接住消息。
                     {
-                        let runs = kxen_app::core::shared::lock(&state.active_runs);
+                        let runs = kxen_gui::core::shared::lock(&state.active_runs);
                         if runs.contains_key(&p.session_id) {
                             let n = state.pending_messages.enqueue(&p.session_id, p.text, p.context, p.images)?;
                             drop(runs);
-                            state.bus.publish(kxen_app::core::event::Event::notify(
+                            state.bus.publish(kxen_gui::core::event::Event::notify(
                                 format!("运行中，消息已排队（第 {n} 条）"),
                                 Some(p.session_id),
                             ));
@@ -191,7 +191,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
                     if let Some(n) = super::run_slot::interrupt_current(&state.active_runs, &p.session_id, || {
                         state.pending_messages.enqueue_next(&p.session_id, queued_text, queued_context, queued_images)
                     })? {
-                        state.bus.publish(kxen_app::core::event::Event::notify(
+                        state.bus.publish(kxen_gui::core::event::Event::notify(
                             format!("当前运行已中断，新消息已排队（第 {n} 条）"),
                             Some(p.session_id),
                         ));
@@ -216,7 +216,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
         "session.abort" => {
             let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             // abort = 停当前 + 清队列（否则 abort 完队列立刻续跑，等于没停）
-            let (_, aborted) = super::run_slot::abort_current(&state.active_runs, &kxen_app::core::paths::sessions_dir(), id, || {
+            let (_, aborted) = super::run_slot::abort_current(&state.active_runs, &kxen_gui::core::paths::sessions_dir(), id, || {
                 state.pending_messages.clear(id)
             })?;
             super::queue_retry::reset_retry(id);
@@ -251,7 +251,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
             statusline_report(session_id, state).await
         }
         "config.get" => {
-            let config = kxen_app::core::config::Config::load(&kxen_app::core::paths::config_dir().join("config.toml"), None)
+            let config = kxen_gui::core::config::Config::load(&kxen_gui::core::paths::config_dir().join("config.toml"), None)
                 .map_err(|e| e.to_string())?;
             Ok(serde_json::to_value(config).map_err(|e| e.to_string())?)
         }
@@ -268,22 +268,22 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
         "fs.complete" => {
             let query = params.get("query").and_then(Value::as_str).unwrap_or("");
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
-            let dir = kxen_app::core::shared::read(&state.active_workspace).clone();
-            Ok(json!(kxen_app::tools::search::complete(query, &dir, limit)))
+            let dir = kxen_gui::core::shared::read(&state.active_workspace).clone();
+            Ok(json!(kxen_gui::tools::search::complete(query, &dir, limit)))
         }
         "fs.resolve_name" => {
             let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
-            let dir = kxen_app::core::shared::read(&state.active_workspace).clone();
-            Ok(json!(kxen_app::tools::search::find_by_name(name, &dir)))
+            let dir = kxen_gui::core::shared::read(&state.active_workspace).clone();
+            Ok(json!(kxen_gui::tools::search::find_by_name(name, &dir)))
         }
         "fs.allow_path" => super::ops_attach::fs_allow_path(&params, state),
         "fs.read_attachment" => super::ops_attach::fs_read_attachment(&params, state),
         "command.list" => {
-            let dir = kxen_app::core::shared::read(&state.active_workspace).clone();
-            let mut commands = kxen_app::agent::commands::list(&dir);
+            let dir = kxen_gui::core::shared::read(&state.active_workspace).clone();
+            let mut commands = kxen_gui::agent::commands::list(&dir);
             // skills 并入弹窗（kind=skill，标注是否 user-invocable）
-            commands.extend(kxen_app::agent::skills::scan(&dir).into_iter().filter(|s| s.user_invocable).map(|s| {
-                kxen_app::agent::commands::CommandInfo {
+            commands.extend(kxen_gui::agent::skills::scan(&dir).into_iter().filter(|s| s.user_invocable).map(|s| {
+                kxen_gui::agent::commands::CommandInfo {
                     name: s.name,
                     description: s.description,
                     kind: "skill",

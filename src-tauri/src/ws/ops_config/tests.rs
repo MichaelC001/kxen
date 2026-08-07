@@ -145,7 +145,7 @@ fn post_apply_failure_restores_disk_and_every_runtime_arc() {
     std::fs::create_dir_all(&workspace_b).unwrap();
     let original = "[limits]\nglobal_concurrent = 8\n";
     std::fs::write(&path, original).unwrap();
-    let registry = kxen_app::workspace_runtime::WorkspaceRuntimeRegistry::with_user_config(path.clone()).unwrap();
+    let registry = kxen_gui::workspace_runtime::WorkspaceRuntimeRegistry::with_user_config(path.clone()).unwrap();
     let runtime_a = registry.runtime(&workspace_a).unwrap();
     let runtime_b = registry.runtime(&workspace_b).unwrap();
     let old_a_mrm = runtime_a.mrm();

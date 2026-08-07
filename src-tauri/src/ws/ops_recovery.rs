@@ -24,14 +24,14 @@ fn clear(id: &str, state: &AppState) -> Result<Value, String> {
 }
 
 fn inspect(id: &str, state: &AppState) -> Result<Value, String> {
-    let sessions = kxen_app::core::paths::sessions_dir();
-    let session = kxen_app::core::session::inspect_storage(&sessions, id)?;
+    let sessions = kxen_gui::core::paths::sessions_dir();
+    let session = kxen_gui::core::session::inspect_storage(&sessions, id)?;
     let queue = state.pending_messages.inspect_recovery(id)?;
     Ok(json!({ "session": session, "queue": queue }))
 }
 
 fn repair(id: &str, state: &AppState) -> Result<Value, String> {
-    if kxen_app::core::shared::lock(&state.active_runs).contains_key(id) {
+    if kxen_gui::core::shared::lock(&state.active_runs).contains_key(id) {
         return Err(format!("session {id} recovery requires the active run to finish or be aborted"));
     }
     let before = inspect(id, state)?;
@@ -40,8 +40,8 @@ fn repair(id: &str, state: &AppState) -> Result<Value, String> {
     if !session_repairable || !queue_repairable {
         return Err(format!("session {id} recovery is fail closed because at least one store has no provable repair"));
     }
-    let sessions = kxen_app::core::paths::sessions_dir();
-    let session = kxen_app::core::session::repair_storage(&sessions, id)?;
+    let sessions = kxen_gui::core::paths::sessions_dir();
+    let session = kxen_gui::core::session::repair_storage(&sessions, id)?;
     let queue = state.pending_messages.repair_recovery(id)?;
     Ok(json!({ "session": session, "queue": queue }))
 }

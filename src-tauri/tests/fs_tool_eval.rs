@@ -1,7 +1,7 @@
 // fs_tool 公开 API 集成测试：
 // read 分页 / 文件新鲜度（纳秒精度）/ edit 双模式。
-use kxen_app::tools::fs_tool::{AnchorEdit, EditSpec, FileTracker, FsToolError, delete, edit, read, write};
-use kxen_app::tools::hashline::generate_anchors;
+use kxen_gui::tools::fs_tool::{AnchorEdit, EditSpec, FileTracker, FsToolError, delete, edit, read, write};
+use kxen_gui::tools::hashline::generate_anchors;
 use std::path::PathBuf;
 
 fn temp_file(tag: &str, content: &str) -> PathBuf {

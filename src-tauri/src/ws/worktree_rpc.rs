@@ -7,8 +7,8 @@ use crate::AppState;
 pub(super) async fn try_handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<Value, String> {
     match method {
         "worktree.list" => {
-            let dir = kxen_app::core::shared::read(&state.active_workspace).clone();
-            let infos = kxen_app::tools::worktree::list(&dir).await?;
+            let dir = kxen_gui::core::shared::read(&state.active_workspace).clone();
+            let infos = kxen_gui::tools::worktree::list(&dir).await?;
             Ok(json!(
                 infos
                     .iter()
@@ -22,8 +22,8 @@ pub(super) async fn try_handle(method: &str, params: &Value, state: &Arc<AppStat
         }
         "worktree.create" => {
             let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
-            let dir = kxen_app::core::shared::read(&state.active_workspace).clone();
-            let info = kxen_app::tools::worktree::create(&dir, name).await?;
+            let dir = kxen_gui::core::shared::read(&state.active_workspace).clone();
+            let info = kxen_gui::tools::worktree::create(&dir, name).await?;
             Ok(json!({
                 "name": info.name,
                 "path": info.path.to_string_lossy(),
@@ -35,9 +35,9 @@ pub(super) async fn try_handle(method: &str, params: &Value, state: &Arc<AppStat
             let delete_branch = params.get("delete_branch").and_then(Value::as_bool).unwrap_or(false);
             // 前端行内确认条已显式确认（confirmed）：跳过后端审批挂起，避免双确认
             let confirmed = params.get("confirmed").and_then(Value::as_bool).unwrap_or(false);
-            let dir = kxen_app::core::shared::read(&state.active_workspace).clone();
-            let approval = kxen_app::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), None, None);
-            kxen_app::tools::worktree::remove_with_approval(&dir, name, delete_branch, approval.as_ref(), confirmed).await?;
+            let dir = kxen_gui::core::shared::read(&state.active_workspace).clone();
+            let approval = kxen_gui::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), None, None);
+            kxen_gui::tools::worktree::remove_with_approval(&dir, name, delete_branch, approval.as_ref(), confirmed).await?;
             Ok(json!(true))
         }
         "worktree.status" => {
@@ -45,16 +45,16 @@ pub(super) async fn try_handle(method: &str, params: &Value, state: &Arc<AppStat
             // 边界：path 必须落在 workspace（或会话授权清单）内，否则可对任意目录跑 git status
             let dir = workspace_for_params(params, state)?;
             let grants = session_grants(params, state);
-            let resolved = kxen_app::tools::worktree::resolve_in_workspace(path, &dir, &grants)?;
-            Ok(json!(kxen_app::tools::worktree::status(&resolved).await?))
+            let resolved = kxen_gui::tools::worktree::resolve_in_workspace(path, &dir, &grants)?;
+            Ok(json!(kxen_gui::tools::worktree::status(&resolved).await?))
         }
         "diff.status" => {
             let dir = workspace_for_params(params, state)?;
-            Ok(json!(kxen_app::tools::worktree::status(&dir).await?))
+            Ok(json!(kxen_gui::tools::worktree::status(&dir).await?))
         }
         "diff.agent_status" => {
             let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
-            let snapshot = kxen_app::core::shared::lock(&state.session_snapshots).get(id).cloned();
+            let snapshot = kxen_gui::core::shared::lock(&state.session_snapshots).get(id).cloned();
             let entries = match snapshot {
                 Some(snapshot) => snapshot.status().map_err(|error| error.to_string())?,
                 None => Vec::new(),
@@ -64,7 +64,7 @@ pub(super) async fn try_handle(method: &str, params: &Value, state: &Arc<AppStat
         "diff.agent_file" => {
             let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
-            let store = kxen_app::core::shared::lock(&state.session_snapshots).get(id).cloned();
+            let store = kxen_gui::core::shared::lock(&state.session_snapshots).get(id).cloned();
             let path = std::path::Path::new(path);
             let text = match store {
                 Some(snapshot) => match snapshot.diff(path).map_err(|error| error.to_string())? {
@@ -80,8 +80,8 @@ pub(super) async fn try_handle(method: &str, params: &Value, state: &Arc<AppStat
             let dir = workspace_for_params(params, state)?;
             // 边界：--no-index 合成 diff 会读文件全文，path 必须落在 workspace（或会话授权清单）内
             let grants = session_grants(params, state);
-            let resolved = kxen_app::tools::worktree::resolve_in_workspace(path, &dir, &grants)?;
-            Ok(json!(kxen_app::tools::worktree::diff_file(&dir, &resolved.to_string_lossy()).await?))
+            let resolved = kxen_gui::tools::worktree::resolve_in_workspace(path, &dir, &grants)?;
+            Ok(json!(kxen_gui::tools::worktree::diff_file(&dir, &resolved.to_string_lossy()).await?))
         }
         other => Err(format!("unknown method: {other}")),
     }

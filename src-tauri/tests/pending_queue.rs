@@ -1,6 +1,6 @@
 //! pending queue 落盘回归：入队写盘、消费重写、崩溃重启恢复、非法 id 拒绝。
 
-use kxen_app::core::pending_queue::{PendingQueues, file_path};
+use kxen_gui::core::pending_queue::{PendingQueues, file_path};
 
 fn tmp_dir(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("kxen-pq-{tag}-{}", std::process::id()));
@@ -18,12 +18,12 @@ fn tmp_dir(tag: &str) -> std::path::PathBuf {
     dir
 }
 
-fn ctx_file(path: &str) -> kxen_app::agent::context::ContextItem {
-    kxen_app::agent::context::ContextItem::File { path: path.into() }
+fn ctx_file(path: &str) -> kxen_gui::agent::context::ContextItem {
+    kxen_gui::agent::context::ContextItem::File { path: path.into() }
 }
 
-fn img() -> kxen_app::llm::types::ImagePart {
-    kxen_app::llm::types::ImagePart { media_type: "image/png".into(), data: "aGVsbG8=".into() }
+fn img() -> kxen_gui::llm::types::ImagePart {
+    kxen_gui::llm::types::ImagePart { media_type: "image/png".into(), data: "aGVsbG8=".into() }
 }
 
 #[test]
@@ -37,7 +37,7 @@ fn enqueue_claim_and_ack_persist_each_state() {
     // context/images 随条目完整往返
     let first = q.claim("s1").unwrap().unwrap();
     assert_eq!(first.text, "第一条");
-    assert!(matches!(first.context.first(), Some(kxen_app::agent::context::ContextItem::File { path }) if path == "a.rs"));
+    assert!(matches!(first.context.first(), Some(kxen_gui::agent::context::ContextItem::File { path }) if path == "a.rs"));
     assert_eq!(first.images.len(), 1);
     assert_eq!(q.claim("s1").unwrap().unwrap().text, "第一条", "未 ack 前重复 claim 必须返回同一条");
     let on_disk: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(file_path(&dir, "s1")).unwrap()).unwrap();
@@ -193,7 +193,7 @@ fn recovery_preserves_delivery_id() {
     let q = PendingQueues::new(dir.clone());
     q.enqueue_existing(
         "s1",
-        kxen_app::core::pending_queue::QueuedMessage {
+        kxen_gui::core::pending_queue::QueuedMessage {
             id: "queue-stable".into(),
             created_at: 1,
             text: "recovered".into(),
@@ -226,34 +226,34 @@ fn recovery_preserves_delivery_creation_time_for_idempotent_session_append() {
 #[test]
 fn crash_after_session_append_replays_and_acknowledges_exactly_once() {
     let dir = tmp_dir("append-before-ack");
-    let session = kxen_app::core::session::create(&dir, "/tmp").unwrap();
+    let session = kxen_gui::core::session::create(&dir, "/tmp").unwrap();
     let queue = PendingQueues::new(dir.clone());
     queue.enqueue(&session.id, "once".into(), vec![], vec![]).unwrap();
     let first = queue.claim(&session.id).unwrap().unwrap();
-    let mut message = kxen_app::core::session::new_message(
+    let mut message = kxen_gui::core::session::new_message(
         &session.id,
-        kxen_app::core::session::Role::User,
-        vec![kxen_app::core::session::Part::Text { text: first.text.clone() }],
+        kxen_gui::core::session::Role::User,
+        vec![kxen_gui::core::session::Part::Text { text: first.text.clone() }],
     );
     message.id = first.id.clone();
     message.created_at = first.created_at;
-    kxen_app::core::session::append_message_idempotent_durable(&dir, &message).unwrap();
+    kxen_gui::core::session::append_message_idempotent_durable(&dir, &message).unwrap();
 
     let restored = PendingQueues::new(dir.clone());
     assert!(restored.restore().contains(&session.id));
     let replay = restored.claim(&session.id).unwrap().unwrap();
     assert_eq!(replay.id, first.id);
     assert_eq!(replay.created_at, first.created_at);
-    let mut replayed = kxen_app::core::session::new_message(
+    let mut replayed = kxen_gui::core::session::new_message(
         &session.id,
-        kxen_app::core::session::Role::User,
-        vec![kxen_app::core::session::Part::Text { text: replay.text.clone() }],
+        kxen_gui::core::session::Role::User,
+        vec![kxen_gui::core::session::Part::Text { text: replay.text.clone() }],
     );
     replayed.id = replay.id.clone();
     replayed.created_at = replay.created_at;
-    kxen_app::core::session::append_message_idempotent_durable(&dir, &replayed).unwrap();
+    kxen_gui::core::session::append_message_idempotent_durable(&dir, &replayed).unwrap();
     assert!(restored.acknowledge(&session.id, &replay.id).unwrap());
-    assert_eq!(kxen_app::core::session::load_messages_checked(&dir, &session.id).unwrap().len(), 1);
+    assert_eq!(kxen_gui::core::session::load_messages_checked(&dir, &session.id).unwrap().len(), 1);
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -271,7 +271,7 @@ fn schedule_origin_is_structured_and_survives_restore() {
     queue
         .enqueue_existing(
             "scheduled",
-            kxen_app::core::pending_queue::QueuedMessage {
+            kxen_gui::core::pending_queue::QueuedMessage {
                 id: "queue-scheduled".into(),
                 created_at: 1,
                 text: "display text".into(),
@@ -307,7 +307,7 @@ fn corrupt_queue_blocks_mutation_without_overwriting_evidence() {
 fn external_commit_failure_rolls_back_durable_queue_item() {
     let dir = tmp_dir("commit-rollback");
     let queue = PendingQueues::new(dir.clone());
-    let item = kxen_app::core::pending_queue::QueuedMessage {
+    let item = kxen_gui::core::pending_queue::QueuedMessage {
         id: "queue-cron-stable".into(),
         created_at: 1,
         text: "cron".into(),
@@ -327,7 +327,7 @@ fn external_commit_failure_rolls_back_durable_queue_item() {
 fn delete_tombstone_rejects_new_queue_items_but_allows_recovery_replay() {
     let dir = tmp_dir("deleting");
     let queue = PendingQueues::new(dir.clone());
-    let guard = kxen_app::core::session_recovery::begin_deletion(&dir, "ses_one").unwrap();
+    let guard = kxen_gui::core::session_recovery::begin_deletion(&dir, "ses_one").unwrap();
     let error = queue.enqueue("ses_one", "late".into(), vec![], vec![]).unwrap_err();
     assert!(error.contains("deletion in progress"));
     assert!(!queue.has_queued("ses_one"));
@@ -335,7 +335,7 @@ fn delete_tombstone_rejects_new_queue_items_but_allows_recovery_replay() {
     queue
         .enqueue_existing(
             "ses_one",
-            kxen_app::core::pending_queue::QueuedMessage {
+            kxen_gui::core::pending_queue::QueuedMessage {
                 id: "queue-recovery".into(),
                 created_at: 1,
                 text: "preserved".into(),

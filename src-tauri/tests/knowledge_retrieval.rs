@@ -1,12 +1,12 @@
 //! 记忆检索集成测试：BM25 排序 / CJK bigram / 融合排序 / cosine /
 //! 向量缓存往返与 LRU / 冲突降权 / 无配置零网络 / 请求构造与响应解析纯函数。
 
-use kxen_app::auth::credential::{AuthStore, CredentialKind};
-use kxen_app::core::config::{Config, EmbeddingConfig};
-use kxen_app::knowledge::embedding::{self, Protocol};
-use kxen_app::knowledge::embedding_cache::{CACHE_MAX, EmbeddingCache};
-use kxen_app::knowledge::retrieval::{self, fuse};
-use kxen_app::knowledge::{Entry, Kind, Scope};
+use kxen_gui::auth::credential::{AuthStore, CredentialKind};
+use kxen_gui::core::config::{Config, EmbeddingConfig};
+use kxen_gui::knowledge::embedding::{self, Protocol};
+use kxen_gui::knowledge::embedding_cache::{CACHE_MAX, EmbeddingCache};
+use kxen_gui::knowledge::retrieval::{self, fuse};
+use kxen_gui::knowledge::{Entry, Kind, Scope};
 use std::collections::HashSet;
 
 fn entry(scope: Scope, kind: Kind, slug: &str, desc: &str, content: &str, date: &str) -> Entry {

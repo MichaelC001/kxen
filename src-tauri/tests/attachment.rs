@@ -1,6 +1,6 @@
 //! 附件授权清单与读取：注册/校验/会话清理、workspace rel 计算、文本/base64 分流、2MB cap。
 
-use kxen_app::core::attachment::{ATTACH_CAP, PickedFiles, media_type_for, read_attachment, rel_in_workspace};
+use kxen_gui::core::attachment::{ATTACH_CAP, PickedFiles, media_type_for, read_attachment, rel_in_workspace};
 use std::path::PathBuf;
 
 /// macOS temp 是 /var 软链：返回 canonical 路径，rel/比对才有稳定前缀。

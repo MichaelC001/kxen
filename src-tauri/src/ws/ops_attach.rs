@@ -11,8 +11,8 @@ pub(super) fn fs_allow_path(params: &Value, state: &crate::AppState) -> Result<V
     let canon = std::fs::canonicalize(path).map_err(|e| format!("canonicalize {path}: {e}"))?;
     let runtime = state.runtime_for_session(session_id)?;
     let grants = HashSet::from([canon.clone()]);
-    let resolved = kxen_app::tools::path_policy::resolve(&canon.to_string_lossy(), runtime.root(), &grants)?.into_path_buf();
-    let rel = kxen_app::core::attachment::rel_in_workspace(&resolved, runtime.root());
+    let resolved = kxen_gui::tools::path_policy::resolve(&canon.to_string_lossy(), runtime.root(), &grants)?.into_path_buf();
+    let rel = kxen_gui::core::attachment::rel_in_workspace(&resolved, runtime.root());
     state.picked_files.allow(session_id, resolved.clone());
     Ok(json!({ "path": resolved.to_string_lossy(), "rel": rel }))
 }
@@ -23,6 +23,6 @@ pub(super) fn fs_read_attachment(params: &Value, state: &crate::AppState) -> Res
     let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
     let runtime = state.runtime_for_session(session_id)?;
     let grants = state.picked_files.snapshot(session_id).unwrap_or_default();
-    let resolved = kxen_app::tools::path_policy::resolve(path, runtime.root(), &grants)?;
-    kxen_app::core::attachment::read_attachment_resolved(&resolved)
+    let resolved = kxen_gui::tools::path_policy::resolve(path, runtime.root(), &grants)?;
+    kxen_gui::core::attachment::read_attachment_resolved(&resolved)
 }

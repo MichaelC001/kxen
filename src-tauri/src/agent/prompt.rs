@@ -5,7 +5,7 @@ use super::prompt_text::{BACKGROUND_PLAYBOOK, IDENTITY, KNOWLEDGE_GUIDE, REPLY_P
 use crate::core::goal::{Goal, GoalStatus};
 use std::fmt::Write as _;
 
-// 外部路径 kxen_app::agent::prompt::CODING_RULES 不变；文案本体在 prompt_text.rs
+// 外部路径 kxen_gui::agent::prompt::CODING_RULES 不变；文案本体在 prompt_text.rs
 pub use super::prompt_text::CODING_RULES;
 
 /// frozen/dynamic 上下文边界标记：之上跨轮稳定（provider 前缀缓存命中区），之下逐轮可变。

@@ -1,7 +1,7 @@
 //! SessionExtras 按 session 隔离的回归测试（进程级单例跨 session 泄露）。
 
-use kxen_app::agent::agent_loop::{AgentContext, SessionExtras, SessionExtrasRegistry};
-use kxen_app::agent::subagent::SubagentDeps;
+use kxen_gui::agent::agent_loop::{AgentContext, SessionExtras, SessionExtrasRegistry};
+use kxen_gui::agent::subagent::SubagentDeps;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -63,26 +63,26 @@ fn subagent_shares_parent_session_extras() {
     let registry = SessionExtrasRegistry::default();
     let parent = registry.extras_for("s-parent");
     let ctx = AgentContext {
-        registry: Arc::new(kxen_app::tools::task::TaskRegistry::new()),
-        tracker: kxen_app::tools::fs_tool::FileTracker::default(),
+        registry: Arc::new(kxen_gui::tools::task::TaskRegistry::new()),
+        tracker: kxen_gui::tools::fs_tool::FileTracker::default(),
         workdir: Arc::from(Path::new("/tmp")),
         path_grants: Arc::new(Default::default()),
-        model: kxen_app::llm::ModelRef::new("p", "m"),
-        store: kxen_app::auth::credential::AuthStore::default(),
+        model: kxen_gui::llm::ModelRef::new("p", "m"),
+        store: kxen_gui::auth::credential::AuthStore::default(),
         max_turns: 1,
-        mrm: Some(Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(kxen_app::core::config::Config::default()))),
+        mrm: Some(Arc::new(kxen_gui::llm::mrm::ModelResourceManager::new(kxen_gui::core::config::Config::default()))),
         allowed_tools: None,
         extras: Some(parent.clone()),
         hooks: None,
-        loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
+        loop_detector: kxen_gui::agent::loop_detect::LoopDetector::new(),
         cancel: None,
         team: None,
         team_identity: None,
         session_id: Some("s-parent".into()),
         bound_goal_id: None,
         goal_binding_frozen: false,
-        agents: Some(Arc::new(kxen_app::agent::activity::AgentRegistry::default())),
-        bus: Some(kxen_app::core::event::EventBus::default()),
+        agents: Some(Arc::new(kxen_gui::agent::activity::AgentRegistry::default())),
+        bus: Some(kxen_gui::core::event::EventBus::default()),
         approvals: None,
         mcp: None,
         lsp: None,

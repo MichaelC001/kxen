@@ -1,7 +1,7 @@
 //! usage 跨 request 累加 + 通知循环 Lagged 存活回归。
 
-use kxen_app::agent::agent_loop::UsageAcc;
-use kxen_app::core::event::{Event, EventBus, RecvVerdict, recv_verdict};
+use kxen_gui::agent::agent_loop::UsageAcc;
+use kxen_gui::core::event::{Event, EventBus, RecvVerdict, recv_verdict};
 
 #[test]
 fn usage_accumulates_across_requests() {

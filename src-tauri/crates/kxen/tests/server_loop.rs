@@ -6,14 +6,14 @@
 use std::sync::Arc;
 
 use futures::{SinkExt, StreamExt};
-use kxen_app::web::WebServer;
+use kxen_gui::web::WebServer;
 
 const CHILD_ENV: &str = "KXEN_WEB_LOOP_CHILD";
 
 #[test]
 fn ws_end_to_end_in_isolated_child() {
     if std::env::var_os(CHILD_ENV).is_none() {
-        let home = std::env::temp_dir().join(format!("kxen-web-loop-{}", std::process::id()));
+        let home = std::env::temp_dir().join(format!("kxen-loop-{}", std::process::id()));
         let status = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "ws_end_to_end_in_isolated_child"])
             .env(CHILD_ENV, "1")
@@ -29,7 +29,7 @@ fn ws_end_to_end_in_isolated_child() {
 }
 
 async fn scenario() {
-    let state = Arc::new(kxen_app::AppState::new().unwrap());
+    let state = Arc::new(kxen_gui::AppState::new().unwrap());
     let token = state.ws_token.clone();
     let loopback = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
     let handle = WebServer::start((loopback, 0), state.clone(), true, vec!["myhost.tailnet".to_string()]).unwrap();

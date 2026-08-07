@@ -22,12 +22,12 @@ fn prepared_journal_restores_both_stores() {
     )
     .unwrap();
     std::fs::write(&config, "send_when_running = \"interrupt\"\n").unwrap();
-    kxen_app::auth::credential::write_auth_file(&auth, &AuthStore::new()).unwrap();
+    kxen_gui::auth::credential::write_auth_file(&auth, &AuthStore::new()).unwrap();
 
     recover_custom_provider_transaction(&config, &auth).unwrap();
 
     assert_eq!(toml::from_str::<toml::Table>(&std::fs::read_to_string(&config).unwrap()).unwrap(), original);
-    assert_eq!(kxen_app::auth::credential::read_auth_file(&auth).unwrap()["custom:lab"], credential);
+    assert_eq!(kxen_gui::auth::credential::read_auth_file(&auth).unwrap()["custom:lab"], credential);
     assert!(!journal_path(&config).unwrap().exists());
     std::fs::remove_dir_all(root).ok();
 }
@@ -38,7 +38,7 @@ fn committed_journal_keeps_stores_and_only_clears_marker() {
     std::fs::write(&config, "send_when_running = \"interrupt\"\n").unwrap();
     let mut current = AuthStore::new();
     current.insert("custom:lab".into(), CredentialKind::Api { key: "current".into(), region: None });
-    kxen_app::auth::credential::write_auth_file(&auth, &current).unwrap();
+    kxen_gui::auth::credential::write_auth_file(&auth, &current).unwrap();
     write_journal(
         &config,
         &TransactionJournal {
@@ -53,7 +53,7 @@ fn committed_journal_keeps_stores_and_only_clears_marker() {
     recover_custom_provider_transaction(&config, &auth).unwrap();
 
     assert!(std::fs::read_to_string(&config).unwrap().contains("interrupt"));
-    assert_eq!(kxen_app::auth::credential::read_auth_file(&auth).unwrap(), current);
+    assert_eq!(kxen_gui::auth::credential::read_auth_file(&auth).unwrap(), current);
     assert!(!journal_path(&config).unwrap().exists());
     std::fs::remove_dir_all(root).ok();
 }
@@ -82,7 +82,7 @@ fn committed_marker_sync_failure_is_indeterminate_and_keeps_recovery_armed() {
     assert!(warning.as_deref().is_some_and(|message| message.contains("indeterminate")));
     assert!(matches!(read_journal(&config).unwrap().unwrap().phase, JournalPhase::Committed));
     recover_custom_provider_transaction(&config, &auth).unwrap();
-    assert_eq!(kxen_app::auth::credential::read_auth_file(&auth).unwrap()["custom:lab"].bearer(), "current");
+    assert_eq!(kxen_gui::auth::credential::read_auth_file(&auth).unwrap()["custom:lab"].bearer(), "current");
     std::fs::remove_dir_all(root).ok();
 }
 
@@ -117,8 +117,8 @@ fn commit_marker_failure_restores_config_auth_and_cached_runtime() {
         .unwrap();
     let mut original_auth = AuthStore::new();
     original_auth.insert("custom:lab".into(), CredentialKind::Api { key: "old-key".into(), region: None });
-    kxen_app::auth::credential::write_auth_file(&auth, &original_auth).unwrap();
-    let runtimes = kxen_app::workspace_runtime::WorkspaceRuntimeRegistry::with_user_config(config.clone()).unwrap();
+    kxen_gui::auth::credential::write_auth_file(&auth, &original_auth).unwrap();
+    let runtimes = kxen_gui::workspace_runtime::WorkspaceRuntimeRegistry::with_user_config(config.clone()).unwrap();
     let runtime = runtimes.runtime(&workspace).unwrap();
     let old_mrm = runtime.mrm();
     let old_hooks = runtime.hooks();
@@ -142,9 +142,9 @@ fn commit_marker_failure_restores_config_auth_and_cached_runtime() {
 
     assert!(error.contains("runtime compensation: PASS"), "{error}");
     assert!(error.contains("crash journal recovery: PASS"), "{error}");
-    let restored = kxen_app::core::config::Config::load(&config, None).unwrap();
+    let restored = kxen_gui::core::config::Config::load(&config, None).unwrap();
     assert_eq!(restored.custom_providers["lab"].base_url, "https://old.example/v1");
-    assert_eq!(kxen_app::auth::credential::read_auth_file(&auth).unwrap(), original_auth);
+    assert_eq!(kxen_gui::auth::credential::read_auth_file(&auth).unwrap(), original_auth);
     assert!(std::sync::Arc::ptr_eq(&runtime.mrm(), &old_mrm));
     assert!(std::sync::Arc::ptr_eq(&runtime.hooks(), &old_hooks));
     assert_eq!(runtime.mrm().custom_provider("lab").unwrap().base_url, "https://old.example/v1");

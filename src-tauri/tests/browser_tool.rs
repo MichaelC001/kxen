@@ -2,10 +2,10 @@
 //! 覆盖：action 分发、a11y ref 分配与失效、SSRF 拦截、输出 cap、session 键控隔离、截图落盘与随会话清理。
 //! URL 全部用公网字面 IP（93.184.215.14 / 1.1.1.1）：net_guard 对字面 IP 不做 DNS，测试无网络依赖。
 
-use kxen_app::agent::agent_loop::SessionExtrasRegistry;
-use kxen_app::tools::browser::driver::RawAxNode;
-use kxen_app::tools::browser::fake::FakeDriver;
-use kxen_app::tools::browser::{BrowserSlot, dispatch};
+use kxen_gui::agent::agent_loop::SessionExtrasRegistry;
+use kxen_gui::tools::browser::driver::RawAxNode;
+use kxen_gui::tools::browser::fake::FakeDriver;
+use kxen_gui::tools::browser::{BrowserSlot, dispatch};
 use serde_json::json;
 
 fn rt() -> tokio::runtime::Runtime {
@@ -303,7 +303,7 @@ fn screenshot_writes_file_under_session_dir() {
         assert!(err.contains("session context"), "{err}");
 
         // 会话删除连带清掉截图目录（tempdir 口径为硬删）
-        kxen_app::core::session::remove(&dir, "ses_shot");
+        kxen_gui::core::session::remove(&dir, "ses_shot");
         assert!(!dir.join("ses_shot").exists());
     });
 }

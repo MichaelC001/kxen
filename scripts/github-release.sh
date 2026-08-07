@@ -111,7 +111,7 @@ Desktop builds: macOS (Apple Silicon and Intel, signed and notarized), Windows (
 
 Windows builds are not code-signed in this release: SmartScreen shows a reputation warning on first launch. Choose "More info" -> "Run anyway" to proceed.
 
-kxen-web-<platform>.tar.gz / .zip contains the headless server build (no GUI). Run \`kxen-web\` (flags: --bind, --port, --token, --allow-host); it prints the access URL with token on startup. To access it from other machines, expose it over your tailnet with \`tailscale serve\` and pass the tailnet hostname via \`--allow-host\`.
+kxen-<platform>.tar.gz / .zip contains the headless server build (no GUI). Run \`kxen\` (flags: --bind, --port, --token, --allow-host); it prints the access URL with token on startup. To access it from other machines, expose it over your tailnet with \`tailscale serve\` and pass the tailnet hostname via \`--allow-host\`.
 
 $draft_marker
 EOF

@@ -110,7 +110,7 @@ mod tests {
     /// bus 溢出 -> resync 控制帧结构 + 订阅存活（连接不得因 Lagged 断开）。
     #[tokio::test]
     async fn lagged_yields_resync_frame_and_stream_survives() {
-        use kxen_app::core::event::{Event, EventBus};
+        use kxen_gui::core::event::{Event, EventBus};
         let bus = EventBus::new(4);
         let mut rx = bus.subscribe();
         for i in 0..6 {

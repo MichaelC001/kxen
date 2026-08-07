@@ -36,7 +36,7 @@ enum FrameOutcome {
 #[derive(Default)]
 struct CallTasks {
     tasks: JoinSet<()>,
-    disconnect: kxen_app::agent::cancel::CancelToken,
+    disconnect: kxen_gui::agent::cancel::CancelToken,
 }
 
 impl CallTasks {
@@ -46,7 +46,7 @@ impl CallTasks {
     {
         let disconnect = self.disconnect.clone();
         self.tasks.spawn(async move {
-            kxen_app::agent::approval::scope_wait_cancellation(disconnect, response_task(id, future, outbound)).await;
+            kxen_gui::agent::approval::scope_wait_cancellation(disconnect, response_task(id, future, outbound)).await;
         });
     }
 
@@ -212,7 +212,7 @@ mod tests {
 
     #[tokio::test]
     async fn disconnect_aborts_approval_rpc_and_broker_fails_closed() {
-        let broker = Arc::new(kxen_app::agent::approval::ApprovalBroker::with_timeout(std::time::Duration::from_secs(30)));
+        let broker = Arc::new(kxen_gui::agent::approval::ApprovalBroker::with_timeout(std::time::Duration::from_secs(30)));
         let executed = Arc::new(AtomicBool::new(false));
         let (registered_tx, registered_rx) = tokio::sync::oneshot::channel();
         let (outbound, _received) = mpsc::channel(2);
@@ -224,7 +224,7 @@ mod tests {
             async move {
                 let (id, rx) = rpc_broker.register("", "delete worktree", "destructive operation");
                 registered_tx.send(id.clone()).ok();
-                if rpc_broker.wait(&id, rx, None).await == kxen_app::agent::approval::ApprovalOutcome::Allow {
+                if rpc_broker.wait(&id, rx, None).await == kxen_gui::agent::approval::ApprovalOutcome::Allow {
                     rpc_executed.store(true, Ordering::SeqCst);
                 }
                 Ok(json!(true))
@@ -274,7 +274,7 @@ mod tests {
 
     #[tokio::test]
     async fn allow_transitions_rpc_from_wait_to_durable_commit() {
-        let broker = Arc::new(kxen_app::agent::approval::ApprovalBroker::with_timeout(std::time::Duration::from_secs(30)));
+        let broker = Arc::new(kxen_gui::agent::approval::ApprovalBroker::with_timeout(std::time::Duration::from_secs(30)));
         let (registered_tx, registered_rx) = tokio::sync::oneshot::channel();
         let (commit_tx, commit_rx) = tokio::sync::oneshot::channel();
         let (release_tx, release_rx) = tokio::sync::oneshot::channel();
@@ -287,7 +287,7 @@ mod tests {
             async move {
                 let (id, rx) = rpc_broker.register("", "delete worktree", "destructive operation");
                 registered_tx.send(id.clone()).ok();
-                if rpc_broker.wait(&id, rx, None).await != kxen_app::agent::approval::ApprovalOutcome::Allow {
+                if rpc_broker.wait(&id, rx, None).await != kxen_gui::agent::approval::ApprovalOutcome::Allow {
                     return Ok(json!(false));
                 }
                 commit_tx.send(()).ok();

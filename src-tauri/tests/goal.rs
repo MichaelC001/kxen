@@ -1,5 +1,5 @@
 // goal 生命周期 / 预算 / 证据校验测试。
-use kxen_app::core::goal::{Goal, GoalBudget, GoalContract, GoalStatus, checked_turn_budget, evidence_sufficient};
+use kxen_gui::core::goal::{Goal, GoalBudget, GoalContract, GoalStatus, checked_turn_budget, evidence_sufficient};
 
 fn contract() -> GoalContract {
     GoalContract {
@@ -61,7 +61,7 @@ fn resumed_blocked_goal_requires_a_fresh_three_turn_audit() {
 fn loop_stop_reasons_escalate_to_blocked() {
     // run.rs 把 LoopStop 原因串作为 blocked_reason 传给 record_goal_turn -> record_turn；
     // 同一原因连续 3 轮（三次空转停轮）必须能把 goal 打成 Blocked
-    use kxen_app::agent::loop_detect::{LoopDetector, LoopVerdict};
+    use kxen_gui::agent::loop_detect::{LoopDetector, LoopVerdict};
     let mut g = Goal::create(contract(), "g-loop".into()).unwrap();
     g.activate().unwrap();
     for round in 0..3 {
@@ -155,7 +155,7 @@ fn adjust_budget_and_resume() {
 
 #[tokio::test]
 async fn goal_tool_rejects_budget_limited_resume_and_accepts_adjust() {
-    use kxen_app::agent::agent_loop::execute_goal_tool;
+    use kxen_gui::agent::agent_loop::execute_goal_tool;
 
     let dir = goals_dir_isolation();
     std::fs::create_dir_all(&dir).unwrap();
@@ -187,7 +187,7 @@ fn adjust_acknowledges_unknown_usage_without_losing_audit_count() {
     assert_eq!(g.status, GoalStatus::Active);
     assert_eq!(g.unmetered_calls, 0);
     assert_eq!(g.acknowledged_unmetered_calls, 1);
-    assert!(matches!(g.runtime_budget(kxen_app::core::shared::now_ms()), kxen_app::core::goal::RuntimeBudget::Unbounded));
+    assert!(matches!(g.runtime_budget(kxen_gui::core::shared::now_ms()), kxen_gui::core::goal::RuntimeBudget::Unbounded));
 }
 
 #[test]
@@ -368,13 +368,13 @@ fn goals_dir_isolation() -> std::path::PathBuf {
 fn create_bound_session() -> String {
     let workspace = goals_dir_isolation().join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
-    kxen_app::core::session::create(&kxen_app::core::paths::sessions_dir(), workspace.to_str().unwrap()).unwrap().id
+    kxen_gui::core::session::create(&kxen_gui::core::paths::sessions_dir(), workspace.to_str().unwrap()).unwrap().id
 }
 
 #[tokio::test]
 async fn goal_tool_publishes_goal_update_on_create_and_transit() {
-    use kxen_app::agent::agent_loop::execute_goal_tool;
-    use kxen_app::core::event::{Event, EventBus};
+    use kxen_gui::agent::agent_loop::execute_goal_tool;
+    use kxen_gui::core::event::{Event, EventBus};
 
     let dir = goals_dir_isolation();
     let session_id = create_bound_session();
@@ -424,7 +424,7 @@ async fn goal_tool_publishes_goal_update_on_create_and_transit() {
 
 #[tokio::test]
 async fn goal_tool_cancel_stops_the_bound_run() {
-    use kxen_app::agent::agent_loop::execute_goal_tool;
+    use kxen_gui::agent::agent_loop::execute_goal_tool;
 
     let dir = goals_dir_isolation();
     std::fs::create_dir_all(&dir).unwrap();
@@ -433,7 +433,7 @@ async fn goal_tool_cancel_stops_the_bound_run() {
     goal.session_id = Some(session_id.clone());
     goal.activate().unwrap();
     goal.save(&dir).unwrap();
-    let cancel = kxen_app::agent::cancel::CancelToken::new();
+    let cancel = kxen_gui::agent::cancel::CancelToken::new();
 
     execute_goal_tool(&serde_json::json!({"action": "cancel", "id": goal.id}), Some(session_id.as_str()), None, None, Some(&cancel))
         .await
@@ -455,7 +455,7 @@ fn explicit_auxiliary_usage_charges_the_requested_goal() {
         goal.save(&dir).unwrap();
     }
 
-    kxen_app::agent::agent_loop::charge_goal_usage_for("goal-charge-a", Some(17), None).unwrap();
+    kxen_gui::agent::agent_loop::charge_goal_usage_for("goal-charge-a", Some(17), None).unwrap();
 
     assert_eq!(Goal::load(&dir, "goal-charge-a").unwrap().tokens_used, 17);
     assert_eq!(Goal::load(&dir, "goal-charge-b").unwrap().tokens_used, 0);

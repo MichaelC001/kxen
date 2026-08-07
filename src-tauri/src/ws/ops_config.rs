@@ -49,7 +49,7 @@ pub(super) fn update_toml_staged<T, P>(
 
 pub(super) fn update_toml_with_runtime<T>(
     path: &std::path::Path,
-    runtimes: &kxen_app::workspace_runtime::WorkspaceRuntimeRegistry,
+    runtimes: &kxen_gui::workspace_runtime::WorkspaceRuntimeRegistry,
     update: impl FnOnce(&mut toml::Table) -> Result<T, String>,
 ) -> Result<T, String> {
     update_toml_staged(
@@ -148,7 +148,7 @@ fn read_toml(path: &std::path::Path) -> Result<toml::Table, String> {
 /// 原子且掉电可恢复地写回（tmp sync + rename + parent sync）。
 fn write_toml(path: &std::path::Path, doc: &toml::Table) -> Result<Option<String>, String> {
     use std::io::Write;
-    kxen_app::core::config::validate_user_document(doc, &path.display().to_string()).map_err(|error| error.to_string())?;
+    kxen_gui::core::config::validate_user_document(doc, &path.display().to_string()).map_err(|error| error.to_string())?;
     let parent = path.parent().ok_or_else(|| format!("config path has no parent: {}", path.display()))?;
     std::fs::create_dir_all(parent).map_err(|error| format!("config mkdir {}: {error}", parent.display()))?;
     let tmp = path.with_extension("toml.tmp");

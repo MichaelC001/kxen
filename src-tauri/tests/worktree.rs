@@ -1,8 +1,8 @@
 // worktree 生命周期与审批门测试。
-use kxen_app::agent::approval::ApprovalBroker;
-use kxen_app::core::event::{Event, EventBus};
-use kxen_app::tools::exec::ApprovalCtx;
-use kxen_app::tools::worktree::{create, diff_stat, list, remove, remove_with_approval, validate_name};
+use kxen_gui::agent::approval::ApprovalBroker;
+use kxen_gui::core::event::{Event, EventBus};
+use kxen_gui::tools::exec::ApprovalCtx;
+use kxen_gui::tools::worktree::{create, diff_stat, list, remove, remove_with_approval, validate_name};
 use std::path::{Path, PathBuf};
 
 /// 建临时 git 仓库（tag 区分并行测试，避免同 pid 撞目录；先清上次失败的残留）
@@ -196,7 +196,7 @@ async fn create_reuses_leftover_branch() {
 /// .kxen/backups 数量上限：超出保留最近 50 份，最旧的被清掉
 #[test]
 fn prune_backups_keeps_newest() {
-    use kxen_app::tools::worktree::prune_backups;
+    use kxen_gui::tools::worktree::prune_backups;
     let dir = std::env::temp_dir().join(format!("kxen-wt-prune-{}", std::process::id()));
     let backups = dir.join(".kxen/backups");
     std::fs::create_dir_all(&backups).unwrap();
@@ -219,7 +219,7 @@ fn prune_backups_keeps_newest() {
 /// RPC 边界原语：workspace 内放行（相对/绝对），越界路径被拒
 #[test]
 fn resolve_in_workspace_rejects_escape() {
-    use kxen_app::tools::worktree::resolve_in_workspace;
+    use kxen_gui::tools::worktree::resolve_in_workspace;
     let dir = std::env::temp_dir().join(format!("kxen-wt-bound-{}", std::process::id()));
     let work = dir.join("work");
     let outside = dir.join("outside");

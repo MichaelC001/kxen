@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::AppState;
 
-fn session_usage_report(tokens: kxen_app::core::usage::SessionUsage, completeness: kxen_app::core::usage::UsageCompleteness) -> Value {
+fn session_usage_report(tokens: kxen_gui::core::usage::SessionUsage, completeness: kxen_gui::core::usage::UsageCompleteness) -> Value {
     json!({
         "input": tokens.input,
         "output": tokens.output,
@@ -17,13 +17,13 @@ fn session_usage_report(tokens: kxen_app::core::usage::SessionUsage, completenes
 }
 
 pub(super) async fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Result<Value, String> {
-    let items = kxen_app::core::shared::lock(&state.statusline_items).clone();
-    let active_workspace = kxen_app::core::shared::read(&state.active_workspace).clone();
-    let workdir = statusline_workdir(&kxen_app::core::paths::sessions_dir(), session_id, &active_workspace)?;
+    let items = kxen_gui::core::shared::lock(&state.statusline_items).clone();
+    let active_workspace = kxen_gui::core::shared::read(&state.active_workspace).clone();
+    let workdir = statusline_workdir(&kxen_gui::core::paths::sessions_dir(), session_id, &active_workspace)?;
 
     // git 分支（5s 缓存）
     let git_branch = {
-        let cached = kxen_app::core::shared::lock(&state.git_cache).get(&workdir).cloned();
+        let cached = kxen_gui::core::shared::lock(&state.git_cache).get(&workdir).cloned();
         if let Some((at, branch)) = cached
             && at.elapsed() <= std::time::Duration::from_secs(5)
         {
@@ -37,26 +37,26 @@ pub(super) async fn statusline_report(session_id: &str, state: &Arc<AppState>) -
                 .filter(|o| o.status.success())
                 .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                 .unwrap_or_default();
-            kxen_app::core::shared::lock(&state.git_cache).insert(workdir.clone(), (std::time::Instant::now(), branch.clone()));
+            kxen_gui::core::shared::lock(&state.git_cache).insert(workdir.clone(), (std::time::Instant::now(), branch.clone()));
             branch
         }
     };
 
     // statusline 跟当前 session 的 goal 焦点（P2-08）：多会话并发各看各的，空 id 回落全局
-    let focus = statusline_focus(&kxen_app::core::paths::goals_dir(), if session_id.is_empty() { None } else { Some(session_id) })?;
+    let focus = statusline_focus(&kxen_gui::core::paths::goals_dir(), if session_id.is_empty() { None } else { Some(session_id) })?;
     let tasks_running = if session_id.is_empty() {
         0
     } else {
-        let owner = kxen_app::tools::task::TaskOwner::new(session_id, &workdir)
+        let owner = kxen_gui::tools::task::TaskOwner::new(session_id, &workdir)
             .map_err(|error| format!("statusline task owner unavailable for session {session_id}: {error}"))?;
-        state.registry.list(&owner).iter().filter(|task| matches!(task.status, kxen_app::tools::task::TaskStatus::Running)).count()
+        state.registry.list(&owner).iter().filter(|task| matches!(task.status, kxen_gui::tools::task::TaskStatus::Running)).count()
     };
-    let tokens = kxen_app::core::shared::lock(&state.session_tokens).get(session_id).cloned().unwrap_or_default();
-    let usage_report = session_usage_report(tokens.clone(), kxen_app::core::usage::completeness(tokens.unmetered_calls));
-    let last_input = kxen_app::core::shared::lock(&state.session_last_input).get(session_id).copied().unwrap_or(0);
+    let tokens = kxen_gui::core::shared::lock(&state.session_tokens).get(session_id).cloned().unwrap_or_default();
+    let usage_report = session_usage_report(tokens.clone(), kxen_gui::core::usage::completeness(tokens.unmetered_calls));
+    let last_input = kxen_gui::core::shared::lock(&state.session_last_input).get(session_id).copied().unwrap_or(0);
     let model = super::session_ops::effective_session_model(if session_id.is_empty() { None } else { Some(session_id) }, state).await?;
     // ctx 占用近似：最近一次 run 的 input / 模型上下文窗（catalog 实测值，非 200k 硬编码）
-    let window = kxen_app::agent::compact::context_window(&model) as f64;
+    let window = kxen_gui::agent::compact::context_window(&model) as f64;
     let ctx_pct = ((last_input as f64 / window) * 100.0).min(100.0) as u32;
 
     Ok(json!({
@@ -79,13 +79,13 @@ fn statusline_workdir(
     if session_id.is_empty() {
         return Ok(active_workspace.to_path_buf());
     }
-    kxen_app::core::session::load_meta(sessions_dir, session_id)
+    kxen_gui::core::session::load_meta(sessions_dir, session_id)
         .map(|meta| std::path::PathBuf::from(meta.directory))
         .map_err(|error| format!("statusline session {session_id} unavailable: {error}"))
 }
 
-fn statusline_focus(goals_dir: &std::path::Path, session_id: Option<&str>) -> Result<Option<kxen_app::core::goal::Goal>, String> {
-    kxen_app::core::goal::Goal::focus_for_checked(goals_dir, session_id)
+fn statusline_focus(goals_dir: &std::path::Path, session_id: Option<&str>) -> Result<Option<kxen_gui::core::goal::Goal>, String> {
+    kxen_gui::core::goal::Goal::focus_for_checked(goals_dir, session_id)
         .map_err(|error| format!("statusline goal state unavailable: {error}"))
 }
 
@@ -98,7 +98,7 @@ pub(super) fn set_role(
     account: Option<&str>,
     state: &Arc<AppState>,
 ) -> Result<Value, String> {
-    let path = kxen_app::core::paths::config_dir().join("config.toml");
+    let path = kxen_gui::core::paths::config_dir().join("config.toml");
     validate_role_update(role, provider, model, fallback, account)?;
     super::ops::update_toml_with_runtime(&path, &state.workspace_runtimes, |document| {
         update_role_document(document, role, provider, model, fallback, account)
@@ -121,14 +121,14 @@ fn update_role_config(
 }
 
 fn validate_role_update(role: &str, provider: &str, model: &str, fallback: Option<&str>, account: Option<&str>) -> Result<(), String> {
-    kxen_app::auth::credential::validate_identity(role, "role")?;
-    kxen_app::auth::credential::validate_identity(provider, "provider")?;
-    kxen_app::auth::credential::validate_identity(model, "model")?;
+    kxen_gui::auth::credential::validate_identity(role, "role")?;
+    kxen_gui::auth::credential::validate_identity(provider, "provider")?;
+    kxen_gui::auth::credential::validate_identity(model, "model")?;
     if let Some(fallback) = fallback.filter(|fallback| !fallback.is_empty()) {
-        kxen_app::auth::credential::validate_identity(fallback, "fallback role")?;
+        kxen_gui::auth::credential::validate_identity(fallback, "fallback role")?;
     }
     if let Some(account) = account.filter(|account| !account.is_empty()) {
-        kxen_app::auth::credential::validate_named_account(account)?;
+        kxen_gui::auth::credential::validate_named_account(account)?;
     }
     Ok(())
 }
@@ -181,8 +181,8 @@ fn merge_binding(
 /// 内置编码规则状态：开关 + 全文（设置页展示用）。
 pub(super) fn coding_rules_report() -> Value {
     json!({
-        "enabled": kxen_app::core::config::coding_rules_enabled(),
-        "content": kxen_app::agent::prompt::CODING_RULES,
+        "enabled": kxen_gui::core::config::coding_rules_enabled(),
+        "content": kxen_gui::agent::prompt::CODING_RULES,
     })
 }
 
@@ -190,7 +190,7 @@ pub(super) fn coding_rules_report() -> Value {
 /// prompt 每轮现读 config，无需热换。
 pub(super) fn set_coding_rules(params: &Value) -> Result<Value, String> {
     let enabled = params.get("enabled").and_then(Value::as_bool).ok_or("missing enabled")?;
-    let path = kxen_app::core::paths::config_dir().join("config.toml");
+    let path = kxen_gui::core::paths::config_dir().join("config.toml");
     super::ops::update_toml(&path, |doc| {
         let entry = doc.entry(String::from("coding_rules")).or_insert_with(|| toml::Value::Table(toml::Table::new()));
         if !entry.is_table() {
@@ -208,7 +208,7 @@ pub(super) async fn set_experimental(params: &Value, state: &Arc<AppState>) -> R
         return Err("unknown experimental setting".into());
     }
     let enabled = params.get("enabled").and_then(Value::as_bool).ok_or("missing enabled")?;
-    let path = kxen_app::core::paths::config_dir().join("config.toml");
+    let path = kxen_gui::core::paths::config_dir().join("config.toml");
     super::ops::update_toml_with_runtime(&path, &state.workspace_runtimes, |doc| {
         let section = doc.entry("experimental").or_insert_with(|| toml::Value::Table(toml::Table::new()));
         if !section.is_table() {
@@ -229,7 +229,7 @@ pub(super) fn set_limits(params: &Value, state: &Arc<AppState>) -> Result<Value,
     if let Some(key) = dropped_provider_scoped_field(params) {
         return Err(format!("{key} requires a provider id: provider-scoped pricing/circuit fields are dropped without one"));
     }
-    let path = kxen_app::core::paths::config_dir().join("config.toml");
+    let path = kxen_gui::core::paths::config_dir().join("config.toml");
     if let Some(provider) = params.get("provider").and_then(Value::as_str)
         && (provider.is_empty() || provider.chars().any(char::is_whitespace))
     {

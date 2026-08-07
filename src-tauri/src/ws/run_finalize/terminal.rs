@@ -2,8 +2,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::AppState;
-use kxen_app::agent::agent_loop::AgentEvent;
-use kxen_app::core::session::{self, Message, Part, Role};
+use kxen_gui::agent::agent_loop::AgentEvent;
+use kxen_gui::core::session::{self, Message, Part, Role};
 
 pub(super) fn commit_and_publish(
     state: &Arc<AppState>,
@@ -21,7 +21,7 @@ pub(super) fn commit_and_publish(
 pub(super) fn commit_and_publish_with(
     sessions_dir: &Path,
     message: &Message,
-    bus: &kxen_app::core::event::EventBus,
+    bus: &kxen_gui::core::event::EventBus,
     stream_id: &str,
     intended: &AgentEvent,
     mut record_schedule: impl FnMut(&AgentEvent) -> Result<(), String>,
@@ -72,7 +72,7 @@ pub(in crate::ws) fn finish_persisted(
     sessions_dir: &Path,
     session_id: &str,
     stream_id: &str,
-    model: Option<&kxen_app::llm::ModelRef>,
+    model: Option<&kxen_gui::llm::ModelRef>,
     schedule_job_id: Option<&str>,
     terminal: AgentEvent,
 ) -> bool {
@@ -80,7 +80,7 @@ pub(in crate::ws) fn finish_persisted(
     commit_and_publish(state, sessions_dir, &message, stream_id, &terminal, schedule_job_id)
 }
 
-pub(super) fn early_message(session_id: &str, model: Option<&kxen_app::llm::ModelRef>, terminal: &AgentEvent) -> Message {
+pub(super) fn early_message(session_id: &str, model: Option<&kxen_gui::llm::ModelRef>, terminal: &AgentEvent) -> Message {
     let text = match terminal {
         AgentEvent::Error { message } => format!("(错误: {message})"),
         AgentEvent::Aborted => "(已中断)".to_string(),

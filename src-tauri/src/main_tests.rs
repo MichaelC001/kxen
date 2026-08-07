@@ -14,7 +14,7 @@ fn notification_session_never_falls_back_to_active_workspace() {
     let owned = base.join("owned");
     std::fs::create_dir_all(&active).unwrap();
     std::fs::create_dir_all(&owned).unwrap();
-    let session = kxen_app::core::session::create(&sessions, owned.to_str().unwrap()).unwrap();
+    let session = kxen_gui::core::session::create(&sessions, owned.to_str().unwrap()).unwrap();
 
     assert_eq!(notification_workdir(&sessions, &active, None).unwrap(), active);
     assert_eq!(notification_workdir(&sessions, &active, Some(&session.id)).unwrap(), owned);

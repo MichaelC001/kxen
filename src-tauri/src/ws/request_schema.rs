@@ -205,7 +205,7 @@ fn validate_values(method: &str, params: &Value) -> Result<(), CallError> {
 fn validate_nested(method: &str, params: &Value, invalid: impl Fn(&str, &str) -> CallError) -> Result<(), CallError> {
     if method.starts_with("knowledge.") {
         for field in ["scope", "to"] {
-            if params.get(field).and_then(Value::as_str).is_some_and(|scope| kxen_app::knowledge::Scope::parse(scope).is_err()) {
+            if params.get(field).and_then(Value::as_str).is_some_and(|scope| kxen_gui::knowledge::Scope::parse(scope).is_err()) {
                 return Err(invalid(field, "project or personal"));
             }
         }

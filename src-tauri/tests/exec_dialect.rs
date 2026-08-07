@@ -1,8 +1,8 @@
 //! validate_dialect 方言陷阱规则测试。
 //! 每条规则覆盖命中（拒绝 + 纠正文案）与误报（正确写法放行）。
 
-use kxen_app::tools::exec::validate_dialect;
-use kxen_app::tools::shell::ShellKind;
+use kxen_gui::tools::exec::validate_dialect;
+use kxen_gui::tools::shell::ShellKind;
 
 fn rejected(kind: ShellKind, cmd: &str) -> String {
     validate_dialect(kind, cmd).expect_err(&format!("应拒绝: {cmd}")).to_string()

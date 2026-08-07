@@ -4,9 +4,9 @@ use std::sync::Arc;
 use crate::AppState;
 
 pub(super) async fn export(state: &Arc<AppState>) -> Result<Value, String> {
-    let store = kxen_app::core::shared::lock(&state.auth_store).clone();
+    let store = kxen_gui::core::shared::lock(&state.auth_store).clone();
     let report = crate::doctor::doctor_report(&store);
-    let config_path = kxen_app::core::paths::config_dir().join("config.toml");
+    let config_path = kxen_gui::core::paths::config_dir().join("config.toml");
     let config_text = match std::fs::read_to_string(&config_path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -37,11 +37,11 @@ pub(super) async fn export(state: &Arc<AppState>) -> Result<Value, String> {
     }
     markdown.push_str(&format!("\n## event bus\n\n- capacity: {}\n- receivers: {}\n", health.bus_capacity, health.bus_receivers));
     markdown.push_str("\n## storage recovery\n\n");
-    let sessions_dir = kxen_app::core::paths::sessions_dir();
+    let sessions_dir = kxen_gui::core::paths::sessions_dir();
     let mut recovery_lines = Vec::new();
-    for session in kxen_app::core::session::list(&sessions_dir) {
-        match kxen_app::core::session::inspect_storage(&sessions_dir, &session.id) {
-            Ok(item) if item.blocked.is_some() || !matches!(&item.messages, kxen_app::core::session::MessageIntegrity::Healthy { .. }) => {
+    for session in kxen_gui::core::session::list(&sessions_dir) {
+        match kxen_gui::core::session::inspect_storage(&sessions_dir, &session.id) {
+            Ok(item) if item.blocked.is_some() || !matches!(&item.messages, kxen_gui::core::session::MessageIntegrity::Healthy { .. }) => {
                 recovery_lines.push(format!("- session {}: {}", session.id, serde_json::to_string(&item).unwrap_or_default()));
             }
             Ok(_) => {}
@@ -63,7 +63,7 @@ pub(super) async fn export(state: &Arc<AppState>) -> Result<Value, String> {
     ));
     let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|duration| duration.as_millis()).unwrap_or(0);
     // 落 data_dir 而非 ~/Downloads：跨平台一致，且不依赖桌面目录约定（Windows/Linux 无 Downloads 保证）
-    let dir = kxen_app::core::paths::data_dir().join("diagnostics");
+    let dir = kxen_gui::core::paths::data_dir().join("diagnostics");
     std::fs::create_dir_all(&dir).map_err(|error| format!("create diagnostics dir {}: {error}", dir.display()))?;
     let path = dir.join(format!("kxen-diagnostics-{timestamp}.md"));
     std::fs::write(&path, markdown).map_err(|error| error.to_string())?;

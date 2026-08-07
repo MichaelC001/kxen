@@ -52,9 +52,9 @@ with open("src-tauri/Cargo.toml", "rb") as handle:
     cargo_version = tomllib.load(handle)["package"]["version"]
 with open("src-tauri/Cargo.lock", "rb") as handle:
     lock = tomllib.load(handle)
-lock_versions = [package["version"] for package in lock["package"] if package["name"] == "kxen-app"]
+lock_versions = [package["version"] for package in lock["package"] if package["name"] == "kxen-gui"]
 if len(lock_versions) != 1:
-    raise SystemExit(f"expected one kxen-app package in Cargo.lock, found {len(lock_versions)}")
+    raise SystemExit(f"expected one kxen-gui package in Cargo.lock, found {len(lock_versions)}")
 with open("src-tauri/tauri.conf.json", encoding="utf-8") as handle:
     tauri = json.load(handle)
 if tauri.get("bundle", {}).get("createUpdaterArtifacts") is not True:

@@ -1,5 +1,5 @@
 [package]
-name = "kxen-web"
+name = "kxen"
 version = "0.0.1"
 edition = "2024"
 license = "MIT"
@@ -7,7 +7,7 @@ repository = "https://github.com/StringKe/kxen"
 description = "kxen headless web server binary (no GUI): full app service over HTTP/WebSocket"
 
 [dependencies]
-kxen-app = { path = "../.." }
+kxen-gui = { path = "../.." }
 serde_json = "1"
 tokio = { version = "1.53", features = [
   "macros",

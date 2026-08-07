@@ -1,7 +1,7 @@
 // MCP remote（legacy SSE）端到端：GET 长连接收 endpoint 事件 + POST 回写（202），
 // 响应经 SSE 流按 id 路由。mock 用 std TcpListener + 每连接一线程，channel 投递待发帧。
-use kxen_app::mcp::client::McpClient;
-use kxen_app::mcp::config::{ConfigScope, RemoteConfig, RemoteKind, ServerConfig};
+use kxen_gui::mcp::client::McpClient;
+use kxen_gui::mcp::config::{ConfigScope, RemoteConfig, RemoteKind, ServerConfig};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};

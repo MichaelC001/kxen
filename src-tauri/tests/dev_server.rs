@@ -1,8 +1,8 @@
 // dev server 生命周期测试：readiness timeout 杀进程组、解析 port 写回 task 状态。
-// 走 kxen_app 公共 API。
-use kxen_app::core::shared::lock;
-use kxen_app::tools::dev_server::{DevServerParams, ReadySpec, dev_server, restart_task};
-use kxen_app::tools::task::{TaskOwner, TaskRegistry};
+// 走 kxen_gui 公共 API。
+use kxen_gui::core::shared::lock;
+use kxen_gui::tools::dev_server::{DevServerParams, ReadySpec, dev_server, restart_task};
+use kxen_gui::tools::task::{TaskOwner, TaskRegistry};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -84,7 +84,7 @@ async fn restart_keeps_id_and_ready_spec() {
     assert_eq!(*lock(&task.port), Some(49231), "ready spec 保留：重启后应重新解析出同一 port");
     assert!(lock(&task.restart).is_some(), "重启后 ready/shell 元数据必须带回（再次重启仍同配置）");
     let info = registry.list(&owner).into_iter().find(|t| t.id == new_id).expect("listed");
-    assert_eq!(info.status, kxen_app::tools::task::TaskStatus::Running, "重启就绪后应为 Running");
+    assert_eq!(info.status, kxen_gui::tools::task::TaskStatus::Running, "重启就绪后应为 Running");
 
     registry.kill(&owner, &new_id).await;
 }

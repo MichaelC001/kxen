@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use kxen_app::agent::agent_loop::AgentEvent;
-use kxen_app::core::event::{Event, EventBus};
-use kxen_app::core::session as ses;
-use kxen_app::llm::ModelRef;
+use kxen_gui::agent::agent_loop::AgentEvent;
+use kxen_gui::core::event::{Event, EventBus};
+use kxen_gui::core::session as ses;
+use kxen_gui::llm::ModelRef;
 use serde_json::json;
 
 pub(super) fn event_handler(
@@ -19,7 +19,7 @@ pub(super) fn event_handler(
         }
         match &event {
             AgentEvent::Reasoning { text } => {
-                let mut parts = kxen_app::core::shared::lock(&transcript);
+                let mut parts = kxen_gui::core::shared::lock(&transcript);
                 match parts.last_mut() {
                     Some(ses::Part::Reasoning { text: existing }) => existing.push_str(text),
                     _ => parts.push(ses::Part::Reasoning { text: text.clone() }),
@@ -27,7 +27,7 @@ pub(super) fn event_handler(
             }
             AgentEvent::ToolCall { name, summary, arguments } => {
                 let args = serde_json::from_str(arguments).unwrap_or_else(|_| json!(arguments));
-                kxen_app::core::shared::lock(&transcript).push(ses::Part::ToolCall {
+                kxen_gui::core::shared::lock(&transcript).push(ses::Part::ToolCall {
                     name: name.clone(),
                     input: json!(summary),
                     output: String::new(),
@@ -35,7 +35,7 @@ pub(super) fn event_handler(
                 });
             }
             AgentEvent::ToolResult { name, output, .. } => {
-                let mut parts = kxen_app::core::shared::lock(&transcript);
+                let mut parts = kxen_gui::core::shared::lock(&transcript);
                 if let Some(ses::Part::ToolCall { output: slot, .. }) = parts.iter_mut().rev().find(
                     |part| matches!(part, ses::Part::ToolCall { name: candidate, output, .. } if candidate == name && output.is_empty()),
                 ) {
@@ -77,7 +77,7 @@ mod tests {
             handler(terminal);
         }
 
-        let parts = kxen_app::core::shared::lock(&transcript);
+        let parts = kxen_gui::core::shared::lock(&transcript);
         assert!(matches!(&parts[0], ses::Part::Reasoning { text } if text == "first second"));
         assert!(matches!(&parts[1], ses::Part::ToolCall { name, output, args: Some(args), .. }
             if name == "read" && output == "contents" && args["path"] == "README.md"));

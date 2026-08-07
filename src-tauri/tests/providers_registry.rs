@@ -1,8 +1,8 @@
 //! providers registry 集成测试：查找 / 区域解析 / URL 推导 / 存量兼容 / 区域账号共存。
 //! 禁真实网络：只测纯函数与 serde。
 
-use kxen_app::auth::credential::{AuthStore, CredentialKind, account_id, credential_for};
-use kxen_app::providers::{self, AuthKind, Protocol};
+use kxen_gui::auth::credential::{AuthStore, CredentialKind, account_id, credential_for};
+use kxen_gui::providers::{self, AuthKind, Protocol};
 
 /// 高压线：存量 11 家 provider key 必须原样可解析（旧 config/auth.json/MRM 角色路由零迁移）。
 #[test]

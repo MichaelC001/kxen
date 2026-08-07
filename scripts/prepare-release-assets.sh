@@ -3,7 +3,7 @@ set -euo pipefail
 
 # 用法: prepare-release-assets.sh <platform> <tag> <owner/repo> <bundle_root> [output_dir]
 # platform 取值见 scripts/release-manifest.sh(平台/命名单一出处)。
-# 从 tauri bundle 目录收集桌面产物并按稳定名改名,打包 kxen-web,输出到 output_dir。
+# 从 tauri bundle 目录收集桌面产物并按稳定名改名,打包 kxen,输出到 output_dir。
 # latest.json 与 SHA256SUMS 不在此生成:由 publish 段合并全平台后统一产出。
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -67,16 +67,16 @@ fi
 updater_original="$(kxen_release_updater_original_name "$platform" "$version")"
 kxen_verify_updater_signature "$updater_path" "$signature_path" "$updater_original"
 
-# kxen-web 无头产物:tar.gz(unix)/ zip(windows)。
+# kxen 无头产物:tar.gz(unix)/ zip(windows)。
 target="$(kxen_release_target "$platform")"
 web_asset="$(kxen_release_web_asset "$platform")"
 web_dir="src-tauri/target/$target/release"
-web_binary="kxen-web"
+web_binary="kxen"
 if [[ "$(kxen_release_os "$platform")" == windows ]]; then
-  web_binary="kxen-web.exe"
+  web_binary="kxen.exe"
 fi
 if [[ ! -f "$web_dir/$web_binary" ]]; then
-  printf 'kxen-web binary not found: %s\n' "$web_dir/$web_binary"
+  printf 'kxen binary not found: %s\n' "$web_dir/$web_binary"
   exit 1
 fi
 web_out="$(cd "$output_dir" && pwd)/$web_asset"

@@ -19,7 +19,7 @@ fn rewind_gate_matrix() {
 
 #[test]
 fn checkpoint_label_maps_to_nearest_user_message() {
-    use kxen_app::core::session::{Message, Part, Role};
+    use kxen_gui::core::session::{Message, Part, Role};
     let msg = |id: &str, role: Role| Message {
         id: id.into(),
         session_id: "s".into(),
@@ -37,7 +37,7 @@ fn checkpoint_label_maps_to_nearest_user_message() {
 
 #[test]
 fn workspace_snapshot_invalidation_covers_every_session() {
-    use kxen_app::core::session::Session;
+    use kxen_gui::core::session::Session;
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -59,14 +59,14 @@ fn workspace_snapshot_invalidation_covers_every_session() {
         std::fs::write(sessions.join(format!("{id}.json")), serde_json::to_string_pretty(&meta).unwrap()).unwrap();
     }
     let stores = Mutex::new(HashMap::from([
-        ("ses_one".into(), kxen_app::tools::snapshot::SnapshotStore::default()),
-        ("ses_two".into(), kxen_app::tools::snapshot::SnapshotStore::default()),
-        ("ses_other".into(), kxen_app::tools::snapshot::SnapshotStore::default()),
+        ("ses_one".into(), kxen_gui::tools::snapshot::SnapshotStore::default()),
+        ("ses_two".into(), kxen_gui::tools::snapshot::SnapshotStore::default()),
+        ("ses_other".into(), kxen_gui::tools::snapshot::SnapshotStore::default()),
     ]));
 
     let affected = workspace_session_ids(&sessions, "/workspace").unwrap();
     assert_eq!(invalidate_workspace_snapshots(&affected, "ses_one", &stores), 2);
-    let remaining: Vec<String> = kxen_app::core::shared::lock(&stores).keys().cloned().collect();
+    let remaining: Vec<String> = kxen_gui::core::shared::lock(&stores).keys().cloned().collect();
     assert_eq!(remaining, vec!["ses_other"]);
     std::fs::remove_dir_all(sessions).ok();
 }
@@ -82,7 +82,7 @@ fn parse_model_override_contract() {
 
 #[test]
 fn chat_model_or_fallback_arms() {
-    let binding = kxen_app::core::config::RoleBinding {
+    let binding = kxen_gui::core::config::RoleBinding {
         provider: "anthropic".into(),
         model: "claude-sonnet-4-6".into(),
         account: Some("work".into()),
@@ -96,7 +96,7 @@ fn chat_model_or_fallback_arms() {
 
 #[test]
 fn model_override_load_is_fail_closed_for_named_sessions() {
-    use kxen_app::core::session::Session;
+    use kxen_gui::core::session::Session;
 
     let sessions = std::env::temp_dir().join(format!("kxen-session-model-route-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&sessions).unwrap();
@@ -110,7 +110,7 @@ fn model_override_load_is_fail_closed_for_named_sessions() {
         message_revision: 0,
         pinned: false,
         sort_order: None,
-        model: Some(kxen_app::llm::ModelRef::new("anthropic", "claude-sonnet-4-6")),
+        model: Some(kxen_gui::llm::ModelRef::new("anthropic", "claude-sonnet-4-6")),
     };
     std::fs::write(sessions.join("ses_valid.json"), serde_json::to_vec(&valid).unwrap()).unwrap();
     std::fs::write(sessions.join("ses_corrupt.json"), b"{not-json").unwrap();

@@ -1,10 +1,10 @@
 //! compaction 检查点集成测试：手动压缩落盘、保留尾结构存活、
 //! 重开复用压缩态不重复支付、rewind 到压缩前消息仍可用。
 
-use kxen_app::agent::compact;
-use kxen_app::core::session as ses;
-use kxen_app::core::session::{Part, Role};
-use kxen_app::llm::{Message, ModelRef};
+use kxen_gui::agent::compact;
+use kxen_gui::core::session as ses;
+use kxen_gui::core::session::{Part, Role};
+use kxen_gui::llm::{Message, ModelRef};
 
 fn tmp_dir(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("kxen-compact-{tag}-{}", std::process::id()))
@@ -70,7 +70,7 @@ fn manual_compact_writes_checkpoint_and_preserves_tail() {
     }
     let raw = ses::load_messages(&dir, &s.id);
     let model = ModelRef::new("xai", "grok-build-0.1");
-    let store = kxen_app::auth::credential::AuthStore::default();
+    let store = kxen_gui::auth::credential::AuthStore::default();
     // 无凭证 -> 蒸馏走 fallback，检查点照样落盘
     let options =
         compact::CompactSessionOptions { mrm: None, keep_recent: 4, timeout: compact::COMPACT_TIMEOUT, cancel: None, start_barrier: None };
@@ -104,7 +104,7 @@ fn recompact_folds_prior_summary_and_advances() {
     let dir = tmp_dir("recompact");
     let s = ses::create(&dir, "/tmp/work").unwrap();
     let model = ModelRef::new("xai", "grok-build-0.1");
-    let store = kxen_app::auth::credential::AuthStore::default();
+    let store = kxen_gui::auth::credential::AuthStore::default();
     for i in 0..6 {
         let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("q{i}-{}", "y".repeat(200)) }]);
         ses::append_message(&dir, &u).unwrap();
@@ -147,7 +147,7 @@ fn rewind_past_checkpoint_restores_full_history() {
         ses::append_message(&dir, &u).unwrap();
     }
     let model = ModelRef::new("xai", "grok-build-0.1");
-    let store = kxen_app::auth::credential::AuthStore::default();
+    let store = kxen_gui::auth::credential::AuthStore::default();
     let options =
         compact::CompactSessionOptions { mrm: None, keep_recent: 2, timeout: compact::COMPACT_TIMEOUT, cancel: None, start_barrier: None };
     rt().block_on(compact::compact_session(&dir, &s.id, &model, &store, options)).unwrap().unwrap();
@@ -182,7 +182,7 @@ fn reopened_view_stays_below_compact_threshold() {
         ses::append_message(&dir, &u).unwrap();
     }
     assert!(compact::needs_compact(&to_llm(&ses::load_history(&dir, &s.id)), &model), "压缩前应触发阈值");
-    let store = kxen_app::auth::credential::AuthStore::default();
+    let store = kxen_gui::auth::credential::AuthStore::default();
     let options =
         compact::CompactSessionOptions { mrm: None, keep_recent: 2, timeout: compact::COMPACT_TIMEOUT, cancel: None, start_barrier: None };
     rt().block_on(compact::compact_session(&dir, &s.id, &model, &store, options)).unwrap().unwrap();

@@ -3,11 +3,11 @@
 mod common;
 
 use common::oauth_mock::{ENV_LOCK, http_client, start_mock};
-use kxen_app::mcp::Guard;
-use kxen_app::mcp::McpManager;
-use kxen_app::mcp::config::{ConfigScope, RemoteConfig, RemoteKind, ServerConfig};
-use kxen_app::mcp::oauth;
-use kxen_app::mcp::oauth_flow;
+use kxen_gui::mcp::Guard;
+use kxen_gui::mcp::McpManager;
+use kxen_gui::mcp::config::{ConfigScope, RemoteConfig, RemoteKind, ServerConfig};
+use kxen_gui::mcp::oauth;
+use kxen_gui::mcp::oauth_flow;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 

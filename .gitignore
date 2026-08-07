@@ -1,6 +1,6 @@
 
 # local working docs (research/design notes)
-docs/
+/docs/
 
 # Rust
 target/
@@ -12,7 +12,7 @@ coverage/
 .kxen/
 
 # 本地设计与审计文档，不进 git
-docs/
+/docs/
 .vitest-attachments/
 src/components/composer/__screenshots__/
 src/components/__screenshots__/

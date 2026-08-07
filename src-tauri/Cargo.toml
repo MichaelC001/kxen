@@ -1,10 +1,13 @@
 [package]
-name = "kxen-app"
+name = "kxen-gui"
 version = "0.0.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/StringKe/kxen"
 description = "kxen - macOS Apple Silicon coding agent harness (Tauri + Rust)"
+
+[lib]
+name = "kxen_gui"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -73,7 +76,7 @@ objc2-foundation = "0.3"
 block2 = "0.6"
 
 [workspace]
-members = ["crates/kxen-web"]
+members = ["crates/kxen"]
 
 [profile.release]
 opt-level = 3

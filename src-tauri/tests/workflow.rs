@@ -3,11 +3,11 @@
 // 不触网：stream_override 返回固定成功流，真实覆盖每次 child request 的 MRM admission，
 // 唯一确定性失败源是派发预算封顶（32）：失败统计与信封 failures 段用它验证。
 
-use kxen_app::agent::subagent::SubagentDeps;
-use kxen_app::agent::workflow::{PhaseMsg, run_script};
-use kxen_app::core::config::{Config, Limits, ProviderLimit, RoleBinding};
-use kxen_app::llm::mrm::ModelResourceManager;
-use kxen_app::llm::{Delta, StreamFn};
+use kxen_gui::agent::subagent::SubagentDeps;
+use kxen_gui::agent::workflow::{PhaseMsg, run_script};
+use kxen_gui::core::config::{Config, Limits, ProviderLimit, RoleBinding};
+use kxen_gui::llm::mrm::ModelResourceManager;
+use kxen_gui::llm::{Delta, StreamFn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,17 +33,17 @@ fn test_deps() -> SubagentDeps {
         tray: Default::default(),
     };
     SubagentDeps {
-        registry: Arc::new(kxen_app::tools::task::TaskRegistry::new()),
+        registry: Arc::new(kxen_gui::tools::task::TaskRegistry::new()),
         workdir: Arc::from(std::path::Path::new("/tmp")),
         path_grants: Arc::new(Default::default()),
-        store: kxen_app::auth::credential::AuthStore::default(),
+        store: kxen_gui::auth::credential::AuthStore::default(),
         mrm: Arc::new(ModelResourceManager::new(config)),
         hooks: None,
         extras: None,
         cancel: None,
-        agents: Arc::new(kxen_app::agent::activity::AgentRegistry::default()),
+        agents: Arc::new(kxen_gui::agent::activity::AgentRegistry::default()),
         session_id: None,
-        bus: kxen_app::core::event::EventBus::default(),
+        bus: kxen_gui::core::event::EventBus::default(),
         approvals: None,
         mcp: None,
         lsp: None,

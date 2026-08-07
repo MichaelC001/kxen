@@ -2,7 +2,7 @@
 //! 服务端帧统一返回 "jsonrpc":"3.0"；流帧身份只在 stream.id（无根 id）。
 //! 入站兼容显式 2.0 与缺版本字段的旧请求。
 
-use kxen_app::core::shared::now_ms;
+use kxen_gui::core::shared::now_ms;
 use serde::Serialize;
 use serde_json::Value;
 

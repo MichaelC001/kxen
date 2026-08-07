@@ -25,9 +25,9 @@ use crate::ws::Frame;
 struct WebContext {
     state: Arc<AppState>,
     static_enabled: Arc<AtomicBool>,
-    /// 实际 bind IP（Host 白名单一员；桌面恒 127.0.0.1，kxen-web 可对外）
+    /// 实际 bind IP（Host 白名单一员；桌面恒 127.0.0.1，kxen 可对外）
     bind_host: Arc<str>,
-    /// Host 白名单追加项（kxen-web `--allow-host`；桌面恒空）
+    /// Host 白名单追加项（kxen `--allow-host`；桌面恒空）
     extra_hosts: Arc<[String]>,
 }
 
@@ -61,7 +61,7 @@ pub struct WebServer;
 impl WebServer {
     /// 同步 bind 后立即返回句柄；serve 循环在 tokio 任务内驱动。
     /// 端口占用回退由调用方以 port 0 重试表达（桌面：7824 优先，回退随机）。
-    /// `extra_hosts` 追加进 Host 白名单（kxen-web `--allow-host`；桌面传空）。
+    /// `extra_hosts` 追加进 Host 白名单（kxen `--allow-host`；桌面传空）。
     pub fn start(
         bind: (IpAddr, u16),
         state: Arc<AppState>,

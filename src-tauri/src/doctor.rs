@@ -1,6 +1,6 @@
-use kxen_app::auth::credential::AuthStore;
-use kxen_app::auth::probe::RULES;
-use kxen_app::core::paths;
+use kxen_gui::auth::credential::AuthStore;
+use kxen_gui::auth::probe::RULES;
+use kxen_gui::core::paths;
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -34,7 +34,7 @@ pub struct LspHealth {
 #[derive(Debug, Serialize)]
 pub struct SystemHealth {
     pub mcp_ready: bool,
-    pub mcp: Vec<kxen_app::mcp::ServerStatus>,
+    pub mcp: Vec<kxen_gui::mcp::ServerStatus>,
     pub lsp_root: String,
     pub lsp: Vec<LspHealth>,
     pub mrm_describe: String,
@@ -55,7 +55,7 @@ pub async fn system_health(state: &Arc<AppState>) -> Result<SystemHealth, String
         (root, entries)
     };
     let (mrm_describe, mrm_dispatches) = {
-        let mrm = kxen_app::core::shared::read(&state.mrm).clone();
+        let mrm = kxen_gui::core::shared::read(&state.mrm).clone();
         (mrm.describe().await, mrm.history().await.len())
     };
     let (bus_capacity, bus_receivers) = state.bus.stats();
@@ -103,7 +103,7 @@ pub fn doctor_report(store: &AuthStore) -> DoctorReport {
 }
 
 fn kxen_account_keys(store: &AuthStore, provider: &str) -> Vec<String> {
-    kxen_app::auth::credential::accounts_of(store, provider).into_iter().filter(|k| k != provider).collect()
+    kxen_gui::auth::credential::accounts_of(store, provider).into_iter().filter(|k| k != provider).collect()
 }
 
 /// /doctor 发送路径拦截判定：命中即直出报告不起 run（llm_task 在 /compact 同款拦截位调用）
@@ -118,8 +118,8 @@ pub async fn reply_with_report(
     session_id: &str,
     message_id: Option<&str>,
 ) -> Result<(), String> {
-    use kxen_app::core::session as ses;
-    let store = kxen_app::core::shared::lock(&state.auth_store).clone();
+    use kxen_gui::core::session as ses;
+    let store = kxen_gui::core::shared::lock(&state.auth_store).clone();
     let mut report = doctor_report(&store);
     report.system = Some(system_health(state).await?);
     let mut msg = ses::new_message(session_id, ses::Role::Assistant, vec![ses::Part::Text { text: format_markdown(&report) }]);
@@ -197,7 +197,7 @@ mod tests {
             ],
             system: Some(SystemHealth {
                 mcp_ready: true,
-                mcp: vec![kxen_app::mcp::ServerStatus {
+                mcp: vec![kxen_gui::mcp::ServerStatus {
                     name: "fs".into(),
                     status: "running".into(),
                     transport: "stdio".into(),

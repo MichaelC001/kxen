@@ -60,7 +60,7 @@ pub fn notifications_message(notes: Vec<String>) -> Option<crate::llm::Message> 
     Some(crate::llm::Message::user(notes.join("\n\n---\n\n")))
 }
 
-/// late 通知入队后的续跑触发：kxen_app spawn 不了 run_llm，binary crate 启动时注入。
+/// late 通知入队后的续跑触发：kxen_gui spawn 不了 run_llm，binary crate 启动时注入。
 static LATE_KICK: std::sync::OnceLock<std::sync::Mutex<Option<SharedCallback>>> = std::sync::OnceLock::new();
 
 fn late_kick_slot() -> &'static std::sync::Mutex<Option<SharedCallback>> {

@@ -24,7 +24,7 @@ fn origin_authority(origin: &str) -> Option<&str> {
 }
 
 /// Host header 白名单：localhost / 127.0.0.1 / [::1]（含端口形态）+ 实际 bind 地址
-/// + 调用方追加项（kxen-web `--allow-host`，tailscale 域名场景；桌面恒空）。
+/// + 调用方追加项（kxen `--allow-host`，tailscale 域名场景；桌面恒空）。
 fn host_allowed(host_header: Option<&str>, bind_host: &str, extra_hosts: &[String]) -> bool {
     let Some(host) = host_header else { return false };
     let hostname = strip_port(host.trim());

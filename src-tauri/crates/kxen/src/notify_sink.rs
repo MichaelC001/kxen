@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use kxen_app::AppState;
-use kxen_app::core::event::{Event, RecvVerdict, recv_verdict};
+use kxen_gui::AppState;
+use kxen_gui::core::event::{Event, RecvVerdict, recv_verdict};
 
 pub fn spawn(state: Arc<AppState>) {
     tokio::spawn(async move {
@@ -26,8 +26,8 @@ pub fn spawn(state: Arc<AppState>) {
 
 /// notification hook（全部 Notification 事件的单一收口点；Ask 档走审批）。
 fn dispatch_hook(state: &Arc<AppState>, text: String, session_id: Option<String>) {
-    let active = kxen_app::core::shared::read(&state.active_workspace).clone();
-    let runtime = notification_workdir(&kxen_app::core::paths::sessions_dir(), &active, session_id.as_deref())
+    let active = kxen_gui::core::shared::read(&state.active_workspace).clone();
+    let runtime = notification_workdir(&kxen_gui::core::paths::sessions_dir(), &active, session_id.as_deref())
         .and_then(|workdir| state.workspace_runtimes.runtime(&workdir));
     // broker/bus 克隆进任务（借用无法跨 spawn 的 'static 边界）
     let broker = state.approvals.clone();
@@ -40,7 +40,7 @@ fn dispatch_hook(state: &Arc<AppState>, text: String, session_id: Option<String>
                 return;
             }
         };
-        let approval = kxen_app::tools::exec::ApprovalCtx::new(Some(broker.as_ref()), Some(&bus), None, None);
+        let approval = kxen_gui::tools::exec::ApprovalCtx::new(Some(broker.as_ref()), Some(&bus), None, None);
         let payload = &serde_json::json!({ "text": text, "session_id": session_id });
         if let Err(error) = runtime.hooks().run_named_with_approval("notification", &text, payload, approval.as_ref()).await {
             tracing::warn!(%error, "notification hook failed");
@@ -50,11 +50,11 @@ fn dispatch_hook(state: &Arc<AppState>, text: String, session_id: Option<String>
 
 /// 通知进环形缓冲并落盘；落盘失败回滚缓冲（与桌面一致）。
 fn persist(state: &Arc<AppState>, text: String, session_id: Option<String>) {
-    let now = kxen_app::core::shared::now_ms();
-    let mut buf = kxen_app::core::shared::lock(&state.notifications);
+    let now = kxen_gui::core::shared::now_ms();
+    let mut buf = kxen_gui::core::shared::lock(&state.notifications);
     let previous = buf.clone();
-    kxen_app::core::notifications::push(&mut buf, now, text, session_id);
-    if let Err(error) = kxen_app::core::notifications::persist_checked(&buf) {
+    kxen_gui::core::notifications::push(&mut buf, now, text, session_id);
+    if let Err(error) = kxen_gui::core::notifications::persist_checked(&buf) {
         *buf = previous;
         tracing::error!(%error, "notification persistence failed");
     }
@@ -66,7 +66,7 @@ fn notification_workdir(
     session_id: Option<&str>,
 ) -> Result<std::path::PathBuf, String> {
     match session_id {
-        Some(id) => kxen_app::core::session::load_meta(sessions_dir, id)
+        Some(id) => kxen_gui::core::session::load_meta(sessions_dir, id)
             .map(|meta| std::path::PathBuf::from(meta.directory))
             .map_err(|error| format!("notification session {id}: {error}")),
         None => Ok(active_workspace.to_path_buf()),

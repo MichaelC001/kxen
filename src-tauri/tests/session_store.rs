@@ -1,8 +1,8 @@
 //! 会话存储测试：生命周期 / 图片 / reasoning / tool 精确转录。
 
-use kxen_app::core::session as ses;
-use kxen_app::core::session::{Part, Role};
-use kxen_app::core::session_export::{export_markdown, export_to_file};
+use kxen_gui::core::session as ses;
+use kxen_gui::core::session::{Part, Role};
+use kxen_gui::core::session_export::{export_markdown, export_to_file};
 
 fn tmp_dir(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("kxen-ses-{tag}-{}", std::process::id()))
@@ -94,9 +94,9 @@ fn rejects_invalid_ids_before_touching_disk() {
     assert!(std::fs::read_dir(&dir).unwrap().next().is_none());
     // 新生成的 id 必须过白名单
     let s = ses::create(&dir, "/tmp/work").unwrap();
-    assert!(kxen_app::core::ids::is_valid_id(&s.id));
+    assert!(kxen_gui::core::ids::is_valid_id(&s.id));
     let m = ses::new_message(&s.id, Role::User, vec![Part::Text { text: "hi".into() }]);
-    assert!(kxen_app::core::ids::is_valid_id(&m.id));
+    assert!(kxen_gui::core::ids::is_valid_id(&m.id));
     std::fs::remove_dir_all(&dir).ok();
 }
 

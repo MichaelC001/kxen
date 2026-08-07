@@ -11,7 +11,7 @@ KXEN_COVERAGE_IGNORE='(^|/)(main|app_state|os_notify)\.rs$|(^|/)ws/(llm_task|ops
 # （与 llm/anthropic.rs 同类）。纯逻辑（spec/zai_zcode/aws_sso/grant/wire/eventstream/stream）必须计入。
 cargo llvm-cov \
   --manifest-path src-tauri/Cargo.toml \
-  --package kxen-app \
+  --package kxen-gui \
   --all-targets \
   --all-features \
   --summary-only \

@@ -11,11 +11,11 @@ use super::protocol::StreamChunk;
 use super::{StreamSequences, SubBinding};
 
 pub(super) fn event_to_chunks(
-    event: kxen_app::core::event::Event,
+    event: kxen_gui::core::event::Event,
     subs: &[SubBinding],
     sequences: &mut StreamSequences,
 ) -> Vec<StreamChunk> {
-    use kxen_app::core::event::Event;
+    use kxen_gui::core::event::Event;
     match event {
         Event::LlmDelta(payload) if is_global_approval(&payload) => {
             let Some(binding) = subs.iter().find(|binding| binding.topics.contains("approval.global")) else {
@@ -54,8 +54,8 @@ fn is_global_approval(payload: &Value) -> bool {
     payload.get("session_id").is_none() && matches!(payload.get("kind").and_then(Value::as_str), Some("approval" | "approval.resolved"))
 }
 
-fn map_event(event: kxen_app::core::event::Event) -> (&'static str, Value) {
-    use kxen_app::core::event::Event;
+fn map_event(event: kxen_gui::core::event::Event) -> (&'static str, Value) {
+    use kxen_gui::core::event::Event;
     match event {
         Event::LlmDelta(payload) => ("llm.delta", payload),
         Event::TaskUpdate { id, status } => ("task.update", serde_json::json!({ "id": id, "status": status })),
@@ -77,12 +77,12 @@ mod tests {
         SubBinding { stream_id: format!("sub-test-{}", topics.len()), topics: topics.iter().map(|t| t.to_string()).collect::<HashSet<_>>() }
     }
 
-    fn delta(session_id: Option<&str>) -> kxen_app::core::event::Event {
+    fn delta(session_id: Option<&str>) -> kxen_gui::core::event::Event {
         let mut payload = serde_json::json!({ "kind": "delta", "stream_id": "run-t1", "text": "x" });
         if let Some(sid) = session_id {
             payload.as_object_mut().unwrap().insert("session_id".into(), serde_json::json!(sid));
         }
-        kxen_app::core::event::Event::LlmDelta(payload)
+        kxen_gui::core::event::Event::LlmDelta(payload)
     }
 
     /// 未订阅 session:<id> 的连接一帧都收不到
@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn global_approval_uses_dedicated_topic_without_session_duplication() {
-        let event = kxen_app::core::event::Event::LlmDelta(serde_json::json!({
+        let event = kxen_gui::core::event::Event::LlmDelta(serde_json::json!({
             "kind": "approval", "approval_id": "appr-1", "command": "cmd", "reason": "r",
         }));
         let both = vec![binding(&["approval.global"]), binding(&["llm.delta", "session:s1"])];
@@ -125,7 +125,7 @@ mod tests {
         assert_eq!(chunks[0].result["topic"], "approval.global");
 
         let session_only = vec![binding(&["llm.delta", "session:s1"])];
-        let resolved = kxen_app::core::event::Event::LlmDelta(serde_json::json!({
+        let resolved = kxen_gui::core::event::Event::LlmDelta(serde_json::json!({
             "kind": "approval.resolved", "approval_id": "appr-1", "outcome": "timeout",
         }));
         assert!(event_to_chunks(resolved, &session_only, &mut StreamSequences::default()).is_empty());
@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn done_frame_flows_through_llm_delta() {
         let subs = vec![binding(&["llm.delta", "session:s1"])];
-        let event = kxen_app::core::event::Event::LlmDelta(serde_json::json!({
+        let event = kxen_gui::core::event::Event::LlmDelta(serde_json::json!({
             "kind": "done", "stream_id": "run-t2", "session_id": "s1",
         }));
         let chunks = event_to_chunks(event, &subs, &mut StreamSequences::default());
@@ -155,7 +155,7 @@ mod tests {
     #[test]
     fn voice_frames_follow_session_acl() {
         let voice = || {
-            kxen_app::core::event::Event::LlmDelta(serde_json::json!({
+            kxen_gui::core::event::Event::LlmDelta(serde_json::json!({
                 "kind": "voice.partial", "text": "你好", "session_id": "s1",
             }))
         };
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn session_run_broadcasts_without_acl() {
         let subs = vec![binding(&["session.update"])];
-        let chunks = event_to_chunks(kxen_app::core::event::Event::session_run("s1", true), &subs, &mut StreamSequences::default());
+        let chunks = event_to_chunks(kxen_gui::core::event::Event::session_run("s1", true), &subs, &mut StreamSequences::default());
         assert_eq!(chunks.len(), 1);
         let payload = &chunks[0].result["payload"];
         assert_eq!(payload["session_id"], "s1");

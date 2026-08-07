@@ -10,15 +10,15 @@ pub fn restore_queues(state: Arc<AppState>) {
     tokio::spawn(async move {
         let ready = state.pending_messages.restore();
         if let Some(error) = state.pending_messages.store_error() {
-            state.bus.publish(kxen_app::core::event::Event::notify(format!("待处理队列存储不可用，已阻止后续覆盖：{error}"), None));
+            state.bus.publish(kxen_gui::core::event::Event::notify(format!("待处理队列存储不可用，已阻止后续覆盖：{error}"), None));
         }
         for (sid, error) in state.pending_messages.blocked() {
-            state.bus.publish(kxen_app::core::event::Event::notify(format!("会话 {sid} 的待处理队列损坏，已阻止覆盖：{error}"), Some(sid)));
+            state.bus.publish(kxen_gui::core::event::Event::notify(format!("会话 {sid} 的待处理队列损坏，已阻止覆盖：{error}"), Some(sid)));
         }
         report_session_recovery(&state);
         for sid in ready {
             // 会话已删（队列文件残留）：清盘不续跑
-            match kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), &sid) {
+            match kxen_gui::core::session::load_meta(&kxen_gui::core::paths::sessions_dir(), &sid) {
                 Ok(_) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     if let Err(error) = state.pending_messages.clear(&sid) {
@@ -28,7 +28,7 @@ pub fn restore_queues(state: Arc<AppState>) {
                 }
                 Err(error) => {
                     tracing::error!(session = sid, %error, "session metadata unavailable; pending queue preserved");
-                    state.bus.publish(kxen_app::core::event::Event::notify(
+                    state.bus.publish(kxen_gui::core::event::Event::notify(
                         format!("会话元数据不可用，待处理消息已保留：{error}"),
                         Some(sid.clone()),
                     ));
@@ -36,7 +36,7 @@ pub fn restore_queues(state: Arc<AppState>) {
                 }
             }
             let (q, cancel) =
-                match super::run_slot::claim_queued_run(&state.active_runs, &kxen_app::core::paths::sessions_dir(), &sid, || {
+                match super::run_slot::claim_queued_run(&state.active_runs, &kxen_gui::core::paths::sessions_dir(), &sid, || {
                     state.pending_messages.claim(&sid)
                 }) {
                     Ok(Some(claimed)) => claimed,
@@ -67,11 +67,11 @@ pub fn restore_queues(state: Arc<AppState>) {
 }
 
 fn report_session_recovery(state: &AppState) {
-    let sessions = kxen_app::core::paths::sessions_dir();
-    for session in kxen_app::core::session::list(&sessions) {
-        let diagnostic = match kxen_app::core::session::inspect_storage(&sessions, &session.id) {
+    let sessions = kxen_gui::core::paths::sessions_dir();
+    for session in kxen_gui::core::session::list(&sessions) {
+        let diagnostic = match kxen_gui::core::session::inspect_storage(&sessions, &session.id) {
             Ok(report)
-                if report.blocked.is_some() || !matches!(&report.messages, kxen_app::core::session::MessageIntegrity::Healthy { .. }) =>
+                if report.blocked.is_some() || !matches!(&report.messages, kxen_gui::core::session::MessageIntegrity::Healthy { .. }) =>
             {
                 serde_json::to_string(&report).unwrap_or_else(|_| "storage recovery required".into())
             }
@@ -79,7 +79,7 @@ fn report_session_recovery(state: &AppState) {
             Err(error) => error,
         };
         tracing::error!(session = session.id, %diagnostic, "session storage recovery required");
-        state.bus.publish(kxen_app::core::event::Event::notify(
+        state.bus.publish(kxen_gui::core::event::Event::notify(
             format!("会话存储需要恢复检查，已阻止不安全写入：{diagnostic}"),
             Some(session.id),
         ));
@@ -89,12 +89,12 @@ fn report_session_recovery(state: &AppState) {
 /// P0-2b 续跑触发：delivery claim 与 run lease 原子完成；落败 kick 不接触 in_flight。
 pub(crate) fn kick_session(state: Arc<AppState>, sid: String) {
     tokio::spawn(async move {
-        let (q, cancel) = match super::run_slot::claim_queued_run(&state.active_runs, &kxen_app::core::paths::sessions_dir(), &sid, || {
+        let (q, cancel) = match super::run_slot::claim_queued_run(&state.active_runs, &kxen_gui::core::paths::sessions_dir(), &sid, || {
             state.pending_messages.claim(&sid)
         }) {
             Ok(Some(claimed)) => claimed,
             Ok(None) => {
-                let active = kxen_app::core::shared::lock(&state.active_runs).contains_key(&sid);
+                let active = kxen_gui::core::shared::lock(&state.active_runs).contains_key(&sid);
                 if !active && !state.pending_messages.has_queued(&sid) {
                     super::queue_retry::reset_retry(&sid);
                 }
@@ -124,7 +124,7 @@ pub(crate) fn kick_session(state: Arc<AppState>, sid: String) {
     });
 }
 
-/// P0-2 桥接：relay 的 kick 回调在本层注入（kxen_app agent 层够不着 run_llm 的 spawn 口）
+/// P0-2 桥接：relay 的 kick 回调在本层注入（kxen_gui agent 层够不着 run_llm 的 spawn 口）
 pub fn wire_team_kick(state: &Arc<AppState>) {
     let kick_state = state.clone();
     state.team.relay().set_kick(move |sid| kick_session(kick_state.clone(), sid));
@@ -134,5 +134,5 @@ pub fn wire_team_kick(state: &Arc<AppState>) {
 /// 与 team kick 共用原子 queue/run admission。
 pub fn wire_background_kick(state: &Arc<AppState>) {
     let kick_state = state.clone();
-    kxen_app::agent::background::set_late_kick(move |sid| kick_session(kick_state.clone(), sid));
+    kxen_gui::agent::background::set_late_kick(move |sid| kick_session(kick_state.clone(), sid));
 }

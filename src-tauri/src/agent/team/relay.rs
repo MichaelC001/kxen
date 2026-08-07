@@ -25,7 +25,7 @@ pub struct LeadRelay {
     routers: Mutex<HashMap<String, Arc<NotifyRouter>>>,
     /// 无活跃 run 时的续跑队列（None = 测试/降级，报告退回 lead.json）
     pending: Option<Arc<PendingQueues>>,
-    /// 入队后的续跑触发（kxen_app spawn 不了 run_llm，binary crate 启动时注入回调）
+    /// 入队后的续跑触发（kxen_gui spawn 不了 run_llm，binary crate 启动时注入回调）
     kick: Mutex<Option<crate::agent::background::SharedCallback>>,
 }
 

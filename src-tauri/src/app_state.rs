@@ -18,30 +18,30 @@ pub struct AppState {
     /// 单实例文件锁：所有 data_dir JSON store 的进程内事务假设由此提升为跨进程安全。
     _instance_lock: std::fs::File,
     /// 共享句柄（Arc 内层不变）：TeamManager SpawnDeps 持同一把锁，凭证探测/刷新后操作点可见
-    pub auth_store: Arc<Mutex<kxen_app::auth::credential::AuthStore>>,
+    pub auth_store: Arc<Mutex<kxen_gui::auth::credential::AuthStore>>,
     /// ws 服务端口（serve 成功后由 bin 写回，ws_port command 用）
     pub ws_port: Mutex<u16>,
     /// ws 握手 token（启动时随机生成，ws_port command 一并发给前端）
     pub ws_token: String,
     /// OS 通知点击回跳（默认 no-op；桌面 bin 在 setup 注入窗口实现，见 os_notify）
     pub notify: std::sync::RwLock<Arc<dyn NotifyTarget>>,
-    pub bus: kxen_app::core::event::EventBus,
-    pub registry: std::sync::Arc<kxen_app::tools::task::TaskRegistry>,
+    pub bus: kxen_gui::core::event::EventBus,
+    pub registry: std::sync::Arc<kxen_gui::tools::task::TaskRegistry>,
     /// 角色路由可热更新（设置页改角色 -> 重建换 Arc）；与 SpawnDeps 共享同一 RwLock 句柄
-    pub mrm: std::sync::Arc<std::sync::RwLock<std::sync::Arc<kxen_app::llm::mrm::ModelResourceManager>>>,
-    pub extras: std::sync::Arc<kxen_app::agent::agent_loop::SessionExtrasRegistry>,
+    pub mrm: std::sync::Arc<std::sync::RwLock<std::sync::Arc<kxen_gui::llm::mrm::ModelResourceManager>>>,
+    pub extras: std::sync::Arc<kxen_gui::agent::agent_loop::SessionExtrasRegistry>,
     /// Ask 档审批 broker（exec 高危命令的用户决定路由）
-    pub approvals: std::sync::Arc<kxen_app::agent::approval::ApprovalBroker>,
+    pub approvals: std::sync::Arc<kxen_gui::agent::approval::ApprovalBroker>,
     /// MCP、LSP 和 Hooks 按规范化 Workspace 根隔离，后台 Session 不跟随前台目录漂移。
-    pub workspace_runtimes: std::sync::Arc<kxen_app::workspace_runtime::WorkspaceRuntimeRegistry>,
-    pub team: std::sync::Arc<kxen_app::agent::team::TeamManager>,
-    pub agents: std::sync::Arc<kxen_app::agent::activity::AgentRegistry>,
+    pub workspace_runtimes: std::sync::Arc<kxen_gui::workspace_runtime::WorkspaceRuntimeRegistry>,
+    pub team: std::sync::Arc<kxen_gui::agent::team::TeamManager>,
+    pub agents: std::sync::Arc<kxen_gui::agent::activity::AgentRegistry>,
     /// session_id -> 进行中 run 的取消令牌（session.abort 用；run 结束自行移除）
-    pub active_runs: std::sync::Mutex<std::collections::HashMap<String, kxen_app::agent::cancel::CancelToken>>,
+    pub active_runs: std::sync::Mutex<std::collections::HashMap<String, kxen_gui::agent::cancel::CancelToken>>,
     /// session 排队消息（落盘持久化：崩溃重启可恢复续跑；run 结束按序接续，防并发 run 交叉写历史）
-    pub pending_messages: std::sync::Arc<kxen_app::core::pending_queue::PendingQueues>,
+    pub pending_messages: std::sync::Arc<kxen_gui::core::pending_queue::PendingQueues>,
     /// session_id -> 已知 token 下界与 UNKNOWN 调用数（状态栏用量段）
-    pub session_tokens: Arc<std::sync::Mutex<std::collections::HashMap<String, kxen_app::core::usage::SessionUsage>>>,
+    pub session_tokens: Arc<std::sync::Mutex<std::collections::HashMap<String, kxen_gui::core::usage::SessionUsage>>>,
     /// session_id -> 最近一次 run 的 input tokens（ctx 占用近似值，进度条数据源）
     pub session_last_input: std::sync::Mutex<std::collections::HashMap<String, u64>>,
     /// 状态栏显隐段（启动时从 config 读；设置页改后重建）
@@ -53,42 +53,42 @@ pub struct AppState {
     pub active_workspace: std::sync::RwLock<std::path::PathBuf>,
     /// session_id -> agent 改动快照（改动面板数据源；run 间共享，随 app 存活——不落盘的 WHY 见 snapshot 模块 doc；
     /// session.delete 经 snapshot::drop_session 摘除，不泄漏）
-    pub session_snapshots: std::sync::Mutex<std::collections::HashMap<String, kxen_app::tools::snapshot::SnapshotStore>>,
+    pub session_snapshots: std::sync::Mutex<std::collections::HashMap<String, kxen_gui::tools::snapshot::SnapshotStore>>,
     /// session_id -> 最近一轮 run 的 involved 文件（injection_preview 的真实 glob 命中数据源）
     pub session_involved: std::sync::Mutex<std::collections::HashMap<String, Vec<std::path::PathBuf>>>,
     /// 通知环形缓冲（teammate/cron/系统事件，顶栏通知中心数据源，50 条）
-    pub notifications: std::sync::Mutex<std::collections::VecDeque<kxen_app::core::notifications::Notice>>,
+    pub notifications: std::sync::Mutex<std::collections::VecDeque<kxen_gui::core::notifications::Notice>>,
     /// 前台聚焦会话（OS 通知只发非前台会话的完成事件）
     pub foreground_session: std::sync::RwLock<String>,
     /// 原生对话框附件授权清单（选择即授权；context 边界守卫与 read_attachment 的唯一放行依据）
-    pub picked_files: kxen_app::core::attachment::PickedFiles,
+    pub picked_files: kxen_gui::core::attachment::PickedFiles,
 }
 
 impl AppState {
     pub fn new() -> Result<Self, String> {
-        let data_dir = kxen_app::core::paths::data_dir();
+        let data_dir = kxen_gui::core::paths::data_dir();
         ensure_private_data_dir(&data_dir)?;
         let instance_lock = acquire_instance_lock(&data_dir)?;
-        let path = kxen_app::core::paths::auth_file();
-        let config_path = kxen_app::core::paths::config_dir().join("config.toml");
+        let path = kxen_gui::core::paths::auth_file();
+        let config_path = kxen_gui::core::paths::config_dir().join("config.toml");
         crate::ws::recover_custom_provider_transaction(&config_path, &path)?;
         // 共享句柄：与 TeamManager SpawnDeps 同一把锁，后台探测写入的凭证两边即时可见；
         // 登记回写后 run 内刷新（ctx.store 是克隆快照）也即时收敛到各克隆点（auth::shared_store）
         let store = Arc::new(Mutex::new(
-            kxen_app::auth::credential::read_auth_file(&path).map_err(|error| format!("auth store load failed: {error}"))?,
+            kxen_gui::auth::credential::read_auth_file(&path).map_err(|error| format!("auth store load failed: {error}"))?,
         ));
-        kxen_app::auth::shared_store::register_shared_store(&store);
+        kxen_gui::auth::shared_store::register_shared_store(&store);
         let config = load_app_config(&config_path)?;
         let statusline_items = config.statusline.items.clone();
-        let registry = std::sync::Arc::new(kxen_app::tools::task::TaskRegistry::new());
-        let extras = std::sync::Arc::new(kxen_app::agent::agent_loop::SessionExtrasRegistry::default());
-        let mrm = std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(kxen_app::llm::mrm::ModelResourceManager::new(config))));
+        let registry = std::sync::Arc::new(kxen_gui::tools::task::TaskRegistry::new());
+        let extras = std::sync::Arc::new(kxen_gui::agent::agent_loop::SessionExtrasRegistry::default());
+        let mrm = std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(kxen_gui::llm::mrm::ModelResourceManager::new(config))));
         let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
         let workdir: std::sync::Arc<std::path::Path> = std::sync::Arc::from(initial_workdir(&cwd, dirs::home_dir()));
-        let bus = kxen_app::core::event::EventBus::default();
-        let agents = std::sync::Arc::new(kxen_app::agent::activity::AgentRegistry::default());
-        let approvals = std::sync::Arc::new(kxen_app::agent::approval::production_broker(bus.clone()));
-        let workspace_runtimes = std::sync::Arc::new(kxen_app::workspace_runtime::WorkspaceRuntimeRegistry::with_mcp_execution_approval(
+        let bus = kxen_gui::core::event::EventBus::default();
+        let agents = std::sync::Arc::new(kxen_gui::agent::activity::AgentRegistry::default());
+        let approvals = std::sync::Arc::new(kxen_gui::agent::approval::production_broker(bus.clone()));
+        let workspace_runtimes = std::sync::Arc::new(kxen_gui::workspace_runtime::WorkspaceRuntimeRegistry::with_mcp_execution_approval(
             approvals.clone(),
             bus.clone(),
             mrm.clone(),
@@ -96,34 +96,34 @@ impl AppState {
         workspace_runtimes.runtime(&workdir)?;
         // team relay 与 AppState 共享同一队列实例（teammate 报告入队 = 用户消息同路续跑）
         let pending_messages =
-            std::sync::Arc::new(kxen_app::core::pending_queue::PendingQueues::new(kxen_app::core::paths::sessions_dir()));
-        let mut loaded_usage = kxen_app::core::usage::load().map_err(|error| format!("session usage load failed: {error}"))?;
-        for warning in kxen_app::core::usage::reconcile_pending_goal_charges(&mut loaded_usage)
+            std::sync::Arc::new(kxen_gui::core::pending_queue::PendingQueues::new(kxen_gui::core::paths::sessions_dir()));
+        let mut loaded_usage = kxen_gui::core::usage::load().map_err(|error| format!("session usage load failed: {error}"))?;
+        for warning in kxen_gui::core::usage::reconcile_pending_goal_charges(&mut loaded_usage)
             .map_err(|error| format!("pending usage reconciliation failed: {error}"))?
         {
             tracing::warn!(%warning, "pending usage durability repaired during startup");
         }
-        for warning in kxen_app::core::usage::reconcile_provider_attempts(&mut loaded_usage)
+        for warning in kxen_gui::core::usage::reconcile_provider_attempts(&mut loaded_usage)
             .map_err(|error| format!("Provider attempt reconciliation failed: {error}"))?
         {
             tracing::warn!(%warning, "Provider attempt durability repaired during startup");
         }
-        for warning in kxen_app::core::goal::Goal::reconcile_completion_attempts(&kxen_app::core::paths::goals_dir())
+        for warning in kxen_gui::core::goal::Goal::reconcile_completion_attempts(&kxen_gui::core::paths::goals_dir())
             .map_err(|error| format!("completion attempt reconciliation failed: {error}"))?
         {
             tracing::warn!(%warning, "completion attempt recovered during startup");
         }
-        let knowledge_metering_operations = kxen_app::knowledge::consolidate::pending_metering_operation_ids()
+        let knowledge_metering_operations = kxen_gui::knowledge::consolidate::pending_metering_operation_ids()
             .map_err(|error| format!("Knowledge metering recovery scan failed: {error}"))?;
-        for warning in kxen_app::core::usage::compact_closed_metering_receipts_preserving(&mut loaded_usage, &knowledge_metering_operations)
+        for warning in kxen_gui::core::usage::compact_closed_metering_receipts_preserving(&mut loaded_usage, &knowledge_metering_operations)
             .map_err(|error| format!("metering receipt compaction failed: {error}"))?
         {
             tracing::warn!(%warning, "metering receipt compaction deferred during startup");
         }
         let session_tokens = Arc::new(std::sync::Mutex::new(loaded_usage));
-        let team = kxen_app::agent::team::TeamManager::new(
-            kxen_app::core::paths::data_dir().join("teams"),
-            kxen_app::agent::team::SpawnDeps {
+        let team = kxen_gui::agent::team::TeamManager::new(
+            kxen_gui::core::paths::data_dir().join("teams"),
+            kxen_gui::agent::team::SpawnDeps {
                 registry: registry.clone(),
                 fallback_workdir: workdir.clone(),
                 store: store.clone(),
@@ -135,7 +135,7 @@ impl AppState {
                 session_usage: session_tokens.clone(),
             },
             bus.clone(),
-            kxen_app::core::paths::sessions_dir(),
+            kxen_gui::core::paths::sessions_dir(),
             Some(pending_messages.clone()),
         );
         Ok(Self {
@@ -162,16 +162,16 @@ impl AppState {
             session_snapshots: std::sync::Mutex::new(std::collections::HashMap::new()),
             session_involved: std::sync::Mutex::new(std::collections::HashMap::new()),
             notifications: std::sync::Mutex::new(
-                kxen_app::core::notifications::load().map_err(|error| format!("notifications load failed: {error}"))?,
+                kxen_gui::core::notifications::load().map_err(|error| format!("notifications load failed: {error}"))?,
             ),
             foreground_session: std::sync::RwLock::new(String::new()),
-            picked_files: kxen_app::core::attachment::PickedFiles::default(),
+            picked_files: kxen_gui::core::attachment::PickedFiles::default(),
             workdir,
         })
     }
 
     /// 主会话 extras 取口：按 session 隔离，跨 send_message 存续。
-    pub fn extras_for(&self, session_id: &str) -> std::sync::Arc<kxen_app::agent::agent_loop::SessionExtras> {
+    pub fn extras_for(&self, session_id: &str) -> std::sync::Arc<kxen_gui::agent::agent_loop::SessionExtras> {
         self.extras.extras_for(session_id)
     }
 
@@ -180,20 +180,20 @@ impl AppState {
         self.extras.drop_extras(session_id);
     }
 
-    pub fn active_runtime(&self) -> Result<std::sync::Arc<kxen_app::workspace_runtime::WorkspaceRuntime>, String> {
+    pub fn active_runtime(&self) -> Result<std::sync::Arc<kxen_gui::workspace_runtime::WorkspaceRuntime>, String> {
         let root = self.active_workspace.read().map_err(|_| "workspace lock poisoned".to_string())?.clone();
         self.workspace_runtimes.runtime(&root)
     }
 
     /// Settings 与启动期状态查询必须等首次 MCP load 完成，不能把尚未 ready 的空 manager
     /// 误报为「未配置」。项目 stdio 审批可在等待期间由全局审批面应答。
-    pub async fn ready_active_runtime(&self) -> Result<std::sync::Arc<kxen_app::workspace_runtime::WorkspaceRuntime>, String> {
+    pub async fn ready_active_runtime(&self) -> Result<std::sync::Arc<kxen_gui::workspace_runtime::WorkspaceRuntime>, String> {
         let root = self.active_workspace.read().map_err(|_| "workspace lock poisoned".to_string())?.clone();
         self.workspace_runtimes.ready(&root).await
     }
 
-    pub fn runtime_for_session(&self, session_id: &str) -> Result<std::sync::Arc<kxen_app::workspace_runtime::WorkspaceRuntime>, String> {
-        let meta = kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), session_id)
+    pub fn runtime_for_session(&self, session_id: &str) -> Result<std::sync::Arc<kxen_gui::workspace_runtime::WorkspaceRuntime>, String> {
+        let meta = kxen_gui::core::session::load_meta(&kxen_gui::core::paths::sessions_dir(), session_id)
             .map_err(|e| format!("session {session_id}: {e}"))?;
         self.workspace_runtimes.runtime(std::path::Path::new(&meta.directory))
     }
@@ -201,8 +201,8 @@ impl AppState {
     pub async fn ready_runtime_for_session(
         &self,
         session_id: &str,
-    ) -> Result<std::sync::Arc<kxen_app::workspace_runtime::WorkspaceRuntime>, String> {
-        let meta = kxen_app::core::session::load_meta(&kxen_app::core::paths::sessions_dir(), session_id)
+    ) -> Result<std::sync::Arc<kxen_gui::workspace_runtime::WorkspaceRuntime>, String> {
+        let meta = kxen_gui::core::session::load_meta(&kxen_gui::core::paths::sessions_dir(), session_id)
             .map_err(|e| format!("session {session_id}: {e}"))?;
         self.workspace_runtimes.ready(std::path::Path::new(&meta.directory)).await
     }
@@ -232,8 +232,8 @@ fn acquire_instance_lock(data_dir: &std::path::Path) -> Result<std::fs::File, St
     Ok(file)
 }
 
-fn load_app_config(path: &std::path::Path) -> Result<kxen_app::core::config::Config, String> {
-    kxen_app::core::config::Config::load(path, None).map_err(|error| format!("app config {}: {error}", path.display()))
+fn load_app_config(path: &std::path::Path) -> Result<kxen_gui::core::config::Config, String> {
+    kxen_gui::core::config::Config::load(path, None).map_err(|error| format!("app config {}: {error}", path.display()))
 }
 
 /// 初始 workspace 根（纯函数，直接可测）：Finder 启动 .app 时进程 cwd 恒为 `/`，
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn invalid_app_config_fails_closed_with_path() {
-        let dir = std::env::temp_dir().join(format!("kxen-app-config-invalid-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kxen-gui-config-invalid-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create fixture root");
         let path = dir.join("config.toml");
         std::fs::write(&path, "broken = [toml").expect("write invalid config");

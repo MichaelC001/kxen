@@ -2423,7 +2423,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "kxen-app"
+name = "kxen"
+version = "0.0.1"
+dependencies = [
+ "futures",
+ "kxen-gui",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "kxen-gui"
 version = "0.0.1"
 dependencies = [
  "arboard",
@@ -2464,19 +2477,6 @@ dependencies = [
  "tracing-subscriber",
  "trash",
  "uuid",
-]
-
-[[package]]
-name = "kxen-web"
-version = "0.0.1"
-dependencies = [
- "futures",
- "kxen-app",
- "serde_json",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

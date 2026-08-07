@@ -1,7 +1,7 @@
 // mrm 调度测试：per-request acquire / provider 级总池 / 账号轮转。
-use kxen_app::auth::credential::{AuthStore, CredentialKind};
-use kxen_app::core::config::{Config, Limits, ProviderLimit, RoleBinding};
-use kxen_app::llm::mrm::ModelResourceManager;
+use kxen_gui::auth::credential::{AuthStore, CredentialKind};
+use kxen_gui::core::config::{Config, Limits, ProviderLimit, RoleBinding};
+use kxen_gui::llm::mrm::ModelResourceManager;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;

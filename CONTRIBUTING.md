@@ -71,7 +71,7 @@ Pull Request 需要说明问题、实现边界和验证结果。不要提交 `.e
 发布版本必须同时更新以下四处，版本号均不带 `v` 前缀:
 
 - `src-tauri/Cargo.toml` 的 `package.version`。
-- `src-tauri/Cargo.lock` 中 `kxen-app` package 的 `version`。
+- `src-tauri/Cargo.lock` 中 `kxen-gui` package 的 `version`。
 - `src-tauri/tauri.conf.json` 的 `version`。
 - `CHANGELOG.md` 的精确标题 `## [x.y.z]`。
 
@@ -80,7 +80,7 @@ Pull Request 需要说明问题、实现边界和验证结果。不要提交 `.e
 1. 从可信 `main` 固定 workflow 和校验器，校验 tag 格式与祖先关系，确认 tag commit 已进入远端 `main` 后才 checkout 目标代码。checkout 后仍执行已固定的校验器，并检查 checkout commit 与 tag 一致。
 2. 检查上述版本来源、changelog 和 Tauri updater 配置一致。
 3. 对同一个不可变 commit 重新运行 frontend、Rust 和官网的完整 CI 门禁。
-4. 按发布矩阵在六个平台的 runner 上构建: macOS(arm64、x86_64）经 Developer ID 签名和 Apple 公证，Linux(x86_64、arm64）产出 AppImage 和 deb,Windows(x86_64、arm64）产出 NSIS 安装包（暂无 Authenticode 签名），同时构建各平台 `kxen-web` 无头 server 包并逐平台验证产物。发布矩阵的平台、runner、rust target 和稳定 asset 命名以 `scripts/release-manifest.sh` 为单一出处，`scripts/release-manifest.sh json` 可查看实际清单。
+4. 按发布矩阵在六个平台的 runner 上构建: macOS(arm64、x86_64）经 Developer ID 签名和 Apple 公证，Linux(x86_64、arm64）产出 AppImage 和 deb,Windows(x86_64、arm64）产出 NSIS 安装包（暂无 Authenticode 签名），同时构建各平台 `kxen` 无头 server 包并逐平台验证产物。发布矩阵的平台、runner、rust target 和稳定 asset 命名以 `scripts/release-manifest.sh` 为单一出处，`scripts/release-manifest.sh json` 可查看实际清单。
 5. 合并各平台 updater 签名生成并校验 `latest.json` 与 `SHA256SUMS`，将各平台验证过的 release 文件作为 workflow artifact 传递给独立 publish job。
 6. publish job 只接收已验证 artifact，不接收签名凭据。它先创建 draft，重新下载并逐字节核对全部远端 asset，全部一致后才公开 release。
 

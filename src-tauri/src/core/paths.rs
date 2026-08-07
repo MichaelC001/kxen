@@ -19,7 +19,7 @@ pub fn config_dir() -> PathBuf {
 
 /// ~/Library/Application Support/kxen（数据：goals、sessions、auth.json）
 pub fn data_dir() -> PathBuf {
-    // kxen-web 无头部署与测试隔离：环境变量覆盖（与 auth_file 同规约，勿删）
+    // kxen 无头部署与测试隔离：环境变量覆盖（与 auth_file 同规约，勿删）
     if let Ok(p) = std::env::var("KXEN_DATA_DIR") {
         return PathBuf::from(p);
     }

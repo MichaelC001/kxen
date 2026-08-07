@@ -1,4 +1,4 @@
-//! kxen-web 命令行参数（手工解析，零新依赖）。
+//! kxen 命令行参数（手工解析，零新依赖）。
 
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -17,10 +17,10 @@ pub enum Parsed {
 }
 
 pub const HELP: &str = "\
-kxen-web - kxen headless web server (no GUI, full app service in a browser)
+kxen - headless web server (no GUI, full app service in a browser)
 
 USAGE:
-    kxen-web [OPTIONS]
+    kxen [OPTIONS]
 
 OPTIONS:
     --bind <IP>          listen address (default 127.0.0.1; non-loopback exposes the LAN)

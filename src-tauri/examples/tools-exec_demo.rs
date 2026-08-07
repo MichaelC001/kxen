@@ -1,8 +1,8 @@
 //! exec 真实验证：快命令前台、长命令 auto_bg、rm -> trash 遮蔽、safety 拦截。
 
-use kxen_app::tools::exec::{ExecOutcome, ExecParams, exec};
-use kxen_app::tools::shell::ShellKind;
-use kxen_app::tools::task::{TaskOwner, TaskRegistry};
+use kxen_gui::tools::exec::{ExecOutcome, ExecParams, exec};
+use kxen_gui::tools::shell::ShellKind;
+use kxen_gui::tools::task::{TaskOwner, TaskRegistry};
 use std::sync::Arc;
 
 #[tokio::main]

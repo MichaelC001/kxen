@@ -1,9 +1,9 @@
 //! agent loop 真实验证：模型自主决定并调用工具（真实 xai 调用）。
 
-use kxen_app::agent::agent_loop::{AgentContext, AgentEvent, run_turn};
-use kxen_app::llm::{Message, ModelRef};
-use kxen_app::tools::fs_tool::FileTracker;
-use kxen_app::tools::task::TaskRegistry;
+use kxen_gui::agent::agent_loop::{AgentContext, AgentEvent, run_turn};
+use kxen_gui::llm::{Message, ModelRef};
+use kxen_gui::tools::fs_tool::FileTracker;
+use kxen_gui::tools::task::TaskRegistry;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -12,9 +12,9 @@ async fn main() {
     std::fs::create_dir_all(&workdir).unwrap();
     std::fs::write(workdir.join("note.txt"), "hello\n").unwrap();
 
-    let auth_path = kxen_app::core::paths::auth_file();
-    let mut store = kxen_app::auth::credential::read_auth_file(&auth_path).expect("read auth store");
-    kxen_app::auth::probe_all(&mut store, true);
+    let auth_path = kxen_gui::core::paths::auth_file();
+    let mut store = kxen_gui::auth::credential::read_auth_file(&auth_path).expect("read auth store");
+    kxen_gui::auth::probe_all(&mut store, true);
 
     let mut ctx = AgentContext {
         registry: Arc::new(TaskRegistry::new()),
@@ -43,7 +43,7 @@ async fn main() {
         persist_compaction: None,
         auxiliary_usage: Arc::default(),
         usage_reporter: None,
-        loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
+        loop_detector: kxen_gui::agent::loop_detect::LoopDetector::new(),
         on_event: Arc::new(|event| match event {
             AgentEvent::Text { text } => print!("{text}"),
             AgentEvent::Reasoning { text } => eprint!("[r:{}]", first_chars(&text, 40)),

@@ -9,19 +9,19 @@ pub(super) struct CommitFailure {
     pub(super) delivery: DeliveryOutcome,
     pub(super) persist_terminal: bool,
     pub(super) blocked: bool,
-    pub(super) terminal: kxen_app::agent::agent_loop::AgentEvent,
+    pub(super) terminal: kxen_gui::agent::agent_loop::AgentEvent,
 }
 
 pub(super) fn commit_user(
     state: &Arc<AppState>,
     sessions_dir: &Path,
-    message: &kxen_app::core::session::Message,
+    message: &kxen_gui::core::session::Message,
     delivery_id: Option<&str>,
 ) -> Result<DeliveryOutcome, CommitFailure> {
     let appended = if delivery_id.is_some() {
-        kxen_app::core::session::append_message_idempotent_durable(sessions_dir, message)
+        kxen_gui::core::session::append_message_idempotent_durable(sessions_dir, message)
     } else {
-        kxen_app::core::session::append_message_durable(sessions_dir, message)
+        kxen_gui::core::session::append_message_durable(sessions_dir, message)
     };
     match appended {
         Ok(_) => {}
@@ -31,7 +31,7 @@ pub(super) fn commit_user(
                 delivery: DeliveryOutcome::pending(delivery_id),
                 persist_terminal: false,
                 blocked: true,
-                terminal: kxen_app::agent::agent_loop::AgentEvent::Error {
+                terminal: kxen_gui::agent::agent_loop::AgentEvent::Error {
                     message: format!("session append is visible but durability is indeterminate: {error}"),
                 },
             });
@@ -43,7 +43,7 @@ pub(super) fn commit_user(
                     .map_or(DeliveryOutcome::Direct, |id| super::super::queue_delivery::release(state, &message.session_id, id)),
                 persist_terminal: false,
                 blocked: false,
-                terminal: kxen_app::agent::agent_loop::AgentEvent::Error { message: format!("session append failed: {error}") },
+                terminal: kxen_gui::agent::agent_loop::AgentEvent::Error { message: format!("session append failed: {error}") },
             });
         }
     }
@@ -51,7 +51,7 @@ pub(super) fn commit_user(
         delivery: error.outcome,
         persist_terminal: true,
         blocked: false,
-        terminal: kxen_app::agent::agent_loop::AgentEvent::Error { message: error.message },
+        terminal: kxen_gui::agent::agent_loop::AgentEvent::Error { message: error.message },
     })
 }
 

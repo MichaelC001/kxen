@@ -311,12 +311,12 @@ jobs:
         run: >-
           bash "$RUNNER_TEMP/trusted-release-tools/verify-macos-release.sh"
           "src-tauri/target/${{ matrix.target }}/release/bundle"
-      - name: Build kxen-web headless server
+      - name: Build kxen headless server
         shell: bash
-        # rust-embed 编译期读取 dist/,tauri build 已产出前端产物,kxen-web 编译排在它后面。
+        # rust-embed 编译期读取 dist/,tauri build 已产出前端产物,kxen 编译排在它后面。
         run: >-
           cargo build --manifest-path src-tauri/Cargo.toml --release
-          -p kxen-web --target ${{ matrix.target }}
+          -p kxen --target ${{ matrix.target }}
       - name: Prepare verified release asset set
         shell: bash
         env:

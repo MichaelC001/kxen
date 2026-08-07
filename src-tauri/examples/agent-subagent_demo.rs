@@ -1,10 +1,10 @@
 //! subagent 真实验证：主 agent 自主用 agent 工具派发 thinking/review 子代理。
 
-use kxen_app::agent::agent_loop::{AgentContext, AgentEvent, run_turn};
-use kxen_app::llm::mrm::ModelResourceManager;
-use kxen_app::llm::{Message, ModelRef};
-use kxen_app::tools::fs_tool::FileTracker;
-use kxen_app::tools::task::TaskRegistry;
+use kxen_gui::agent::agent_loop::{AgentContext, AgentEvent, run_turn};
+use kxen_gui::llm::mrm::ModelResourceManager;
+use kxen_gui::llm::{Message, ModelRef};
+use kxen_gui::tools::fs_tool::FileTracker;
+use kxen_gui::tools::task::TaskRegistry;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -13,11 +13,11 @@ async fn main() {
     std::fs::create_dir_all(&workdir).unwrap();
     std::fs::write(workdir.join("calc.py"), "def add(a, b):\n    return a - b\n").unwrap();
 
-    let auth_path = kxen_app::core::paths::auth_file();
-    let mut store = kxen_app::auth::credential::read_auth_file(&auth_path).expect("read auth store");
-    kxen_app::auth::probe_all(&mut store, true);
+    let auth_path = kxen_gui::core::paths::auth_file();
+    let mut store = kxen_gui::auth::credential::read_auth_file(&auth_path).expect("read auth store");
+    kxen_gui::auth::probe_all(&mut store, true);
 
-    let config = kxen_app::core::config::Config::load(&kxen_app::core::paths::config_dir().join("config.toml"), None).unwrap();
+    let config = kxen_gui::core::config::Config::load(&kxen_gui::core::paths::config_dir().join("config.toml"), None).unwrap();
     let mrm = Arc::new(ModelResourceManager::new(config));
 
     let mut ctx = AgentContext {
@@ -47,7 +47,7 @@ async fn main() {
         persist_compaction: None,
         auxiliary_usage: Arc::default(),
         usage_reporter: None,
-        loop_detector: kxen_app::agent::loop_detect::LoopDetector::new(),
+        loop_detector: kxen_gui::agent::loop_detect::LoopDetector::new(),
         on_event: Arc::new(|event| match event {
             AgentEvent::Text { text } => print!("{text}"),
             AgentEvent::Reasoning { text } => eprint!("[r:{}]", first(&text, 30)),
