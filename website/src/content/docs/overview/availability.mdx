@@ -1,6 +1,6 @@
 ---
 title: 可用性
-description: 了解当前安装方式、发行状态和平台限制。
+description: 了解当前安装方式、发行状态和平台可用矩阵。
 status: canonical
 sidebar:
   order: 3
@@ -8,26 +8,30 @@ sidebar:
 
 kxen 当前是开发预览，安装包已公开发布。
 
-## 安装
+## 桌面平台
 
-1. 在 [GitHub Releases](https://github.com/StringKe/kxen/releases/latest) 下载最新版本的 DMG。
-2. 打开 DMG，把 `Kxen.app` 拖入「应用程序」。
-3. 首次启动后直接打开，安装包经过 Developer ID 签名和 Apple 公证，不需要绕过 Gatekeeper。
+| 平台    | 架构                  | 安装介质        | 签名                          |
+| ------- | --------------------- | --------------- | ----------------------------- |
+| macOS   | Apple Silicon、Intel  | DMG             | Developer ID 签名 + Apple 公证 |
+| Windows | x64、ARM64            | NSIS setup      | 暂无 Authenticode 签名         |
+| Linux   | x86_64、ARM64         | AppImage、deb   | 无 OS 级签名                   |
 
-每个版本附带 `SHA256SUMS` 和 updater 签名文件，可以校验下载产物。应用内置自动更新通道，后续版本在应用内提示更新。
+全部平台的安装包见 [GitHub Releases](https://github.com/StringKe/kxen/releases/latest)，稳定 asset 命名保证同一链接始终解析到最新版本。
 
-## 当前可用范围
+- macOS： 打开 DMG，把 `Kxen.app` 拖入「应用程序」。安装包经过 Developer ID 签名和 Apple 公证，不需要绕过 Gatekeeper。需要 macOS 14 及以上版本。
+- Windows： 运行 NSIS 安装包。安装包暂未做 Authenticode 签名，SmartScreen 提示时选择 More info -> Run anyway。
+- Linux: AppImage 赋予执行权限后直接运行，或用包管理器安装 deb。
 
-- 目标系统是 macOS 14 及以上版本。
-- 目标架构是 Apple Silicon。
-- 开发者也可以从源码构建和运行。
+除 deb 外，全部桌面安装介质都进入应用内置自动更新通道；deb 用户经本页下载新版本。每个版本附带 `SHA256SUMS` 和 updater 签名文件，可以校验下载产物。
 
-## 当前不可用范围
+## Web 模式
 
-- Windows、Linux 和 Intel Mac 不在当前支持范围内。
+桌面应用和浏览器是同一内嵌服务的两个平等客户端。系统托盘的「浏览器访问」开关可以直接在本机浏览器中使用全部功能。
+
+`kxen-web` 无头 server 面向没有显示器的环境，六个平台都提供 tar.gz 或 zip 包。启动后打印带 token 的访问 URL，浏览器打开即用；远程访问推荐经 tailscale 终结 TLS。用法和安全模型见 [Web 模式](https://kxen.ai/getting-started/web-mode)。
 
 ## 不应推断的承诺
 
-仓库中出现的平台代码、构建配置或实验实现，不代表对应平台已经可用。Provider 出现在注册表中，也不代表用户账号已经获得对应模型权限。
+仓库中出现的平台代码、构建配置或实验实现，不代表对应能力已经可用。Provider 出现在注册表中，也不代表用户账号已经获得对应模型权限。
 
 安装完成后，继续查看 [系统要求](https://kxen.ai/getting-started/requirements)。

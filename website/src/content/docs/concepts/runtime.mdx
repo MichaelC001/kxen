@@ -6,7 +6,7 @@ sidebar:
   order: 1
 ---
 
-kxen 是一个 Tauri 2 macOS 应用。SolidJS 前端负责交互，Rust 后端负责长期状态、模型调用、工具执行和持久化。
+kxen 是一个 Tauri 2 桌面应用，并提供 kxen-web 无头 server。SolidJS 前端负责交互，Rust 后端负责长期状态、模型调用、工具执行和持久化。桌面 webview 和浏览器是同一内嵌服务的两个平等客户端，经同一个 `/ws` 端点通信。
 
 ## 分层
 
@@ -47,4 +47,4 @@ Session 是用户工作的持久边界。一次 run 是 Session 中的一次执�
 
 ## 平台边界
 
-当前 Runtime 只支持 macOS 14 及以上版本和 Apple Silicon。Tauri 生成 App 与 DMG，对外安装介质为 DMG。kxen 仍处于开发预览阶段，签名安装包和更新通道已经开放，安装方式以 [可用性](https://kxen.ai/overview/availability) 为准。
+当前 Runtime 覆盖 macOS 14 及以上版本（Apple Silicon 和 Intel），Windows（x64 和 ARM64）和 Linux（x86_64 和 ARM64），kxen-web 覆盖同样的六个平台。kxen 仍处于开发预览阶段，安装包和更新通道已经开放，安装方式以 [可用性](https://kxen.ai/overview/availability) 为准。

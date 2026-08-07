@@ -11,7 +11,7 @@
 ## 内容
 
 - `overview`: 产品定位、产品能力、当前状态和可用性。
-- `getting-started`: 系统要求、首个 Workspace 和首个 Session。
+- `getting-started`: 系统要求、首个 Workspace、首个 Session 和 Web 模式。
 - `workspace`: Workspace、看板、Session、Composer 和上下文。
 - `models`: Provider、账号、模型、路由和用量。
 - `agent`: Goal、Workflow、Subagent、Team、任务、工具和执行安全。

@@ -80,8 +80,8 @@ Pull Request 需要说明问题、实现边界和验证结果。不要提交 `.e
 1. 从可信 `main` 固定 workflow 和校验器，校验 tag 格式与祖先关系，确认 tag commit 已进入远端 `main` 后才 checkout 目标代码。checkout 后仍执行已固定的校验器，并检查 checkout commit 与 tag 一致。
 2. 检查上述版本来源、changelog 和 Tauri updater 配置一致。
 3. 对同一个不可变 commit 重新运行 frontend、Rust 和官网的完整 CI 门禁。
-4. 在 macOS runner 上构建、签名、公证并验证 App、DMG、updater archive 和 updater signature。
-5. 生成并校验 `latest.json` 与 `SHA256SUMS`，将五个 release 文件作为一个 workflow artifact 传递给独立 publish job。
+4. 按发布矩阵在六个平台的 runner 上构建: macOS(arm64、x86_64）经 Developer ID 签名和 Apple 公证，Linux(x86_64、arm64）产出 AppImage 和 deb,Windows(x86_64、arm64）产出 NSIS 安装包（暂无 Authenticode 签名），同时构建各平台 `kxen-web` 无头 server 包并逐平台验证产物。发布矩阵的平台、runner、rust target 和稳定 asset 命名以 `scripts/release-manifest.sh` 为单一出处，`scripts/release-manifest.sh json` 可查看实际清单。
+5. 合并各平台 updater 签名生成并校验 `latest.json` 与 `SHA256SUMS`，将各平台验证过的 release 文件作为 workflow artifact 传递给独立 publish job。
 6. publish job 只接收已验证 artifact，不接收签名凭据。它先创建 draft，重新下载并逐字节核对全部远端 asset，全部一致后才公开 release。
 
 Release environment 必须配置 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_TEAM_ID`、`APPLE_API_ISSUER`、`APPLE_API_KEY`、`APPLE_API_PRIVATE_KEY`、`TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。这些值必须是 environment secret，不是 repository secret。`release` environment 的 deployment branch policy 必须只允许 `main`，仓库 tag ruleset 必须允许创建 `v*` 但禁止更新和删除已有发布 tag，仓库必须开启 GitHub Immutable Releases 以锁定公开 release 的 tag 和 asset。GitHub Actions policy 必须开启 full-length commit SHA pinning，并在不需要所有 action 时将 `allowed_actions` 收紧为经审核的列表。secret 只注入需要它们的单个 step。只有 publish job 具有 `contents: write` 权限。
@@ -94,7 +94,7 @@ Release environment 必须配置 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWO
 
 ## macOS 发布冒烟检查
 
-每个公开版本在 GitHub Release 发布前必须完成以下检查。自动步骤证明 source gate、签名、公证、updater signature 和 release asset 一致性，真实功能链路仍需在已签名 App 中验证。
+macOS 腿的签名和公证链路在每个公开版本发布前必须完成以下检查。自动步骤证明 source gate、签名、公证、updater signature 和 release asset 一致性，真实功能链路仍需在已签名 App 中验证。Windows 和 Linux 暂无等价的自动冒烟脚本，其实机验证状态为 UNKNOWN，发布前需要在对应平台手动确认。
 
 自动检查，在 release runner 或本地已签名产物目录执行:
 

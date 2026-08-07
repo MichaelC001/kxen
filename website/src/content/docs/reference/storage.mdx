@@ -10,16 +10,16 @@ kxen 采用本地优先存储，当前没有 kxen 云同步服务。
 
 ## 目录
 
-| 数据       | macOS 位置                                              |
-| ---------- | ------------------------------------------------------- |
-| 用户配置   | `file:///Users/you/.config/kxen/`                       |
-| 应用数据   | `file:///Users/you/Library/Application%20Support/kxen/` |
-| 保留缓存根 | `file:///Users/you/Library/Caches/kxen/`                |
-| 项目配置   | `file:///path/to/workspace/.kxen/`                      |
-| 项目知识   | `file:///path/to/workspace/.agents/`                    |
-| 个人知识   | `file:///Users/you/.agents/`                            |
+| 数据       | 位置                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------- |
+| 用户配置   | `~/.config/kxen/`（全部平台一致）                                                            |
+| 应用数据   | macOS： `~/Library/Application Support/kxen/`;Linux： `~/.local/share/kxen/`;Windows： `%APPDATA%/kxen/` |
+| 保留缓存根 | macOS： `~/Library/Caches/kxen/`;Linux： `~/.cache/kxen/`;Windows： `%LOCALAPPDATA%/kxen/`            |
+| 项目配置   | `file:///path/to/workspace/.kxen/`                                                          |
+| 项目知识   | `file:///path/to/workspace/.agents/`                                                        |
+| 个人知识   | `file:///Users/you/.agents/`                                                                |
 
-当前命名缓存不一定写入缓存根。模型目录和 embedding cache 位于应用数据目录，不能把 `Library/Caches/kxen` 当成清理它们的唯一入口。
+`kxen-web` 可以用环境变量 `KXEN_DATA_DIR` 覆盖应用数据目录。当前命名缓存不一定写入缓存根。模型目录和 embedding cache 位于应用数据目录，不能把缓存根当成清理它们的唯一入口。
 
 ## 用户配置
 

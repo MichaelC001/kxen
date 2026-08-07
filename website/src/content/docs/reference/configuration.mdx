@@ -10,8 +10,8 @@ kxen 使用 TOML 保存非敏感配置。
 
 ## 配置层级
 
-- 用户配置: `file:///Users/you/.config/kxen/config.toml`
-- 项目配置: `file:///path/to/workspace/.kxen/config.toml`
+- 用户配置： `file:///Users/you/.config/kxen/config.toml`
+- 项目配置： `file:///path/to/workspace/.kxen/config.toml`
 
 项目配置只在 Workspace 已信任时加载，并且只能包含以下顶层表项:
 
@@ -74,6 +74,21 @@ capabilities = ["text"]
 ```
 
 `search.engine`、Google CSE、SearXNG、凭证来源和 fallback 行为见 [Web 与 Search](https://kxen.ai/integrations/web-search)。
+
+## Web 与托盘
+
+```toml
+[web]
+enabled = true
+bind = "127.0.0.1"
+port = 7824
+
+[tray]
+default_open = "window"
+close_to_tray = true
+```
+
+`web.enabled` 是浏览器访问开关，系统托盘可以启停并持久化；桌面端 `bind` 保持 loopback，优先端口被占用时回退随机端口。`tray.default_open` 取 `window` 或 `browser`，决定托盘左键动作。两者都是用户级配置，浏览器访问与远程使用的完整说明见 [Web 模式](https://kxen.ai/getting-started/web-mode)。
 
 `voice.fallback` 不只是启动失败时的引擎顺序。当 `engine = "apple"` 时，把已配置的 cloud Provider 放入该数组也表示允许上传录音，用云端终稿升级本机识别。保存凭证本身不会授权上传；纯本地模式应保持 `fallback = []`。需要云转写的音频有 5 分钟和固定缓冲大小上限，超限时不会上传。
 
