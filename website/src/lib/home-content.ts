@@ -3,7 +3,13 @@ export const homeDescription = "面向复杂软件工程任务的 macOS 原生 C
 
 export const homeBody = `kxen 是一个面向复杂软件工程任务的 macOS 原生 Coding Agent Harness。它让用户在一个本地应用中组织工作目录、会话、模型、目标和 Agent 执行过程。
 
-当前版本是开发预览。公开发行、签名下载和自动更新尚未开放。
+当前版本是开发预览。签名并经 Apple 公证的安装包已在 GitHub Releases 公开，应用内置自动更新。
+
+## 下载
+
+- [GitHub Releases 最新版本](https://github.com/StringKe/kxen/releases/latest)：下载 DMG，拖入「应用程序」即可。
+- 平台要求 macOS 14 及以上版本和 Apple Silicon。
+- 每个版本附带 SHA256SUMS 和 updater 签名，可用于校验下载产物。
 
 ## 产品文档
 

@@ -69,8 +69,7 @@ export async function GET({ props }: { props: SlugProps }) {
     "",
     markdown,
     "",
-    // Point at the authored source (`.mdx` twin) when it exists — the
-    // `.md` alternate referencing itself was a placeholder.
+    // 存在 .mdx 源页时指向源页 URL，否则指向本 .md 交替页自身。
     `Source: ${new URL(sourceUrl ?? markdownUrl, config.site).href}`,
     "",
   ].join("\n");

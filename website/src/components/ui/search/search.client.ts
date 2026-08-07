@@ -256,8 +256,8 @@ function bindGlobals() {
 }
 
 // Per-element wiring: idempotent discovery now and on astro:page-load, teardown
-// on astro:before-swap. Replaces the hand-rolled data-search-ready init loop;
-// data-search-ready is now just the "wired" marker primaryDialog() selects on.
+// on astro:before-swap. data-search-ready is the "wired" marker primaryDialog()
+// selects on.
 mount("[data-search-dialog]", (root) => {
   const dialog = root as SearchDialogElement;
   dialog.setAttribute("data-search-ready", "true");

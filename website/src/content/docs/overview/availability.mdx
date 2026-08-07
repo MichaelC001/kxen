@@ -1,28 +1,33 @@
 ---
 title: 可用性
-description: 了解当前安装资格、发行状态和平台限制。
+description: 了解当前安装方式、发行状态和平台限制。
 status: canonical
 sidebar:
   order: 3
 ---
 
-kxen 当前是开发预览，不是公开发行版本。
+kxen 当前是开发预览，安装包已公开发布。
+
+## 安装
+
+1. 在 [GitHub Releases](https://github.com/StringKe/kxen/releases/latest) 下载最新版本的 DMG。
+2. 打开 DMG，把 `Kxen.app` 拖入「应用程序」。
+3. 首次启动后直接打开，安装包经过 Developer ID 签名和 Apple 公证，不需要绕过 Gatekeeper。
+
+每个版本附带 `SHA256SUMS` 和 updater 签名文件，可以校验下载产物。应用内置自动更新通道，后续版本在应用内提示更新。
 
 ## 当前可用范围
 
 - 目标系统是 macOS 14 及以上版本。
 - 目标架构是 Apple Silicon。
-- 开发者可以从源码构建和运行。
+- 开发者也可以从源码构建和运行。
 
 ## 当前不可用范围
 
-- 官网没有公开下载按钮。
-- GitHub Releases 尚未发布面向公众的签名安装包。
-- 稳定自动更新通道尚未开放。
 - Windows、Linux 和 Intel Mac 不在当前支持范围内。
 
 ## 不应推断的承诺
 
 仓库中出现的平台代码、构建配置或实验实现，不代表对应平台已经可用。Provider 出现在注册表中，也不代表用户账号已经获得对应模型权限。
 
-准备从源码运行前，继续查看 [系统要求](https://kxen.ai/getting-started/requirements)。
+安装完成后，继续查看 [系统要求](https://kxen.ai/getting-started/requirements)。

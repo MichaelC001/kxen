@@ -15,8 +15,8 @@
 - `workspace`: Workspace、看板、Session、Composer 和上下文。
 - `models`: Provider、账号、模型、路由和用量。
 - `agent`: Goal、Workflow、Subagent、Team、任务、工具和执行安全。
-- `knowledge`: Knowledge Library、Rules、References、Skills、Commands、Notes 和 Memory。
-- `integrations`: MCP、LSP、Browser、Voice 和 Schedule。
+- `knowledge`: Knowledge Library、Rules、References、Skills、Commands、Notes、Memory 和 History。
+- `integrations`: MCP、LSP、Web 与 Search、Browser、Voice 和 Schedule。
 - `recovery`: Checkpoint、Rewind 和 Worktree。
 - `reference`: 配置、存储、快捷键、诊断和故障排查。
 - `concepts`: 用户需要理解的 Runtime 原理。
