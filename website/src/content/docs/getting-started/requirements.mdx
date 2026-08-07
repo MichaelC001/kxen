@@ -1,0 +1,37 @@
+---
+title: 系统要求
+description: 运行 kxen 所需的平台、项目工具和模型凭证。
+status: canonical
+sidebar:
+  order: 1
+---
+
+## 平台
+
+- macOS 14 或更高版本。
+- Apple Silicon。
+- 可用 `zsh`。
+- Google Chrome、Chromium 或 Microsoft Edge 仅在使用 Browser 能力时需要。
+
+## 项目工具
+
+- Git 仓库用于 Worktree、Checkpoint 和变更视图。
+- 对应语言的 language server 用于 LSP。
+- MCP server 的运行时由用户自行提供。
+
+## 模型
+
+至少需要一个可用 Provider。可以使用:
+
+- 支持的订阅 OAuth。
+- API key。
+- 本地 Ollama。
+- OpenAI 或 Anthropic 兼容端点。
+
+凭证可用性必须通过应用中的连接实测确认。模型名称出现在目录中不代表当前账号拥有调用权限。
+
+## 权限
+
+应用会在使用对应能力时请求文件夹、麦克风、语音识别或自动化权限。不使用对应能力时不需要提前授予。
+
+满足这些条件后，继续注册 [第一个 Workspace](https://kxen.ai/getting-started/first-workspace)。

@@ -1,0 +1,43 @@
+---
+title: 账号
+description: 导入、验证和管理同一 Provider 下的多个凭证。
+status: canonical
+sidebar:
+  order: 2
+---
+
+账号是 Provider 下可独立使用的认证身份。kxen 支持同一 Provider 的多个账号，并让 MRM 在账号之间轮转。
+
+## 添加方式
+
+- 在应用内完成订阅 OAuth 登录：授权码流展示授权链接，设备码流展示 user code，支持 13 个条目，清单和流程差异见 [Provider](https://kxen.ai/models/provider)。
+- 导入订阅 OAuth JSON。
+- 导入裸 OAuth access token。
+- 添加官方平台 API key。
+- 创建带凭证的自定义 Provider。
+
+命名账号适合区分 work、personal 或其他额度池。账号名不能包含冒号或空白字符。标准 token pair 凭证过期前由应用自动 refresh 续期。
+
+## 验证
+
+添加前可以对候选凭证执行连接实测。保存后，每个账号行仍可以单独:
+
+- 实测请求和延迟。
+- 从端点拉取模型目录。
+- 切换多区域 Provider 的运营区域。
+- 查看被哪些模型角色使用。
+- 删除账号或自定义 Provider。
+
+"凭证在位"只表示本地存在认证数据，不代表请求成功。只有连接实测能够确认当前凭证和端点可用。连接实测会向所选 Provider 发送最小真实模型请求，不是本地格式检查，因此可能消耗少量 Provider 配额。
+
+## 多账号调度
+
+角色没有绑定具体账号时，MRM 可以在同一 Provider 的可用账号间轮转。Provider 并发池由账号共享，RPM 按账号分别记录。
+
+## 凭证边界
+
+API key、access token 和 refresh token 不写入 TOML 或知识库。删除正在被角色使用的账号前，界面会显示影响并要求确认。
+
+kxen 首次读取官方 CLI 凭证源前会请求用户同意。启动期不会自动触发 macOS Keychain ACL 弹窗；只有用户显式选择重新导入 Claude 凭证时，才会读取 `Claude Code-credentials`。
+
+Keychain 读取通过 `/usr/bin/security find-generic-password` 独立子进程执行，共享 5 秒总 deadline，输出上限为 1 MiB。超时、输出超限或进程异常时，kxen 会终止并回收子进程，然后按凭证不可得处理，不会在后台留下无界阻塞任务。

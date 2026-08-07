@@ -1,0 +1,63 @@
+---
+title: Context Engineering
+description: kxen 如何选择、限制、压缩和恢复模型工作上下文。
+status: canonical
+sidebar:
+  order: 2
+---
+
+Context 是当前模型调用的工作集，不是长期存储。kxen 把 Session 历史、Rules、显式附件、Notes、Memory 和运行状态按不同方式装入上下文。
+
+<pre class="mermaid">{`
+flowchart LR
+  Session["Session 历史"] --> Select["选择和限制"]
+  Rules["Rules"] --> Select
+  Attachments["显式附件"] --> Select
+  Notes["Notes"] --> Retrieve["相关性检索"]
+  Memory["Memory"] --> Retrieve
+  References["References"] --> Demand["按需读取"]
+  Retrieve --> Select
+  Demand --> Select
+  Select --> Compact["窗口阈值和 Compaction"]
+  Compact --> Context["模型调用上下文"]
+`}</pre>
+
+## 显式附件
+
+Composer 的 `@` 引用支持 Workspace 内文件和目录。图片、拖入文件和大段粘贴内容通过附件系统加入。Web 和 Docs 类型上下文由对应工具入口提供，不由 `@` 文件搜索生成。
+
+当前限制:
+
+- 单个文件超过 16 KB 时只注入前 1 KB，并提示使用 `read`。
+- 单个文件超过 64 KB 时不直接注入。
+- 一次上下文附件总量上限为 200 KB。
+- 目录列表最多 200 项。
+- 公网图片上限为 5 MB。
+
+路径先 canonicalize，再检查 Workspace 边界、symlink 逃逸和 Safety 保护路径。通过原生文件选择器授权的外部文件可以进入上下文，但不能越过 Safety。
+
+## 项目指令
+
+AGENTS.md 和 Rules 保存需要持续生效的约束。References 只在任务需要时读取，避免把全部资料注入每一轮。
+
+## 历史压缩
+
+模型上下文使用 catalog 中的 context window，找不到时回落到 200000 token。估算用字符数除以 4，每张图片按固定估值 1000 token 计入（base64 长度与实际 token 无稳定换算，宁高估勿漏估），超过窗口的 80％ 时触发 compaction。
+
+Compaction:
+
+1. 保留 system message。
+2. 保留最近消息。
+3. 把更旧的 Text 和 Context 蒸馏为工作摘要。
+4. 不改原始 Session JSONL。
+5. 保存 compaction checkpoint，用于重建模型视图。
+
+摘要失败时保留旧段首尾，不丢最近上下文。用户也可以在 Composer 使用 `/compact` 立即尝试一次相同的持久压缩。
+
+## Knowledge 和 Memory
+
+Knowledge Library 是统一管理界面。Notes 和 Memory 通过相关性检索进入上下文，References 按需读取。它们都不应无条件加载全部正文。
+
+## 可见失败
+
+附件读取失败、URL 获取失败和超限必须同时对用户和模型可见。静默丢失上下文会让模型在错误前提下继续执行。

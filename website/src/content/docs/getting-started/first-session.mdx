@@ -1,0 +1,46 @@
+---
+title: 第一个 Session
+description: 在 Workspace 中完成一次可观察、可验证的 Agent 任务。
+status: canonical
+sidebar:
+  order: 3
+---
+
+## 创建
+
+1. 从目标 Workspace 创建 Session。
+2. 在 Composer 的模型选择器中确认 Provider 和模型。
+3. 输入一个范围明确、结果可验证的任务。
+
+推荐的首个任务:
+
+```text
+读取当前 README，说明项目的启动命令和主要模块，不修改文件。
+```
+
+首个任务使用只读目标，便于确认文件读取、模型响应、状态栏和取消路径。
+
+## 观察
+
+运行期间检查:
+
+- 当前模型和上下文占用。
+- 工具调用及其参数摘要。
+- Approval 请求。
+- 后台任务状态。
+- TTFT、耗时、输出速率和 token 使用。
+
+需要结束当前 run 时使用 Composer 的「停止」按钮。默认情况下，运行中发送的新消息进入当前 Session 的等待队列。
+
+## 验证
+
+如果后续任务修改文件:
+
+1. 查看 Session changes。
+2. 运行项目自己的检查命令。
+3. 确认没有未解释的外部文件变化。
+4. 需要时从消息位置 Rewind。
+
+完成首次闭环后，分别阅读 [Session](https://kxen.ai/workspace/session)、[Composer](https://kxen.ai/workspace/composer) 和 [上下文](https://kxen.ai/workspace/context)。
+
+空会话首页提供 Goal、Schedule、Workflow 和 Team 入口。Goal 可以在右侧 Dock 直接填写 objective 与完成判据创建草稿，也可以使用 `/write-goal` 由 Agent 协助澄清；Schedule 可以在 Settings 直接创建。Workflow 和 Team 属于需要模型编排的执行能力，入口会把明确模板填入 Composer，而不是绕过 Agent Runtime 直接运行不透明脚本。

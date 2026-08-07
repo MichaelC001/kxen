@@ -1,0 +1,31 @@
+
+# Rust
+target/
+
+# frontend
+node_modules/
+dist/
+coverage/
+.kxen/
+.vitest-attachments/
+src/components/composer/__screenshots__/
+src/components/__screenshots__/
+src/components/settings/__screenshots__/
+.DS_Store
+src-tauri/gen/
+src/lib/__screenshots__/
+src/pages/__screenshots__/
+
+# credentials and signing material
+release-assets/
+.env
+.env.*
+*.pem
+*.p8
+*.p12
+*.pfx
+*.key
+*.keystore
+*.jks
+id_rsa*
+id_ed25519*

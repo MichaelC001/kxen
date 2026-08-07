@@ -1,0 +1,47 @@
+---
+title: 故障排查
+description: 按运行真源定位 Provider、Session、MCP、LSP 和 Browser 问题。
+status: canonical
+sidebar:
+  order: 5
+---
+
+故障排查先检查后端运行状态，再检查界面呈现。前端停止更新不等于任务已经结束。
+
+## Provider 不可用
+
+1. 在 Settings 的提供商区域确认账号存在。
+2. 对具体账号执行连接实测。
+3. 主动拉取端点模型目录。
+4. 检查角色绑定的 Provider、模型和账号。
+5. 在模型路由中执行试派发。
+6. 检查 Provider 并发和账号 RPM。
+
+## Session 停止响应
+
+1. 检查 Session 是否仍有 active run。
+2. 检查是否正在等待 Approval。
+3. 检查消息队列和后台任务。
+4. 使用 Composer 的「停止」按钮结束当前 run。
+5. 重新加载 Session，确认时间线出现完成、取消或错误终态。
+
+## MCP 无法连接
+
+1. 确认 Workspace 已信任。
+2. 检查 transport、命令或远端 URL。
+3. 对远端 server 重新完成 OAuth。
+4. 检查工具级 allow、ask 和 deny。
+5. 在诊断页面检查握手、工具和资源数量。
+6. 手动重启 server。
+
+## LSP 不可用
+
+确认对应 language server 已安装，并且能从应用进程 PATH 中找到。首次调用会延迟启动。仍然失败时，在诊断页面检查具体语言和启动错误。
+
+## Browser 不可用
+
+确认本机已安装 Google Chrome、Chromium 或 Microsoft Edge，并且没有冲突调试实例。kxen 不下载独立 Chromium。页面能打开但操作失败时，分别检查导航 URL、页面权限和当前 CDP 连接。
+
+## Voice 不可用
+
+检查麦克风和语音识别系统权限，再检查首选引擎凭证。使用 Composer 的引擎菜单查看不可用原因和实际 fallback。

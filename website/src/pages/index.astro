@@ -1,0 +1,102 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Header from "../components/Header.astro";
+import { homeDescription, homeTitle } from "../lib/home-content";
+import { jsonLd } from "../lib/json-ld";
+
+const softwareApplicationLd = jsonLd({
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "kxen",
+  operatingSystem: "macOS 14+",
+  applicationCategory: "DeveloperApplication",
+  description: homeDescription,
+});
+// 首页的 markdown 交替页（/index.md）：Agent 指令与 PageActions 需要显式传入。
+const markdownUrl = Astro.site ? new URL("/index.md", Astro.site).href : "/index.md";
+---
+
+<BaseLayout title={homeTitle} description={homeDescription} markdownUrl={markdownUrl} head={[softwareApplicationLd]}>
+  <div class="flex flex-col min-h-screen">
+    <Header />
+    <main class="flex-1 mx-auto max-w-5xl w-full px-6 py-16 sm:py-24">
+      <div class="max-w-3xl">
+        <div class="inline-flex items-center rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+          开发预览
+        </div>
+        <div class="mt-6 flex items-center gap-5">
+          <img src="/icon.png" width="76" height="76" alt="" class="h-16 w-16 rounded-2xl shadow-lg sm:h-20 sm:w-20" />
+          <h1
+            class="text-foreground leading-tight"
+            style="font-size: clamp(3rem, 9vw, 5.75rem); font-weight: 700; letter-spacing: -0.055em;"
+          >
+            kxen
+          </h1>
+        </div>
+        <p class="mt-6 max-w-2xl text-xl text-foreground leading-relaxed sm:text-2xl">
+          一个原生、可控、面向复杂软件工程任务的 Coding Agent Harness。
+        </p>
+        <p class="mt-4 max-w-2xl text-base text-muted-foreground leading-relaxed sm:text-lg">
+          为 macOS Apple Silicon 构建。把 Workspace、Session、模型、目标和 Agent 执行过程放进一个本地应用。
+        </p>
+        <div class="mt-8 flex flex-wrap gap-3">
+          <a href="/overview" class="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground no-underline transition-colors hover:bg-primary-hover">
+            了解 kxen
+          </a>
+          <a href="/getting-started" class="rounded-lg border border-border-strong bg-card px-4 py-2.5 text-sm font-semibold text-foreground no-underline transition-colors hover:bg-accent">
+            开始使用
+          </a>
+        </div>
+      </div>
+
+      <div class="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <a
+          href="/workspace/workspace"
+          class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
+        >
+          <div class="font-semibold text-foreground">Workspace</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">以本地项目为边界组织配置、知识、工具和执行状态。</div>
+        </a>
+        <a
+          href="/workspace/composer"
+          class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
+        >
+          <div class="font-semibold text-foreground">Composer</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">组合文本、文件、图片、命令、知识和语音输入。</div>
+        </a>
+        <a
+          href="/agent/goal"
+          class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
+        >
+          <div class="font-semibold text-foreground">Goal</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">用可验证的完成条件管理跨多轮的软件工程任务。</div>
+        </a>
+        <a
+          href="/models/model-routing"
+          class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
+        >
+          <div class="font-semibold text-foreground">模型路由</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">按角色配置 Provider、模型、账号和降级链。</div>
+        </a>
+        <a
+          href="/knowledge/knowledge-library"
+          class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
+        >
+          <div class="font-semibold text-foreground">Knowledge Library</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">统一管理项目和个人范围的规则、资料与长期知识。</div>
+        </a>
+        <a
+          href="/agent/safety"
+          class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
+        >
+          <div class="font-semibold text-foreground">Safety</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">在工具执行层拒绝、审批或记录高风险操作。</div>
+        </a>
+      </div>
+
+      <div class="mt-16 border-t border-border pt-8 text-sm text-muted-foreground">
+        当前版本为开发预览。公开发行、签名下载和自动更新尚未开放。
+      </div>
+    </main>
+  </div>
+</BaseLayout>

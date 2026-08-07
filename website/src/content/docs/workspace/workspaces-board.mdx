@@ -1,0 +1,27 @@
+---
+title: Workspaces 看板
+description: 跨项目查看运行中的 Session、Goal、Worktree 和等待任务。
+status: canonical
+sidebar:
+  order: 2
+---
+
+Workspaces 看板用于观察多个项目的执行状态。它不是新的执行引擎，而是跨 Workspace 的状态汇总入口。
+
+## 产品入口
+
+在左侧栏进入 Workspaces。看板按 Workspace 展示当前 Session 和项目状态，并把需要关注的运行项排在前面。
+
+## 展示内容
+
+- 运行中的 Session。
+- 已绑定的 Goal 及其状态。
+- Worktree 数量和分支信息。
+- 等待消息和定时任务数量。
+- 工作树脏文件数量。
+
+Goal 状态会区分进行中、阻塞、预算触顶和暂停。看板读取后端运行真源，不把前端是否仍在流式显示当成任务状态。
+
+## 使用方式
+
+用看板寻找仍在运行、等待处理或存在未提交变化的项目。选择卡片后返回对应 Session 继续工作。具体操作仍在 Session、Goal、Schedule 或 Worktree 页面完成。

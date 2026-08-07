@@ -1,0 +1,47 @@
+---
+title: 模型路由
+description: 按 Agent 角色绑定 Provider、模型、账号和降级目标。
+status: canonical
+sidebar:
+  order: 4
+---
+
+模型路由把工作角色映射到实际推理资源。它让主会话、规划、执行和审查使用不同模型，而不需要每次手动选择。
+
+## 产品入口
+
+在 Settings 的模型路由区域配置。当前角色包括:
+
+- chat
+- thinking
+- planning
+- execution
+- review
+- research
+
+## 每个角色的绑定
+
+- Provider。
+- 模型 ID。
+- 可选的固定账号。
+- 可选的 fallback 角色。
+
+不指定账号时，MRM 在对应 Provider 的可用账号间轮转。Provider 或账号没有可用槽位时，可以沿 fallback 角色继续解析候选。
+
+## 调度实况
+
+模型路由界面展示:
+
+- Provider 并发槽位。
+- 每个角色的当前绑定。
+- 试派发结果。
+- 最近派发记录。
+- 是否发生 fallback。
+
+配置保存后热生效。试派发会真实创建一个要求回复 `PONG` 的 Subagent，并返回实际 Provider、模型和账号，用于确认配置不是只有静态表单值。它不是 dry run，可能消耗少量 Provider 配额，只应在用户显式点击时执行。
+
+## 循环边界
+
+不要让两个角色互相指向对方作为 fallback。循环配置不会产生新的可用资源，只会让降级链无法完成有效选择。
+
+互指不会无限展开：解析链最多取 3 跳，且按已访问角色去重截断（出厂的 execution 与 research 互指就是靠这一截断保证解析必然终止）。截断保证的是终止，不是可用性——互指链上仍然没有任何新资源。

@@ -1,0 +1,33 @@
+---
+title: History
+description: 为知识系统保存可索引、按需查看的历史材料。
+status: canonical
+sidebar:
+  order: 8
+---
+
+History 是统一知识系统中的历史条目类型。它用于保留仍有查阅价值、但不应作为当前规则或自动记忆注入的材料。
+
+## 存放位置
+
+- 项目范围: `file:///path/to/workspace/.agents/history/`
+- 个人范围: `file:///Users/you/.agents/history/`
+
+History 的描述和位置进入知识索引，正文默认不自动全文注入。Agent 需要时再读取具体内容。
+
+## 适合保存
+
+- 已结束决策的背景。
+- 迁移前后的对照说明。
+- 已完成工作的稳定回顾。
+- 仍需偶尔查询的旧接口信息。
+
+## 不适合保存
+
+- 当前必须遵守的约束，应写入 Rules。
+- 当前任务需要的权威资料，应写入 References。
+- 可重复执行的流程，应写入 Skills。
+- 需要自动检索的稳定事实，应写入 Notes 或 Memory。
+- 临时 research、analysis 和验证输出不属于长期产品知识。
+
+History 的存在不代表内容仍然有效。条目描述应该明确时间和失效边界，避免旧信息被误当作当前产品行为。

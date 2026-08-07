@@ -1,0 +1,30 @@
+---
+title: Checkpoint
+description: 把 Workspace 文件状态与 Session 消息关联为恢复点。
+status: canonical
+sidebar:
+  order: 1
+---
+
+Checkpoint 记录 Agent 工作过程中的 Workspace 状态，并把恢复点关联到 Session 消息。
+
+## 存储方式
+
+Checkpoint 使用独立的 shadow Git repository。它不在 Workspace 自己的 `.git` 中创建提交，也不会把恢复记录推送到用户远端。
+
+## 记录内容
+
+恢复点用于还原 Agent 修改涉及的文件状态。Session 时间线保存消息与 Checkpoint 的关系，因此用户可以从具体回合发起 Rewind。
+
+## 产品呈现
+
+可恢复的消息在时间线中提供 Rewind 入口。Session changes 和 Diff 视图用于查看当前变更，Checkpoint 本身不等于用户已经接受这些变更。
+
+## 边界
+
+- Checkpoint 不替代 Git commit。
+- Checkpoint 不自动解决外部进程同时修改文件的问题。
+- Checkpoint 只属于对应 Session 和 Workspace。
+- 用户未提交修改不能被静默覆盖。
+
+真正恢复文件和对话状态的操作由 [Rewind](https://kxen.ai/recovery/rewind) 完成。

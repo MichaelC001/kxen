@@ -1,0 +1,122 @@
+---
+title: Provider
+description: 连接订阅服务、API 平台、本地模型和兼容端点。
+status: canonical
+sidebar:
+  order: 1
+---
+
+Provider 描述模型服务的协议、端点、认证方式、区域、能力和默认模型。它不等于账号，也不等于具体模型。
+
+## 产品入口
+
+在 Settings 的提供商区域查看 Provider 和账号状态。Provider 注册表是界面名称、认证类型、区域和默认模型的权威来源。
+
+## Provider 类型
+
+- 订阅 OAuth Provider。
+- API key Provider。
+- 本地免认证 Provider，例如 Ollama。
+- 自定义 OpenAI 兼容端点。
+- 自定义 Anthropic 兼容端点。
+
+## 内置 Provider 注册表
+
+注册表共 44 个内置条目，顺序即设置页展示顺序。默认模型来自静态模型目录；目录是种子，不是实时可用性承诺，支持 `/models` 端点的条目可以在账号行拉取实时目录。
+
+### 订阅 OAuth
+
+11 家订阅 Provider 全部支持应用内 OAuth 登录，登录流程分为授权码流和设备码流。
+
+| Provider           | key                  | 登录流程          | 区域   | 默认模型               |
+| ------------------ | -------------------- | ----------------- | ------ | ---------------------- |
+| Anthropic          | `anthropic`          | 授权码            | 全球   | `claude-sonnet-4-6`    |
+| OpenAI             | `openai`             | 授权码            | 全球   | `gpt-5.4`              |
+| xAI                | `xai`                | 设备码            | 全球   | `grok-build-0.1`       |
+| Kimi For Coding    | `kimi-for-coding`    | 设备码            | 全球   | `kimi-for-coding`      |
+| GitHub Copilot     | `github-copilot`     | 设备码            | 全球   | `gpt-4.1`              |
+| Qwen Code 订阅     | `qwen-oauth`         | 设备码            | 全球   | `qwen3-coder-plus`     |
+| Google Gemini 订阅 | `google-oauth`       | 授权码            | 全球   | `gemini-2.5-pro`       |
+| Google Antigravity | `google-antigravity` | 授权码            | 全球   | `gemini-3-pro-preview` |
+| MiniMax 订阅       | `minimax-oauth`      | 设备码            | 全球   | `MiniMax-M2.7`         |
+| MiniMax 订阅中国版 | `minimax-cn-oauth`   | 设备码            | 中国版 | `MiniMax-M2.7`         |
+| AWS Kiro           | `kiro`               | 设备码（AWS SSO） | 全球   | `claude-sonnet-4.5`    |
+
+### 聚合、网关与本地
+
+| Provider          | key            | 认证方式   | 区域 | 默认模型                      |
+| ----------------- | -------------- | ---------- | ---- | ----------------------------- |
+| OpenRouter        | `openrouter`   | API key    | 全球 | `openai/gpt-5.4`              |
+| Vercel AI Gateway | `vercel`       | API key    | 全球 | `anthropic/claude-sonnet-4.6` |
+| Hugging Face      | `huggingface`  | API key    | 全球 | `deepseek-ai/DeepSeek-V3.2`   |
+| Ollama            | `ollama`       | 本地免认证 | 全球 | `llama3.3`                    |
+| Ollama Cloud      | `ollama-cloud` | API key    | 全球 | `kimi-k2.5`                   |
+
+OpenRouter 除 API key 外也支持应用内 OAuth 登录：授权码流换取的是永久 API key，落为 API key 凭证，不需要 refresh。
+
+### 国际 API key
+
+| Provider      | key             | 区域 | 默认模型                                  |
+| ------------- | --------------- | ---- | ----------------------------------------- |
+| DeepSeek      | `deepseek`      | 全球 | `deepseek-chat`                           |
+| Mistral       | `mistral`       | 全球 | `mistral-large-latest`                    |
+| Groq          | `groq`          | 全球 | `llama-3.3-70b-versatile`                 |
+| Google Gemini | `google`        | 全球 | `gemini-2.5-flash`                        |
+| Together AI   | `together`      | 全球 | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
+| Fireworks     | `fireworks`     | 全球 | `accounts/fireworks/models/gpt-oss-120b`  |
+| Cerebras      | `cerebras`      | 全球 | `gpt-oss-120b`                            |
+| SambaNova     | `sambanova`     | 全球 | `Meta-Llama-3.3-70B-Instruct`             |
+| Perplexity    | `perplexity`    | 全球 | `sonar`                                   |
+| Cohere        | `cohere`        | 全球 | `command-a-03-2025`                       |
+| GitHub Models | `github_models` | 全球 | `openai/gpt-4.1-mini`                     |
+| Novita        | `novita`        | 全球 | `deepseek/deepseek-v3.1`                  |
+
+### 国内 API key
+
+| Provider         | key              | 区域           | 默认模型                    | 备注                               |
+| ---------------- | ---------------- | -------------- | --------------------------- | ---------------------------------- |
+| Kimi             | `kimi`           | 中国版、国际版 | `kimi-k2.5`                 |                                    |
+| 智谱 GLM         | `zhipu`          | 中国版、国际版 | `glm-4.6`                   |                                    |
+| 智谱 Coding Plan | `zhipu-coding`   | 中国版、国际版 | `glm-5.2`                   | Coding Plan；支持应用内 OAuth 登录 |
+| 通义千问         | `qwen`           | 中国版、国际版 | `qwen3-max`                 |                                    |
+| 百炼 Coding Plan | `qwen-coding`    | 中国版、国际版 | `qwen3-coder-plus`          | Coding Plan                        |
+| MiniMax          | `minimax`        | 中国版、国际版 | `MiniMax-M2.5`              |                                    |
+| 硅基流动         | `siliconflow`    | 中国版、国际版 | `deepseek-ai/DeepSeek-V3.2` |                                    |
+| 阶跃星辰         | `stepfun`        | 中国版、国际版 | `step-3.5-flash`            |                                    |
+| 阶跃 Step Plan   | `stepfun-plan`   | 中国版、国际版 | `step-3.5-flash`            | 套餐端点                           |
+| 豆包             | `doubao`         | 全球           | `doubao-seed-1-6-250615`    |                                    |
+| 豆包 Coding Plan | `doubao-coding`  | 全球           | `ark-code-latest`           | Coding Plan                        |
+| 零一万物         | `yi`             | 全球           | `yi-lightning`              |                                    |
+| 腾讯混元         | `hunyuan`        | 全球           | `hunyuan-turbos-latest`     |                                    |
+| 腾讯 Coding Plan | `hunyuan-coding` | 全球           | `tc-code-latest`            | Coding Plan                        |
+| 百度千帆         | `qianfan`        | 全球           | `ernie-4.5-turbo-128k`      |                                    |
+| 千帆 Coding Plan | `qianfan-coding` | 全球           | `qianfan-code-latest`       | Coding Plan                        |
+
+Coding Plan 和套餐条目使用专属端点，套餐 key 与普通按量 key 不通用；豆包 Coding Plan 的模型目录独立，普通豆包模型 ID 在该端点不可用。
+
+## 应用内 OAuth 登录
+
+13 个条目支持在设置页直接完成登录，不需要手动粘贴 token：11 家订阅 OAuth Provider，加上 OpenRouter 和智谱 Coding Plan。其余 Provider 使用 API key、CLI 凭证导入或本地免认证。
+
+- 授权码流：Anthropic、OpenAI、Google Gemini 订阅、Google Antigravity、OpenRouter 和智谱 Coding Plan。浏览器完成授权后由本机 loopback 回调接收；回调不可达时，Anthropic、OpenRouter 和智谱 Coding Plan 支持手动粘贴授权码。
+- 设备码流：xAI、Kimi For Coding、Qwen Code 订阅、GitHub Copilot、MiniMax 双区域和 AWS Kiro。界面展示 user code，用户在浏览器确认后自动完成。
+- 智谱 Coding Plan 的登录契约来自 Z.AI ZCode 桌面客户端：授权码经 broker 换取并铸造 durable API key，最终以 API key 形态保存，不需要 refresh。该契约未获官方第三方登录承诺，未来可能失效。
+- GitHub Copilot 在设备码换到 OAuth token 后还要换取短命 Copilot API JWT，由应用自动续期。
+- AWS Kiro 使用 AWS SSO OIDC 设备流，client 凭证由 registerClient 动态签发。
+- Google Gemini 订阅和 Google Antigravity 复用公开桌面客户端凭证，Google ToS 限制第三方复用，设置页会显示账号风险警告。
+
+标准 token pair 凭证由应用在过期前自动 refresh 续期。OpenRouter 和智谱 Coding Plan 落为 API key 形态，不参与 refresh。
+
+## 协议差异
+
+大多数条目使用 OpenAI 兼容协议；Anthropic 和 MiniMax 双订阅使用 Anthropic 协议。三个条目按 key 特判走厂商私有 wire 协议：Google Gemini 订阅和 Google Antigravity 走 Gemini Code Assist 协议，AWS Kiro 走 CodeWhisperer eventstream 协议。这些条目的 base URL 只用于目录和凭证归属，不代表可以当作 OpenAI 兼容端点复用。
+
+## 自定义 Provider
+
+创建自定义 Provider 时需要提供名称、base URL、协议、模型 ID、API key 和能力。能力可以包含 text、vision 和 audio。
+
+自定义 Provider 的配置和凭证分开保存。配置记录端点和模型，凭证进入本地认证存储，不进入项目仓库。
+
+## 可用性
+
+Provider 出现在注册表中，只表示 kxen 知道如何连接它。实际可用性还取决于账号凭证、区域、模型权限、服务状态和本机网络。使用账号行中的连接实测确认当前状态。

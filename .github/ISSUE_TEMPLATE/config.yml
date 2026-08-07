@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 产品文档
+    url: https://kxen.ai
+    about: 使用说明与能力清单请先查阅官网文档
+  - name: 安全问题
+    url: https://github.com/StringKe/kxen/security/policy
+    about: 安全漏洞请按 SECURITY.md 私下报告，不要开公开 Issue

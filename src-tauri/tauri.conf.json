@@ -1,0 +1,47 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/config.schema.json",
+  "productName": "Kxen",
+  "version": "0.0.1",
+  "identifier": "ai.kxen.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:7823",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Kxen",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1280,
+        "minHeight": 800,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "createUpdaterArtifacts": true,
+    "macOS": {
+      "minimumSystemVersion": "14.0",
+      "signingIdentity": null
+    },
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERBQzQzQkYxRkJFMUI4MTgKUldRWXVPSDc4VHZFMm9YS3dHelJYdWZZYThVUmwvdlV3ZGhVV2p0cnpSQ0pVYTRyTjAxUmhUSkYK",
+      "endpoints": ["https://github.com/StringKe/kxen/releases/latest/download/latest.json"]
+    }
+  }
+}

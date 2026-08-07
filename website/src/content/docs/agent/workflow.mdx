@@ -1,0 +1,40 @@
+---
+title: Workflow
+description: 在受限 QuickJS 运行时组织并行、阶段、分支和循环任务。
+status: canonical
+sidebar:
+  order: 2
+---
+
+Workflow 把多个 Agent 调用编排成可执行流程。它适合步骤之间有依赖、并行或中间结果传递的任务。
+
+## 运行方式
+
+模型生成 JavaScript，kxen 在 QuickJS 沙箱中执行。Workflow 使用受控原语和只读约束快照描述执行关系:
+
+- `agent()`
+- `parallel()`
+- `phase()`
+- `log()`
+- `CONSTRAINTS`
+
+Workflow JavaScript 不能直接获得宿主文件系统或任意网络访问。实际修改仍由被派发 Agent 的工具和权限完成。
+
+## 能够表达的结构
+
+- 多个独立 Agent 并行。
+- 通过普通 JavaScript `await` 表达顺序依赖。
+- 带验证要求的 phase。
+- 基于中间结果的分支。
+- 有界循环和重试。
+- 最终集成与验证阶段。
+
+## 资源边界
+
+沙箱限制内存、栈、总运行时间和 Agent 调用次数。所有模型调用仍通过 MRM，并受 Provider 并发和账号 RPM 限制。
+
+用户取消 Workflow 时，运行和仍在等待的 Agent 调用都会收到取消信号。Workflow 不能借助并行绕开 Safety、Approval 或角色权限。
+
+## 选择方式
+
+步骤固定且依赖清楚时使用 Workflow。只需要一个独立上下文时使用 [Subagent](https://kxen.ai/agent/subagent)，需要成员持续协作和共享任务时使用 [Agent Teams](https://kxen.ai/agent/agent-teams)。

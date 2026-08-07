@@ -1,0 +1,65 @@
+---
+title: 工具系统
+description: 了解 resident tools、按需工具、角色权限和运行状态。
+status: canonical
+sidebar:
+  order: 6
+---
+
+工具让 Agent 读取项目、修改文件、运行命令、访问语言服务和调用外部集成。工具目录不是权限目录，出现在目录中的工具不一定能在当前角色或机器上执行。
+
+## Resident tools
+
+高频工具直接提供给模型:
+
+- `exec`
+- `read`
+- `edit`
+- `write`
+- `task`
+- `goal`
+- `glob`
+- `grep`
+- `todo`
+- `webfetch`
+- `websearch`
+- `tool_search`
+- `workflow`
+- `team`
+
+`team` 只对主会话 lead 可见，teammate 使用受限的 `send_message` 和 `team_task`。文件工具受 Workspace 和统一路径边界限制。`exec` 要求显式 Shell dialect，并把长命令转为后台任务。
+
+`webfetch` 与 `websearch` 的提取、fallback、网络和计量边界见 [Web 与 Search](https://kxen.ai/integrations/web-search)。
+
+## 按需工具
+
+低频工具通过 `tool_search` 渐进披露:
+
+- `delete`
+- `lsp`
+- `agent`
+- `worktree`
+- `skill`
+- `knowledge`
+- `schedule`
+- `browser`
+
+`Browser` 只有在个人配置中显式启用实验开关后才进入目录。MCP 工具有独立目录和策略，不属于内置 deferred tools 清单。模型先发现契约，再调用具体工具，避免一次性把全部工具说明塞入上下文。
+
+## 权限来源
+
+工具是否可用由以下条件共同决定:
+
+- Agent 角色和 permission profile。
+- Workspace 信任。
+- 本机运行时和外部服务状态。
+- Safety 判定。
+- 用户 Approval。
+
+研究和规划角色默认没有写入和命令权限。execution 角色可以获得更完整的工具面，但仍不能覆盖 Safety 的硬拒绝。Shell 在宿主机执行，不是沙盒；每条命令都必须显示完整 command 和 cwd，并获得当次 Approval。
+
+## 可观察性
+
+时间线中的每次工具调用是一张摘要卡片：状态点、工具名称、关键参数摘要和元信息徽标。卡片默认折叠，展开后可以在同一张卡内回看精确 arguments 和完整输出；`edit` 和 `write` 展开后渲染结构化 diff，而不是原始 JSON。连续的只读探索调用会聚合成一行分组卡片，显示调用次数和按工具的分布，展开后逐卡回看。`Cmd+O` 或 Session 头部的开关可以全局展开或折叠全部工具详情，手动开合过的卡片保持自己的选择。
+
+长输出会截断展示，但实际任务状态仍由后端工具运行记录决定。

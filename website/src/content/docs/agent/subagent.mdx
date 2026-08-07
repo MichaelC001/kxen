@@ -1,0 +1,40 @@
+---
+title: Subagent
+description: 为独立任务创建隔离上下文和明确角色权限。
+status: canonical
+sidebar:
+  order: 3
+---
+
+Subagent 是由当前 Agent 派发的独立执行单元。它拥有自己的上下文窗口，完成后把结论或结果返回给调用方。
+
+## 角色
+
+kxen 使用角色决定提示词、模型路由、工具权限和最大执行轮数。常见角色包括 thinking、planning、execution、review 和 research。
+
+- thinking 和 planning 聚焦分析与方案。
+- execution 可以执行实现和验证。
+- review 聚焦检查变更和证据。
+- research 聚焦资料和代码事实。
+
+角色名称不直接赋予权限。实际可用工具由对应 permission profile 决定，Safety 始终保留最终约束。
+
+## 隔离范围
+
+Subagent 与主 Agent 分离:
+
+- 对话上下文。
+- 工具调用历史。
+- token 使用。
+- 运行轮数。
+- 模型路由结果。
+
+需要文件系统隔离时，可以再绑定独立 [Worktree](https://kxen.ai/recovery/worktree)。没有 Worktree 时，多个有写权限的 Subagent 仍可能操作同一工作目录。
+
+## 结果返回
+
+Subagent 完成后返回结构化结果。主 Agent 负责决定如何合并、验证或继续处理，不应把多个 Subagent 的未验证结论直接当作最终完成证据。
+
+## 适用范围
+
+把边界清楚、可以独立完成的子任务交给 Subagent。持续协作、成员互发消息和共享任务使用 [Agent Teams](https://kxen.ai/agent/agent-teams)。

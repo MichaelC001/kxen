@@ -1,0 +1,29 @@
+---
+title: 模型
+description: 查看实时模型目录并为当前 Session 选择模型。
+status: canonical
+sidebar:
+  order: 3
+---
+
+模型是 Provider 实际提供的推理目标。模型 ID、展示名称、上下文窗口和能力来自应用模型目录。
+
+## 模型目录
+
+目录由 Provider 注册信息和端点返回结果共同形成。用户可以在 Provider 账号行主动拉取端点模型，成功结果会并入 Composer 模型选择器。
+
+静态种子列表不是实时可用性承诺。Provider 可以新增、重命名、限制或移除模型，账号也可能没有某个模型的访问权限。
+
+## Session 选择
+
+Composer 中的模型选择器可以为当前 Session 设置模型。选择结果保存在 Session 元数据中，不会批量修改其他 Session。
+
+使用 `Cmd+K` 可以搜索模型，并把选中模型应用到当前 Session。
+
+## 角色默认值
+
+没有显式 Session 覆盖时，主会话和各 Agent 角色使用 Session 所属 Workspace 有效配置中的模型路由绑定。Subagent、Workflow Agent 和 Team member 可以根据角色选择不同模型。前台切换到其他 Workspace 不会改变后台 Session 的默认绑定。
+
+## 选择依据
+
+模型选择器显示 Provider、模型 ID 和上下文窗口。显式选择会固定该 Session 的 Provider 和模型身份，但最终请求仍要经过所属 Workspace MRM 的账号解析、预算、Circuit、并发和 RPM admission，再由实际 Provider dispatch 验证该模型是否可用。角色默认路由允许 fallback；显式选择不可用时会返回错误，不会暗中改成其他模型。

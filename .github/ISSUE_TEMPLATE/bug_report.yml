@@ -1,0 +1,51 @@
+name: Bug 报告
+description: 报告应用功能异常或崩溃
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请先搜索已有 Issue，避免重复提交。
+  - type: textarea
+    id: summary
+    attributes:
+      label: 问题描述
+      description: 发生了什么？期望的行为是什么？
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 从启动应用到问题出现的最小操作序列
+      placeholder: |
+        1. 打开 Settings -> ...
+        2. 新建 Session 并发送 ...
+        3. 观察到 ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境信息
+      description: kxen 版本（Settings 或 About 中查看）、macOS 版本、芯片型号、使用的 Provider 和模型
+      placeholder: |
+        kxen: v0.0.1
+        macOS: 15.5 / Apple M4
+        Provider: anthropic / claude-sonnet-4.5
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志与截图
+      description: 相关日志片段或截图。注意脱敏，不要粘贴 API key、OAuth token 或隐私内容
+      render: text
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: 脱敏确认
+      options:
+        - label: 我确认提交内容不包含 API key、证书、私钥或个人隐私数据
+          required: true

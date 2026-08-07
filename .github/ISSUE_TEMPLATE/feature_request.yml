@@ -1,0 +1,23 @@
+name: 功能建议
+description: 提议新能力或改进现有功能
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 当前遇到什么不便？同类软件（如有）是怎么处理的？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的方案
+      description: 希望 kxen 怎么做？涉及新 Provider 接入时请注明官方文档地址
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案

@@ -1,0 +1,26 @@
+---
+title: 第一个 Workspace
+description: 注册本地项目并建立 kxen 的执行边界。
+status: canonical
+sidebar:
+  order: 2
+---
+
+Workspace 是 kxen 连接本地项目的入口。每个 Session 都属于一个工作目录，项目配置、知识、MCP、LSP、Checkpoint 和 Worktree 都以这个目录为边界。
+
+## 注册项目
+
+1. 在左侧栏选择添加 Workspace。
+2. 使用 macOS 原生目录选择器选择项目目录。
+3. 确认项目出现在 Workspace 列表中。
+4. 只在你信任仓库内容时确认 Workspace 信任。
+
+## 信任的影响
+
+信任不是装饰状态。受信任 Workspace 才会加载项目配置、项目 MCP、项目 Skill、项目 Command 和可注入的项目知识。
+
+未信任 Workspace 仍可以被浏览，但项目提供的可执行面和提示词注入面保持关闭。个人范围的知识不受项目信任状态影响。
+
+## 完成标准
+
+Workspace 列表中能够看到项目，创建 Session 时能够选择该目录，并且状态栏显示正确工作目录。随后继续创建 [第一个 Session](https://kxen.ai/getting-started/first-session)。

@@ -1,0 +1,37 @@
+---
+title: References
+description: 保存可发现、按需读取而不自动全文注入的项目资料。
+status: canonical
+sidebar:
+  order: 3
+---
+
+References 用于 Agent 可能需要、但不应在每次请求中自动加载的资料。典型内容包括架构说明、接口约定、领域词汇和长篇操作手册。
+
+## 存放位置
+
+- 项目范围: `file:///path/to/workspace/.agents/references/`
+- 个人范围: `file:///Users/you/.agents/references/`
+
+Markdown 文件会被扫描为 Reference 条目。未知知识子目录中的 Markdown 默认也按 Reference 处理。
+
+## 渐进披露
+
+Reference 的描述和位置进入知识索引，正文不会像激活 Rule 一样自动全文注入。Agent 先判断相关性，再读取需要的资料。
+
+这种方式避免每个请求都携带长文档，并让用户可以维护比模型上下文更大的知识库。
+
+## index.md
+
+每一层目录可以使用 index.md 作为人工策展入口。它适合说明:
+
+- 这一层有哪些资料。
+- 每份资料解决什么问题。
+- 推荐读取顺序。
+- 资料之间的依赖关系。
+
+index.md 的正文会作为知识地图进入渲染结果，但它不替代具体 Reference。
+
+## 与 Rules 的区别
+
+Rule 表达"必须怎么做"，激活后直接约束行为。Reference 表达"完成任务时可能需要知道什么"，默认按需读取。不要把长篇背景资料写成始终注入的 Rule。
