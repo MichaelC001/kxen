@@ -1,0 +1,27 @@
+---
+title: 代码签名说明
+description: kxen 各平台的代码签名状态和下载产物的验签方法。
+status: canonical
+sidebar:
+  order: 6
+---
+
+kxen 的安装包按平台采用不同的签名机制，本页说明各平台状态和自行验签的方法。
+
+## 各平台签名状态
+
+| 平台    | 签名机制                                                                 |
+| ------- | ------------------------------------------------------------------------ |
+| macOS   | Apple Developer ID 签名 + Apple 公证，桌面 App、DMG 和 `kxen` CLI 一致  |
+| Windows | 无 Authenticode 签名                                                     |
+| Linux   | 无 OS 级签名                                                             |
+
+全部平台的桌面安装介质(deb 除外)另附 Tauri updater 的 minisign 签名，应用内自动更新逐版本验签；每个发布附 `SHA256SUMS` 供手动校验。
+
+Windows 安装包当前未做 Authenticode 签名,SmartScreen 首次启动会提示信誉警告，选择 More info -> Run anyway 即可继续安装。
+
+## 验证下载产物
+
+- macOS: `codesign --verify --deep --strict Kxen.app` 与 `xcrun stapler validate Kxen.app` 校验桌面 App;`kxen` CLI 用 `codesign --verify --strict kxen` 校验。
+- 全平台: 用发布附带的 `SHA256SUMS` 逐文件核对 sha256(`shasum -a 256 -c SHA256SUMS` 或 `sha256sum -c SHA256SUMS`)。
+- updater 签名: `.sig` 文件与 [Tauri updater 公钥](https://github.com/StringKe/kxen/blob/main/src-tauri/tauri.conf.json)可用 minisign 兼容工具验证。

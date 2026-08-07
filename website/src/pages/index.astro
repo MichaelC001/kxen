@@ -63,7 +63,7 @@ const dl = (asset: string) => `https://github.com/StringKe/kxen/releases/latest/
 
       <section class="mt-16" aria-labelledby="download-heading">
         <h2 id="download-heading" class="text-lg font-semibold text-foreground">下载</h2>
-        <p class="mt-1.5 text-sm text-muted-foreground">链接指向 GitHub Releases 的稳定 asset，始终解析到最新版本。</p>
+        <p class="mt-1.5 text-sm text-muted-foreground">链接指向 GitHub Releases 的稳定 asset，始终解析到最新版本。签名与验签方法见 <a href="/reference/code-signing" class="text-foreground underline decoration-border-strong underline-offset-4 hover:text-primary">代码签名说明</a>。</p>
         <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div class="rounded-xl border border-border bg-card p-5">
             <div class="font-semibold text-foreground">macOS</div>
@@ -117,7 +117,7 @@ const dl = (asset: string) => `https://github.com/StringKe/kxen/releases/latest/
               </div>
             </div>
             <div class="mt-2.5 text-xs leading-relaxed text-muted-foreground">
-              启动后打印带 token 的访问 URL，浏览器打开即用。用法见 <a href="/getting-started/web-mode" class="text-foreground underline">Web 模式</a>。
+              启动后打印带 token 的访问 URL，浏览器打开即用；macOS 包经 Developer ID 签名和 Apple 公证。用法见 <a href="/getting-started/web-mode" class="text-foreground underline">Web 模式</a>。
             </div>
           </div>
         </div>

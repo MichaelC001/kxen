@@ -16,7 +16,7 @@ kxen 当前是开发预览，安装包已公开发布。
 | Windows | x64、ARM64            | NSIS setup      | 暂无 Authenticode 签名         |
 | Linux   | x86_64、ARM64         | AppImage、deb   | 无 OS 级签名                   |
 
-全部平台的安装包见 [GitHub Releases](https://github.com/StringKe/kxen/releases/latest)，稳定 asset 命名保证同一链接始终解析到最新版本。
+全部平台的安装包见 [GitHub Releases](https://github.com/StringKe/kxen/releases/latest)，稳定 asset 命名保证同一链接始终解析到最新版本。签名状态和验签方法见 [代码签名说明](https://kxen.ai/reference/code-signing)。
 
 - macOS： 打开 DMG，把 `Kxen.app` 拖入「应用程序」。安装包经过 Developer ID 签名和 Apple 公证，不需要绕过 Gatekeeper。需要 macOS 14 及以上版本。
 - Windows： 运行 NSIS 安装包。安装包暂未做 Authenticode 签名，SmartScreen 提示时选择 More info -> Run anyway。
@@ -28,7 +28,7 @@ kxen 当前是开发预览，安装包已公开发布。
 
 桌面应用和浏览器是同一内嵌服务的两个平等客户端。系统托盘的「浏览器访问」开关可以直接在本机浏览器中使用全部功能。
 
-`kxen` 无头 server 面向没有显示器的环境，六个平台都提供 tar.gz 或 zip 包。启动后打印带 token 的访问 URL，浏览器打开即用；远程访问推荐经 tailscale 终结 TLS。用法和安全模型见 [Web 模式](https://kxen.ai/getting-started/web-mode)。
+`kxen` 无头 server 面向没有显示器的环境，六个平台都提供 tar.gz 或 zip 包；macOS 包与桌面 App 一样经过 Developer ID 签名和 Apple 公证。启动后打印带 token 的访问 URL，浏览器打开即用；远程访问推荐经 tailscale 终结 TLS。用法和安全模型见 [Web 模式](https://kxen.ai/getting-started/web-mode)。
 
 ## 不应推断的承诺
 
