@@ -112,7 +112,13 @@ impl Goal {
                 .and_then(std::ffi::OsStr::to_str)
                 .ok_or_else(|| GoalError::Storage(format!("invalid goal filename: {}", path.display())))?;
             crate::core::ids::validate_id(file_id).map_err(GoalError::InvalidId)?;
-            let text = std::fs::read_to_string(&path).map_err(|error| GoalError::Storage(format!("read {}: {error}", path.display())))?;
+            // read_dir 快照后文件可能已被并发清理删除（测试隔离目录、会话连带删除）：
+            // 目标已不存在等于扫描结果不含它，不是损坏；其余读取错误仍是硬失败
+            let text = match std::fs::read_to_string(&path) {
+                Ok(text) => text,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(GoalError::Storage(format!("read {}: {error}", path.display()))),
+            };
             let goal: Self =
                 serde_json::from_str(&text).map_err(|error| GoalError::Storage(format!("parse {}: {error}", path.display())))?;
             if goal.id != file_id {
@@ -273,6 +279,32 @@ mod tests {
         let error = Goal::remove_for_session_checked(&dir, "ses_remove").unwrap_err();
         assert!(error.committed());
         assert!(!dir.join("goal_remove.json").exists());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// read_dir 快照与并发删除的竞态：扫描中途消失的 goal 按已删除跳过，不得误报损坏
+    /// （run loop 的 freeze_goal_binding 依赖本扫描，误报会在 Provider 调用前中止 run）。
+    #[test]
+    fn list_checked_tolerates_concurrent_removal() {
+        let dir = std::env::temp_dir().join(format!("kxen-goal-scan-race-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let writer = {
+            let dir = dir.clone();
+            let done = done.clone();
+            std::thread::spawn(move || {
+                let goal = goal("goal_scan_race");
+                for _ in 0..300 {
+                    goal.save_committed(&dir).unwrap();
+                    std::fs::remove_file(dir.join("goal_scan_race.json")).ok();
+                }
+                done.store(true, std::sync::atomic::Ordering::Relaxed);
+            })
+        };
+        while !done.load(std::sync::atomic::Ordering::Relaxed) {
+            Goal::list_checked(&dir).expect("concurrent removal is not corruption");
+        }
+        writer.join().unwrap();
         std::fs::remove_dir_all(dir).ok();
     }
 }
