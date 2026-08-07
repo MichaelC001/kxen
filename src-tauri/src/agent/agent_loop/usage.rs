@@ -99,7 +99,7 @@ pub(super) fn run_stats(started: std::time::Instant, ttft: Option<std::time::Dur
 }
 
 /// 锁内记账临界区（并发回归测试的直接打击点）：锁内重读拿到最新计数再入账落盘；
-/// save 失败 warn（旧实现 let _ = 静默吞掉，预算失真无迹可寻）。
+/// save 失败 warn 不静默吞错：静默会让预算失真且无迹可寻。
 /// goal 非 Active（pause/cancel 与在飞 run 竞态）：只结算迟到 token，不推进 turn 或覆盖状态。
 fn charge_goal(dir: &std::path::Path, goal_id: &str, tokens: u64, blocked_reason: Option<&str>) -> Result<crate::core::goal::Goal, String> {
     let _lifecycle = crate::core::session_lifecycle::admit_goal_mutation(dir, goal_id)?;

@@ -48,7 +48,7 @@ fn path_setup(kind: ShellKind) -> &'static str {
     }
 }
 
-/// 提速遮蔽（grok-build 实证）：grep -> ugrep、find -> bfs，两者都是 CLI 兼容替换。
+/// 提速遮蔽：grep -> ugrep、find -> bfs，两者都是 CLI 兼容替换。
 /// 未安装不遮蔽（按 PATH 探测逐命令门控）。
 fn speed_shadow(kind: ShellKind) -> String {
     match kind {

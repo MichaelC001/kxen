@@ -1,6 +1,5 @@
 //! LSP 标准 framing：`Content-Length: N\r\n\r\n<body>`（与 MCP 的行分隔不同，必须按头解析）。
 
-/// 编码一帧。
 pub fn encode(body: &str) -> Vec<u8> {
     format!("Content-Length: {}\r\n\r\n{}", body.len(), body).into_bytes()
 }

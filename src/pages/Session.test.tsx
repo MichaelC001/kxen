@@ -1,5 +1,5 @@
 // Session 路由卸载重挂载：prevSid 是组件实例变量，重挂载后重置。
-// null 哨兵首跑强制重载（修：重挂载误判 fromDraft 跳过重载 = 时间线空白）；
+// null 哨兵首跑强制重载（重挂载误判 fromDraft 跳过重载 = 时间线空白）；
 // 草稿->激活仅首发落库（markFirstSendActivation）跳过重载（空载会抹掉乐观上屏 = 首行消失），
 // 冷启动/删除活跃会话后的 "" -> id 自动激活必须重载（否则历史时间线永不加载且静默）。
 import { render } from "solid-js/web";

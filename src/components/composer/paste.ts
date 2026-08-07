@@ -1,6 +1,6 @@
-// 粘贴处理（Codex 式大粘贴折叠 + CRLF 归一）。
+// 粘贴处理（大粘贴折叠 + CRLF 归一）。
 // 折叠结构：textarea 里放纯文本占位 token（天然可选中/删除/撤销），全文存 store，发送时展开还原。
-// 参照 openai/codex chat_composer.rs 的 pending_pastes 结构，阈值对齐 1000 字符，另加 20 行上限。
+// 折叠阈值 1000 字符，另加 20 行上限。
 
 export const LARGE_PASTE_CHARS = 1000;
 export const LARGE_PASTE_LINES = 20;

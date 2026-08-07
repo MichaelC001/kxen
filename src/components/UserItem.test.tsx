@@ -1,4 +1,4 @@
-// UserItem：右键「编辑并重发」与铅笔同一编辑框入口（旧右键跳过编辑框直接原文重发）；
+// UserItem：右键「编辑并重发」与铅笔同一编辑框入口；
 // 无 messageId 的乐观消息 rewind 禁用；图片 load 回调（宿主据此重钉底）。
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";

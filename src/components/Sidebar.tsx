@@ -7,7 +7,7 @@ import { onDragStart } from "../lib/drag";
 import { theme, toggleTheme } from "../lib/theme";
 import { errText } from "./err-text";
 
-/** 左栏：品牌 + 新会话 + 项目-会话树（Codex 式分组）+ 底部应用级入口。 */
+/** 左栏：品牌 + 新会话 + 项目-会话树 + 底部应用级入口。 */
 export default function Sidebar() {
   // 首载失败与空侧栏区分（Session/Workspaces 同模式）：错误条 + 重试，不静默成空壳
   const [loadErr, setLoadErr] = createSignal("");

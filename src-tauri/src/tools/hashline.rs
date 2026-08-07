@@ -1,5 +1,5 @@
 //! hashline read：输出 LINE#HASH 锚点（ChunkFingerprint：行 hash + chunk 指纹）。
-//! 上方编辑不影响下方锚点（grok-build 推荐 scheme）。
+//! 单点编辑只使所在 chunk 的锚点失效，其余 chunk 的锚点保持稳定。
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -37,7 +37,6 @@ fn hex4(value: u64) -> String {
     format!("{:04x}", value & 0xFFFF)
 }
 
-/// 为文件所有行生成锚点。
 pub fn generate_anchors(lines: &[&str]) -> Vec<Anchor> {
     lines
         .iter()

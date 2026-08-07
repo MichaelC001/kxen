@@ -1,7 +1,7 @@
 //! 所有用户可调用 RPC 的显式 schema 清单。
 //!
 //! 即使方法没有参数也必须列在这里，避免 request_schema 的空字段 fallback
-//! 把未登记方法误当成“已有空参数契约”。协议静态门禁会与 handler 和前端调用逐项对账。
+//! 把未登记方法误当成「已有空参数契约」。协议静态门禁会与 handler 和前端调用逐项对账。
 
 pub(super) const METHODS: &[&str] = &[
     "agent.test_dispatch",

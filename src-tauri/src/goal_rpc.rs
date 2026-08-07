@@ -101,13 +101,13 @@ async fn transit(
     let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
     kxen_app::core::ids::validate_id(id)?;
     let _lifecycle = kxen_app::core::session_lifecycle::admit_goal_mutation(&dir(), id)?;
-    // 与记账共用 per-id 锁（P2-2）：并发 adjust 与 charge 的 load-modify-save 串行化，不互相覆盖
+    // 与记账共用 per-id 锁：并发 adjust 与 charge 的 load-modify-save 串行化，不互相覆盖
     let lock = kxen_app::core::goal::write_lock(id);
     let _guard = kxen_app::core::shared::lock(&lock);
     let mut goal = load(id)?;
     f(&mut goal).map_err(|e| e.to_string())?;
     goal.save(&dir()).map_err(|e| e.to_string())?;
-    // pause/cancel 停在飞 run（P2-1）：直接 cancel run 令牌即时停出，不等轮末记账发现
+    // pause/cancel 停在飞 run：直接 cancel run 令牌即时停出，不等轮末记账发现
     if matches!(goal.status, kxen_app::core::goal::GoalStatus::Paused | kxen_app::core::goal::GoalStatus::Canceled)
         && let Some(sid) = goal.session_id.as_deref()
         && let Some(token) = kxen_app::core::shared::lock(&state.active_runs).get(sid).cloned()

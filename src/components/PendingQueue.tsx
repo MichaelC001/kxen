@@ -1,4 +1,4 @@
-// 排队预览（Codex pending 形态）：run 进行中已入队的消息数 + 首条预览 + 清空。
+// 排队预览：run 进行中已入队的消息数 + 首条预览 + 清空。
 import { Show } from "solid-js";
 
 export default function PendingQueue(props: { queue: () => string[]; onClear: () => void }) {

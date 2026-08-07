@@ -117,7 +117,7 @@ pub struct RoleBinding {
     pub account: Option<String>,
 }
 
-/// 状态栏显隐（固定段 + 开关，对齐 Zed 白名单模式）。
+/// 状态栏显隐（固定段 + 白名单开关）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct StatuslineConfig {

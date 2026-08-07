@@ -1,7 +1,7 @@
 // workflow 引擎集成测试。
 // 覆盖：纯 JS 能力、meta 捕获三态、parallel 容错/限流/顺序、agent 双签名、phase 索引匹配与容错、完成信封。
 // 不触网：stream_override 返回固定成功流，真实覆盖每次 child request 的 MRM admission，
-// 唯一确定性失败源是派发预算封顶（32）——失败统计与信封 failures 段用它验证。
+// 唯一确定性失败源是派发预算封顶（32）：失败统计与信封 failures 段用它验证。
 
 use kxen_app::agent::subagent::SubagentDeps;
 use kxen_app::agent::workflow::{PhaseMsg, run_script};

@@ -33,13 +33,11 @@ async fn main() {
         println!("  {} {:?} uptime={}ms port={:?}", t.id, t.status, t.uptime_ms, t.port);
     }
 
-    // restart
     let new_id = restart_task(&started.task_id, &owner, &registry).await.unwrap();
     println!("[restart] {} -> {}", started.task_id, new_id);
     let list2 = registry.list(&owner);
     println!("[list-after-restart] {} task(s)", list2.len());
 
-    // kill
     registry.kill(&owner, &new_id).await;
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let out = registry.output(&owner, &new_id);

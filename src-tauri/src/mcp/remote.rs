@@ -21,7 +21,7 @@ pub(crate) use headers::validate_headers;
 
 const MAX_RESPONSE_MESSAGES: usize = 4096;
 
-// Guard 定义上移到 mcp 根（oauth 等 pub 接口要暴露它）；此处 re-export 保持既有路径可用。
+// Guard 定义在 mcp 根（oauth 等 pub 接口要暴露它）；此处 re-export 保持 crate::mcp::remote::Guard 路径可用。
 pub use super::Guard;
 
 pub(super) enum PostOutcome {

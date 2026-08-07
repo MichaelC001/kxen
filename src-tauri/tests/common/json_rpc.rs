@@ -1,4 +1,4 @@
-//! streamable-http mock 的共享组件（mcp_remote.rs 与 mcp_remote_get.rs 逐字重复，收敛于此）。
+//! streamable-http mock 的共享组件（mcp_remote.rs 与 mcp_remote_get.rs 共用）。
 use serde_json::{Value, json};
 
 pub fn http_response(status: &str, content_type: Option<&str>, extra: &str, body: &str) -> String {

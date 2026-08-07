@@ -41,7 +41,7 @@ pub enum FsToolError {
 pub struct FileTracker {
     // 存 SystemTime 全精度（纳秒）：秒级 mtime + size 会漏同秒同大小的改写
     seen: Mutex<HashMap<PathBuf, (std::time::SystemTime, u64)>>, // path -> (mtime, size)
-    /// 改动快照（Codex turn-diff 口径）：首次写/改/删前留存原文，面板数据源。
+    /// 改动快照（turn 级 diff 口径）：首次写/改/删前留存原文，面板数据源。
     pub snapshots: crate::tools::snapshot::SnapshotStore,
 }
 
@@ -206,7 +206,6 @@ fn apply_anchor_edits(original: &str, lines: &mut [String], edits: &[AnchorEdit]
         let valid = current.is_some_and(|a| a.hash == expected_hash);
 
         if !valid {
-            // find_shifted：有界窗口内找回
             if let Some(shifted) = find_shifted(&anchors, &orig_lines, line_no, &expected_hash, 20) {
                 lines[shifted - 1] = edit.new_text.clone();
                 applied += 1;

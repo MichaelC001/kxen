@@ -208,7 +208,6 @@ pub fn recognition_task(recognizer: &AnyObject, request: &AnyObject, handler: &R
     }
 }
 
-/// 取消识别任务。
 pub fn cancel_task(task: &AnyObject) {
     let _: () = unsafe { msg_send![task, cancel] };
 }

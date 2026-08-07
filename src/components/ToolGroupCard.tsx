@@ -4,7 +4,7 @@ import { statusDot } from "../lib/variants";
 import { expandAllTools, type ToolGroupItem } from "../lib/tool-ui";
 import ToolCard from "./ToolCard";
 
-/** 探索类工具聚合条（Claude Code `read 5 files` 口径）：连续只读调用收成一行，
+/** 探索类工具聚合条：连续只读调用收成一行，
  *  展开后逐卡回看。折叠优先级与 ToolCard 相同：本地手动优先，否则跟随全局开关。 */
 export default function ToolGroupCard(props: { group: ToolGroupItem }) {
   const [localOpen, setLocalOpen] = createSignal<boolean | undefined>(undefined);

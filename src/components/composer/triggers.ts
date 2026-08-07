@@ -1,4 +1,4 @@
-// 触发弹窗逻辑（textarea 版）：@ / # 任意位置（Zed 边界规则），/ 收窄行首（对齐后端命令契约）+ 弹窗装配。
+// 触发弹窗逻辑（textarea 版）：@ / # 任意位置，/ 收窄行首（对齐后端命令契约）+ 弹窗装配。
 import { fsComplete, type CommandInfo } from "../../lib/chat";
 
 export interface PopupState {
@@ -23,7 +23,7 @@ export interface Trigger {
   query: string;
 }
 
-/** 触发 token 检测：光标前最近的 @ / #（前界为行首/空白/半全角括号，Zed 边界规则）；/ 仅行首。 */
+/** 触发 token 检测：光标前最近的 @ / #（前界为行首/空白/半全角括号）；/ 仅行首。 */
 export function detectTrigger(value: string, cursor: number): Trigger | null {
   let i = cursor - 1;
   while (i >= 0) {

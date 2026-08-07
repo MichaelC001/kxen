@@ -51,7 +51,7 @@ pub fn find(workdir: &Path, name: &str) -> Option<Skill> {
     scan(workdir).into_iter().find(|s| s.name == name)
 }
 
-/// $ARGUMENTS / $1..$n / $ARGUMENTS[i] 展开；无占位符时尾部追加（kimi-code 同款行为）。
+/// $ARGUMENTS / $1..$n / $ARGUMENTS[i] 展开；无占位符时尾部追加。
 pub fn expand_args(content: &str, args: &str, declared: &[String]) -> String {
     let mut out = content.to_string();
     let raw_args: Vec<&str> = args.split_whitespace().collect();
@@ -71,7 +71,7 @@ pub fn expand_args(content: &str, args: &str, declared: &[String]) -> String {
     out
 }
 
-/// 装载：$ARGUMENTS 展开 + needs 依赖注入 + 统一包装（调研 §2 形态）。
+/// 装载：$ARGUMENTS 展开 + needs 依赖注入 + 统一包装。
 pub fn render_loaded(skill: &Skill, args: &str, trigger: &str, deps: &str) -> String {
     let content = expand_args(&skill.content, args, &skill.arguments);
     format!(

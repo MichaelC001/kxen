@@ -82,7 +82,7 @@ describe("createSubChunkHandler（P0-1 断线重连假恢复回归）", () => {
       stream: { id: "sub-old-1", seq: 1 },
       result: { topic: "llm.delta", payload: { n: 1 } },
     });
-    // 重连恢复后服务端生成新 id（旧实现按闭包捕获的首开 id 过滤，恢复后的帧全部丢弃）
+    // 重连恢复后服务端生成新 id：按首开 id 过滤会把恢复后的帧全部丢弃
     onChunk({
       stream: { id: "sub-new-2", seq: 1 },
       result: { topic: "llm.delta", payload: { n: 2 } },

@@ -1,4 +1,4 @@
-//! workspace 域 RPC：工作看板卡片数据（仿 ops_provider 分文件模式）。
+//! workspace 域 RPC：工作看板卡片数据。
 
 use serde_json::{Value, json};
 use std::sync::Arc;

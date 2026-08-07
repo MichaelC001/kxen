@@ -1,5 +1,4 @@
 // 工具执行历史的展示策略：默认折叠、探索类聚合、全局展开开关（Ctrl+O）。
-// 依据同行通行模式（Claude Code 单行摘要 + ctrl+o 展开 / read N files 聚合），
 // 工具卡是二等公民：默认单行摘要，payload 永不默认铺开，避免工具历史淹没对话主体。
 import { createSignal } from "solid-js";
 import type { Item, ToolItem } from "./items";
@@ -66,7 +65,7 @@ export function groupToolEntries(items: Item[]): TimelineEntry[] {
   return out;
 }
 
-/** 摘要行右侧的元信息徽标：edit 给 +N -M，read 给行数（对齐 Claude Code `Read 42 lines` 口径）。 */
+/** 摘要行右侧的元信息徽标：edit 给 +N -M，read 给行数。 */
 export function toolMetaBadge(item: ToolItem): string | undefined {
   if (item.result === undefined) return undefined;
   if (item.name === "edit") {

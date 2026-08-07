@@ -1,4 +1,4 @@
-// TextComposer：Cline 式 textarea 整卡输入（IME/undo/选区全原生免疫）。
+// TextComposer：textarea 整卡输入（IME/undo/选区全原生免疫）。
 // @/# 任意位置 + / 行首触发弹层（光标前切片判定）+ 框外 row chip + 大粘贴折叠占位 + 语音 PTT + 每会话草稿。
 import { createEffect, createSignal, Show, onCleanup, onMount, untrack } from "solid-js";
 import { Send, Square } from "lucide-solid";
@@ -241,7 +241,7 @@ export default function TextComposer(props: {
     // IME 组字中弹层放行：Enter/方向键归输入法候选窗（isComposing/keyCode229/锁窗三保险，同发送守卫）
     if (p && (e.isComposing || e.keyCode === 229 || Date.now() < imeLockUntil)) return;
     if (p && handlePopupKey(e, p, setPopup)) return;
-    // IME 提交 Enter 不发送：isComposing / keyCode 229 / 50ms 锁窗 三保险（cline#3475 同款）
+    // IME 提交 Enter 不发送：isComposing / keyCode 229 / 50ms 锁窗 三保险
     if (
       e.key === "Enter" &&
       !e.shiftKey &&

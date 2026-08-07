@@ -158,7 +158,7 @@ describe("voice PTT (webkit)", () => {
     await new Promise((r) => setTimeout(r, 50));
     onPartial("世界");
     expect(el.value).toBe("hello世界");
-    // 录音中手打：旧实现 setText(base+partial) 会把 "abc" 抹掉
+    // 录音中手打：setText(base+partial) 会把 "abc" 抹掉
     el.value = "hello世界abc";
     onPartial("世界和平");
     expect(el.value).toBe("hello世界和平abc");
@@ -190,7 +190,7 @@ describe("voice PTT (webkit)", () => {
         }),
     });
     ctl.toggle(); // 启动
-    ctl.toggle(); // 启动中再按 = 取消（旧实现被 start 守卫吞掉，60s 内不可取消）
+    ctl.toggle(); // 启动中再按 = 取消（走 stop 会被 start 守卫吞掉，60s 内不可取消）
     resolveStart({
       engine: "apple",
       stop: async () => {

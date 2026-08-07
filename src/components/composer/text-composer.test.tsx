@@ -285,7 +285,7 @@ describe("TextComposer (webkit)", () => {
     expect(voiceMock.stopped).toBe(1);
     expect(sent).toBe("hello终稿");
     expect(el.value).toBe("");
-    // 旧实现的倒灌回归点：终稿事件已随发送消费，输入框不得再被回填
+    // 倒灌回归点：终稿事件已随发送消费，输入框不得再被回填
     await new Promise((r) => setTimeout(r, 150));
     expect(el.value).toBe("");
     dispose();
@@ -306,7 +306,7 @@ describe("TextComposer (webkit)", () => {
     );
     await new Promise((r) => setTimeout(r, 50));
     expect(sent).toBe("hi");
-    // 等过 400ms 激活窗口：旧实现计时随后触发 launch，发送完莫名开录
+    // 等过 400ms 激活窗口：激活计时已作废，发送后不得再触发开录
     await new Promise((r) => setTimeout(r, 500));
     expect(voiceMock.started).toBe(0);
     expect(voiceMock.stopped).toBe(0);

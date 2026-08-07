@@ -1,4 +1,4 @@
-//! 后台 agent 派发与完成通知路由（对标 Claude Code 异步 Task：调用即回执，完成逐路送回）。
+//! 后台 agent 派发与完成通知路由：调用即回执，完成逐路送回。
 //! 通知两个落点：run 存活期进通道由 run loop 逐轮注入 messages；run 结束后直投 session pending queue。
 
 use crate::agent::subagent::SubagentDeps;

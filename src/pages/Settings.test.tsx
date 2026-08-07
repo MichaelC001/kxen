@@ -1,5 +1,5 @@
 // Settings 通用区回归：「运行中发送」乐观更新在 RPC 失败时必须回滚到旧值并 flashErr，
-// 不留与后端不一致的假状态；saved 死代码已删（页面不再有常驻提示条容器）。
+// 不留与后端不一致的假状态；页面无常驻提示条容器。
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JSX } from "solid-js";

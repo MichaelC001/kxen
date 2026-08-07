@@ -105,7 +105,7 @@ describe("TextComposer 弹层/触发 (webkit)", () => {
     expect(ultra).toBeTruthy();
     const label = ultra!.querySelector("span") as HTMLElement;
     expect(label.textContent).toContain("/ultracode");
-    // 两行布局下 label 独占一行（曾经的单行 flex 布局会把 label 饿成 0 宽）
+    // 两行布局下 label 独占一行（单行 flex 布局会把 label 饿成 0 宽）
     const rowWidth = (ultra as HTMLElement).offsetWidth;
     expect(label.offsetWidth).toBeGreaterThan(rowWidth * 0.5);
     dispose();
@@ -130,7 +130,7 @@ describe("TextComposer 弹层/触发 (webkit)", () => {
     const popup = document.querySelector(".composer-popup");
     expect(popup).not.toBeNull();
     expect(popup?.textContent).toContain("/doctor");
-    // 弹层必须落在视口内（镜像定位曾经量到页面原点，弹出屏幕外）
+    // 弹层必须落在视口内（镜像定位若量到页面原点会弹出屏幕外）
     const rect = popup!.getBoundingClientRect();
     expect(rect.bottom).toBeGreaterThan(0);
     expect(rect.top).toBeLessThan(window.innerHeight);
@@ -202,7 +202,7 @@ describe("TextComposer 弹层/触发 (webkit)", () => {
     await userEvent.keyboard("帮我{Shift>}{Enter}{/Shift}/doc");
     await new Promise((r) => setTimeout(r, 400));
     expect(document.querySelector(".composer-popup")).not.toBeNull();
-    // 旧实现 slice(0,start)+slice(cursor)：cursor 在触发词前会重复中段
+    // 定界不能用 slice(0,start)+slice(cursor)：cursor 在触发词前会重复中段
     el.setSelectionRange(0, 0);
     el.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),

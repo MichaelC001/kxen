@@ -135,7 +135,7 @@ describe("DockWorktree 删除三态", () => {
     btnByText("确认删除").click();
     await flush();
     await flush();
-    // 行内确认条确认后 confirmed=true：后端据此跳过审批挂起（双确认的修复）
+    // 行内确认条确认后 confirmed=true：后端据此跳过审批挂起
     expect(h.remove).toHaveBeenCalledWith("wt1", true, true);
     expect(flash.msgs().some((m) => m.kind === "ok" && m.text.includes("已删除 kxen/wt1"))).toBe(
       true,

@@ -164,7 +164,7 @@ fn event_payload(e: apple::SessionEvent, session_id: &str) -> Option<serde_json:
     Some(payload)
 }
 
-/// PTT 松开：只停自己槽（别的 session 继续录）。apple 先出本地终稿，有就绪云引擎则云转写升级（Wispr 双轨）；失败回落本地。
+/// PTT 松开：只停自己槽（别的 session 继续录）。apple 先出本地终稿，有就绪云引擎则云转写升级（本地+云端双轨）；失败回落本地。
 pub async fn stop(
     config: &crate::core::config::Config,
     store: &crate::auth::credential::AuthStore,

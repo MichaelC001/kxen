@@ -160,7 +160,7 @@ fn parse_expires(value: Option<&serde_json::Value>) -> u64 {
     match value {
         Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0),
         Some(serde_json::Value::String(s)) => {
-            // ISO 8601 -> ms（粗解析：取前 19 位按 UTC）
+            // ISO 8601 -> ms（RFC3339 解析，失败按 0 = 无过期信息）
             chrono_free_iso_ms(s).unwrap_or(0)
         }
         _ => 0,
@@ -168,7 +168,6 @@ fn parse_expires(value: Option<&serde_json::Value>) -> u64 {
 }
 
 fn chrono_free_iso_ms(s: &str) -> Option<u64> {
-    // 简化：用 time crate 的 OffsetDateTime 解析 RFC3339
     let t = time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339).ok()?;
     Some((t.unix_timestamp_nanos() / 1_000_000) as u64)
 }

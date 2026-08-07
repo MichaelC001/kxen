@@ -1,5 +1,5 @@
 // CommandPalette 实测：首次打开即初始化（命令/目录预载、输入框聚焦），
-// 关闭不做初始化（回归：旧实现初始化块按 setOpen 后的新值判定，实际落在关闭分支——首开空列表、关闭才预载）。
+// 关闭不做初始化：初始化若按 setOpen 后的新值判定会落在关闭分支（首开空列表、关闭才预载）。
 import { render } from "solid-js/web";
 import { Show } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -97,7 +97,7 @@ describe("CommandPalette", () => {
     await tick();
     cmdK(); // 关
     await tick();
-    // 回归点：关闭不得触发拉取（旧实现初始化块在关闭分支执行）
+    // 回归点：关闭不得触发拉取
     expect(mocks.commandCalls).toBe(1);
     expect(mocks.catalogCalls).toBe(1);
     expect(document.querySelector("input")).toBeNull();

@@ -1,4 +1,4 @@
-//! session metadata 的 model 覆盖 —— 持久化往返 / 旧格式缺省兼容 / fork 继承 / 优先级。
+//! session metadata 的 model 覆盖：持久化往返 / 旧格式缺省兼容 / fork 继承 / 优先级。
 
 use kxen_app::core::session as ses;
 use kxen_app::llm::ModelRef;
@@ -16,7 +16,6 @@ fn model_roundtrip_and_legacy_compat() {
     let raw = std::fs::read_to_string(dir.join(format!("{}.json", s.id))).unwrap();
     assert!(!raw.contains("\"model\""));
 
-    // 写入-读取往返
     ses::set_model(&dir, &s.id, Some(ModelRef::new("kimi", "k2"))).unwrap();
     let loaded = ses::load_meta(&dir, &s.id).unwrap();
     let m = loaded.model.as_ref().expect("model override persisted");

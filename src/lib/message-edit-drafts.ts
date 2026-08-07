@@ -11,7 +11,7 @@ function draftKey(sessionId: string, messageId: string): string {
   return `${sessionId}\u0000${messageId}`;
 }
 
-/** Persisted message editors survive timeline snapshot reconciliation and component remounts. */
+/** 已持久化消息的编辑态要在时间线快照对账与组件重挂载后存活。 */
 export function messageEditDraft(
   sessionId: string,
   messageId: string,

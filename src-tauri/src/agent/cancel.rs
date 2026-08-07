@@ -1,5 +1,5 @@
 //! 取消令牌：session 级 abort 的原语（flag + Notify 即时唤醒）。
-//! 共识模式（opencode/Cline 调研）：单 run 一个 cancel 通道 + 中断点统一清扫 + 子代理级联。
+//! 取消共识：单 run 一个 cancel 通道 + 中断点统一清扫 + 子代理级联。
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

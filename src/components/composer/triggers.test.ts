@@ -18,7 +18,7 @@ describe("detectTrigger", () => {
   });
 
   it("光标紧贴 \n（触发符在光标处而非其前）不触发", () => {
-    // 旧 \n 特判的假阳性：光标还没越过 / 就报了 slash
+    // 边界假阳性：光标还没越过 / 不得报 slash
     expect(detectTrigger("\n/doc", 1)).toBeNull();
   });
 

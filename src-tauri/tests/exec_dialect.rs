@@ -27,7 +27,7 @@ fn zsh_bash_case_expansion_rejected() {
 fn zsh_equals_cmd_expansion_rejected() {
     assert!(rejected(ShellKind::Zsh, "=ls -la").contains("=cmd"));
     assert!(rejected(ShellKind::Zsh, "cp =which /tmp").contains("=cmd"));
-    // 误报：赋值与 key=value 参数不放行成冤案
+    // 误报：赋值与 key=value 参数不得误拦
     assert!(validate_dialect(ShellKind::Zsh, "FOO=bar echo ok").is_ok());
     assert!(validate_dialect(ShellKind::Zsh, "curl -d a=b https://example.com").is_ok());
 }

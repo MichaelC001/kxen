@@ -29,7 +29,7 @@ pub fn parse_tool_arguments(name: &str, arguments: &str) -> Result<serde_json::V
 }
 
 /// 工具调用一行摘要：按工具提取关键参数（exec=command、fs=path、glob/grep=pattern），
-/// 不落原始 JSON——UI 执行行只展示这一条（Claude Code `⏺ Bash(ls -la)` 同款形态）。
+/// 不落原始 JSON——UI 执行行只展示这一条。
 pub fn summarize_args(name: &str, arguments: &str) -> String {
     let parsed: serde_json::Value = serde_json::from_str(arguments).unwrap_or_default();
     let get = |key: &str| parsed.get(key)?.as_str().map(String::from);
@@ -53,7 +53,7 @@ pub fn result_text(result: &Result<String, String>) -> String {
 }
 
 /// UI 展开体用的结果全文（截 2000 字符防爆）。
-/// 收起行只放参数摘要；输出本体进同一张卡的折叠区（Cursor/Cline 单卡形态）。
+/// 收起行只放参数摘要；输出本体进同一张卡的折叠区。
 pub fn result_display(result: &Result<String, String>) -> String {
     let text = result_text(result);
     if text.len() <= 2000 { text } else { format!("{}…", &text[..text.floor_char_boundary(2000)]) }

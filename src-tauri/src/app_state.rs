@@ -80,7 +80,7 @@ impl AppState {
             mrm.clone(),
         ));
         workspace_runtimes.runtime(&workdir)?;
-        // P0-2：team relay 与 AppState 共享同一队列实例（teammate 报告入队 = 用户消息同路续跑）
+        // team relay 与 AppState 共享同一队列实例（teammate 报告入队 = 用户消息同路续跑）
         let pending_messages =
             std::sync::Arc::new(kxen_app::core::pending_queue::PendingQueues::new(kxen_app::core::paths::sessions_dir()));
         let mut loaded_usage = kxen_app::core::usage::load().map_err(|error| format!("session usage load failed: {error}"))?;
@@ -171,7 +171,7 @@ impl AppState {
     }
 
     /// Settings 与启动期状态查询必须等首次 MCP load 完成，不能把尚未 ready 的空 manager
-    /// 误报为“未配置”。项目 stdio 审批可在等待期间由全局审批面应答。
+    /// 误报为「未配置」。项目 stdio 审批可在等待期间由全局审批面应答。
     pub async fn ready_active_runtime(&self) -> Result<std::sync::Arc<kxen_app::workspace_runtime::WorkspaceRuntime>, String> {
         let root = self.active_workspace.read().map_err(|_| "workspace lock poisoned".to_string())?.clone();
         self.workspace_runtimes.ready(&root).await

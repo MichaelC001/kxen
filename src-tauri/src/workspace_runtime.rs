@@ -68,7 +68,7 @@ impl WorkspaceRuntime {
     }
 
     /// MCP status 是否已经完成过当前 Workspace 的首次加载。
-    /// Doctor 使用该快照区分“尚未加载”和“已加载但未配置”，不得因此触发连接或审批。
+    /// Doctor 使用该快照区分「尚未加载」和「已加载但未配置」，不得因此触发连接或审批。
     pub fn mcp_ready(&self) -> bool {
         self.mcp_loaded.load(Ordering::Acquire)
     }

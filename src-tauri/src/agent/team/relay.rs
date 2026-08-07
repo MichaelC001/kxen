@@ -1,5 +1,5 @@
 // ---------------- lead 唤醒路由（P0-2） ----------------
-// teammate -> lead 的报告不再只躺 lead.json 等用户开口：活跃 run 经 NotifyRouter 就地注入，
+// teammate -> lead 的报告两路送达：活跃 run 经 NotifyRouter 就地注入，
 // 无活跃 run 投 pending queue 并 kick 续跑。
 
 use crate::agent::background::NotifyRouter;

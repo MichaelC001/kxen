@@ -1,4 +1,4 @@
-// SessionTree：Codex 式项目-会话树（每组 ≤5 条，组可折叠，行内置顶/重命名/删除确认/拖拽排序）。
+// SessionTree：项目-会话树（每组 ≤5 条，组可折叠，行内置顶/重命名/删除确认/拖拽排序）。
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { ChevronDown, ChevronRight, FolderOpen, Plus } from "lucide-solid";
 import {

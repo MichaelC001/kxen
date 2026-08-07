@@ -1,5 +1,5 @@
 // 图片附件压缩：FileReader 全量 base64 会把 Retina 截图（5-10MB）原样发给模型，
-// 统一 canvas 缩到长边 1568 再编码（Claude Code 同款上限；PNG/JPEG 保持原格式）。
+// 统一 canvas 缩到长边 1568 再编码（PNG/JPEG 保持原格式）。
 export const IMAGE_LONG_EDGE = 1568;
 
 /** 等比缩到长边上限内；已在限内原样返回（不触发重编码，jpeg 免于二次压缩失真）。 */

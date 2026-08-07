@@ -6,7 +6,7 @@ use std::collections::HashMap;
 /// 与 webfetch 同档的输出上限。
 pub const MAX_SNAPSHOT_CHARS: usize = 50_000;
 
-/// 可交互角色（ref 只发给这些节点；Cline/Roo 同口径）。
+/// 可交互角色（ref 只发给这些节点）。
 const INTERACTIVE_ROLES: &[&str] = &[
     "link",
     "button",

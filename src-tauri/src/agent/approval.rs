@@ -1,7 +1,7 @@
 //! 审批 broker：工具执行挂起等用户决定（允许/拒绝/超时），RPC 应答唤醒。
 //! 中断（abort）一律视为拒绝——审批等待绝不卡住取消路径。
 //! 决定（allow/deny/timeout/cancel）落盘为会话 Part::Approval：刷新/切会话后审批痕迹可回放；
-//! 测试移至 tests/approval_broker.rs（350 行门禁）。
+//! 测试在 tests/approval_broker.rs（350 行门禁）。
 
 use std::collections::HashMap;
 use std::future::Future;

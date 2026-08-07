@@ -160,7 +160,7 @@ export function navigate(path: string): void {
 
 export async function newSession(): Promise<void> {
   resetDraftModel();
-  // 草稿态：不立即落库；首次发送消息时才创建会话（对齐 Cursor/Claude/ChatGPT）
+  // 草稿态：不立即落库；首次发送消息时才创建会话
   setActiveSessionId("");
   setActiveAgentFocus("");
   // 旧会话的 agent 名单不得残留到草稿态（下一次 3s 轮询才清会卡在界面上）

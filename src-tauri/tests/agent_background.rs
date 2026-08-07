@@ -74,7 +74,7 @@ async fn background_receipt_returns_before_dispatch_finishes() {
     let router = Arc::new(NotifyRouter::new());
     let ctx = test_ctx(Some(router.clone()));
     // 回执先行：返回的是 backgrounded 回执而非 dispatch 结果
-    //（同步路径会返回注入流的错误文本——拿到回执本身即证明未等 dispatch 完成）
+    //（同步路径会返回注入流的错误文本，拿到回执本身即证明未等 dispatch 完成）
     let receipt = dispatch_tool("agent", &json!({ "role": "execution", "prompt": "noop", "background": true }), "/tmp", &ctx)
         .await
         .expect("background dispatch should be accepted");

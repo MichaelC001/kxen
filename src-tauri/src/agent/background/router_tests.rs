@@ -31,8 +31,8 @@ fn postcommit_session_append_is_not_delivered_to_the_active_run() {
 
 #[test]
 fn notify_racing_close_is_still_flushed_late() {
-    // notify 读到 late=None 后、push 前 close 完成首轮 flush：不修则该项永卡队列（kick 丢失）。
-    // 修复后每条 notify 恰好投递一次，结束后队列不得有残留。
+    // notify 读到 late=None 后、push 前 close 完成首轮 flush 的竞态：该项不得永卡队列（kick 丢失）。
+    // 每条 notify 恰好投递一次，结束后队列不得有残留。
     let router = Arc::new(NotifyRouter::new());
     let delivered = Arc::new(std::sync::Mutex::new(Vec::new()));
     let sink = delivered.clone();

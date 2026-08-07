@@ -18,7 +18,7 @@ pub use super::usage::UsageReporter;
 pub struct SessionExtras {
     pub extra_tools: std::sync::Mutex<std::collections::HashSet<String>>,
     pub todos: crate::tools::todo::TodoStore,
-    /// 已装载 skill（"name\x1fargs" 键）：同 args 禁止重调（调研 §2）。
+    /// 已装载 skill（"name\x1fargs" 键）：同 args 禁止重调。
     pub loaded_skills: std::sync::Mutex<std::collections::HashSet<String>>,
     /// skill -> skill 递归深度（cap 3）。
     pub skill_depth: std::sync::atomic::AtomicU32,

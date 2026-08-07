@@ -78,7 +78,6 @@ pub fn doctor_report(store: &AuthStore) -> DoctorReport {
             status: status.into(),
             detail: detail.into(),
         });
-        // 命名账号行
         for key in kxen_account_keys(store, rule.provider) {
             let name = key.strip_prefix(&format!("{}:", rule.provider)).unwrap_or(&key);
             let (status, detail) = match store.get(&key) {

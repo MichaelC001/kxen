@@ -59,8 +59,8 @@ pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_
     let script_owned = script.to_string();
     let cancel_thread = cancel.clone();
     // 超时/中断级联取消：workflow 级 cancel token 作为派发子代理的父令牌（dispatch 的
-    // _cascade watcher 同源），结束/超时随 CancelGuard 一并取消在飞子代理——旧实现只置 JS 中断
-    // 标志，挂在 Rust future 上的子代理收不到取消，白烧 tokens 直到自然结束。
+    // _cascade watcher 同源），结束/超时随 CancelGuard 一并取消在飞子代理——只置 JS 中断标志不够，
+    // 挂在 Rust future 上的子代理收不到取消，白烧 tokens 直到自然结束。
     let wf_cancel = crate::agent::cancel::CancelToken::new();
     let parent_cascade = cascade_parent(deps.cancel.clone(), &wf_cancel);
     let deps = SubagentDeps { cancel: Some(wf_cancel.clone()), ..deps };

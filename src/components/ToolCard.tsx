@@ -4,7 +4,7 @@ import { statusDot } from "../lib/variants";
 import { expandAllTools, parseToolDiff, toolMetaBadge } from "../lib/tool-ui";
 import DiffView from "./DiffView";
 
-/** 工具活动卡（Cursor/Cline 单卡形态）：头部行（状态点 + 名称 + 参数摘要 + 元信息徽标 + 展开箭头），
+/** 工具活动卡：头部行（状态点 + 名称 + 参数摘要 + 元信息徽标 + 展开箭头），
  *  精确 arguments 与完整输出收在同一张卡的折叠体内——调用和结果是一个整体，不是两行孤立的文本。
  *  折叠是受控的：本地手动开合优先，未手动操作过则跟随全局「展开全部」（Ctrl+O）；
  *  不用原生 toggle 事件驱动，避免全局翻转时被动事件覆盖用户意图。
