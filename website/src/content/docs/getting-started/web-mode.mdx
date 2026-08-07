@@ -1,0 +1,71 @@
+---
+title: Web 模式
+description: 用浏览器访问 kxen:桌面托盘开关、kxen 无头 server、token 安全模型和 tailscale 远程访问。
+status: canonical
+sidebar:
+  order: 4
+---
+
+kxen 的全部业务能力都在共享核心里。桌面 webview 和浏览器是同一个内嵌服务的两个平等客户端，经同一个 `/ws` 端点通信；Tauri 壳只保留窗口、托盘、原生对话框、OS 通知、更新器和 opener。Web 模式就是用浏览器当客户端，功能与桌面窗口一致。
+
+## 桌面应用的浏览器访问
+
+桌面应用启动即常驻内嵌服务，监听 `127.0.0.1`，优先端口 7824，被占用时自动回退到随机端口。系统托盘菜单是管理入口:
+
+- 「浏览器访问 (127.0.0.1:7824)」： 开关浏览器可达性，勾选状态持久化到配置 `[web] enabled`。
+- 「在浏览器中打开」： 用系统浏览器打开带 token 的完整 URL。
+- 「复制访问链接」： 复制同一 URL，可粘贴到其他设备或窗口。
+- 「默认打开方式」： 决定托盘左键打开窗口还是浏览器（`[tray] default_open`，取 `window` 或 `browser`）。
+- 「关闭时最小化到托盘」： 关窗不退出(`[tray] close_to_tray`)。
+
+桌面端的内嵌服务只监听 loopback，不向局域网暴露；对外暴露只由 `kxen` 的 `--bind` 显式声明。
+
+## kxen 无头 server
+
+`kxen` 是不含 GUI 的独立可执行文件，六个平台都有发布包，适合跑在服务器或常年开机的机器上:
+
+```bash
+kxen --bind 127.0.0.1 --port 7824
+```
+
+启动后 stdout 打印带 token 的完整访问 URL，浏览器打开即可使用全部功能。参数:
+
+| 参数                | 默认值     | 说明                                                       |
+| ------------------- | ---------- | ---------------------------------------------------------- |
+| `--bind <IP>`       | 127.0.0.1  | 监听地址；绑定非 loopback 会暴露到局域网并打印警告           |
+| `--port <PORT>`     | 7824       | 监听端口；被占用时直接报错退出，不静默换端口                 |
+| `--token <TOKEN>`   | 每次随机   | 固定 token 便于把 URL 书签化；不固定则每次启动更换          |
+| `--allow-host <HOST>` | 无       | 扩展 Host header 白名单，可重复；远程主机名必须显式加入     |
+| `-h`, `--help`      | -          | 打印帮助                                                   |
+
+环境变量 `KXEN_DATA_DIR` 覆盖数据目录，`RUST_LOG` 控制日志过滤。
+
+## token 安全模型
+
+- token 是唯一访问凭证。任何拿到带 token URL 的人就获得完整访问权，不要分享 URL，不要把它提交到仓库或聊天工具。
+- token 只经 URL 一次性投递： 前端读取后存入 sessionStorage 并抹除地址栏，任何 HTTP 响应都不含 token。
+- Host header 白名单默认只放行 `localhost`、`127.0.0.1`、`[::1]` 和实际 bind 地址，其他主机名（包括反向代理域名）必须用 `--allow-host` 显式加入，否则请求被拒绝。
+- `kxen` 只提供明文 HTTP，自身不实现 TLS。远程访问必须在前面终结 TLS。
+
+## 远程访问
+
+推荐用 tailscale 终结 TLS,kxen 不实现自有 TLS:
+
+```bash
+kxen --bind 127.0.0.1 --allow-host <your-host>.ts.net
+tailscale serve --bg 7824
+```
+
+`tailscale serve` 把 `https://<your-host>.ts.net` 代理到本机 7824 端口，浏览器访问该 HTTPS 地址即可。把 `<your-host>.ts.net` 加入 `--allow-host` 是必需步骤，否则 Host 白名单会拒绝请求。
+
+直接把 `--bind 0.0.0.0` 暴露到公网缺少 TLS,token 会明文流经网络，不是受支持的远程方案。
+
+## 与桌面版的能力差异
+
+浏览器物理上做不到的 OS 集成在 Web 模式降级，其余功能一致:
+
+- 应用更新器： Web 模式没有自动更新，`kxen` 经下载新版本包升级。
+- 原生对话框： 添加 Workspace 改为输入项目绝对路径；附件经浏览器文件选择控件。
+- OS 桌面通知： 降级为应用内通知中心。
+- 窗口、托盘和关闭到托盘等桌面集成不存在。
+- Apple 语音识别引擎只在 macOS 桌面应用提供。
