@@ -6,6 +6,7 @@ import { initSessions, mountSessionEvents, newSession } from "../lib/state";
 import { onDragStart } from "../lib/drag";
 import { theme, toggleTheme } from "../lib/theme";
 import { errText } from "./err-text";
+import { isTauri } from "../lib/runtime";
 
 /** 左栏：品牌 + 新会话 + 项目-会话树 + 底部应用级入口。 */
 export default function Sidebar() {
@@ -30,7 +31,10 @@ export default function Sidebar() {
       class="shrink-0 flex flex-col border-r border-[var(--border)] bg-[var(--bg-raised)]"
       style={{ width: "var(--sidebar-w)" }}
     >
-      <div class="traffic-pad" data-tauri-drag-region onMouseDown={onDragStart} />
+      {/* 红绿灯占位条只在 Tauri 无边框窗口下需要：浏览器/原生标题栏下是纯浪费 */}
+      <Show when={isTauri()}>
+        <div class="traffic-pad" data-tauri-drag-region onMouseDown={onDragStart} />
+      </Show>
       <div class="px-4 pb-2 text-lg font-semibold tracking-tight text-[var(--accent-hover)]">
         kxen
       </div>

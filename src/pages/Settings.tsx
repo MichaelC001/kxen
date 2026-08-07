@@ -14,6 +14,7 @@ import { client } from "../lib/client";
 import { configGet, doctor } from "../lib/chat";
 import { flashErr, flashOk } from "../lib/flash";
 import { onDragStart } from "../lib/drag";
+import { isTauri, isWeb } from "../lib/runtime";
 
 const SECTIONS = [
   "通用",
@@ -150,13 +151,17 @@ export default function Settings() {
 
   const exportDiag = async () => {
     const r = await client.rpc<{ path: string }>("diagnostics.export").catch(() => null);
-    if (r) flashOk(`已导出 ${r.path}`);
+    // web 模式拿到的是服务器本地路径，浏览器无法直接打开：提示语义明确，不静默
+    if (r) flashOk(`已导出 ${r.path}${isWeb() ? "（服务器本地路径，浏览器端无法直接打开）" : ""}`);
     else flashErr("导出诊断包失败");
   };
 
   return (
     <div class="h-full flex-1 overflow-auto">
-      <div class="h-8" data-tauri-drag-region onMouseDown={onDragStart} />
+      {/* 拖拽占位条只在 Tauri 无边框窗口下需要 */}
+      <Show when={isTauri()}>
+        <div class="h-8" data-tauri-drag-region onMouseDown={onDragStart} />
+      </Show>
       <div class="px-8 py-6 pt-2 flex gap-8">
         <nav class="w-36 shrink-0 space-y-0.5">
           <A

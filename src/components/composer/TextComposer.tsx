@@ -317,7 +317,7 @@ export default function TextComposer(props: {
           onCompositionEnd={() => (imeLockUntil = Date.now() + 50)}
         />
         <div class="composer-actionbar">
-          <AttachMenu onPaths={(paths) => void attachPaths(paths)} />
+          <AttachMenu onPaths={(paths) => void attachPaths(paths)} onFiles={attachFiles} />
           <MicControl
             recording={recording}
             activeVoice={activeVoice}

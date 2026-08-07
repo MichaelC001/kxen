@@ -11,6 +11,7 @@ import {
 import { deleteSession, newSession, refreshSessions, sessions, switchSession } from "../lib/state";
 import { createInFlight, createSeqGuard } from "../lib/async-guard";
 import { openProjectDir } from "../lib/open-project";
+import { isWeb } from "../lib/runtime";
 import { flashErr } from "../lib/flash";
 import { formatError } from "../lib/error-text";
 import { sortGroup } from "../lib/order";
@@ -162,8 +163,13 @@ export default function SessionTree() {
     await reloadRecents();
   };
 
-  // 原生目录选择器（逻辑收口在 open-project，与 EmptyHero 首屏卡共用）；成功后补 recents
+  // 原生目录选择器（逻辑收口在 open-project，与 EmptyHero 首屏卡共用）；成功后补 recents。
+  // web 模式无原生选择器：直接展开手动路径输入。
   const pickDir = async () => {
+    if (isWeb()) {
+      setAdding(true);
+      return;
+    }
     if (await openProjectDir()) await reloadRecents();
   };
 

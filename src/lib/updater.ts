@@ -3,6 +3,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
 import { flashOk } from "./flash";
+import { isTauri } from "./runtime";
 
 export type AvailableUpdate = NonNullable<Awaited<ReturnType<typeof check>>>;
 
@@ -33,6 +34,8 @@ export function checkForUpdate(): Promise<AvailableUpdate | null> {
 
 /** 启动时静默检查一次：失败吞掉（不打错误弹窗）；有更新只 toast 提示并填充共享状态，不打断用户。 */
 export function autoCheckOnStartup(): void {
+  // web 模式无应用更新器（壳能力）：不 invoke、不报错，设置页也不渲染入口
+  if (!isTauri()) return;
   if (checked || flight) return;
   void checkForUpdate()
     .then((update) => {

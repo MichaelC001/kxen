@@ -54,4 +54,19 @@ describe("updater 共享状态与启动静默检查", () => {
     expect(b).toBeNull();
     expect(availableUpdate()).toBeNull();
   });
+
+  it("web 模式（无 __TAURI_INTERNALS__）启动检查整体跳过：不 invoke 不报错", async () => {
+    const w = window as unknown as { __TAURI_INTERNALS__?: unknown };
+    const saved = w.__TAURI_INTERNALS__;
+    delete w.__TAURI_INTERNALS__;
+    try {
+      const callsBefore = h.check.mock.calls.length;
+      autoCheckOnStartup();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(h.check.mock.calls.length).toBe(callsBefore);
+      expect(flash.msgs()).toEqual([]);
+    } finally {
+      w.__TAURI_INTERNALS__ = saved;
+    }
+  });
 });

@@ -10,6 +10,8 @@ vi.mock("@tauri-apps/api/window", () => ({
 
 import { onDragStart } from "./drag";
 
+const w = window as unknown as { __TAURI_INTERNALS__?: unknown };
+
 function event(button: number, target: HTMLElement): MouseEvent {
   const value = new MouseEvent("mousedown", { button });
   Object.defineProperty(value, "target", { value: target });
@@ -34,5 +36,16 @@ describe("onDragStart", () => {
     button.append(span);
     onDragStart(event(0, span));
     expect(h.startDragging).not.toHaveBeenCalled();
+  });
+
+  it("web 模式（无 __TAURI_INTERNALS__）不调用窗口 API：浏览器里 startDragging 会抛", () => {
+    const saved = w.__TAURI_INTERNALS__;
+    delete w.__TAURI_INTERNALS__;
+    try {
+      onDragStart(event(0, document.createElement("div")));
+      expect(h.startDragging).not.toHaveBeenCalled();
+    } finally {
+      w.__TAURI_INTERNALS__ = saved;
+    }
   });
 });

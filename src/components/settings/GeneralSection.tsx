@@ -1,5 +1,6 @@
 import { For, Show } from "solid-js";
 import { mode, setMode } from "../../lib/theme";
+import { isTauri } from "../../lib/runtime";
 import UpdateSection from "./UpdateSection";
 
 type ReadinessKey = "workspace" | "provider" | "routing";
@@ -107,7 +108,10 @@ export default function GeneralSection(props: {
             </For>
           </div>
         </div>
-        <UpdateSection />
+        {/* 应用更新是壳能力：web 模式没有 updater，入口不渲染 */}
+        <Show when={isTauri()}>
+          <UpdateSection />
+        </Show>
       </div>
     </>
   );

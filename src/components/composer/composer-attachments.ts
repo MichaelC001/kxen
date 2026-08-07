@@ -1,8 +1,10 @@
 // composer 附件装配（从 TextComposer 拆出，350 行门禁收口）：三种入口统一成 chip。
 // 图片内联 base64（先经 image-scale 压到长边 1568）；文件存路径引用（工作区外经 fs.allow_path 授权，见 attach.ts）。
+// web 模式 File 拿不到真实路径：文本 file.text() 走 note inline，大二进制是已知缺口（err chip 明示）。
 // 失败不静默跳过：push err 态 chip（title 写明原因，可点 X 移除）。
 import { ensureActiveSession } from "../../lib/state";
 import { flashErr } from "../../lib/flash";
+import { isWeb } from "../../lib/runtime";
 import { errText } from "../err-text";
 import { baseName, fsResolveName, resolveAttachPath, resolvePickedPath } from "./attach";
 import { fileToImageDataUrl } from "./image-scale";
@@ -162,10 +164,104 @@ export function createAttachments(deps: AttachDeps) {
     }
   }
 
+  // 与后端 fs.read_attachment 2MB cap 对齐：web inline 超此上限按缺口处理
+  const WEB_TEXT_INLINE_MAX = 2 * 1024 * 1024;
+  const TEXT_EXTS = new Set([
+    "txt",
+    "md",
+    "markdown",
+    "json",
+    "jsonl",
+    "csv",
+    "log",
+    "xml",
+    "yaml",
+    "yml",
+    "toml",
+    "ini",
+    "cfg",
+    "html",
+    "css",
+    "svg",
+    "sh",
+    "bash",
+    "zsh",
+    "py",
+    "js",
+    "jsx",
+    "ts",
+    "tsx",
+    "rs",
+    "go",
+    "c",
+    "h",
+    "cpp",
+    "hpp",
+    "java",
+    "kt",
+    "rb",
+    "php",
+    "sql",
+    "vue",
+    "svelte",
+  ]);
+
+  /** web 文本附件判定：MIME text/* 或 application/json，或常见文本扩展名（浏览器对代码文件常给空 type）。 */
+  function isTextLike(file: File): boolean {
+    if (file.type.startsWith("text/") || file.type === "application/json") return true;
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    return TEXT_EXTS.has(ext);
+  }
+
+  /** web 模式非图片附件：文本读全文走 note inline（注入模型不进用户气泡）；大二进制无 inline RPC，已知缺口明示。 */
+  async function attachWebFile(file: File, flight: AttachFlight) {
+    if (!isTextLike(file)) {
+      if (isCurrent(flight))
+        pushChip({
+          kind: "err",
+          ref: file.name,
+          label: file.name,
+          title:
+            "浏览器模式暂不支持二进制文件附件（已知缺口）：可粘贴文本内容，或用桌面版选择该文件",
+        });
+      return;
+    }
+    if (file.size > WEB_TEXT_INLINE_MAX) {
+      if (isCurrent(flight))
+        pushChip({
+          kind: "err",
+          ref: file.name,
+          label: file.name,
+          title: `文件超过 2MB，无法内联（已知缺口）：请截取关键部分粘贴，或用桌面版选择该文件`,
+        });
+      return;
+    }
+    try {
+      const text = await file.text();
+      if (!isCurrent(flight)) return;
+      pushChip({
+        kind: "note",
+        ref: `文件 ${file.name} 的内容：\n${text}`,
+        label: file.name,
+        title: "文件内容已内联（浏览器模式）",
+      });
+    } catch (e) {
+      if (!isCurrent(flight)) return;
+      pushChip({
+        kind: "err",
+        ref: file.name,
+        label: file.name,
+        title: `文件读取失败：${errText(e)}`,
+      });
+    }
+  }
+
   function attachFiles(files: FileList | File[]) {
     for (const file of files) {
       if (file.type.startsWith("image/")) {
         void launch(file.name, (flight) => attachImageFile(file, flight));
+      } else if (isWeb()) {
+        void launch(file.name, (flight) => attachWebFile(file, flight));
       } else {
         void launch(file.name, (flight) => attachOneFile(file, flight));
       }

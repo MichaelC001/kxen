@@ -19,7 +19,7 @@ vi.mock("./state", () => ({
 }));
 
 import { flash } from "./flash";
-import { openProjectDir } from "./open-project";
+import { addProjectDir, openProjectDir } from "./open-project";
 
 beforeEach(() => {
   h.open.mockReset();
@@ -76,5 +76,40 @@ describe("openProjectDir", () => {
     h.active.conversation = true;
     await expect(openProjectDir()).resolves.toBe(true);
     expect(h.newSession).not.toHaveBeenCalled();
+  });
+
+  it("web 模式（无 __TAURI_INTERNALS__）不开原生选择器：返回 false 由调用方走文本输入", async () => {
+    const w = window as unknown as { __TAURI_INTERNALS__?: unknown };
+    const saved = w.__TAURI_INTERNALS__;
+    delete w.__TAURI_INTERNALS__;
+    try {
+      await expect(openProjectDir()).resolves.toBe(false);
+      expect(h.open).not.toHaveBeenCalled();
+      expect(flash.msgs()).toHaveLength(0);
+    } finally {
+      w.__TAURI_INTERNALS__ = saved;
+    }
+  });
+});
+
+describe("addProjectDir（web 路径文本输入入口）", () => {
+  it("绝对路径按 add -> switch -> refresh 完成切入", async () => {
+    await expect(addProjectDir("  /srv/project  ")).resolves.toBe(true);
+    expect(h.add).toHaveBeenCalledWith("/srv/project");
+    expect(h.switch).toHaveBeenCalledWith("/srv/project");
+    expect(h.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("空路径静默 false，不发 RPC", async () => {
+    await expect(addProjectDir("   ")).resolves.toBe(false);
+    expect(h.add).not.toHaveBeenCalled();
+    expect(flash.msgs()).toHaveLength(0);
+  });
+
+  it("add 失败显式报错，不伪装成取消", async () => {
+    h.add.mockRejectedValue(new Error("not a directory"));
+    await expect(addProjectDir("/nope")).resolves.toBe(false);
+    expect(flash.msgs().some((message) => message.text.includes("not a directory"))).toBe(true);
+    expect(h.switch).not.toHaveBeenCalled();
   });
 });

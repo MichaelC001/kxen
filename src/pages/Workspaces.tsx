@@ -12,6 +12,7 @@ import { goalStatusMeta, rankCards, type GoalTone } from "../lib/board";
 import { baseName } from "../lib/group-name";
 import { relTime } from "../lib/time";
 import { onDragStart } from "../lib/drag";
+import { isTauri } from "../lib/runtime";
 import EmptyLine from "../components/EmptyLine";
 import { createSeqGuard } from "../lib/async-guard";
 
@@ -100,7 +101,10 @@ export default function Workspaces() {
 
   return (
     <div class="h-full flex-1 overflow-auto">
-      <div class="h-8" data-tauri-drag-region onMouseDown={onDragStart} />
+      {/* 拖拽占位条只在 Tauri 无边框窗口下需要 */}
+      <Show when={isTauri()}>
+        <div class="h-8" data-tauri-drag-region onMouseDown={onDragStart} />
+      </Show>
       <div class="px-8 py-6 pt-2">
         <A
           href="/"

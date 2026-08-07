@@ -1,6 +1,9 @@
-// 打开项目目录：原生目录选择器 -> 添加为 workspace -> 切入（SessionTree 侧栏与 EmptyHero 首屏共用）。
-// 用户不应手敲绝对路径；选择器取消返回 null，静默无事发生。
+// 打开项目目录两条入口：
+// - Tauri：原生目录选择器 -> 添加为 workspace -> 切入（SessionTree 侧栏与 EmptyHero 首屏共用）；
+// - web：浏览器拿不到真实绝对路径，调用方改用路径文本输入（addProjectDir，RPC 不变）。
+// 选择器取消返回 null，静默无事发生。
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { isWeb } from "./runtime";
 import { workspaceAdd, workspaceSwitch } from "./chat";
 import { activeSessionId, hasConversation, newSession, refreshSessions } from "./state";
 import { flashErr } from "./flash";
@@ -8,6 +11,8 @@ import { formatError } from "./error-text";
 
 /** 弹出原生目录选择器，选中则添加并切入该目录。返回是否成功切入（取消/失败均 false，失败已 flash）。 */
 export async function openProjectDir(): Promise<boolean> {
+  // 浏览器无原生目录选择器：返回 false，调用方展开路径文本输入走 addProjectDir
+  if (isWeb()) return false;
   let selected: string | string[] | null;
   try {
     selected = await openDialog({
@@ -20,9 +25,16 @@ export async function openProjectDir(): Promise<boolean> {
     return false;
   }
   if (typeof selected !== "string" || !selected) return false;
+  return addProjectDir(selected);
+}
+
+/** 路径文本输入入口：按绝对路径添加并切入。返回是否成功切入（空串静默 false，失败已 flash）。 */
+export async function addProjectDir(path: string): Promise<boolean> {
+  const trimmed = path.trim();
+  if (!trimmed) return false;
   try {
-    await workspaceAdd(selected);
-    await workspaceSwitch(selected);
+    await workspaceAdd(trimmed);
+    await workspaceSwitch(trimmed);
     // 已落库的空会话仍绑旧目录：不切回草稿，下一条消息就会在旧目录运行，
     // 与「会话在该目录下运行」的承诺相违。有内容的会话与草稿态不动。
     if (activeSessionId() && !hasConversation()) await newSession();

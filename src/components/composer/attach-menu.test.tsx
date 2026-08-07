@@ -107,4 +107,71 @@ describe("AttachMenu (webkit)", () => {
     expect(host.querySelector(".composer-popup")).toBeNull();
     dispose();
   });
+
+  it("web 模式（无 __TAURI_INTERNALS__）走 file input：File 对象透传 onFiles，不调原生对话框", async () => {
+    const w = window as unknown as { __TAURI_INTERNALS__?: unknown };
+    const saved = w.__TAURI_INTERNALS__;
+    delete w.__TAURI_INTERNALS__;
+    const host = document.createElement("div");
+    host.style.cssText = "position:fixed;bottom:8px;left:8px;";
+    document.body.append(host);
+    let got: File[] = [];
+    const dispose = render(
+      () => <AttachMenu onPaths={() => {}} onFiles={(f) => (got = f)} />,
+      host,
+    );
+    try {
+      await userEvent.click(host.querySelector<HTMLButtonElement>(".attach-btn")!);
+      const row = [...host.querySelectorAll<HTMLButtonElement>(".popup-row")].find((b) =>
+        b.textContent?.includes("选择文件"),
+      )!;
+      await userEvent.click(row);
+      const input = host.querySelector<HTMLInputElement>("input[type=file]")!;
+      await userEvent.upload(input, [
+        new File(["abc"], "note.txt", { type: "text/plain" }),
+        new File(["def"], "b.md", { type: "text/markdown" }),
+      ]);
+      await vi.waitFor(() => expect(got.map((f) => f.name)).toEqual(["note.txt", "b.md"]));
+      expect(dialogMock.calls).toHaveLength(0);
+      // value 已清零：同名文件可连续再选
+      expect(input.value).toBe("");
+    } finally {
+      w.__TAURI_INTERNALS__ = saved;
+      dispose();
+      host.remove();
+    }
+  });
+
+  it("web 模式选择图片：file input 带图片扩展名 accept", async () => {
+    const w = window as unknown as { __TAURI_INTERNALS__?: unknown };
+    const saved = w.__TAURI_INTERNALS__;
+    delete w.__TAURI_INTERNALS__;
+    const host = document.createElement("div");
+    host.style.cssText = "position:fixed;bottom:8px;left:8px;";
+    document.body.append(host);
+    let got: File[] = [];
+    const dispose = render(
+      () => <AttachMenu onPaths={() => {}} onFiles={(f) => (got = f)} />,
+      host,
+    );
+    try {
+      await userEvent.click(host.querySelector<HTMLButtonElement>(".attach-btn")!);
+      const row = [...host.querySelectorAll<HTMLButtonElement>(".popup-row")].find((b) =>
+        b.textContent?.includes("选择图片"),
+      )!;
+      await userEvent.click(row);
+      const input = host.querySelector<HTMLInputElement>("input[type=file]")!;
+      expect(input.accept).toContain(".png");
+      expect(input.accept).toContain(".webp");
+      await userEvent.upload(input, [
+        new File([new Uint8Array([1])], "p.png", { type: "image/png" }),
+      ]);
+      await vi.waitFor(() => expect(got.map((f) => f.name)).toEqual(["p.png"]));
+      expect(dialogMock.calls).toHaveLength(0);
+    } finally {
+      w.__TAURI_INTERNALS__ = saved;
+      dispose();
+      host.remove();
+    }
+  });
 });

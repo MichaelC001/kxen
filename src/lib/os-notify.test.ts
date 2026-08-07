@@ -53,4 +53,17 @@ describe("os-notify 点击回跳", () => {
       true,
     );
   });
+
+  it("web 模式（无 __TAURI_INTERNALS__）不注册 listen：无 OS 通知桥", async () => {
+    const w = window as unknown as { __TAURI_INTERNALS__?: unknown };
+    const saved = w.__TAURI_INTERNALS__;
+    delete w.__TAURI_INTERNALS__;
+    try {
+      const un = await mountOsNotificationJump();
+      expect(h.handler).toBeNull();
+      un(); // noop 注销不抛
+    } finally {
+      w.__TAURI_INTERNALS__ = saved;
+    }
+  });
 });

@@ -1,5 +1,5 @@
 // 附件装配失败可见性：授权/读取/图片编码失败都落 err chip（title 带原因），不再静默跳过。
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAttachments } from "./composer-attachments";
 import { fileToImageDataUrl } from "./image-scale";
 import type { RowChip } from "./RowChips";
@@ -152,5 +152,58 @@ describe("attachFiles 图片失败 err chip", () => {
       expect.objectContaining({ kind: "file", ref: "docs/note.txt", label: "note.txt" }),
     ]);
     expect(pending()).toBe(false);
+  });
+});
+
+describe("attachFiles web 模式（无 __TAURI_INTERNALS__）", () => {
+  const w = window as unknown as { __TAURI_INTERNALS__?: unknown };
+  let saved: unknown;
+
+  beforeEach(() => {
+    saved = w.__TAURI_INTERNALS__;
+    delete w.__TAURI_INTERNALS__;
+  });
+
+  afterEach(() => {
+    w.__TAURI_INTERNALS__ = saved;
+  });
+
+  it("文本文件 file.text() -> note chip 内联（含文件名与全文），不发 RPC", async () => {
+    rpcMock.impl = () => Promise.reject(new Error("unexpected call"));
+    const { chips, attachFiles, settle } = harness();
+    attachFiles([new File(["hello world"], "notes.md", { type: "text/markdown" })]);
+    await expect(settle()).resolves.toBe(true);
+    expect(chips.length).toBe(1);
+    expect(chips[0]?.kind).toBe("note");
+    expect(chips[0]?.label).toBe("notes.md");
+    expect(chips[0]?.ref).toContain("notes.md");
+    expect(chips[0]?.ref).toContain("hello world");
+  });
+
+  it("无 MIME 的代码文件按扩展名判文本 inline", async () => {
+    const { chips, attachFiles, settle } = harness();
+    attachFiles([new File(["fn main() {}"], "main.rs", { type: "" })]);
+    await expect(settle()).resolves.toBe(true);
+    expect(chips[0]?.kind).toBe("note");
+    expect(chips[0]?.ref).toContain("fn main() {}");
+  });
+
+  it("大二进制无 inline RPC：err chip 明示已知缺口，不静默跳过", async () => {
+    const { chips, attachFiles, settle } = harness();
+    attachFiles([new File([new Uint8Array([1, 2, 3])], "app.zip", { type: "application/zip" })]);
+    await expect(settle()).resolves.toBe(true);
+    expect(chips.length).toBe(1);
+    expect(chips[0]?.kind).toBe("err");
+    expect(chips[0]?.label).toBe("app.zip");
+    expect(chips[0]?.title).toContain("已知缺口");
+  });
+
+  it("文本超 2MB cap：err chip 提示截取粘贴", async () => {
+    const big = new Uint8Array(2 * 1024 * 1024 + 1);
+    const { chips, attachFiles, settle } = harness();
+    attachFiles([new File([big], "huge.log", { type: "text/plain" })]);
+    await expect(settle()).resolves.toBe(true);
+    expect(chips[0]?.kind).toBe("err");
+    expect(chips[0]?.title).toContain("2MB");
   });
 });
