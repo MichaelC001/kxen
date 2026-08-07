@@ -1,5 +1,8 @@
+#[cfg(unix)]
 use super::*;
 
+// 仅 unix 测试使用的恢复包脚手架：三个调用方测试全部 cfg(unix)
+#[cfg(unix)]
 fn recovery_bundle(tag: &str) -> (PathBuf, PathBuf) {
     let base = std::env::temp_dir().join(format!("kxen-discard-{tag}-{}-{}", std::process::id(), nonce()));
     let bundle = base.join("ses_one.kxen-session");
