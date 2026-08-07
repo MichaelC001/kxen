@@ -18,7 +18,7 @@
 - Session JSONL 与 PendingQueue 的 `recovery.inspect`、`recovery.repair`、`recovery.clear` 契约，以及 Composer 存储恢复面板。
 - Frontend 与 Rust coverage gate、100 个 RPC 三方精确对账门禁和 Stream topic ACL 门禁。
 - Developer ID 签名、公证、DMG、updater archive、latest.json、SHA256SUMS 和 GitHub Release 产物验证工具。
-- 13 家提供商的应用内 OAuth 登录（Anthropic、OpenAI、xAI、Kimi for Coding、GitHub Copilot、Qwen、Google Gemini CLI、Google Antigravity、MiniMax 双区域、OpenRouter、AWS Kiro、Z.AI），含 code flow、device flow 与 refresh 自动续期。
+- 13 个条目的应用内 OAuth 登录（Anthropic、OpenAI、xAI、Kimi For Coding、GitHub Copilot、Qwen Code 订阅、Google Gemini 订阅、Google Antigravity、MiniMax 双区域、OpenRouter、AWS Kiro、智谱 Coding Plan），含 code flow、device flow 与 refresh 自动续期。
 - 9 个 Coding Plan / 网关 API 条目：智谱、百炼、阶跃拆中国/国际双区域，豆包、千帆、腾讯 Coding Plan，Vercel AI Gateway、Hugging Face、Ollama Cloud。
 - 工具执行历史分组卡片（ToolGroupCard/ToolCard），diff 与文件树渲染统一接入 @pierre/diffs 与 @pierre/trees。
 
