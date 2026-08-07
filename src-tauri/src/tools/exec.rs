@@ -252,15 +252,13 @@ async fn spawn_task_inner(
 ) -> Result<Arc<TaskHandle>, ExecError> {
     let (bin, args) = argv.split_first().ok_or_else(|| ExecError::Spawn("empty argv".into()))?;
     let generation = registry.allocate_generation().map_err(ExecError::Spawn)?;
-    let mut child = Command::new(bin)
-        .args(args)
-        .current_dir(workdir)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        // 独立进程组组长：kill 走 killpg 才能覆盖 shell 的孙进程（dev server 子进程不泄漏）
-        .process_group(0)
-        .spawn()
-        .map_err(|e| ExecError::Spawn(format!("{bin}: {e}")))?;
+    let mut cmd = Command::new(bin);
+    cmd.args(args).current_dir(workdir).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    // 独立进程组组长:kill 走 killpg 才能覆盖 shell 的孙进程（dev server 子进程不泄漏）。
+    // 仅 unix 有进程组语义,Windows 终止走 TaskHandle 的直接 kill
+    #[cfg(unix)]
+    cmd.process_group(0);
+    let mut child = cmd.spawn().map_err(|e| ExecError::Spawn(format!("{bin}: {e}")))?;
 
     let output = Arc::new(Mutex::new(String::new()));
     let truncated = Arc::new(Mutex::new(false));

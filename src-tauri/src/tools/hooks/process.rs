@@ -32,8 +32,8 @@ pub(super) async fn run(
     timeout: Duration,
     cancel: Option<&CancelToken>,
 ) -> Result<Output, String> {
-    let mut child = Command::new(hook_shell())
-        .arg("-c")
+    let mut cmd = Command::new(hook_shell());
+    cmd.arg("-c")
         .arg(command)
         .current_dir(workdir)
         .env("KXEN_EVENT", event)
@@ -41,10 +41,11 @@ pub(super) async fn run(
         .env("KXEN_PAYLOAD", payload)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
-        .process_group(0)
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|error| format!("hook spawn failed: {error}"))?;
+        .kill_on_drop(true);
+    // 独立进程组只有 unix 有语义;Windows 终止依赖 kill_on_drop
+    #[cfg(unix)]
+    cmd.process_group(0);
+    let mut child = cmd.spawn().map_err(|error| format!("hook spawn failed: {error}"))?;
     let pid = child.id().ok_or_else(|| "hook spawn did not return a process id".to_string())?;
     let stderr = child.stderr.take().ok_or_else(|| "hook stderr pipe unavailable".to_string())?;
     let mut stderr_task = tokio::spawn(drain_stderr(stderr));
