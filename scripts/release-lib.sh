@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+_kxen_release_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 平台矩阵与稳定 asset 命名单一出处,合并 latest.json 与产物核对都依赖它。
+# shellcheck source=scripts/release-manifest.sh
+source "$_kxen_release_lib_dir/release-manifest.sh"
+unset _kxen_release_lib_dir
+
 kxen_require_release_tag() {
   local release_tag="$1"
   local pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
@@ -278,10 +284,113 @@ PY
 kxen_verify_updater_signature() {
   local archive_path="$1"
   local signature_path="$2"
-  local tauri_config="${3:-src-tauri/tauri.conf.json}"
+  # 产物改名后 trusted comment 仍绑定 tauri 原始文件名,由 release-manifest.sh 派生传入;
+  # 缺省按 archive basename 校验(未改名场景)。
+  local original_name="${3:-}"
+  local tauri_config="${4:-src-tauri/tauri.conf.json}"
   local public_key
   public_key="$(jq -er '.plugins.updater.pubkey | select(type == "string" and length > 0)' "$tauri_config")"
   local library_dir
   library_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  node "$library_dir/verify-updater-signature.mjs" "$archive_path" "$signature_path" "$public_key"
+  if [[ -n "$original_name" ]]; then
+    node "$library_dir/verify-updater-signature.mjs" "$archive_path" "$signature_path" "$public_key" "$original_name"
+  else
+    node "$library_dir/verify-updater-signature.mjs" "$archive_path" "$signature_path" "$public_key"
+  fi
+}
+
+# sha256 摘要跨平台封装:Linux/Windows(Git Bash)用 sha256sum,macOS 用 shasum。
+kxen_sha256sum() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$@"
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$@"
+  else
+    printf 'sha256sum or shasum is required\n' >&2
+    return 1
+  fi
+}
+
+kxen_sha256sum_check() {
+  local manifest_path="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum -c "$manifest_path"
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 -c "$manifest_path"
+  else
+    printf 'sha256sum or shasum is required\n' >&2
+    return 1
+  fi
+}
+
+# 为目录内全部常规文件(不含 SHA256SUMS 自身)生成校验清单。
+kxen_write_sha256sums() {
+  local dir="$1"
+  (
+    cd "$dir"
+    local names=()
+    local name
+    while IFS= read -r name; do
+      names+=("$name")
+    done < <(find . -maxdepth 1 -type f ! -name SHA256SUMS -print | sed 's|^\./||' | LC_ALL=C sort)
+    if [[ "${#names[@]}" -eq 0 ]]; then
+      printf 'no files to checksum in %s\n' "$dir" >&2
+      return 1
+    fi
+    kxen_sha256sum "${names[@]}" > SHA256SUMS
+  )
+}
+
+# 合并各平台 updater 签名生成 latest.json(tauri updater 格式)。
+# 无 .sig 的平台跳过并告警(updater 对该平台不可用);sig 存在但 archive 缺失、
+# sig 为空、或全部平台都无 sig 时失败。
+kxen_merge_updater_manifest() {
+  local version="$1"
+  local repository="$2"
+  local release_tag="$3"
+  local asset_dir="$4"
+  local output_path="$5"
+  local entries=()
+  local platform key asset signature url
+  for platform in "${KXEN_RELEASE_PLATFORMS[@]}"; do
+    key="$(kxen_release_updater_key "$platform")" || return 1
+    asset="$(kxen_release_updater_asset "$platform")" || return 1
+    if [[ ! -f "$asset_dir/$asset.sig" ]]; then
+      printf 'SKIP updater platform without signature: %s (%s.sig)\n' "$key" "$asset" >&2
+      continue
+    fi
+    if [[ ! -f "$asset_dir/$asset" ]]; then
+      printf 'updater signature without archive: %s\n' "$asset" >&2
+      return 1
+    fi
+    signature="$(cat "$asset_dir/$asset.sig")"
+    if [[ -z "$signature" ]]; then
+      printf 'updater signature is empty: %s.sig\n' "$asset" >&2
+      return 1
+    fi
+    url="https://github.com/$repository/releases/download/$release_tag/$asset"
+    entries+=("$(
+      jq -cn \
+        --arg key "$key" \
+        --arg signature "$signature" \
+        --arg url "$url" \
+        '{ key: $key, entry: { signature: $signature, url: $url } }'
+    )")
+  done
+  if [[ "${#entries[@]}" -eq 0 ]]; then
+    printf 'no signed updater platform found in %s\n' "$asset_dir" >&2
+    return 1
+  fi
+  local pub_date
+  pub_date="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  printf '%s\n' "${entries[@]}" | jq -s \
+    --arg version "$version" \
+    --arg notes "Kxen $release_tag development preview." \
+    --arg pub_date "$pub_date" \
+    '{
+      version: $version,
+      notes: $notes,
+      pub_date: $pub_date,
+      platforms: (map({ (.key): .entry }) | add)
+    }' > "$output_path"
 }

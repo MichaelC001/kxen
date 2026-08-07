@@ -8,7 +8,7 @@ source "$script_dir/release-lib.sh"
 bundle_root="${1:-src-tauri/target/aarch64-apple-darwin/release/bundle}"
 app_path="$bundle_root/macos/Kxen.app"
 
-dmg_path="$(kxen_find_one DMG "$bundle_root/dmg" 'Kxen_*_aarch64.dmg')"
+dmg_path="$(kxen_find_one DMG "$bundle_root/dmg" 'Kxen_*.dmg')"
 updater_path="$(kxen_find_one 'updater archive' "$bundle_root/macos" '*.app.tar.gz')"
 signature_path="$updater_path.sig"
 

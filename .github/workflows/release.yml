@@ -44,7 +44,8 @@ jobs:
           source scripts/release-lib.sh
           kxen_require_release_tag "$RELEASE_TAG"
           mkdir -p "$RUNNER_TEMP/release-tools"
-          cp scripts/release-lib.sh scripts/validate-release.sh "$RUNNER_TEMP/release-tools/"
+          cp scripts/release-lib.sh scripts/release-manifest.sh scripts/validate-release.sh \
+            "$RUNNER_TEMP/release-tools/"
           if ! git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
             printf 'release tag does not exist locally: %s\n' "$RELEASE_TAG"
             exit 1
@@ -70,16 +71,41 @@ jobs:
     with:
       ref: ${{ needs.validate.outputs.commit }}
 
-  macos:
-    name: Build signed macOS ARM64 assets
+  matrix:
+    name: Release platform matrix
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # 矩阵单一出处是 main 上的 release-manifest.sh，与可信工具同规则固定。
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Derive build matrix from release manifest
+        id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          matrix_json="$(bash scripts/release-manifest.sh json | jq -c .)"
+          printf 'matrix=%s\n' "$matrix_json" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.platform }} assets
     needs:
       - validate
       - quality
-    runs-on: macos-14
+      - matrix
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     environment: release
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -89,7 +115,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/trusted-release-tools"
-          cp scripts/{github-release,prepare-macos-release-assets,release-lib,validate-release,verify-macos-release,verify-release-assets}.sh \
+          cp scripts/{github-release,prepare-release-assets,release-lib,release-manifest,validate-release,verify-macos-release,verify-release-assets}.sh \
             scripts/verify-updater-signature.mjs \
             "$RUNNER_TEMP/trusted-release-tools/"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -108,9 +134,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: stable
-          targets: aarch64-apple-darwin
+          targets: ${{ matrix.target }}
+      # tauri/webkit 系统依赖（tray-icon 需要 libayatana-appindicator），与 ci.yml 清单一致：仅 Linux
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
       - run: pnpm install --frozen-lockfile
       - name: Validate signing credentials
+        if: matrix.signed
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -151,7 +184,22 @@ jobs:
             printf 'APPLE_API_ISSUER must be a UUID\n'
             exit 1
           fi
+      - name: Validate updater signing credentials
+        if: ${{ !matrix.signed }}
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              printf 'missing release secret: %s\n' "$name"
+              exit 1
+            fi
+          done
       - name: Import Developer ID certificate
+        if: matrix.signed
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -197,6 +245,7 @@ jobs:
           fi
           printf 'APPLE_SIGNING_IDENTITY=%s\n' "$KXEN_SIGNING_IDENTITY" >> "$GITHUB_ENV"
       - name: Prepare App Store Connect key
+        if: matrix.signed
         shell: bash
         env:
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
@@ -207,6 +256,7 @@ jobs:
           printf '%s' "$APPLE_API_PRIVATE_KEY" > "$KXEN_API_KEY_PATH"
           printf 'APPLE_API_KEY_PATH=%s\n' "$KXEN_API_KEY_PATH" >> "$GITHUB_ENV"
       - name: Build, sign, notarize, and staple
+        if: matrix.signed
         shell: bash
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -214,15 +264,24 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri build --target aarch64-apple-darwin
+        run: pnpm tauri build --target ${{ matrix.target }}
+      # 无 OS 级签名的平台仍注入 Tauri updater minisign 私钥,产出 updater .sig。
+      - name: Build unsigned bundles with updater signatures
+        if: ${{ !matrix.signed }}
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --target ${{ matrix.target }}
       - name: Notarize and staple DMG
+        if: matrix.signed
         shell: bash
         env:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: |
           set -euo pipefail
-          dmg_path="$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -name 'Kxen_*_aarch64.dmg' | head -1)"
+          dmg_path="$(find "src-tauri/target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -name 'Kxen_*.dmg' | head -1)"
           if [[ -z "$dmg_path" ]]; then
             printf 'DMG bundle not found\n'
             exit 1
@@ -236,7 +295,7 @@ jobs:
             --wait
           xcrun stapler staple "$dmg_path"
       - name: Clear temporary signing material
-        if: always()
+        if: ${{ always() && matrix.signed }}
         shell: bash
         run: |
           security delete-keychain "$RUNNER_TEMP/kxen-signing.keychain-db" 2>/dev/null || true
@@ -247,21 +306,31 @@ jobs:
             fi
           done
       - name: Verify signed app, DMG, and updater artifacts
+        if: matrix.signed
         shell: bash
-        run: bash "$RUNNER_TEMP/trusted-release-tools/verify-macos-release.sh"
+        run: >-
+          bash "$RUNNER_TEMP/trusted-release-tools/verify-macos-release.sh"
+          "src-tauri/target/${{ matrix.target }}/release/bundle"
+      - name: Build kxen-web headless server
+        shell: bash
+        # rust-embed 编译期读取 dist/,tauri build 已产出前端产物,kxen-web 编译排在它后面。
+        run: >-
+          cargo build --manifest-path src-tauri/Cargo.toml --release
+          -p kxen-web --target ${{ matrix.target }}
       - name: Prepare verified release asset set
         shell: bash
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
-        run: |
-          bash "$RUNNER_TEMP/trusted-release-tools/prepare-macos-release-assets.sh" \
-            "$RELEASE_TAG" \
-            "$GITHUB_REPOSITORY" \
-            src-tauri/target/aarch64-apple-darwin/release/bundle \
-            "$RUNNER_TEMP/release-assets"
+        run: >-
+          bash "$RUNNER_TEMP/trusted-release-tools/prepare-release-assets.sh"
+          "${{ matrix.platform }}"
+          "$RELEASE_TAG"
+          "$GITHUB_REPOSITORY"
+          "src-tauri/target/${{ matrix.target }}/release/bundle"
+          "$RUNNER_TEMP/release-assets"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: macos-release-${{ needs.validate.outputs.tag }}
+          name: release-${{ matrix.platform }}-${{ needs.validate.outputs.tag }}
           path: ${{ runner.temp }}/release-assets/*
           if-no-files-found: error
           compression-level: 0
@@ -271,7 +340,7 @@ jobs:
     name: Publish verified GitHub release
     needs:
       - validate
-      - macos
+      - build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: release
@@ -286,7 +355,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/trusted-release-tools"
-          cp scripts/{github-release,prepare-macos-release-assets,release-lib,validate-release,verify-macos-release,verify-release-assets}.sh \
+          cp scripts/{github-release,prepare-release-assets,release-lib,release-manifest,validate-release,verify-macos-release,verify-release-assets}.sh \
             scripts/verify-updater-signature.mjs \
             "$RUNNER_TEMP/trusted-release-tools/"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -296,8 +365,9 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          name: macos-release-${{ needs.validate.outputs.tag }}
+          pattern: release-*-${{ needs.validate.outputs.tag }}
           path: ${{ runner.temp }}/release-assets
+          merge-multiple: true
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
@@ -307,6 +377,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
         run: bash "$RUNNER_TEMP/trusted-release-tools/validate-release.sh" "$RELEASE_TAG" origin/main "$GITHUB_REPOSITORY"
+      - name: Merge updater manifest and checksums
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/trusted-release-tools/release-lib.sh"
+          kxen_merge_updater_manifest \
+            "${RELEASE_TAG#v}" "$GITHUB_REPOSITORY" "$RELEASE_TAG" \
+            "$RUNNER_TEMP/release-assets" "$RUNNER_TEMP/release-assets/latest.json"
+          kxen_write_sha256sums "$RUNNER_TEMP/release-assets"
       - name: Verify downloaded release assets
         shell: bash
         env:

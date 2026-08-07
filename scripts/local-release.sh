@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 本地发布路径:GitHub Actions 不可用时,在本机完成 release.yml 的 macos + publish 两段。
+# 本地发布路径:GitHub Actions 不可用时,在本机完成 release.yml 的 macOS arm64 build + publish 两段。
+# 仅覆盖 macOS arm64(macOS-only);Windows/Linux/其他平台的产物只能由 release.yml 矩阵产出。
 # 校验逻辑全部复用 CI 同一批脚本(validate/verify/prepare/github-release),产物走同一验证链。
 #
 # 本机凭证(全部在仓库外,权限 600):
@@ -18,6 +19,9 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 cd "$repo_root"
+
+# shellcheck source=scripts/release-lib.sh
+source "$script_dir/release-lib.sh"
 
 operation="${1:-}"
 release_tag="${2:-}"
@@ -117,8 +121,15 @@ build_assets() {
   xcrun stapler staple "$dmg_path"
 
   bash "$script_dir/verify-macos-release.sh"
-  bash "$script_dir/prepare-macos-release-assets.sh" \
-    "$release_tag" "$repository" "$bundle_root" "$asset_dir"
+  bash "$script_dir/prepare-release-assets.sh" \
+    macos-aarch64 "$release_tag" "$repository" "$bundle_root" "$asset_dir"
+
+  # 本地路径只产出 macOS arm64 一个平台,latest.json 仅含 darwin-aarch64 条目;
+  # 全平台发布由 release.yml 矩阵产出,publish 段同样走这两个函数。
+  kxen_merge_updater_manifest "${release_tag#v}" "$repository" "$release_tag" \
+    "$asset_dir" "$asset_dir/latest.json"
+  kxen_write_sha256sums "$asset_dir"
+  bash "$script_dir/verify-release-assets.sh" "$release_tag" "$repository" "$asset_dir" macos-aarch64
 }
 
 publish_release() {

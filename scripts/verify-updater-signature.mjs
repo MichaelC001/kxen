@@ -22,9 +22,11 @@ function decodeCanonicalBase64(value, label) {
   return decoded;
 }
 
-const [archivePath, signaturePath, encodedPublicKey] = process.argv.slice(2);
+const [archivePath, signaturePath, encodedPublicKey, expectedFileArg] = process.argv.slice(2);
 if (!archivePath || !signaturePath || !encodedPublicKey) {
-  fail("usage: verify-updater-signature.mjs <archive> <signature> <tauri-public-key>");
+  fail(
+    "usage: verify-updater-signature.mjs <archive> <signature> <tauri-public-key> [expected-file]",
+  );
 }
 if (encodedPublicKey.length > 16 * 1024) {
   fail("Tauri updater public key exceeds 16 KiB");
@@ -71,7 +73,12 @@ if (!signaturePacket.subarray(2, 10).equals(publicKeyPacket.subarray(2, 10))) {
   fail("Tauri updater signature key ID does not match the configured public key");
 }
 
-const expectedFile = basename(archivePath);
+// 发布链会把 updater 产物改成稳定 asset 名,trusted comment 绑定的仍是 tauri 原始文件名;
+// 此时由调用方(release-manifest.sh 派生)显式传入原始名,缺省回退 archive  basename。
+const expectedFile = expectedFileArg ?? basename(archivePath);
+if (!/^[A-Za-z0-9._+-]+$/.test(expectedFile)) {
+  fail(`expected updater file name is not URL-safe: ${expectedFile}`);
+}
 const trustedPrefix = "trusted comment: ";
 if (!signatureBox[2].startsWith(trustedPrefix)) {
   fail("Tauri updater signature is missing its trusted comment");
