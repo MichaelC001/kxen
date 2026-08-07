@@ -1,4 +1,4 @@
-//! 路径约定（macOS 规范目录，仅 Apple Silicon 平台）。
+//! 路径约定（macOS / Linux / Windows 规范目录，由 dirs crate 按平台解析）。
 
 use std::path::PathBuf;
 
@@ -19,6 +19,10 @@ pub fn config_dir() -> PathBuf {
 
 /// ~/Library/Application Support/kxen（数据：goals、sessions、auth.json）
 pub fn data_dir() -> PathBuf {
+    // kxen-web 无头部署与测试隔离：环境变量覆盖（与 auth_file 同规约，勿删）
+    if let Ok(p) = std::env::var("KXEN_DATA_DIR") {
+        return PathBuf::from(p);
+    }
     dirs::data_dir().unwrap_or_else(|| home_dir().join("Library/Application Support")).join(APP_DIR)
 }
 
@@ -52,4 +56,38 @@ pub fn sessions_dir() -> PathBuf {
         return PathBuf::from(p);
     }
     data_dir().join("sessions")
+}
+
+#[cfg(test)]
+mod tests {
+    const CHILD_ENV: &str = "KXEN_PATHS_DATA_DIR_CHILD";
+
+    /// KXEN_DATA_DIR 优先于平台默认路径（fork 子进程隔离：env 是进程全局，勿在父进程并行写）。
+    #[test]
+    fn data_dir_env_override_wins_in_isolated_child() {
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let dir = std::env::temp_dir().join(format!("kxen-data-dir-{}", uuid::Uuid::new_v4()));
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "core::paths::tests::data_dir_env_override_wins_in_isolated_child"])
+                .env(CHILD_ENV, "1")
+                .env("KXEN_DATA_DIR", &dir)
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
+        let expected = std::env::var("KXEN_DATA_DIR").unwrap();
+        assert_eq!(super::data_dir(), std::path::PathBuf::from(expected));
+    }
+
+    /// 不设覆盖时默认路径不变：绝对路径 + APP_DIR 收尾。
+    #[test]
+    fn data_dir_default_keeps_platform_layout() {
+        if std::env::var_os("KXEN_DATA_DIR").is_some() {
+            return;
+        }
+        let dir = super::data_dir();
+        assert!(dir.is_absolute(), "默认 data_dir 必须是绝对路径: {}", dir.display());
+        assert_eq!(dir.file_name().unwrap(), super::APP_DIR);
+    }
 }

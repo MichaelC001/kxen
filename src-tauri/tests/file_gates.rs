@@ -1,5 +1,5 @@
 //! 工程门禁（cargo test 硬检查）：单文件 <= 350 行 + cargo fmt --check。
-//! 覆盖 src-tauri/src/（rs）与 仓库根 src/（ts/tsx，前端）；违规即测试失败。
+//! 覆盖 src-tauri/src/ 与 src-tauri/crates/（rs）、仓库根 src/（ts/tsx，前端）；违规即测试失败。
 
 use std::path::Path;
 
@@ -10,6 +10,8 @@ fn file_size_gate() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut offenders = Vec::new();
     visit(&root.join("src"), &["rs"], MAX_LINES, &mut offenders);
+    // 无头 server bin（crates/kxen-web/src）同门禁
+    visit(&root.join("crates"), &["rs"], MAX_LINES, &mut offenders);
     // 前端已上移至仓库根的 src/（src-tauri 的上一级）
     visit(&root.join("../src"), &["ts", "tsx"], MAX_LINES, &mut offenders);
     assert!(offenders.is_empty(), "超 {MAX_LINES} 行门禁的文件:\n{}", offenders.join("\n"));
