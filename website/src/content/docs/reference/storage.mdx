@@ -10,14 +10,14 @@ kxen 采用本地优先存储，当前没有 kxen 云同步服务。
 
 ## 目录
 
-| 数据       | 位置                                                                                        |
-| ---------- | ------------------------------------------------------------------------------------------- |
-| 用户配置   | `~/.config/kxen/`（全部平台一致）                                                            |
+| 数据       | 位置                                                                                                     |
+| ---------- | -------------------------------------------------------------------------------------------------------- |
+| 用户配置   | `~/.config/kxen/`（全部平台一致）                                                                        |
 | 应用数据   | macOS： `~/Library/Application Support/kxen/`;Linux： `~/.local/share/kxen/`;Windows： `%APPDATA%/kxen/` |
-| 保留缓存根 | macOS： `~/Library/Caches/kxen/`;Linux： `~/.cache/kxen/`;Windows： `%LOCALAPPDATA%/kxen/`            |
-| 项目配置   | `file:///path/to/workspace/.kxen/`                                                          |
-| 项目知识   | `file:///path/to/workspace/.agents/`                                                        |
-| 个人知识   | `file:///Users/you/.agents/`                                                                |
+| 保留缓存根 | macOS： `~/Library/Caches/kxen/`;Linux： `~/.cache/kxen/`;Windows： `%LOCALAPPDATA%/kxen/`               |
+| 项目配置   | `file:///path/to/workspace/.kxen/`                                                                       |
+| 项目知识   | `file:///path/to/workspace/.agents/`                                                                     |
+| 个人知识   | `file:///Users/you/.agents/`                                                                             |
 
 `kxen` 可以用环境变量 `KXEN_DATA_DIR` 覆盖应用数据目录。当前命名缓存不一定写入缓存根。模型目录和 embedding cache 位于应用数据目录，不能把缓存根当成清理它们的唯一入口。
 
@@ -59,7 +59,7 @@ kxen 采用本地优先存储，当前没有 kxen 云同步服务。
 
 Session 可以包含文本、隐藏上下文、工具调用、推理、图片和 Approval 结果。图片以内联数据保存，使 fork、导出、rewind 和删除保持自包含。Queue delivery 同时持久化稳定 ID 和原始 `created_at`；一旦用户消息写入 JSONL，重放直接复用该消息中的文本、已解析上下文和图片，不重新读取可能变化的文件或 URL。
 
-`sessions/.deleted/` 保存删除 tombstone、本地 recovery bundle 和传输 backup。进入系统废纸篓的 `<id>.kxen-session` bundle 可由 Finder 恢复，再由启动扫描导入。
+`sessions/.deleted/` 保存删除 tombstone、本地 recovery bundle 和传输 backup。进入系统废纸篓的 `<id>.kxen-session` bundle 可从废纸篓恢复，再由启动扫描导入。
 
 `sessions/.recovery/` 保存存储一致性修复前的原始 JSONL 字节证据，格式为 `<id>.messages.<uuid>.bak`。目录权限为 `0700`，备份权限为 `0600`。这些文件不是普通缓存；确认不再需要恢复或核对前不要删除。
 

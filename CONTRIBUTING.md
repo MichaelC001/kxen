@@ -2,8 +2,7 @@
 
 ## 开发环境
 
-- macOS 14 或更高版本。
-- Apple Silicon。
+- 开发系统： macOS 14 或更高版本、Linux 或 Windows。CI 在三个桌面平台运行 Rust fmt、check 和 clippy，测试在 macOS 和 Ubuntu 运行，Windows 暂不跑测试；本地发布脚本 `scripts/local-release.sh` 只覆盖 macOS arm64。
 - Node.js 22.12 或更高版本。
 - pnpm 11.15.1。
 - 当前 stable Rust toolchain。
@@ -43,15 +42,17 @@ pnpm test
 pnpm coverage
 pnpm build
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo check --manifest-path src-tauri/Cargo.toml --all-targets --all-features
-cargo test --manifest-path src-tauri/Cargo.toml --all-targets --all-features
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+cargo check --manifest-path src-tauri/Cargo.toml --workspace --all-targets --all-features
+cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --all-features
+cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets --all-features -- -D warnings
 bash scripts/rust-coverage.sh
 pnpm audit --prod --audit-level high
 cargo audit --file src-tauri/Cargo.lock
 ```
 
 `pnpm check` 已包含 `pnpm typecheck`，CI 使用同一入口；单列命令用于本地快速复现 TypeScript strict 类型错误。
+
+`src-tauri` 是 Cargo workspace，包含 `kxen-gui` 桌面壳 crate(lib 为 `kxen_gui`）和 `crates/kxen` 无头 server crate,cargo 门禁必须使用 `--workspace` 覆盖两者。rust-embed 在编译期读取仓库根 `dist/`,cargo 命令前必须先执行 `pnpm build`，否则 Rust 编译失败。
 
 官网变更还必须运行:
 

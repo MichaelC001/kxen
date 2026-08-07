@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # 本地发布路径:GitHub Actions 不可用时,在本机完成 release.yml 的 macOS arm64 build + publish 两段。
-# 仅覆盖 macOS arm64(macOS-only);Windows/Linux/其他平台的产物只能由 release.yml 矩阵产出。
+# 仅覆盖 macOS arm64;Windows/Linux/其他平台的产物只能由 release.yml 矩阵产出。
 # 校验逻辑全部复用 CI 同一批脚本(validate/verify/prepare/github-release),产物走同一验证链。
 #
 # 本机凭证(全部在仓库外,权限 600):

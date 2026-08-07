@@ -6,6 +6,27 @@
 
 ## [Unreleased]
 
+### Added
+
+- 无头 Web 模式：新增 `kxen` 命令行 server，不带 GUI 启动完整应用服务，浏览器打开启动时打印的带 token URL 即可使用全部功能；支持 `--bind`、`--port`、`--token`、`--allow-host` 参数和 `KXEN_DATA_DIR` 数据目录覆盖，远程访问可经 tailscale 终结 TLS。
+- 桌面应用内置浏览器访问：桌面窗口与浏览器是同一内嵌服务的两个平等客户端，经同一个 `/ws` 端点使用全部功能。
+- 系统托盘：打开窗口、在浏览器中打开、复制访问链接、浏览器访问开关、默认打开方式(窗口或浏览器)、关闭时最小化到托盘、检查更新和退出。
+- `[web]` 配置节(浏览器访问开关、监听地址、端口)和 `[tray]` 配置节(默认打开方式、关闭时最小化到托盘)。
+- 发布矩阵覆盖六个平台：macOS(Apple Silicon、Intel)、Windows(x64、ARM64)、Linux(x86_64、ARM64)；每个平台同时发布 `kxen` CLI 包，稳定命名为 `kxen-<os>-<arch>.tar.gz`(Windows 为 `.zip`)。
+- macOS 的 `kxen` CLI 与桌面 App、DMG 一样经 Developer ID 签名和 Apple 公证。
+- 官网新增 Web 模式指南和代码签名说明页，首页提供六个平台的完整下载清单。
+
+### Changed
+
+- 桌面窗口与浏览器统一使用同一个内嵌 axum 服务的 `/ws` WebSocket 端点，webview 与浏览器使用相同的前端传输层。
+- 前端适配纯浏览器环境：自动更新、系统通知、原生对话框和拖放在浏览器中自动降级，项目选择改为输入路径，附件经浏览器文件选择控件；token 经 URL 一次性投递，存入 sessionStorage 后从地址栏抹除。
+- Windows 安装包(NSIS)和 Linux 安装包(AppImage、deb)进入正式发布矩阵；Windows 版本暂不做 Authenticode 签名，SmartScreen 提示时选择 More info -> Run anyway。
+- CI Rust 门禁扩展为 macOS、Ubuntu、Windows 三平台矩阵(测试在 macOS 和 Ubuntu 运行)，并先构建前端产物再编译 Rust，保证 rust-embed 静态资源一致。
+
+### Removed
+
+- `tauri-plugin-websocket` 与独立的 tungstenite 监听端口，由单一内嵌 `/ws` 端点取代。
+
 ## [0.0.1]
 
 ### Added

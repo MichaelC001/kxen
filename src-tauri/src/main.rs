@@ -66,7 +66,7 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 let window_builder = window_builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
                 window_builder.build()?;
-                // macOS 原生编辑菜单：WKWebView 的 Cmd+C/V/X/A/Z 由菜单栏分发，无菜单则编辑快捷键全灭；
+                // macOS 系统编辑菜单：WKWebView 的 Cmd+C/V/X/A/Z 由菜单栏分发，无菜单则编辑快捷键全灭；
                 // 其余平台 webview 原生处理编辑快捷键，set_menu 会多出一条系统菜单栏，不设
                 #[cfg(target_os = "macos")]
                 {

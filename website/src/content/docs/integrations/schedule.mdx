@@ -30,7 +30,7 @@ Settings 的定时任务区域提供创建表单，并显示:
 
 ## 执行边界
 
-Schedule dispatcher 每 15 秒检查一次到期 occurrence，只在 kxen 应用运行期间触发，不是 macOS 系统级 cron。应用退出后，不会在后台启动自身执行任务，因此触发时间具有最多一个 tick 加运行调度延迟。
+Schedule dispatcher 每 15 秒检查一次到期 occurrence，只在 kxen 应用运行期间触发，不是操作系统级 cron。应用退出后，不会在后台启动自身执行任务，因此触发时间具有最多一个 tick 加运行调度延迟。
 
 每个 occurrence 先持久化稳定的 `dispatch_id`，再把消息写入目标 Session 的 durable queue。消息 acknowledge 成功后，once Schedule 才删除，recurring Schedule 才推进 `next_fire`。应用在中途退出或派发失败时会使用同一 delivery ID 重放，Session append 通过稳定 message ID 去重，避免静默丢失或重复消息。
 

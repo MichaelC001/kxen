@@ -30,7 +30,7 @@ Session 消息使用追加写历史。模型输入、append、fork、rewind、co
 
 真正清理前，kxen 会建立 recovery bundle，包含 meta、messages、compaction、queue、artifacts、Team、Goal、Schedule 和 usage 关联状态。bundle stage 成功后才 purge 原数据，随后把 bundle 移入系统废纸篓。中间失败会精确回滚，或者保留 tombstone 供启动恢复，不会把部分删除报告为成功。
 
-从 Finder 恢复 `.kxen-session` bundle 后，应用启动扫描可以重新导入。目标路径冲突或 bundle 损坏时 fail closed，并保留恢复证据。
+从系统废纸篓恢复 `.kxen-session` bundle 后，应用启动扫描可以重新导入。目标路径冲突或 bundle 损坏时 fail closed，并保留恢复证据。
 
 ## 存储一致性恢复
 

@@ -4,7 +4,7 @@ version = "0.0.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/StringKe/kxen"
-description = "kxen - macOS Apple Silicon coding agent harness (Tauri + Rust)"
+description = "kxen - cross-platform coding agent harness (Tauri + Rust)"
 
 [lib]
 name = "kxen_gui"

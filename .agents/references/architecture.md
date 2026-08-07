@@ -6,8 +6,8 @@ description: 架构速览与模块边界，改代码前按需阅读
 # 架构速览
 
 - 应用前端位于 `src`，使用 SolidJS。
-- Rust crate 位于 `src-tauri`，拥有 Runtime、持久化和系统能力。
-- 前后端通过 WebSocket RPC 和 Stream 通信。
+- Rust workspace 位于 `src-tauri`：`kxen-gui` 壳 crate（Tauri 桌面 bin，lib `kxen_gui`）加 `crates/kxen` 无头 server bin，拥有 Runtime、持久化和系统能力。
+- 前后端通过同一个内嵌 `/ws` WebSocket 端点的 RPC 和 Stream 通信，桌面 webview 与浏览器是平等客户端。
 - RPC handler、`request_schema` 和生产前端调用必须保持完全对称；当前契约由 `src-tauri/tests/rpc_contract.rs` 静态门禁维护。
 - 所有模型调用必须经过 `src-tauri/src/llm/mrm.rs`。
 - 受保护的对外 HTTP 必须使用 `tools::net_guard` 的 guarded 或显式 loopback client builder，不继承环境代理；Browser 的 Chrome 流量必须经过进程内代理。

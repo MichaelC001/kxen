@@ -7,7 +7,8 @@ import { tableScroll } from "@cloudflare/nimbus-docs/markdown";
 const nimbusConfig = defineNimbusConfig({
   site: "https://kxen.ai",
   title: "kxen",
-  description: "面向复杂软件工程任务的 macOS 原生 Coding Agent Harness。",
+  description:
+    "面向复杂软件工程任务的本地 Coding Agent Harness，桌面覆盖 macOS、Windows、Linux，也可经浏览器访问。",
   locale: "zh-CN",
   homeLabel: "首页",
   github: "https://github.com/StringKe/kxen",
