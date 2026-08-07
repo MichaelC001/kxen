@@ -2424,7 +2424,7 @@ dependencies = [
 
 [[package]]
 name = "kxen"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "futures",
  "kxen-gui",
@@ -2437,7 +2437,7 @@ dependencies = [
 
 [[package]]
 name = "kxen-gui"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "arboard",
  "axum",

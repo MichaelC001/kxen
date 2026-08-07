@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-08
+
 ### Added
 
 - 无头 Web 模式：新增 `kxen` 命令行 server，不带 GUI 启动完整应用服务，浏览器打开启动时打印的带 token URL 即可使用全部功能；支持 `--bind`、`--port`、`--token`、`--allow-host` 参数和 `KXEN_DATA_DIR` 数据目录覆盖，远程访问可经 tailscale 终结 TLS。
@@ -26,6 +28,11 @@
 ### Removed
 
 - `tauri-plugin-websocket` 与独立的 tungstenite 监听端口，由单一内嵌 `/ws` 端点取代。
+
+### Fixed
+
+- Linux 上 Hooks 和 dev server 不再硬依赖 `/bin/zsh`，按 zsh -> bash -> sh 探测可用解释器。
+- Linux 上进程组终止信号不再静默丢失：GNU kill 需要 `--` 分隔符才能正确解析负数 pgid，此前该平台上的组终止实际为空发并泄漏子进程。
 
 ## [0.0.1]
 
@@ -75,5 +82,6 @@
 - 已被 Schedule durable dispatch 替代的 cron_dispatch 模块。
 - 与当前代码和产品文档重复的临时实现计划文档。
 
-[Unreleased]: https://github.com/StringKe/kxen/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/StringKe/kxen/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/StringKe/kxen/releases/tag/v0.0.1
