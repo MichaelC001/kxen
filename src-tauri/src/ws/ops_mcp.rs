@@ -2,35 +2,31 @@
 
 use serde_json::{Value, json};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager};
 
 use crate::AppState;
 
 pub(super) const METHODS: &[&str] = &["mcp.status", "mcp.restart", "mcp.auth"];
 
-pub(super) async fn handle(method: &str, params: &Value, app: &AppHandle) -> Result<Value, String> {
+pub(super) async fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<Value, String> {
     match method {
         "mcp.status" => {
-            let state = app.state::<Arc<AppState>>();
             let runtime = state.ready_active_runtime().await?;
             Ok(serde_json::to_value(runtime.mcp().status()).map_err(|e| e.to_string())?)
         }
         "mcp.restart" => {
             let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
-            let state = app.state::<Arc<AppState>>();
             state.ready_active_runtime().await?.mcp().restart(name).await?;
             Ok(json!({ "restarted": true }))
         }
-        "mcp.auth" => mcp_auth(params, app).await,
+        "mcp.auth" => mcp_auth(params, state).await,
         other => Err(format!("unknown method: {other}")),
     }
 }
 
 /// 交互授权：begin 同步返回授权 URL（前端 RPC 30s 超时，回调等待最长 300s 必须挪后台）；
 /// 后台等回调换 token 落盘后 restart 生效，成败经通知中心告知。
-async fn mcp_auth(params: &Value, app: &AppHandle) -> Result<Value, String> {
+async fn mcp_auth(params: &Value, state: &Arc<AppState>) -> Result<Value, String> {
     let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
-    let state = app.state::<Arc<AppState>>();
     let mcp = state.ready_active_runtime().await?.mcp();
     let session = mcp.begin_auth(name).await?;
     mcp.set_auth_error(name, None); // 新一次发起：清掉上一轮的失败原因
@@ -60,12 +56,15 @@ async fn mcp_auth(params: &Value, app: &AppHandle) -> Result<Value, String> {
     Ok(json!({ "authorize_url": url, "opened": opened }))
 }
 
-/// 开浏览器：macOS 用 `open`（app 仅 Apple Silicon，零新依赖，不引 webbrowser crate）；
-/// 失败返回 false，调用方把 URL 给前端展示供手动复制。
+/// 开浏览器：桌面 GUI 平台用各自系统 opener；失败或无 GUI（kxen-web 无头服务器）返回 false，
+/// 调用方把 URL 给前端展示（web 模式前端本就在浏览器，直接展示/复制链接即可）。
 pub(super) fn open_browser(url: &str) -> bool {
     #[cfg(target_os = "macos")]
     let result = std::process::Command::new("open").arg(url).spawn();
-    #[cfg(not(target_os = "macos"))]
+    // cmd 内建 start 首个引号参数是窗口标题，空串占位后才是 URL
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
     let result = std::process::Command::new("xdg-open").arg(url).spawn();
     result.is_ok()
 }

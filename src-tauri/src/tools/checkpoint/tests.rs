@@ -17,9 +17,12 @@ fn repo_dir_stable_and_canonical() {
     assert_eq!(dir, repo_dir(&real));
     let expect = format!("{:x}", sha2::Sha256::digest(real.canonicalize().unwrap().to_string_lossy().as_bytes()));
     assert!(dir.ends_with(format!("{expect}.git")), "寻址必须是 canonical 路径的 sha256: {}", dir.display());
-    let link = base.join("link");
-    std::os::unix::fs::symlink(&real, &link).unwrap();
-    assert_eq!(dir, repo_dir(&link));
+    #[cfg(unix)]
+    {
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert_eq!(dir, repo_dir(&link));
+    }
     std::fs::remove_dir_all(&base).ok();
 }
 

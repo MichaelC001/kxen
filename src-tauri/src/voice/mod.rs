@@ -1,6 +1,10 @@
 //! 语音输入多引擎：apple（Speech.framework 本地识别，主引擎）+ provider（OpenAI 兼容转写，降级链）。
+//! 麦克风采集仅 macOS 实现（Speech/AVFAudio 手写绑定，objc2 三件套只链 macOS）：其余平台
+//! apple/objc 模块编译期排除，引擎表只剩 provider，voice.start 返回明确 unsupported 错误。
 
+#[cfg(target_os = "macos")]
 pub mod apple;
+#[cfg(target_os = "macos")]
 pub mod objc;
 pub mod provider;
 
@@ -15,9 +19,20 @@ pub struct EngineStatus {
     pub detail: String,
 }
 
+/// 识别会话事件（apple 本地流式产出）。定义在本层而非 apple.rs：事件负载组装跨平台可测。
+#[derive(Debug)]
+pub enum SessionEvent {
+    Partial(String),
+    Final(String),
+    Error(String),
+}
+
 /// 引擎状态总览（设置页语音区 + mic 菜单数据源）。
 pub fn engines(config: &crate::core::config::Config, store: &crate::auth::credential::AuthStore) -> Vec<EngineStatus> {
-    let mut out = vec![apple::status()];
+    let mut out = Vec::new();
+    // apple 引擎仅 macOS 存在；其余平台缺席，前端按清单渲染自动降级
+    #[cfg(target_os = "macos")]
+    out.push(apple::status());
     out.extend(provider::statuses(config, store));
     out
 }
@@ -25,21 +40,20 @@ pub fn engines(config: &crate::core::config::Config, store: &crate::auth::creden
 // ---------------- 活跃 PTT 会话（按 chat session 键控，多会话并发 PTT 互不打断） ----------------
 
 // ObjC 对象句柄跨线程存放（Speech/AVAudio 回调均走框架队列，stop 路径单线程）
+#[cfg(target_os = "macos")]
 struct SendWrap<T>(T);
+#[cfg(target_os = "macos")]
 unsafe impl<T> Send for SendWrap<T> {}
+#[cfg(target_os = "macos")]
 unsafe impl<T> Sync for SendWrap<T> {}
 
 enum Active {
     /// token 是泵线程身份：槽位被替换/移除后旧泵 ptr_eq 不过立即退出
     /// （无守卫的旧泵永不退出，会吸新会话事件造成串流）
-    Apple {
-        session: SendWrap<apple::MicSession>,
-        token: std::sync::Arc<()>,
-    },
-    Record {
-        session: SendWrap<provider::RecordSession>,
-        provider: String,
-    },
+    #[cfg(target_os = "macos")]
+    Apple { session: SendWrap<apple::MicSession>, token: std::sync::Arc<()> },
+    #[cfg(target_os = "macos")]
+    Record { session: SendWrap<provider::RecordSession>, provider: String },
     #[cfg(test)]
     Dummy(u32),
 }
@@ -47,7 +61,9 @@ enum Active {
 impl Active {
     fn cancel(self) {
         match self {
+            #[cfg(target_os = "macos")]
             Self::Apple { session, .. } => session.0.cancel(),
+            #[cfg(target_os = "macos")]
             Self::Record { session, .. } => session.0.cancel(),
             #[cfg(test)]
             Self::Dummy(_) => {}
@@ -78,6 +94,7 @@ pub fn start(
     Err(format!("全部语音引擎不可用（{}）", errors.join("; ")))
 }
 
+#[cfg(target_os = "macos")]
 fn start_one(
     engine: &str,
     store: &crate::auth::credential::AuthStore,
@@ -149,14 +166,43 @@ fn start_one(
     }
 }
 
+/// 非 macOS：麦克风采集未实现（apple 与 provider 录音均依赖 AVFAudio），start 报明确 unsupported。
+/// 槽位语义（替换/取消）经 cfg(test) dummy 引擎照常验证。
+#[cfg(not(target_os = "macos"))]
+fn start_one(
+    engine: &str,
+    store: &crate::auth::credential::AuthStore,
+    _locale: &str,
+    _bus: &crate::core::event::EventBus,
+    _session_id: &str,
+    _capture_cloud: bool,
+) -> Result<String, String> {
+    #[cfg(test)]
+    if engine == "dummy" {
+        // 测试引擎：避开麦克风硬件验证槽位语义，序号用于区分替换前后的槽
+        static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let displaced = crate::core::shared::lock(&ACTIVE).insert(_session_id.to_string(), Active::Dummy(n));
+        if let Some(displaced) = displaced {
+            displaced.cancel();
+        }
+        return Ok("dummy".into());
+    }
+    if engine != "apple" && !provider::configured(store, engine) {
+        return Err(format!("{engine} 未配置 API key"));
+    }
+    Err(format!("语音引擎 {engine} 在当前平台不可用：麦克风采集仅 macOS 实现（当前 {}）", std::env::consts::OS))
+}
+
 /// 转写事件统一携带 session_id（ws/stream.rs 的 session ACL 按它准入）；
 /// 空 id 是旧全局通道：不带键，否则会被 ACL 当成未知 session 拦掉。
 /// Final 不出帧：前端只消费 voice.partial/voice.error，终稿经 voice.stop RPC 返回，发了必被丢弃。
-fn event_payload(e: apple::SessionEvent, session_id: &str) -> Option<serde_json::Value> {
+#[cfg(any(target_os = "macos", test))]
+fn event_payload(e: SessionEvent, session_id: &str) -> Option<serde_json::Value> {
     let mut payload = match e {
-        apple::SessionEvent::Partial(t) => serde_json::json!({"kind": "voice.partial", "text": t}),
-        apple::SessionEvent::Final(_) => return None,
-        apple::SessionEvent::Error(m) => serde_json::json!({"kind": "voice.error", "message": m}),
+        SessionEvent::Partial(t) => serde_json::json!({"kind": "voice.partial", "text": t}),
+        SessionEvent::Final(_) => return None,
+        SessionEvent::Error(m) => serde_json::json!({"kind": "voice.error", "message": m}),
     };
     if !session_id.is_empty() {
         payload.as_object_mut().expect("voice payload").insert("session_id".into(), serde_json::Value::String(session_id.into()));
@@ -172,10 +218,14 @@ pub async fn stop(
     mrm: &crate::llm::mrm::ModelResourceManager,
     usage_reporter: &crate::agent::agent_loop::UsageReporter,
 ) -> Result<Option<String>, String> {
+    // 非 macOS：槽位恒空（start 一律 Err），这些参数只服务于 macOS 臂
+    #[cfg(not(target_os = "macos"))]
+    let _ = (config, store, mrm, usage_reporter);
     // 先取槽再 match：guard 临时量若写在 scrutinee 里会活过 arm 内的 await（非 Send）
     let slot = crate::core::shared::lock(&ACTIVE).remove(session_id);
     match slot {
         None => Ok(None),
+        #[cfg(target_os = "macos")]
         Some(Active::Apple { session, .. }) => {
             let (local, wav) = session.0.stop();
             let wav = match wav {
@@ -202,6 +252,7 @@ pub async fn stop(
             }
             Ok(local)
         }
+        #[cfg(target_os = "macos")]
         Some(Active::Record { session, provider }) => {
             let (path, _dur) = session.0.stop()?;
             let text = provider::transcribe_file(config, store, &provider, &path, mrm, usage_reporter).await;
@@ -210,9 +261,13 @@ pub async fn stop(
         }
         #[cfg(test)]
         Some(Active::Dummy(_)) => Ok(None),
+        // 非 macOS 非测试构建 Active 无可构造变体，match 需要兜底臂
+        #[cfg(all(not(target_os = "macos"), not(test)))]
+        Some(_) => Ok(None),
     }
 }
 
+#[cfg(target_os = "macos")]
 fn apple_fallback_error(error: String, local: Option<&str>) -> String {
     match local {
         Some(local) if !local.is_empty() => format!("Apple cloud fallback failed: {error}\nLocal transcript preserved: {local}"),
@@ -230,6 +285,7 @@ pub fn drop_session(session_id: &str) {
 
 /// Apple 本地终稿只有显式 fallback 才允许上传。存在任意 Provider 凭证本身
 /// 不构成外发授权，避免本地模式静默改变隐私边界。
+#[cfg(any(target_os = "macos", test))]
 fn first_ready_cloud(config: &crate::core::config::Config, store: &crate::auth::credential::AuthStore) -> Option<String> {
     config.voice.fallback.iter().find(|id| provider::configured(store, id)).cloned()
 }
@@ -239,111 +295,5 @@ fn cloud_capture_enabled(config: &crate::core::config::VoiceConfig, store: &crat
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-    fn dummy_config() -> crate::core::config::VoiceConfig {
-        crate::core::config::VoiceConfig { engine: "dummy".into(), ..Default::default() }
-    }
-
-    fn dummy_slot(session_id: &str) -> Option<u32> {
-        match crate::core::shared::lock(&ACTIVE).get(session_id) {
-            Some(Active::Dummy(n)) => Some(*n),
-            _ => None,
-        }
-    }
-
-    fn reporter() -> crate::agent::agent_loop::UsageReporter {
-        crate::agent::agent_loop::UsageReporter::new_unscoped(
-            "system_voice_test",
-            std::sync::Arc::default(),
-            crate::core::event::EventBus::default(),
-        )
-    }
-
-    #[tokio::test]
-    async fn session_slots_are_independent() {
-        let _test = TEST_LOCK.lock().await;
-        let store = crate::auth::credential::AuthStore::new();
-        let bus = crate::core::event::EventBus::default();
-        start(&dummy_config(), &store, "zh-CN", bus.clone(), "slot-a").expect("start a");
-        start(&dummy_config(), &store, "zh-CN", bus.clone(), "slot-b").expect("start b");
-        // 同 session 重复 start = 替换（序号变），别的槽不动
-        let before = dummy_slot("slot-a");
-        start(&dummy_config(), &store, "zh-CN", bus.clone(), "slot-a").expect("restart a");
-        assert_ne!(before, dummy_slot("slot-a"), "同 session 重复 start 应替换旧槽");
-        assert!(dummy_slot("slot-b").is_some(), "别的 session 槽位不得受影响");
-        // stop 只 remove 自己槽
-        let mrm = crate::llm::mrm::ModelResourceManager::new(Default::default());
-        let text = stop(&crate::core::config::Config::default(), &store, "slot-a", &mrm, &reporter()).await.expect("stop a");
-        assert_eq!(text, None);
-        assert!(dummy_slot("slot-a").is_none());
-        assert!(dummy_slot("slot-b").is_some(), "stop 别的 session 不得受影响");
-        // 未知 session 无操作
-        let text = stop(&crate::core::config::Config::default(), &store, "slot-unknown", &mrm, &reporter()).await.expect("stop unknown");
-        assert_eq!(text, None);
-        crate::core::shared::lock(&ACTIVE).clear();
-    }
-
-    #[tokio::test]
-    async fn drop_session_reclaims_active_slot() {
-        let _test = TEST_LOCK.lock().await;
-        let store = crate::auth::credential::AuthStore::new();
-        start(&dummy_config(), &store, "zh-CN", crate::core::event::EventBus::default(), "voice-delete").unwrap();
-        assert!(dummy_slot("voice-delete").is_some());
-        drop_session("voice-delete");
-        assert!(dummy_slot("voice-delete").is_none());
-    }
-
-    #[tokio::test]
-    async fn concurrent_start_same_session_leaves_single_slot() {
-        let _test = TEST_LOCK.lock().await;
-        // 并发 start_one 同槽：insert 顶掉的旧 Active 必须 cancel 而非直接 drop
-        // （apple/provider 引擎 drop 会泄漏麦克风；dummy 下断言收敛为单槽且不 panic）
-        let mut handles = Vec::new();
-        for _ in 0..8 {
-            handles.push(std::thread::spawn(|| {
-                let store = crate::auth::credential::AuthStore::new();
-                for _ in 0..50 {
-                    start(&dummy_config(), &store, "zh-CN", crate::core::event::EventBus::default(), "voice-race").unwrap();
-                }
-            }));
-        }
-        for handle in handles {
-            handle.join().unwrap();
-        }
-        assert!(dummy_slot("voice-race").is_some());
-        assert_eq!(crate::core::shared::lock(&ACTIVE).len(), 1, "同槽并发 start 后不得残留多个槽");
-        crate::core::shared::lock(&ACTIVE).clear();
-    }
-
-    #[tokio::test]
-    async fn event_payload_carries_session_id() {
-        let _test = TEST_LOCK.lock().await;
-        let p = event_payload(apple::SessionEvent::Partial("你好".into()), "s1").unwrap();
-        assert_eq!(p["kind"], "voice.partial");
-        assert_eq!(p["session_id"], "s1");
-        let p = event_payload(apple::SessionEvent::Error("boom".into()), "s2").unwrap();
-        assert_eq!(p["session_id"], "s2");
-        // 空 session 走旧全局通道：不带 session_id 键
-        let p = event_payload(apple::SessionEvent::Partial("完".into()), "").unwrap();
-        assert!(p.get("session_id").is_none());
-        // Final 不出帧（终稿经 voice.stop RPC 返回）
-        assert!(event_payload(apple::SessionEvent::Final("完".into()), "s1").is_none());
-    }
-
-    #[test]
-    fn apple_cloud_upgrade_requires_explicit_fallback() {
-        let mut store = crate::auth::credential::AuthStore::new();
-        store.insert("voice:openai".into(), crate::auth::credential::CredentialKind::Api { key: "configured".into(), region: None });
-        let mut config = crate::core::config::Config::default();
-        config.voice.engine = "apple".into();
-        assert_eq!(first_ready_cloud(&config, &store), None, "凭证存在不能隐式授权本地录音外发");
-        assert!(!cloud_capture_enabled(&config.voice, &store), "纯本地模式不应缓冲云上传用 PCM");
-        config.voice.fallback = vec!["xai".into(), "openai".into()];
-        assert_eq!(first_ready_cloud(&config, &store).as_deref(), Some("openai"));
-        assert!(cloud_capture_enabled(&config.voice, &store));
-    }
-}
+#[path = "tests.rs"]
+mod tests;

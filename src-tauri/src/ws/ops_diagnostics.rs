@@ -1,11 +1,9 @@
 use serde_json::{Value, json};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager};
 
 use crate::AppState;
 
-pub(super) async fn export(app: &AppHandle) -> Result<Value, String> {
-    let state = app.state::<Arc<AppState>>();
+pub(super) async fn export(state: &Arc<AppState>) -> Result<Value, String> {
     let store = kxen_app::core::shared::lock(&state.auth_store).clone();
     let report = crate::doctor::doctor_report(&store);
     let config_path = kxen_app::core::paths::config_dir().join("config.toml");
@@ -14,7 +12,7 @@ pub(super) async fn export(app: &AppHandle) -> Result<Value, String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(error) => return Err(format!("read diagnostics config {}: {error}", config_path.display())),
     };
-    let health = crate::doctor::system_health(&state).await?;
+    let health = crate::doctor::system_health(state).await?;
     let mut markdown =
         format!("# kxen diagnostics\n\n- version: {}\n- at: {:?}\n\n", env!("CARGO_PKG_VERSION"), std::time::SystemTime::now());
     markdown.push_str("## providers\n\n");
@@ -64,10 +62,10 @@ pub(super) async fn export(app: &AppHandle) -> Result<Value, String> {
         health.mrm_dispatches, health.mrm_describe
     ));
     let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|duration| duration.as_millis()).unwrap_or(0);
-    let path = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join("Downloads")
-        .join(format!("kxen-diagnostics-{timestamp}.md"));
+    // 落 data_dir 而非 ~/Downloads：跨平台一致，且不依赖桌面目录约定（Windows/Linux 无 Downloads 保证）
+    let dir = kxen_app::core::paths::data_dir().join("diagnostics");
+    std::fs::create_dir_all(&dir).map_err(|error| format!("create diagnostics dir {}: {error}", dir.display()))?;
+    let path = dir.join(format!("kxen-diagnostics-{timestamp}.md"));
     std::fs::write(&path, markdown).map_err(|error| error.to_string())?;
     Ok(json!({ "path": path.to_string_lossy() }))
 }

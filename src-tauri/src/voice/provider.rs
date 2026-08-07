@@ -8,6 +8,8 @@ pub(crate) const MAX_CAPTURE_SAMPLE_RATE: usize = 192_000;
 pub(crate) const MAX_PCM_SAMPLES: usize = MAX_CAPTURE_SAMPLE_RATE * MAX_AUDIO_SECONDS;
 pub(crate) const MAX_WAV_BYTES: usize = 44 + MAX_PCM_SAMPLES * 2;
 
+// 录音机械仅 macOS（麦克风采集经 AVFAudio）；纯 Rust WAV/PCM 助手在测试构建保留供单测
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn sample_limit(sample_rate: u32) -> usize {
     usize::try_from(sample_rate).unwrap_or(usize::MAX).saturating_mul(MAX_AUDIO_SECONDS).min(MAX_PCM_SAMPLES)
 }
@@ -189,20 +191,26 @@ fn read_bounded_wav(path: &std::path::Path) -> Result<Vec<u8>, String> {
 
 // ---------------- 麦克风录音会话（停止后整段上传转写） ----------------
 
+#[cfg(target_os = "macos")]
 use objc2::rc::Retained;
+#[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
+#[cfg(target_os = "macos")]
 use std::sync::{Arc, Mutex};
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Default)]
 pub(crate) struct SampleBuffer {
     pub(crate) samples: Vec<f32>,
     pub(crate) exceeded: bool,
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn append_samples(buffer: &mut SampleBuffer, chunk: &[f32], limit: usize) {
     append_samples_up_to(buffer, chunk, limit.min(MAX_PCM_SAMPLES));
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn append_samples_up_to(buffer: &mut SampleBuffer, chunk: &[f32], limit: usize) {
     if buffer.exceeded || chunk.is_empty() {
         return;
@@ -212,6 +220,7 @@ fn append_samples_up_to(buffer: &mut SampleBuffer, chunk: &[f32], limit: usize) 
     buffer.exceeded = chunk.len() > remaining;
 }
 
+#[cfg(target_os = "macos")]
 pub struct RecordSession {
     engine: Retained<AnyObject>,
     /// tap block：stop/cancel 先 removeTap 再随结构体回收（mem::forget 会每次 PTT 泄漏一份）
@@ -221,6 +230,7 @@ pub struct RecordSession {
 }
 
 /// 启动录音（PTT 按下）。tap 回调把 PCM 累积进共享缓冲。
+#[cfg(target_os = "macos")]
 pub fn start_recording() -> Result<RecordSession, String> {
     let samples: Arc<Mutex<SampleBuffer>> = Arc::new(Mutex::new(SampleBuffer::default()));
     let sink = samples.clone();
@@ -238,6 +248,7 @@ pub fn start_recording() -> Result<RecordSession, String> {
     Ok(RecordSession { engine, tap, samples, sample_rate: rate as u32 })
 }
 
+#[cfg(target_os = "macos")]
 impl RecordSession {
     /// PTT 松开：停止 -> 写 WAV 到临时文件 -> 返回 (path, 时长秒)。
     pub fn stop(self) -> Result<(String, f32), String> {
@@ -265,6 +276,7 @@ impl RecordSession {
 
 /// 云转写临时 WAV 路径：pid + 原子序号 + 纳秒时间戳。
 /// 只按 pid 命名会让多会话并发 stop 写同一路径，互相覆盖、还互相误删。
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn temp_wav_path() -> std::path::PathBuf {
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
@@ -276,11 +288,13 @@ pub(crate) fn temp_wav_path() -> std::path::PathBuf {
 }
 
 /// 16-bit PCM 单声道 WAV（f32 -> i16 截断）。
+#[cfg(target_os = "macos")]
 pub(crate) fn write_wav_pub(path: &std::path::Path, samples: &[f32], sample_rate: u32) -> std::io::Result<()> {
     write_wav(path, samples, sample_rate)
 }
 
 /// 16-bit PCM 单声道 WAV（f32 -> i16 截断）。
+#[cfg(any(target_os = "macos", test))]
 fn write_wav(path: &std::path::Path, samples: &[f32], sample_rate: u32) -> std::io::Result<()> {
     use std::io::Write;
     if sample_rate == 0 || samples.len() > MAX_PCM_SAMPLES || samples.len() as u64 > sample_rate as u64 * MAX_AUDIO_SECONDS as u64 {

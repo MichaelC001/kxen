@@ -1,7 +1,7 @@
 //! Apple 原生语音引擎（Speech.framework，本地离线识别 zh/en）。
 
-use super::EngineStatus;
 use super::objc;
+use super::{EngineStatus, SessionEvent};
 
 pub fn status() -> EngineStatus {
     if let Err(detail) = objc::availability() {
@@ -44,36 +44,10 @@ fn on_device_recognizer(locale: &str) -> Result<Retained<AnyObject>, String> {
     Ok(recognizer)
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn status_renders() {
-        let s = super::status();
-        assert_eq!(s.id, "apple");
-        assert!(["ready", "needs_auth", "unavailable"].contains(&s.status.as_str()));
-    }
-
-    #[test]
-    fn availability_is_explicit_result_not_panic() {
-        // 标准 macOS 上框架齐全应 Ok；缺失时须是带 detail 的 Err（引擎标 unavailable），不得 panic
-        match super::objc::availability() {
-            Ok(()) => {}
-            Err(detail) => assert!(detail.contains("ObjC"), "detail 须指明缺失类: {detail}"),
-        }
-    }
-}
-
 // ---------------- 麦克风流式会话 ----------------
 
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-
-#[derive(Debug)]
-pub enum SessionEvent {
-    Partial(String),
-    Final(String),
-    Error(String),
-}
 
 pub struct MicSession {
     task: Retained<AnyObject>,
@@ -189,5 +163,24 @@ impl MicSession {
         drop(self.req_kept);
         objc::end_audio(&self.request);
         objc::cancel_task(&self.task);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn status_renders() {
+        let s = super::status();
+        assert_eq!(s.id, "apple");
+        assert!(["ready", "needs_auth", "unavailable"].contains(&s.status.as_str()));
+    }
+
+    #[test]
+    fn availability_is_explicit_result_not_panic() {
+        // 标准 macOS 上框架齐全应 Ok；缺失时须是带 detail 的 Err（引擎标 unavailable），不得 panic
+        match super::objc::availability() {
+            Ok(()) => {}
+            Err(detail) => assert!(detail.contains("ObjC"), "detail 须指明缺失类: {detail}"),
+        }
     }
 }
