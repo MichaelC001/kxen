@@ -1,56 +1,45 @@
 # kxen
 
-macOS Apple Silicon 原生 Coding Agent Harness。kxen 使用 Tauri 2、Rust、SolidJS 和 QuickJS，把多 Provider 模型、目标、工作流、Agent Teams、本地工具、安全审批和长期知识组织在一个桌面 Runtime 中。
+macOS 原生 Coding Agent 工作台。把多模型供应商、目标驱动的任务执行、动态工作流、Agent 团队、本地工具和长期知识组织在一个本地应用中，高风险操作在执行层统一审批。
 
-官网与权威文档: [https://kxen.ai](https://kxen.ai)
+官网与产品文档: [https://kxen.ai](https://kxen.ai)
 
-当前状态: 开发预览。v0.0.1 已通过完整发布链公开: 全部 CI 门禁、Developer ID 签名、Apple 公证(App 与 DMG)、产物逐字节校验和 GitHub Release 自动更新通道均为 `PASS`。外部发布治理已就位: `release` environment 的 8 个签名 secret 全部为 environment secret 且 deployment branch policy 仅允许 `main`，`v*` tag ruleset 禁止更新和删除已发布 tag，Actions policy 已开启 full-length commit SHA pinning。GitHub Immutable Releases 无公开 API 可查，状态为 `UNKNOWN`，需仓库设置中确认。
+## 下载
+
+在 [GitHub Releases](https://github.com/StringKe/kxen/releases/latest) 下载最新版本的 DMG，打开后把 `Kxen.app` 拖入「应用程序」。安装包经过 Developer ID 签名和 Apple 公证，内置自动更新。
+
+- 需要 macOS 14 及以上版本和 Apple Silicon。
+- 每个版本附带 `SHA256SUMS` 和 updater 签名，可校验下载产物。
+
+当前为开发预览版本。
 
 ## 主要能力
 
-- Workspace、Session 和 Composer。
-- 持久 pending queue、原子续跑与 Session JSONL/Queue 存储恢复。
-- 多 Provider、多账号、角色路由和 MRM。
-- Goal、Subagent、Dynamic Workflow 和 Agent Teams。
-- 文件、Shell、Web Fetch、Web Search、Browser、MCP 和 LSP 工具。
-- Knowledge、Rules、Skills 和 Memory。
-- Checkpoint、Rewind 和 Worktree。
-- Voice、Schedule、Usage、通知和诊断。
-- 执行层 Safety、Approval 和可恢复删除。
+- **Workspace 与 Session**: 以本地项目为边界组织会话、配置和执行状态，中断后原子续跑，存储损坏可恢复。
+- **多模型**: 44 个内置 Provider 条目、多账号管理、订阅 OAuth 和 API key 登录，按角色路由模型与降级。
+- **目标与编排**: Goal、Subagent、Dynamic Workflow 和 Agent Teams，后台任务完成逐路回执。
+- **本地工具**: 文件、Shell、Web Fetch、Web Search、Browser、MCP 和 LSP。
+- **长期知识**: Rules、Skills、Memory 和自动沉淀的 Knowledge Library。
+- **安全边界**: 执行层 Safety 与 Approval、Checkpoint、Rewind、Worktree 隔离，文件删除只进废纸篓。
+- **日常效率**: Voice、Schedule、Usage 统计、通知和诊断。
 
-## 开发应用
+## 开发
 
 ```bash
 pnpm install
 pnpm tauri:dev
 ```
 
-## 验证应用
+验证:
 
 ```bash
 pnpm check
-pnpm typecheck
 pnpm test
-pnpm build
 cargo test --manifest-path src-tauri/Cargo.toml
-cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-`pnpm check` 是 CI 权威前端静态门禁，依次执行 format、lint 和 TypeScript strict typecheck；`pnpm typecheck` 可单独复现类型检查。
+官网源码在 `website/`。发布流程与贡献规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-## 开发官网
+## 许可
 
-```bash
-cd website
-pnpm install
-pnpm dev
-```
-
-## 验证官网
-
-```bash
-cd website
-pnpm check
-```
-
-官网使用 Cloudflare Nimbus。产品介绍和产品文档统一保存在 `website` package 中，开发调研、实现计划和内部 QA 不进入产品站，根 `docs` 目录不再使用。
+[MIT](LICENSE)
