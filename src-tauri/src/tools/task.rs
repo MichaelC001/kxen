@@ -255,22 +255,23 @@ impl TaskRegistry {
         // 只给仍在运行的任务终止：已自行退出的保持 Exited/Failed 原判定，也不发任何信号。
         // stderr 一律丢弃：信号即发即弃没人读 stderr，而 waiter 回收与发信号天然有竞态窗口，
         // 窗口内 kill 必打 "No such process"——检查缩窗、丢弃收尾，两类噪音一起灭
-        let kill_quiet = |args: [&str; 2]| {
+        let kill_quiet = |args: &[&str]| {
             std::process::Command::new("kill").args(args).stderr(std::process::Stdio::null()).status().map(|s| s.success()).unwrap_or(false)
         };
         if lock(&task.exit_code).is_none() {
             task.killed.store(true, Ordering::Relaxed);
             if let Some(pid) = task.pid {
                 let pid = pid.to_string();
-                let alive = || kill_quiet(["-0", &pid]);
-                let _ = kill_quiet(["-TERM", &format!("-{pid}")]);
+                let alive = || kill_quiet(&["-0", &pid]);
+                // GNU kill（util-linux）没有 `--` 会把负数 pid 当信号解析、静默不发信号；BSD kill 两种写法都接受
+                let _ = kill_quiet(&["-TERM", "--", &format!("-{pid}")]);
                 let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
                 while alive() && std::time::Instant::now() < deadline {
                     tokio::time::sleep(std::time::Duration::from_millis(60)).await;
                 }
                 // SIGKILL 前复查：宽限内已退出的进程（探测不到或 exit_code 已写）跳过补刀
                 if alive() && lock(&task.exit_code).is_none() {
-                    let _ = kill_quiet(["-KILL", &format!("-{pid}")]);
+                    let _ = kill_quiet(&["-KILL", "--", &format!("-{pid}")]);
                 }
             }
         }

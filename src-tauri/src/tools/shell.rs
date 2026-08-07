@@ -23,6 +23,19 @@ impl ShellKind {
     }
 }
 
+/// 调用方未显式声明方言时的兜底：优先 zsh（产品设计：macOS 用户 login shell），
+/// 无 zsh 的平台（Linux 主机、CI runner）退 bash；两者都不在仍返回 Zsh，
+/// 让 spawn 错误按原样暴露，不猜第三个 shell。
+pub fn default_shell() -> ShellKind {
+    if std::path::Path::new(ShellKind::Zsh.binary()).exists() {
+        ShellKind::Zsh
+    } else if std::path::Path::new(ShellKind::Bash.binary()).exists() {
+        ShellKind::Bash
+    } else {
+        ShellKind::Zsh
+    }
+}
+
 /// 把用户命令包装为「稳定 PATH + cd + 命令遮蔽 + 命令」的 fresh shell 调用。
 pub fn wrap_command(kind: ShellKind, workdir: &str, command: &str) -> Vec<String> {
     if let Verdict::Deny { rule_id, reason, suggestion } = evaluate_shell_command(command, workdir) {
@@ -78,9 +91,10 @@ mod tests {
 
     #[test]
     fn speed_shadow_is_functional() {
-        // 真跑一遍：遮蔽脚本不得有语法错误（装了 ugrep/bfs 时函数定义也必须成立）
-        let wrapped = wrap_command(ShellKind::Zsh, "/tmp", "type grep >/dev/null; type find >/dev/null");
-        let out = std::process::Command::new(&wrapped[0]).args(&wrapped[1..]).output().expect("run zsh");
+        // 真跑一遍：遮蔽脚本不得有语法错误（装了 ugrep/bfs 时函数定义也必须成立）。
+        // 只验证 POSIX 语法，不依赖方言特性：CI Linux runner 无 zsh，用可用的默认 shell。
+        let wrapped = wrap_command(default_shell(), "/tmp", "type grep >/dev/null; type find >/dev/null");
+        let out = std::process::Command::new(&wrapped[0]).args(&wrapped[1..]).output().expect("run shell");
         assert!(out.status.success(), "shadow script 语法错误: {}", String::from_utf8_lossy(&out.stderr));
     }
 
@@ -104,8 +118,9 @@ mod tests {
         let target = dir.join("keep.txt");
         std::fs::write(&target, "keep").unwrap();
         let command = format!("/bin/rm {}", shell_escape(&target.to_string_lossy()));
-        let wrapped = wrap_command(ShellKind::Zsh, dir.to_str().unwrap(), &command);
-        let out = std::process::Command::new(&wrapped[0]).args(&wrapped[1..]).output().expect("run zsh");
+        // fail-closed 语义与方言无关：CI Linux runner 无 zsh，用可用的默认 shell
+        let wrapped = wrap_command(default_shell(), dir.to_str().unwrap(), &command);
+        let out = std::process::Command::new(&wrapped[0]).args(&wrapped[1..]).output().expect("run shell");
         assert_eq!(out.status.code(), Some(126));
         assert!(target.exists(), "fail-closed wrapper must preserve the target");
         assert!(String::from_utf8_lossy(&out.stderr).contains("delete tool"));

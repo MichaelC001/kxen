@@ -14,6 +14,15 @@ pub(super) struct Output {
     pub stderr: String,
 }
 
+/// hook 解释器：与 exec 一致优先用户 login shell zsh；无 zsh 的平台（Linux 主机、CI runner）
+/// 依次退 bash/sh。探测结果进程级缓存，hook 每次 spawn 不重复查文件系统。
+fn hook_shell() -> &'static str {
+    static SHELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    SHELL.get_or_init(|| {
+        ["/bin/zsh", "/bin/bash", "/bin/sh"].into_iter().find(|path| std::path::Path::new(path).exists()).unwrap_or("/bin/sh")
+    })
+}
+
 pub(super) async fn run(
     command: &str,
     workdir: &Path,
@@ -23,7 +32,7 @@ pub(super) async fn run(
     timeout: Duration,
     cancel: Option<&CancelToken>,
 ) -> Result<Output, String> {
-    let mut child = Command::new("/bin/zsh")
+    let mut child = Command::new(hook_shell())
         .arg("-c")
         .arg(command)
         .current_dir(workdir)
@@ -118,7 +127,8 @@ async fn cleanup_descendants(pid: u32) {
 
 fn group_alive(pid: u32) -> bool {
     std::process::Command::new("kill")
-        .args(["-0", &format!("-{pid}")])
+        // GNU kill（util-linux）没有 `--` 会把负数 pid 当信号解析、静默不发信号；BSD kill 两种写法都接受
+        .args(["-0", "--", &format!("-{pid}")])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -126,7 +136,8 @@ fn group_alive(pid: u32) -> bool {
 }
 
 fn signal_group(pid: u32, signal: &str) {
-    let _ = std::process::Command::new("kill").args([signal, &format!("-{pid}")]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    let _ =
+        std::process::Command::new("kill").args([signal, "--", &format!("-{pid}")]).stdout(Stdio::null()).stderr(Stdio::null()).status();
 }
 
 #[cfg(test)]

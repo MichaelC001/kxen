@@ -1,4 +1,5 @@
 use super::*;
+use crate::tools::shell::default_shell;
 
 #[tokio::test]
 async fn explicit_background_with_timeout_is_watched() {
@@ -24,7 +25,8 @@ async fn explicit_background_with_timeout_is_watched() {
     let approval = ApprovalCtx::new(Some(&broker), Some(&bus), None, Some("s1")).expect("approval context");
     let owner = TaskOwner::new("s1", "/tmp").expect("owner");
     let params = ExecParams {
-        shell_type: ShellKind::Zsh,
+        // 看门狗行为与方言无关：CI Linux runner 无 zsh，用可用的默认 shell
+        shell_type: default_shell(),
         path: std::env::temp_dir().to_string_lossy().into_owned(),
         command: "sleep 30".into(),
         timeout_ms: Some(300),
@@ -75,7 +77,8 @@ async fn foreground_cancel_terminates_the_process_group() {
     let approval = ApprovalCtx::new(Some(&broker), Some(&bus), Some(&cancel), Some("s1")).expect("approval context");
     let owner = TaskOwner::new("s1", "/tmp").expect("owner");
     let params = ExecParams {
-        shell_type: ShellKind::Zsh,
+        // cancel 行为与方言无关：CI Linux runner 无 zsh，用可用的默认 shell
+        shell_type: default_shell(),
         path: std::env::temp_dir().to_string_lossy().into_owned(),
         command: "sleep 30".into(),
         timeout_ms: Some(30_000),

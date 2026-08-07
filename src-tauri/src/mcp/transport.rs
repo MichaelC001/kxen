@@ -123,7 +123,8 @@ impl Drop for ProcessGroupGuard {
 #[cfg(unix)]
 fn group_alive(pid: u32) -> bool {
     std::process::Command::new("/bin/kill")
-        .args(["-0", &format!("-{pid}")])
+        // GNU kill（util-linux）没有 `--` 会把负数 pid 当信号解析、静默不发信号；BSD kill 两种写法都接受
+        .args(["-0", "--", &format!("-{pid}")])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
@@ -133,7 +134,7 @@ fn group_alive(pid: u32) -> bool {
 #[cfg(unix)]
 fn signal_group(pid: u32, signal: &str) {
     let _ = std::process::Command::new("/bin/kill")
-        .args([signal, &format!("-{pid}")])
+        .args([signal, "--", &format!("-{pid}")])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();

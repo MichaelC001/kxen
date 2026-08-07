@@ -129,7 +129,7 @@ pub fn spawn_background_agent(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::shell::{ShellKind, wrap_command};
+    use crate::tools::shell::{default_shell, wrap_command};
     use crate::tools::task::{TaskOwner, TaskRegistry};
     use std::time::Duration;
 
@@ -138,7 +138,8 @@ mod tests {
     }
 
     async fn spawn(registry: &Arc<TaskRegistry>, command: &str) -> String {
-        let argv = wrap_command(ShellKind::Zsh, "/tmp", command);
+        // 通知流与方言无关：CI Linux runner 无 zsh，用可用的默认 shell
+        let argv = wrap_command(default_shell(), "/tmp", command);
         let id = crate::tools::task::task_id();
         crate::tools::exec::spawn_task(&id, argv, command, "/tmp", registry, &owner(), None).await.expect("spawn");
         id

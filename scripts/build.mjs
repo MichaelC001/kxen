@@ -31,6 +31,9 @@ const result = spawnSync("pnpm", target.args, {
   cwd: target.cwd,
   env: process.env,
   stdio: "inherit",
+  // Windows 上 pnpm 是 pnpm.cmd：不带 shell 的 spawnSync 按裸文件名直查可执行文件会 ENOENT，
+  // result.status 为 null，最终 exit 1 且无任何报错输出；unix 不经 shell，行为不变。
+  shell: process.platform === "win32",
 });
 
 if (result.status !== 0) {

@@ -103,7 +103,7 @@ impl ResolvedPath {
             parent_dir.remove_file(&temporary).ok();
             return Err(error);
         }
-        parent_dir.try_clone()?.into_std_file().sync_all()
+        sync_parent_dir(&parent_dir, &self.authority_root.join(parent))
     }
 
     /// 先用 anchored rename 把目标原子移到随机同根暂存名，再交给系统 Trash。
@@ -131,6 +131,20 @@ impl ResolvedPath {
         }
         Ok(())
     }
+}
+
+/// rename 落盘后 fsync 父目录，保证目录项持久。
+/// Linux 上 cap-std 的 Dir 是 O_PATH fd（cap-primitives target_o_path），对其 fsync 直接
+/// EBADF；按绝对路径重开普通只读 fd 再 sync。重开只用于 fsync，授权边界已由 capability
+/// 内的 open/rename 保证，不扩大可写范围。
+#[cfg(target_os = "linux")]
+fn sync_parent_dir(_dir: &cap_std::fs::Dir, absolute: &Path) -> std::io::Result<()> {
+    std::fs::File::open(absolute)?.sync_all()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn sync_parent_dir(dir: &cap_std::fs::Dir, _absolute: &Path) -> std::io::Result<()> {
+    dir.try_clone()?.into_std_file().sync_all()
 }
 
 /// Resolve a model-provided path against a Workspace and enforce the host

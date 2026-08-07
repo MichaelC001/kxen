@@ -2,7 +2,7 @@
 
 use crate::core::shared::lock;
 use crate::tools::exec::{ExecError, RespawnOptions, respawn_task, spawn_task};
-use crate::tools::shell::{ShellKind, wrap_command};
+use crate::tools::shell::{ShellKind, default_shell, wrap_command};
 use crate::tools::task::{RestartMeta, TaskOwner, TaskRegistry, task_id};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -39,7 +39,7 @@ pub struct DevServerStarted {
 
 /// 启动 dev server 并阻塞等待就绪。
 pub async fn dev_server(params: DevServerParams, registry: &Arc<TaskRegistry>, owner: &TaskOwner) -> Result<DevServerStarted, ExecError> {
-    let shell = params.shell.unwrap_or(ShellKind::Zsh);
+    let shell = params.shell.unwrap_or_else(default_shell);
     let ready = params.ready.unwrap_or(ReadySpec { pattern: None, port: None, timeout_ms: None });
 
     let argv = wrap_command(shell, &params.workdir, &params.command);
@@ -170,7 +170,7 @@ pub async fn restart_task(id: &str, owner: &TaskOwner, registry: &Arc<TaskRegist
     let (command, workdir) = (task.command.clone(), task.workdir.clone());
     let meta = lock(&task.restart).clone();
     TaskRegistry::terminate(task.clone()).await;
-    let shell = meta.as_ref().map(|m| m.shell).unwrap_or(ShellKind::Zsh);
+    let shell = meta.as_ref().map(|m| m.shell).unwrap_or_else(default_shell);
     // 优先用启动时配置的 port；没有配置才沿用上次解析出的（exec 背景任务无 meta 的情形）
     let port = meta.as_ref().and_then(|m| m.port).or(*lock(&task.port));
     let argv = wrap_command(shell, &workdir, &command);
@@ -214,7 +214,7 @@ mod tests {
             command: "exit 3".into(),
             workdir: std::env::temp_dir().to_string_lossy().into_owned(),
             ready: None,
-            shell: Some(ShellKind::Zsh),
+            shell: Some(default_shell()),
         };
         let err = dev_server(params, &registry, &owner()).await.expect_err("进程提前退出必须报错");
         let msg = err.to_string();
@@ -228,7 +228,7 @@ mod tests {
             command: "echo ready; sleep 30".into(),
             workdir: std::env::temp_dir().to_string_lossy().into_owned(),
             ready: None,
-            shell: Some(ShellKind::Zsh),
+            shell: Some(default_shell()),
         };
         let owner = owner();
         let started = dev_server(params, &registry, &owner).await.expect("就绪但无 url 属正常成功");
