@@ -252,10 +252,11 @@ fn open_verified_root(root: &Path) -> Result<cap_std::fs::Dir, String> {
 }
 
 fn verify_open_root(root: &Path, authority: &cap_std::fs::Dir) -> Result<(), String> {
-    let path_metadata = std::fs::metadata(root).map_err(|error| format!("stat {}: {error}", root.display()))?;
-    let handle_metadata = authority.metadata(".").map_err(|error| format!("stat open root {}: {error}", root.display()))?;
+    // 身份核对依赖 dev/ino,只有 unix 提供;Windows 由 open_ambient_dir 的成功打开保证存在性
     #[cfg(unix)]
     {
+        let path_metadata = std::fs::metadata(root).map_err(|error| format!("stat {}: {error}", root.display()))?;
+        let handle_metadata = authority.metadata(".").map_err(|error| format!("stat open root {}: {error}", root.display()))?;
         use cap_std::fs::MetadataExt as CapMetadataExt;
         use std::os::unix::fs::MetadataExt as StdMetadataExt;
         if StdMetadataExt::dev(&path_metadata) != CapMetadataExt::dev(&handle_metadata)
@@ -264,6 +265,8 @@ fn verify_open_root(root: &Path, authority: &cap_std::fs::Dir) -> Result<(), Str
             return Err(format!("authority root identity changed: {}", root.display()));
         }
     }
+    #[cfg(not(unix))]
+    let _ = (root, authority);
     Ok(())
 }
 

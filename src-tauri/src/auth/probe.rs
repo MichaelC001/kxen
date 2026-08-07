@@ -141,7 +141,9 @@ fn read_env_override(var: &str) -> Option<CredentialKind> {
 
 #[cfg(test)]
 mod tests {
-    use super::sources::{jwt_exp, read_credential_file};
+    use super::sources::jwt_exp;
+    #[cfg(unix)]
+    use super::sources::read_credential_file;
     use super::*;
 
     #[test]

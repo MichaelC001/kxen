@@ -128,7 +128,10 @@ fn render_read_result(text: &str, offset: Option<usize>, limit: Option<usize>) -
 
 #[cfg(test)]
 mod tests {
+    // 本模块全部测试都是 unix 专有（symlink/权限位）,Windows 下导入全部闲置
+    #[cfg(unix)]
     use super::*;
+    #[cfg(unix)]
     use std::collections::HashSet;
 
     #[cfg(unix)]

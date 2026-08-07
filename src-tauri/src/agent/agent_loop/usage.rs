@@ -8,7 +8,7 @@ mod meter;
 mod wall;
 pub(crate) use meter::ProviderRequestMeter;
 pub use meter::UsageReporter;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 use wall::goal_store_mtime;
 pub(crate) use wall::{GoalWallCache, goal_provider_timeout, goal_wall_over, wait_for_goal_deadline};
 
