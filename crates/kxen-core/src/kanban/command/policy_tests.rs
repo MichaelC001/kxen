@@ -135,12 +135,20 @@ fn auto_approved_guards_fail_closed() {
         reject(&mut board, KanbanCommand::AutoApproved { run_id: run_id2.clone(), command: "cargo build".into() }),
         KanbanError::PolicyDenied(_)
     ));
-    // 过期：设置后即等过时限
-    board.apply(KanbanCommand::PolicySet { policy: spec(&["cargo"], Some(now_ms() + 80), None) }).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(120));
-    assert!(matches!(
-        reject(&mut board, KanbanCommand::AutoApproved { run_id: run_id2, command: "cargo test".into() }),
-        KanbanError::PolicyDenied(_)
-    ));
+    // 过期：窗口给足避免并行负载下 set 守卫竞态（过去时拒绝已由上方用例覆盖），
+    // 轮询等过期生效而非定长 sleep（负载下 sleep 返回时点不可控）
+    board.apply(KanbanCommand::PolicySet { policy: spec(&["cargo"], Some(now_ms() + 1_500), None) }).unwrap();
+    let mut denied = false;
+    for _ in 0..200 {
+        match board.apply(KanbanCommand::AutoApproved { run_id: run_id2.clone(), command: "cargo test".into() }) {
+            Err(KanbanError::PolicyDenied(_)) => {
+                denied = true;
+                break;
+            }
+            // 未过期时放行属预期（事件无害：无次数上限且断言只看终态），继续等过期
+            _ => std::thread::sleep(std::time::Duration::from_millis(50)),
+        }
+    }
+    assert!(denied, "过期后 AutoApproved 必须 PolicyDenied");
     std::fs::remove_dir_all(workspace).ok();
 }
