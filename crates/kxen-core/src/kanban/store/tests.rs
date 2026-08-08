@@ -154,6 +154,50 @@ fn stale_snapshot_tail_folds_to_same_state() {
 }
 
 #[test]
+fn snapshot_anchor_matches_tail_event() {
+    let workspace = temp("anchor");
+    let events = write_events(&workspace, "board_t", 3);
+    let dir = board_dir(&workspace, "board_t").unwrap();
+    save_snapshot(&dir, &projection::replay("board_t", &events).unwrap()).unwrap();
+    let loaded = load_state(&workspace, "board_t").unwrap();
+    assert_eq!(loaded.anchor_event_id.as_deref(), Some(events[2].id.as_str()), "快照路径加载后锚必须与尾事件一致");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
+fn tampered_snapshot_anchor_falls_back_to_replay() {
+    let workspace = temp("tamper");
+    let events = write_events(&workspace, "board_t", 3);
+    let expected = serde_json::to_string(&projection::replay("board_t", &events).unwrap()).unwrap();
+    let dir = board_dir(&workspace, "board_t").unwrap();
+    // 伪造快照：board_id/seq 锚点都合法、内容被篡改、anchor 指到不存在的事件
+    let mut forged = projection::replay("board_t", &events).unwrap();
+    forged.title = Some("被篡改".into());
+    forged.anchor_event_id = Some("kev_forged".into());
+    save_snapshot(&dir, &forged).unwrap();
+    let loaded = load_state(&workspace, "board_t").unwrap();
+    assert_eq!(serde_json::to_string(&loaded).unwrap(), expected, "锚不符必须全量 replay，篡改内容不得入投影");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
+fn legacy_snapshot_without_anchor_replays_then_reanchors() {
+    let workspace = temp("legacy");
+    let events = write_events(&workspace, "board_t", 3);
+    let expected = serde_json::to_string(&projection::replay("board_t", &events).unwrap()).unwrap();
+    let dir = board_dir(&workspace, "board_t").unwrap();
+    // 旧格式快照：手工删掉 anchor_event_id 字段
+    let mut json = serde_json::to_value(projection::replay("board_t", &events).unwrap()).unwrap();
+    json.as_object_mut().unwrap().remove("anchor_event_id");
+    std::fs::write(snapshot_path(&dir), serde_json::to_vec(&json).unwrap()).unwrap();
+    assert_eq!(serde_json::to_string(&load_state(&workspace, "board_t").unwrap()).unwrap(), expected, "旧快照必须 replay 兜底加载");
+    // replay 后重存的新快照带锚，之后走快照路径
+    save_snapshot(&dir, &load_state(&workspace, "board_t").unwrap()).unwrap();
+    assert_eq!(load_state(&workspace, "board_t").unwrap().anchor_event_id.as_deref(), Some(events[2].id.as_str()));
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
 fn last_event_seq_reads_tail_only() {
     let workspace = temp("lastseq");
     let missing = workspace.join("board_c").join("events.jsonl");
@@ -174,6 +218,18 @@ fn last_event_seq_reads_tail_only() {
     file.sync_all().unwrap();
     assert!(last_event_seq(&path).is_err(), "torn 尾行不得猜 seq");
     std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
+fn events_lock_excludes_second_handle_until_released() {
+    let dir = temp("flock");
+    let guard = lock_events(&dir).unwrap();
+    // 模拟另一进程：独立 File 句柄对同一锁文件 try_lock 必冲突（flock 按打开文件描述互斥）
+    let other = || std::fs::OpenOptions::new().read(true).write(true).open(dir.join("events.lock")).unwrap();
+    assert!(other().try_lock().is_err(), "同一锁文件的第二句柄必须冲突");
+    drop(guard);
+    assert!(other().try_lock().is_ok(), "持锁句柄释放后必须能拿到锁");
+    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]

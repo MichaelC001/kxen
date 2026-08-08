@@ -70,6 +70,21 @@ fn apply_stale_projection_rejects_without_durable_write() {
 }
 
 #[test]
+fn apply_times_out_when_another_process_holds_events_lock() {
+    let workspace = temp("locked");
+    let mut board = Board::open(&workspace, "board_t").unwrap();
+    // 模拟另一进程持锁：独立 File 句柄抢先拿住 events.lock
+    let dir = store::board_dir(&workspace, "board_t").unwrap();
+    let _held = store::lock_events(&dir).unwrap();
+    let started = std::time::Instant::now();
+    let error = board.apply(KanbanCommand::BoardCreate { title: "t".into(), columns: None }).unwrap_err();
+    assert!(error.to_string().contains("locked by another process"), "{error}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(3), "测试超时时长已缩小，不得等满生产 5s");
+    assert_eq!(events_len(&workspace), 0, "锁冲突不得落任何事件");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
 fn apply_recovers_from_lock_external_write() {
     let workspace = temp("external");
     let mut first = Board::open(&workspace, "board_t").unwrap();

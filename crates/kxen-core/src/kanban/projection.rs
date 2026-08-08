@@ -36,6 +36,9 @@ pub struct BoardState {
     pub policy: Option<ActivePolicy>,
     #[serde(default)]
     pub seq: u64,
+    // 内容锚：折到的尾事件 id。旧格式快照无此字段（default None），None 时不写入保持快照干净
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor_event_id: Option<String>,
 }
 
 impl BoardState {
@@ -49,6 +52,7 @@ impl BoardState {
             agents: BTreeMap::new(),
             policy: None,
             seq: 0,
+            anchor_event_id: None,
         }
     }
 
@@ -194,6 +198,8 @@ pub fn reduce(state: &mut BoardState, event: &KanbanEvent) -> Result<(), KanbanE
         }
     }
     state.seq = event.seq;
+    // 内容锚随折叠推进：快照缓存必须锚定事件流真实尾部，锚不符 = 事件流被外部重写，缓存作废
+    state.anchor_event_id = Some(event.id.clone());
     Ok(())
 }
 

@@ -173,7 +173,7 @@ pub async fn execute(
     let step = match tokio::time::timeout(Duration::from_millis(timeout_ms), body).await {
         Ok(step) => step,
         Err(_) => {
-            cancel.cancel();
+            // timeout 触发时 body future 已随之 drop，持有 cancel 的执行侧不复存在，无需再发取消
             comment(workspace, board_id, card_id, format!("run {run_id} timed out after {timeout_ms}ms"), &deps.bus);
             land_timeout(workspace, board_id, &run_id, &deps.bus).map_err(|e| fail_at(&run_id, e))?;
             return Ok(RunLanding { run_id, kind: LandingKind::TimedOut });

@@ -42,6 +42,9 @@ impl Board {
     pub fn apply(&mut self, command: KanbanCommand) -> Result<KanbanEvent, KanbanError> {
         let lock = board_lock(&self.state.board_id);
         let _guard = crate::core::shared::lock(&lock);
+        // 锁顺序固定：进程内 board_lock -> 文件锁（全代码库只此一处同时持两把，单向顺序无死锁面）。
+        // 文件锁持到函数结束，覆盖预检/校验/append/reduce/快照写全程，挡住另一进程的同时 apply
+        let _file_guard = store::lock_events(&self.dir)?;
         // 锁内漂移预检：锁外写入者（另一进程/绕开共享锁的实例）推进过事件流时先补折再校验，
         // 否则 validate 用过期投影放行，非法事件已 durable 才报 divergence
         let on_disk = store::last_event_seq(&store::events_path(&self.dir))?;

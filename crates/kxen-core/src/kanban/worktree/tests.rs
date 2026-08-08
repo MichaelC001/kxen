@@ -173,10 +173,73 @@ async fn ignored_file_over_size_limit_is_skipped() {
     };
     std::fs::write(wt.join("big.bin"), vec![0u8; 32]).unwrap();
     std::fs::write(wt.join("small.bin"), vec![0u8; 4]).unwrap();
-    // 上限做成参数：用小上限测边界语义（生产为 MAX_IGNORED_FILE_BYTES = 10MB）
-    let report = snapshot_artifacts(&workspace, "board_t", "c1", &wt, 10).await.unwrap();
+    // 上限做成参数：用小上限测边界语义（生产为 MAX_IGNORED_FILE_BYTES = 10MB / MAX_SNAPSHOT_TOTAL_BYTES = 64MB）
+    let report = snapshot_artifacts(&workspace, "board_t", "c1", &wt, 10, 1024).await.unwrap();
     assert!(report.collected.iter().any(|p| p == "small.bin"), "限额内的 ignored 文件照收");
     assert!(report.skipped.iter().any(|s| s.path == "big.bin"), "超限 ignored 文件记 skipped");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[tokio::test]
+async fn untracked_file_over_size_limit_is_skipped() {
+    let workspace = git_repo("ulimit", "");
+    let CardWorkdir::Worktree(wt) = ensure_card_worktree(&workspace, "c1").await.unwrap() else {
+        panic!("git 仓库必须分配 worktree")
+    };
+    std::fs::write(wt.join("big.txt"), vec![0u8; 32]).unwrap();
+    std::fs::write(wt.join("small.txt"), vec![0u8; 4]).unwrap();
+    let report = snapshot_artifacts(&workspace, "board_t", "c1", &wt, 10, 1024).await.unwrap();
+    assert!(report.skipped.iter().any(|s| s.path == "big.txt"), "超限未跟踪文件记 skipped: {:?}", report.skipped);
+    assert!(report.collected.iter().any(|p| p == "small.txt"), "限额内的未跟踪文件照收");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[tokio::test]
+async fn files_over_total_limit_are_skipped_without_losing_collected() {
+    let workspace = git_repo("tlimit", "");
+    let CardWorkdir::Worktree(wt) = ensure_card_worktree(&workspace, "c1").await.unwrap() else {
+        panic!("git 仓库必须分配 worktree")
+    };
+    // porcelain 按路径排序：a.txt 先收（8B），b.txt 累计 16B 超总量上限记 skipped
+    std::fs::write(wt.join("a.txt"), vec![0u8; 8]).unwrap();
+    std::fs::write(wt.join("b.txt"), vec![0u8; 8]).unwrap();
+    let report = snapshot_artifacts(&workspace, "board_t", "c1", &wt, 10, 12).await.unwrap();
+    assert_eq!(report.collected, vec!["a.txt".to_string()], "总量上限前已收的不丢: {:?}", report.collected);
+    assert!(report.skipped.iter().any(|s| s.path == "b.txt" && s.reason.contains("总量")), "超出总量的记 skipped: {:?}", report.skipped);
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+// symlink 创建是 unix 语义；CI 的 Windows 任务不跑测试但跑 check/clippy，cfg(unix) 圈住整段
+#[cfg(unix)]
+#[tokio::test]
+async fn symlinks_are_skipped_not_followed() {
+    let workspace = git_repo("symlink", "");
+    let CardWorkdir::Worktree(wt) = ensure_card_worktree(&workspace, "c1").await.unwrap() else {
+        panic!("git 仓库必须分配 worktree")
+    };
+    std::os::unix::fs::symlink("/tmp", wt.join("link_out")).unwrap();
+    std::fs::write(wt.join("real.txt"), "real").unwrap();
+    let report = snapshot_artifacts(&workspace, "board_t", "c1", &wt, 1024, 4096).await.unwrap();
+    assert!(report.skipped.iter().any(|s| s.path == "link_out"), "symlink 必须记 skipped: {:?}", report.skipped);
+    assert!(!report.files_dir.join("link_out").exists(), "symlink 不得有快照内容");
+    assert!(report.collected.iter().any(|p| p == "real.txt"), "普通文件照收");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[tokio::test]
+async fn ensure_degrades_when_workspace_is_subdir_of_parent_repo() {
+    let parent = git_repo("parent", "");
+    let sub = parent.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    assert!(matches!(ensure_card_worktree(&sub, "c1").await.unwrap(), CardWorkdir::WorkspaceRoot), "父仓库子目录不得建 worktree");
+    assert!(!parent.join(".kxen").join("worktrees").exists(), "父仓库不得被建 worktree");
+    std::fs::remove_dir_all(parent).ok();
+}
+
+#[tokio::test]
+async fn ensure_allocates_worktree_at_repo_root() {
+    let workspace = git_repo("root", "");
+    assert!(matches!(ensure_card_worktree(&workspace, "c1").await.unwrap(), CardWorkdir::Worktree(_)), "仓库根本身必须分配 worktree");
     std::fs::remove_dir_all(workspace).ok();
 }
 

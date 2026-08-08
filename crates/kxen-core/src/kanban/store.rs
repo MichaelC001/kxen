@@ -29,6 +29,32 @@ fn log_error(error: impl std::fmt::Display) -> KanbanError {
     KanbanError::Log(error.to_string())
 }
 
+/// 事件流锁等待上限：带超时而非立即失败，是因为 GUI+web 双进程同开一 workspace 是支持场景，
+/// 瞬时冲突应等待而非报错；超时仍持锁说明对方卡住，不能无限等。测试缩小避免拖慢套件。
+#[cfg(not(test))]
+const LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+#[cfg(test)]
+const LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// 事件流跨进程互斥锁：进程内 board_lock 管不住另一进程，双进程同时 apply 会写出重复 seq
+/// 砖化事件流（load_events 连续性检查 fail-closed）。返回的 File 即锁本体（RAII，drop 释放）。
+pub fn lock_events(dir: &Path) -> Result<std::fs::File, KanbanError> {
+    std::fs::create_dir_all(dir).map_err(log_error)?;
+    let file =
+        std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(dir.join("events.lock")).map_err(log_error)?;
+    let deadline = std::time::Instant::now() + LOCK_TIMEOUT;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(file),
+            Err(std::fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(std::fs::TryLockError::WouldBlock) => return Err(KanbanError::Log("board event log is locked by another process".into())),
+            Err(std::fs::TryLockError::Error(error)) => return Err(log_error(error)),
+        }
+    }
+}
+
 /// 严格读取：文件不存在 = 空事件流；torn/坏行/seq 不连续一律阻断，不能在残缺历史上继续追加或重建。
 pub fn load_events(path: &Path) -> Result<Vec<KanbanEvent>, KanbanError> {
     let text = match std::fs::read_to_string(path) {
@@ -127,7 +153,14 @@ pub fn load_state_from_dir(dir: &Path, board_id: &str) -> Result<BoardState, Kan
     let events = load_events(&events_path(dir))?;
     let snapshot = std::fs::read(snapshot_path(dir)).ok().and_then(|bytes| serde_json::from_slice::<BoardState>(&bytes).ok());
     match snapshot {
-        Some(mut state) if state.board_id == board_id && state.seq as usize <= events.len() => {
+        // 内容锚：seq>0 时快照折到的尾事件必须就是事件流同位置那条，否则事件流被外部重写
+        // （同长度不同内容），锚点通过但状态错误。旧格式快照无 anchor 字段，首载全量 replay
+        // 一次后新快照带锚，只付一次成本——缓存永远不掩盖真源
+        Some(mut state)
+            if state.board_id == board_id
+                && state.seq as usize <= events.len()
+                && (state.seq == 0 || state.anchor_event_id.as_deref() == Some(events[state.seq as usize - 1].id.as_str())) =>
+        {
             for event in &events[state.seq as usize..] {
                 projection::reduce(&mut state, event)?;
             }
