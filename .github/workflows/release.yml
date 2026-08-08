@@ -306,7 +306,7 @@ jobs:
         # rust-embed 编译期读取 dist/,tauri build 已产出前端产物,kxen 编译排在它后面。
         run: >-
           cargo build --release
-          -p kxen --target ${{ matrix.target }}
+          -p kxen-cli --target ${{ matrix.target }}
       # kxen 是裸 Mach-O,不签名会被 Gatekeeper 拦截;与 .app/DMG 共用同一证书和公证链。
       # 必须在 Clear temporary signing material 之前完成签名和公证。
       - name: Sign and notarize kxen CLI

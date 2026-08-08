@@ -125,7 +125,7 @@ build_assets() {
   # 与 release.yml 的 Sign and notarize kxen CLI 步骤一致:同一 Developer ID 身份签名,
   # zip 提交公证后丢弃,ticket 在线生效;prepare-release-assets.sh 会再做 codesign --verify。
   cargo build --release \
-    -p kxen --target aarch64-apple-darwin
+    -p kxen-cli --target aarch64-apple-darwin
   local identity
   identity="$(awk '{ print $2 }' <<< "$identity_line")"
   local cli_path cli_zip_dir
