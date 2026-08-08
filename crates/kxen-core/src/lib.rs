@@ -11,6 +11,7 @@ pub mod background_jobs;
 pub mod core;
 pub mod doctor;
 pub mod goal_rpc;
+pub mod kanban;
 pub mod knowledge;
 pub mod llm;
 pub mod lsp;

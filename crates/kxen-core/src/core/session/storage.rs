@@ -106,7 +106,8 @@ pub fn repair_message_durability(dir: &Path, message: &super::Message, original:
     Ok(session)
 }
 
-pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), CommitFailure> {
+/// 跨模块共用（kanban 快照缓存同款）：tmp + fsync + rename + 父目录 sync。
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), CommitFailure> {
     let parent = parent(path);
     std::fs::create_dir_all(parent).map_err(CommitFailure::before)?;
     let tmp = temporary_path(path);
@@ -156,7 +157,8 @@ pub(super) fn create_session_files(meta: &Path, meta_bytes: &[u8], messages: &Pa
 
 /// Existing JSONL files are append-only. Once a write is attempted, an error may have left a
 /// visible partial/full line, so it is a post-commit indeterminate failure and the session blocks.
-pub(super) fn append_synced(path: &Path, bytes: &[u8]) -> Result<(), CommitFailure> {
+/// 跨模块共用（kanban 事件流同款）：已存在文件 append + sync_data，不存在走原子创建。
+pub(crate) fn append_synced(path: &Path, bytes: &[u8]) -> Result<(), CommitFailure> {
     if !path.exists() {
         return write_atomic(path, bytes);
     }

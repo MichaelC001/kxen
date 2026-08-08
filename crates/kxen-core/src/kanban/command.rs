@@ -1,0 +1,213 @@
+//! 命令守卫：模型/外部只交意图（KanbanCommand），校验通过才提交事件，模型不能直写状态。
+//! 提交顺序对齐 goal_tool 的 load -> 校验 -> save -> publish 串行化（事件化后 save 替换为 append）：
+//! 校验（纯读内存投影）-> append 事件（先落盘）-> 更新内存投影 -> 刷新快照缓存。
+//! 非法命令 fail-closed：返回结构化错误，事件流与投影零副作用。
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex};
+
+use crate::core::ids;
+use crate::core::shared::now_ms;
+
+use super::error::KanbanError;
+use super::events::*;
+use super::model::{CardStatus, OnEnterKind, default_template, validate_columns};
+use super::projection::{self, BoardState};
+use super::store;
+
+/// per-board 进程内锁（同 goal::write_lock 模式）：open -> 校验 -> append 串行化，并发调用不互相覆盖。
+pub fn board_lock(board_id: &str) -> Arc<Mutex<()>> {
+    static LOCKS: LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+    crate::core::shared::lock(&LOCKS).entry(board_id.to_string()).or_default().clone()
+}
+
+pub struct Board {
+    dir: PathBuf,
+    state: BoardState,
+}
+
+impl Board {
+    /// 打开（或定位）一个 board：从事件流重建状态，board 未创建时返回空投影，由 BoardCreate 命令建立。
+    pub fn open(workspace: &Path, board_id: &str) -> Result<Self, KanbanError> {
+        let dir = store::board_dir(workspace, board_id)?;
+        let state = store::load_state(workspace, board_id)?;
+        Ok(Self { dir, state })
+    }
+
+    pub fn state(&self) -> &BoardState {
+        &self.state
+    }
+
+    pub fn apply(&mut self, command: KanbanCommand) -> Result<KanbanEvent, KanbanError> {
+        let lock = board_lock(&self.state.board_id);
+        let _guard = crate::core::shared::lock(&lock);
+        let kind = self.validate(&command)?;
+        let mut event = KanbanEvent { id: ids::new_id("kev"), board_id: self.state.board_id.clone(), seq: 0, created_at: now_ms(), kind };
+        store::append_event(&store::events_path(&self.dir), &mut event)?;
+        // append 指派的 seq 必须紧跟内存投影；否则存在绕过锁的写入者，fail-closed 要求重开而非猜测
+        if event.seq != self.state.seq + 1 {
+            return Err(KanbanError::Log(format!("event log diverged from projection at seq {}", event.seq)));
+        }
+        projection::reduce(&mut self.state, &event)?;
+        // 快照是纯缓存：写失败不影响已提交事件，下次启动从事件流重建
+        if let Err(error) = store::save_snapshot(&self.dir, &self.state) {
+            tracing::warn!(%error, "kanban snapshot cache write failed");
+        }
+        Ok(event)
+    }
+
+    fn validate(&self, command: &KanbanCommand) -> Result<EventKind, KanbanError> {
+        match command {
+            KanbanCommand::BoardCreate { title, columns } => {
+                if self.state.created() {
+                    return Err(KanbanError::BoardExists(self.state.board_id.clone()));
+                }
+                let title = title.trim();
+                if title.is_empty() {
+                    return Err(KanbanError::InvalidCommand("board title is required".into()));
+                }
+                let columns = match columns {
+                    Some(columns) => columns.clone(),
+                    None => default_template(),
+                };
+                validate_columns(&columns)?;
+                Ok(EventKind::BoardCreate(BoardCreatePayload { title: title.into(), columns }))
+            }
+            KanbanCommand::ColumnAdd { column } => {
+                self.require_created()?;
+                column.validate()?;
+                if self.state.column(&column.id).is_some() {
+                    return Err(KanbanError::ColumnExists(column.id.clone()));
+                }
+                for target in [&column.transitions.on_success, &column.transitions.on_failure].into_iter().flatten() {
+                    if self.state.column(target).is_none() {
+                        return Err(KanbanError::ColumnNotFound(target.clone()));
+                    }
+                }
+                Ok(EventKind::ColumnAdd(ColumnAddPayload { column: column.clone() }))
+            }
+            KanbanCommand::CardCreate { column_id, title, body } => {
+                self.require_created()?;
+                let title = title.trim();
+                if title.is_empty() {
+                    return Err(KanbanError::InvalidCommand("card title is required".into()));
+                }
+                let column = match column_id {
+                    Some(id) => self.state.column(id).ok_or_else(|| KanbanError::ColumnNotFound(id.clone()))?,
+                    None => self.state.columns.first().ok_or_else(|| KanbanError::InvalidCommand("board has no columns".into()))?,
+                };
+                self.check_wip(&column.id, None)?;
+                Ok(EventKind::CardCreate(CardCreatePayload {
+                    card_id: ids::new_id("card"),
+                    column_id: column.id.clone(),
+                    title: title.into(),
+                    body: body.clone(),
+                }))
+            }
+            KanbanCommand::CardMove { card_id, outcome } => {
+                self.require_created()?;
+                if *outcome == Outcome::Timeout {
+                    return Err(KanbanError::InvalidCommand("card_move outcome must be success or failure".into()));
+                }
+                let card = self.state.cards.get(card_id).ok_or_else(|| KanbanError::CardNotFound(card_id.clone()))?;
+                if card.status == CardStatus::Running {
+                    return Err(KanbanError::RunInProgress(card_id.clone()));
+                }
+                let from = card.column_id.clone();
+                let column = self.state.column(&from).ok_or_else(|| KanbanError::ColumnNotFound(from.clone()))?;
+                // 目标列只能由流转表推导，调用方自报目标会被拒绝在类型层之外
+                let to = column
+                    .transitions
+                    .target(*outcome)
+                    .ok_or_else(|| KanbanError::NoTransition { card_id: card_id.clone(), from: from.clone(), outcome: *outcome })?
+                    .to_string();
+                if self.state.column(&to).is_none() {
+                    return Err(KanbanError::ColumnNotFound(to));
+                }
+                self.check_wip(&to, Some(card_id))?;
+                Ok(EventKind::CardMove(CardMovePayload { card_id: card_id.clone(), from, to, outcome: *outcome }))
+            }
+            KanbanCommand::CardComment { card_id, author, body } => {
+                self.require_created()?;
+                if !self.state.cards.contains_key(card_id) {
+                    return Err(KanbanError::CardNotFound(card_id.clone()));
+                }
+                if author.trim().is_empty() || body.trim().is_empty() {
+                    return Err(KanbanError::InvalidCommand("comment author and body are required".into()));
+                }
+                Ok(EventKind::CardComment(CardCommentPayload { card_id: card_id.clone(), author: author.clone(), body: body.clone() }))
+            }
+            KanbanCommand::RunStarted { card_id } => {
+                self.require_created()?;
+                let card = self.state.cards.get(card_id).ok_or_else(|| KanbanError::CardNotFound(card_id.clone()))?;
+                if card.status == CardStatus::Running {
+                    return Err(KanbanError::RunInProgress(card_id.clone()));
+                }
+                let column = self.state.column(&card.column_id).ok_or_else(|| KanbanError::ColumnNotFound(card.column_id.clone()))?;
+                if !matches!(column.on_enter.kind, OnEnterKind::AgentRun | OnEnterKind::Workflow) {
+                    return Err(KanbanError::InvalidCommand(format!("column {} has no agent_run/workflow on_enter", column.id)));
+                }
+                let attempt =
+                    self.state.runs.values().filter(|run| run.card_id == *card_id && run.column_id == column.id).count() as u32 + 1;
+                // run_id 按 design.md 派生：board_id:card_id:column_id:attempt（workflow journal 同形）
+                let run_id = format!("{}:{}:{}:{}", self.state.board_id, card_id, column.id, attempt);
+                Ok(EventKind::RunStarted(RunStartedPayload { run_id, card_id: card_id.clone(), column_id: column.id.clone(), attempt }))
+            }
+            KanbanCommand::RunFinished { run_id, outcome } => {
+                self.require_created()?;
+                if *outcome == Outcome::Timeout {
+                    return Err(KanbanError::InvalidCommand("use run_timeout command for timeouts".into()));
+                }
+                let run = self.open_run(run_id)?;
+                // 投影按 run 所在列 transitions 推导迁移目标，守卫对同一目标做 WIP 检查
+                if let Some(to) = self.state.column(&run.column_id).and_then(|c| c.transitions.target(*outcome)).map(str::to_string) {
+                    self.check_wip(&to, Some(&run.card_id))?;
+                }
+                Ok(EventKind::RunFinished(RunFinishedPayload { run_id: run_id.clone(), outcome: *outcome }))
+            }
+            KanbanCommand::RunTimeout { run_id } => {
+                self.require_created()?;
+                self.open_run(run_id)?;
+                Ok(EventKind::RunTimeout(RunTimeoutPayload { run_id: run_id.clone() }))
+            }
+            KanbanCommand::AgentDefined { name, role, model, permission_profile } => {
+                self.require_created()?;
+                ids::validate_id(name).map_err(KanbanError::InvalidId)?;
+                if role.trim().is_empty() || model.trim().is_empty() || permission_profile.trim().is_empty() {
+                    return Err(KanbanError::InvalidCommand("agent role, model and permission_profile are required".into()));
+                }
+                Ok(EventKind::AgentDefined(AgentDefinedPayload {
+                    name: name.clone(),
+                    role: role.clone(),
+                    model: model.clone(),
+                    permission_profile: permission_profile.clone(),
+                }))
+            }
+        }
+    }
+
+    fn require_created(&self) -> Result<(), KanbanError> {
+        if self.state.created() { Ok(()) } else { Err(KanbanError::BoardNotCreated(self.state.board_id.clone())) }
+    }
+
+    fn open_run(&self, run_id: &str) -> Result<&super::model::RunState, KanbanError> {
+        match self.state.runs.get(run_id) {
+            Some(run) if run.outcome.is_none() => Ok(run),
+            _ => Err(KanbanError::RunNotOpen(run_id.to_string())),
+        }
+    }
+
+    /// WIP 口径：列内全部卡片计数（含 blocked/waiting，对齐看板惯例）；exclude 用于迁出卡自身的同列自环。
+    fn check_wip(&self, column_id: &str, exclude: Option<&str>) -> Result<(), KanbanError> {
+        let Some(limit) = self.state.column(column_id).and_then(|c| c.wip_limit) else { return Ok(()) };
+        let count = self.state.cards.values().filter(|card| card.column_id == column_id && Some(card.id.as_str()) != exclude).count();
+        if count >= limit as usize {
+            return Err(KanbanError::WipLimit { column: column_id.to_string(), limit });
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests;
