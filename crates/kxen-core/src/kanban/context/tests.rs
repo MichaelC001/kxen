@@ -12,6 +12,15 @@ fn temp(tag: &str) -> PathBuf {
     std::env::temp_dir().join(format!("kxen-kanban-context-{tag}-{}-{nanos}", std::process::id()))
 }
 
+/// ShellKind -> exec 工具的方言参数值（parse_shell 的逆向，仅测试用）。
+fn shell_name(kind: crate::tools::shell::ShellKind) -> &'static str {
+    match kind {
+        crate::tools::shell::ShellKind::Zsh => "zsh",
+        crate::tools::shell::ShellKind::Bash => "bash",
+        crate::tools::shell::ShellKind::Fish => "fish",
+    }
+}
+
 /// exec_scope 端到端：readonly+test profile 的 kanban run 无持久 session 也能 exec，
 /// 命中看板 policy allowlist 的命令经 BoardAutoApprove 自动放行且审计 durable。
 #[tokio::test]
@@ -36,7 +45,10 @@ async fn exec_auto_approved_end_to_end_without_session() {
                     id: Some("call_1".into()),
                     function: Some(crate::llm::tool::ChunkFunction {
                         name: Some("exec".into()),
-                        arguments: Some(r#"{"command":"echo kanban-exec-ok"}"#.into()),
+                        arguments: Some(
+                            // shell 方言按宿主力所能及钉死：exec 缺省 zsh，CI Linux 无 /bin/zsh
+                            format!(r#"{{"type":"{}","command":"echo kanban-exec-ok"}}"#, shell_name(crate::tools::shell::default_shell())),
+                        ),
                     }),
                 }]),
                 crate::llm::Delta::Done,
