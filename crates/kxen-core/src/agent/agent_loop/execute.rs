@@ -317,7 +317,7 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
             // run_id 是模型参数，不能直通 journal：run_tool 内按 session 派生命名空间（open_scoped）
             Box::pin(crate::agent::workflow::run_tool(script, deps, ctx, run_id)).await
         }
-        other if other.starts_with("kanban.") => super::kanban_tool::execute_kanban_tool(other, args, ctx),
+        other if other.starts_with("kanban_") => super::kanban_tool::execute_kanban_tool(other, args, ctx),
         other if other.starts_with("mcp__") => {
             let appr = crate::tools::exec::ApprovalCtx::new(
                 ctx.approvals.as_deref(),

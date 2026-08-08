@@ -1,5 +1,5 @@
 //! DCP Agent 定义（design.md「AI 编写的 DCP Agent」）：Markdown + 行式 frontmatter 数据文件，
-//! 存 `<workspace>/.kxen/kanban/agents/<name>.md`。主线程经 kanban.agent_create（P2b 工具面）写入，
+//! 存 `<workspace>/.kxen/kanban/agents/<name>.md`。主线程经 kanban_agent_create（P2b 工具面）写入，
 //! 列触发器（driver.rs）按 on_enter.agent 引用加载。
 //!
 //! frontmatter 与 subagent/knowledge 同规约（`---` 包围的 key: value 头，不引入 YAML 依赖），
@@ -98,7 +98,7 @@ pub fn to_markdown(definition: &AgentDefinition) -> String {
     )
 }
 
-/// 写定义文件（原子写）：未来 P2b 的 kanban.agent_create 与测试共用此收口，不经第二路径。
+/// 写定义文件（原子写）：未来 P2b 的 kanban_agent_create 与测试共用此收口，不经第二路径。
 pub fn save(workspace: &Path, definition: &AgentDefinition) -> Result<(), KanbanError> {
     // 与 parse 同一套校验：写路径不得比读路径宽，否则垃圾定义能落盘但加载即拒
     parse(&to_markdown(definition))?;

@@ -1,4 +1,4 @@
-//! kanban.* 工具执行（P2b 工具面）：参数 fail-closed 解析 -> 打开 workspace 的 Board ->
+//! kanban_* 工具执行（P2b 工具面）：参数 fail-closed 解析 -> 打开 workspace 的 Board ->
 //! KanbanCommand -> Board::apply（守卫校验 + append 事件）-> 结构化结果文本。
 //! 模型只交意图不直写状态；守卫拒绝（流转表/WIP/重复/未建板）以 KanbanError 原文返回，
 //! 原因可读，模型据此修正重试（与 goal_tool 的结构化错误形态一致）。
@@ -89,7 +89,7 @@ fn landed(event: &KanbanEvent) -> String {
 pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Result<String, String> {
     let workspace = ctx.workdir.as_ref();
     match name {
-        "kanban.board_create" => {
+        "kanban_board_create" => {
             let parsed: BoardCreateArgs = parse_args(name, args)?;
             let board_id = parsed.board.unwrap_or_else(|| ids::new_id("board"));
             let mut board = open(workspace, &board_id)?;
@@ -104,14 +104,14 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
                 columns.join(", ")
             ))
         }
-        "kanban.column_add" => {
+        "kanban_column_add" => {
             let parsed: ColumnAddArgs = parse_args(name, args)?;
             let column_id = parsed.column.id.clone();
             let mut board = open(workspace, &parsed.board)?;
             let event = apply(&mut board, KanbanCommand::ColumnAdd { column: parsed.column })?;
             Ok(format!("column added: {column_id} ({})", landed(&event)))
         }
-        "kanban.card_create" => {
+        "kanban_card_create" => {
             let parsed: CardCreateArgs = parse_args(name, args)?;
             let mut board = open(workspace, &parsed.board)?;
             let event = apply(
@@ -121,7 +121,7 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
             let EventKind::CardCreate(ref payload) = event.kind else { return Err("card_create returned unexpected event".into()) };
             Ok(format!("card created: {} in column {} ({})\ntitle: {}", payload.card_id, payload.column_id, landed(&event), payload.title))
         }
-        "kanban.card_move" => {
+        "kanban_card_move" => {
             let parsed: CardMoveArgs = parse_args(name, args)?;
             let mut board = open(workspace, &parsed.board)?;
             let event = apply(&mut board, KanbanCommand::CardMove { card_id: parsed.card_id, outcome: parsed.outcome })?;
@@ -135,7 +135,7 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
                 landed(&event)
             ))
         }
-        "kanban.card_comment" => {
+        "kanban_card_comment" => {
             let parsed: CardCommentArgs = parse_args(name, args)?;
             let mut board = open(workspace, &parsed.board)?;
             let event = apply(
@@ -148,7 +148,7 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
             )?;
             Ok(format!("comment added on {} ({})", parsed.card_id, landed(&event)))
         }
-        "kanban.agent_create" => {
+        "kanban_agent_create" => {
             let parsed: AgentCreateArgs = parse_args(name, args)?;
             let definition = AgentDefinition {
                 name: parsed.name,
@@ -184,7 +184,7 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
                 definition.name
             ))
         }
-        "kanban.agent_run" => {
+        "kanban_agent_run" => {
             let parsed: CardRefArgs = parse_args(name, args)?;
             let mut board = open(workspace, &parsed.board)?;
             // 显式 claim（run_started 先 durable）：runner 周期扫描收养 open claim 并经 driver 执行，
@@ -192,14 +192,14 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
             let event = apply(&mut board, KanbanCommand::RunStarted { card_id: parsed.card_id })?;
             let EventKind::RunStarted(ref payload) = event.kind else { return Err("agent_run returned unexpected event".into()) };
             Ok(format!(
-                "run claimed: {} ({})\ncolumn: {} attempt: {}\nthe kanban runner adopts claimed runs automatically; check kanban.board_show for the outcome",
+                "run claimed: {} ({})\ncolumn: {} attempt: {}\nthe kanban runner adopts claimed runs automatically; check kanban_board_show for the outcome",
                 payload.run_id,
                 landed(&event),
                 payload.column_id,
                 payload.attempt
             ))
         }
-        "kanban.board_show" => {
+        "kanban_board_show" => {
             let parsed: BoardRefArgs = parse_args(name, args)?;
             let board = open(workspace, &parsed.board)?;
             if !board.state().created() {

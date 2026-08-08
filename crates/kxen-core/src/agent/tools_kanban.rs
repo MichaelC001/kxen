@@ -1,4 +1,4 @@
-//! kanban.* 工具目录（P2b 工具面）：deferred 挂载，经 tool_search 发现后挂载到会话。
+//! kanban_* 工具目录（P2b 工具面）：deferred 挂载，经 tool_search 发现后挂载到会话。
 //! 独立文件守 350 行门禁（tools_deferred.rs 无空位）；描述英文是既定口径（UI 文案才用中文）。
 //! 全部工具只提交 KanbanCommand（意图），kanban core 校验通过才转 Event：模型不直写状态
 //! （对齐 goal 工具的意图校验模式，design.md「工具面」）。
@@ -41,8 +41,8 @@ fn column_schema() -> serde_json::Value {
 pub fn kanban_tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition::function(
-            "kanban.board_create",
-            "Create a kanban board in this workspace (.kxen/kanban/). Omit `columns` for the default software-development template: requirements(human_gate) -> implementing(agent_run) -> testing(agent_run) -> review(human_gate) -> done(terminal). Returns the board id used by all other kanban.* tools.",
+            "kanban_board_create",
+            "Create a kanban board in this workspace (.kxen/kanban/). Omit `columns` for the default software-development template: requirements(human_gate) -> implementing(agent_run) -> testing(agent_run) -> review(human_gate) -> done(terminal). Returns the board id used by all other kanban_* tools.",
             json!({
                 "type": "object",
                 "properties": {
@@ -54,7 +54,7 @@ pub fn kanban_tools() -> Vec<ToolDefinition> {
             }),
         ),
         ToolDefinition::function(
-            "kanban.column_add",
+            "kanban_column_add",
             "Append a column to an existing board. Transition targets must reference columns that already exist on the board (add columns in dependency order).",
             json!({
                 "type": "object",
@@ -66,7 +66,7 @@ pub fn kanban_tools() -> Vec<ToolDefinition> {
             }),
         ),
         ToolDefinition::function(
-            "kanban.card_create",
+            "kanban_card_create",
             "Create a card. Without `column_id` the card lands in the board's first column. WIP limits are enforced; cards in an agent_run/workflow column are picked up by the kanban runner automatically.",
             json!({
                 "type": "object",
@@ -80,7 +80,7 @@ pub fn kanban_tools() -> Vec<ToolDefinition> {
             }),
         ),
         ToolDefinition::function(
-            "kanban.card_move",
+            "kanban_card_move",
             "Move a card by declaring the outcome of its CURRENT column: success = approve/advance, failure = reject/send back. The target column is derived from the column's transitions table - you never name it. human_gate approval is a card_move with outcome=success. Rejected when no transition exists for the outcome or the destination WIP is full.",
             json!({
                 "type": "object",
@@ -93,7 +93,7 @@ pub fn kanban_tools() -> Vec<ToolDefinition> {
             }),
         ),
         ToolDefinition::function(
-            "kanban.card_comment",
+            "kanban_card_comment",
             "Append a comment to a card's event stream (visible to future column runs as context). The card stays in place; comments never move cards.",
             json!({
                 "type": "object",
@@ -107,7 +107,7 @@ pub fn kanban_tools() -> Vec<ToolDefinition> {
             }),
         ),
         ToolDefinition::function(
-            "kanban.agent_create",
+            "kanban_agent_create",
             "Define a DCP agent for kanban column runs: validates the definition, writes .kxen/kanban/agents/<name>.md and registers it on the board. permission_profile decides the agent's tool set: readonly (read/glob/grep), readonly+test (+ exec), full (all tools). model is 'auto' (MRM-routed by role) or 'provider:model'.",
             json!({
                 "type": "object",
@@ -123,8 +123,8 @@ pub fn kanban_tools() -> Vec<ToolDefinition> {
             }),
         ),
         ToolDefinition::function(
-            "kanban.agent_run",
-            "Explicitly run the current column's agent on a card: durably claims a run (run_started event); the kanban runner adopts and executes the claim asynchronously - poll kanban.board_show for the outcome. Use for starting ready cards and retrying blocked/timed-out ones. Rejected while a run is in progress or when the column has no agent_run/workflow entry action.",
+            "kanban_agent_run",
+            "Explicitly run the current column's agent on a card: durably claims a run (run_started event); the kanban runner adopts and executes the claim asynchronously - poll kanban_board_show for the outcome. Use for starting ready cards and retrying blocked/timed-out ones. Rejected while a run is in progress or when the column has no agent_run/workflow entry action.",
             json!({
                 "type": "object",
                 "properties": {
@@ -135,7 +135,7 @@ pub fn kanban_tools() -> Vec<ToolDefinition> {
             }),
         ),
         ToolDefinition::function(
-            "kanban.board_show",
+            "kanban_board_show",
             "Show the current board state: columns (entry action, WIP), cards (status, current run, block reason), runs with outcomes, and defined agents. Read-only; take board/card ids from this or from create responses, never invent them.",
             json!({
                 "type": "object",
@@ -158,14 +158,14 @@ mod tests {
         assert_eq!(
             names,
             [
-                "kanban.board_create",
-                "kanban.column_add",
-                "kanban.card_create",
-                "kanban.card_move",
-                "kanban.card_comment",
-                "kanban.agent_create",
-                "kanban.agent_run",
-                "kanban.board_show",
+                "kanban_board_create",
+                "kanban_column_add",
+                "kanban_card_create",
+                "kanban_card_move",
+                "kanban_card_comment",
+                "kanban_agent_create",
+                "kanban_agent_run",
+                "kanban_board_show",
             ]
         );
     }

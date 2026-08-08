@@ -49,7 +49,7 @@ fn call(workspace: &Path, name: &str, args: Value) -> Result<String, String> {
 }
 
 fn create_default_board(workspace: &Path) -> String {
-    call(workspace, "kanban.board_create", json!({"board": "board_t", "title": "管线"})).expect("board_create")
+    call(workspace, "kanban_board_create", json!({"board": "board_t", "title": "管线"})).expect("board_create")
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn board_create_default_template_and_duplicate_guard() {
     for column in ["requirements", "implementing", "testing", "review", "done"] {
         assert!(result.contains(column), "默认模板缺列 {column}: {result}");
     }
-    let error = call(&workspace, "kanban.board_create", json!({"board": "board_t", "title": "again"})).unwrap_err();
+    let error = call(&workspace, "kanban_board_create", json!({"board": "board_t", "title": "again"})).unwrap_err();
     assert!(error.contains("board already created"), "{error}");
     std::fs::remove_dir_all(workspace).ok();
 }
@@ -70,9 +70,9 @@ fn board_create_default_template_and_duplicate_guard() {
 fn arguments_fail_closed_on_unknown_fields_and_bad_enums() {
     let workspace = temp("args");
     create_default_board(&workspace);
-    let error = call(&workspace, "kanban.board_create", json!({"title": "x", "bogus": 1})).unwrap_err();
+    let error = call(&workspace, "kanban_board_create", json!({"title": "x", "bogus": 1})).unwrap_err();
     assert!(error.contains("invalid arguments") && error.contains("bogus"), "{error}");
-    let error = call(&workspace, "kanban.card_move", json!({"board": "board_t", "card_id": "c", "outcome": "sideways"})).unwrap_err();
+    let error = call(&workspace, "kanban_card_move", json!({"board": "board_t", "card_id": "c", "outcome": "sideways"})).unwrap_err();
     assert!(error.contains("invalid arguments"), "{error}");
     std::fs::remove_dir_all(workspace).ok();
 }
@@ -83,19 +83,19 @@ fn column_add_success_and_dangling_target_guard() {
     create_default_board(&workspace);
     let ok = call(
         &workspace,
-        "kanban.column_add",
+        "kanban_column_add",
         json!({"board": "board_t", "column": {"id": "archive", "title": "归档", "on_enter": {"kind": "none"}}}),
     )
     .expect("column_add");
     assert!(ok.contains("column added: archive"), "{ok}");
     let error = call(
         &workspace,
-        "kanban.column_add",
+        "kanban_column_add",
         json!({"board": "board_t", "column": {"id": "x2", "title": "x", "on_enter": {"kind": "none"}, "transitions": {"on_success": "nowhere"}}}),
     )
     .unwrap_err();
     assert!(error.contains("column not found: nowhere"), "{error}");
-    let error = call(&workspace, "kanban.column_add", json!({"board": "board_t", "column": {"id": "done", "title": "dup"}})).unwrap_err();
+    let error = call(&workspace, "kanban_column_add", json!({"board": "board_t", "column": {"id": "done", "title": "dup"}})).unwrap_err();
     assert!(error.contains("column already exists: done"), "{error}");
     std::fs::remove_dir_all(workspace).ok();
 }
@@ -104,26 +104,26 @@ fn column_add_success_and_dangling_target_guard() {
 fn card_lifecycle_and_transition_guards() {
     let workspace = temp("card");
     create_default_board(&workspace);
-    let created = call(&workspace, "kanban.card_create", json!({"board": "board_t", "title": "Add login", "body": "Email login"}))
+    let created = call(&workspace, "kanban_card_create", json!({"board": "board_t", "title": "Add login", "body": "Email login"}))
         .expect("card_create");
     assert!(created.contains("in column requirements"), "{created}");
     let card_id = created.strip_prefix("card created: ").and_then(|rest| rest.split(' ').next()).expect("card id").to_string();
     // human_gate approve = card_move success，目标列由流转表推导
     let moved =
-        call(&workspace, "kanban.card_move", json!({"board": "board_t", "card_id": card_id, "outcome": "success"})).expect("approve move");
+        call(&workspace, "kanban_card_move", json!({"board": "board_t", "card_id": card_id, "outcome": "success"})).expect("approve move");
     assert!(moved.contains("requirements -> implementing"), "{moved}");
     // requirements 列无 on_failure 出边：reject 必须被流转表守卫拒绝且讲清原因
-    let back = call(&workspace, "kanban.card_move", json!({"board": "board_t", "card_id": card_id, "outcome": "failure"})).unwrap();
+    let back = call(&workspace, "kanban_card_move", json!({"board": "board_t", "card_id": card_id, "outcome": "failure"})).unwrap();
     assert!(back.contains("implementing -> requirements"), "on_failure 回流: {back}");
-    let error = call(&workspace, "kanban.card_move", json!({"board": "board_t", "card_id": card_id, "outcome": "failure"})).unwrap_err();
+    let error = call(&workspace, "kanban_card_move", json!({"board": "board_t", "card_id": card_id, "outcome": "failure"})).unwrap_err();
     assert!(error.contains("invalid transition") && error.contains("requirements"), "{error}");
     let error =
-        call(&workspace, "kanban.card_move", json!({"board": "board_t", "card_id": "card_nope", "outcome": "success"})).unwrap_err();
+        call(&workspace, "kanban_card_move", json!({"board": "board_t", "card_id": "card_nope", "outcome": "success"})).unwrap_err();
     assert!(error.contains("card not found"), "{error}");
     let commented =
-        call(&workspace, "kanban.card_comment", json!({"board": "board_t", "card_id": card_id, "body": "先做这条"})).expect("card_comment");
+        call(&workspace, "kanban_card_comment", json!({"board": "board_t", "card_id": card_id, "body": "先做这条"})).expect("card_comment");
     assert!(commented.contains(&format!("comment added on {card_id}")), "{commented}");
-    let error = call(&workspace, "kanban.card_comment", json!({"board": "board_t", "card_id": "card_nope", "body": "x"})).unwrap_err();
+    let error = call(&workspace, "kanban_card_comment", json!({"board": "board_t", "card_id": "card_nope", "body": "x"})).unwrap_err();
     assert!(error.contains("card not found"), "{error}");
     std::fs::remove_dir_all(workspace).ok();
 }
@@ -134,7 +134,7 @@ fn agent_create_saves_file_and_event_and_validates_first() {
     create_default_board(&workspace);
     let ok = call(
         &workspace,
-        "kanban.agent_create",
+        "kanban_agent_create",
         json!({"board": "board_t", "name": "qa-x", "role": "review", "model": "auto", "permission_profile": "readonly+test",
                "prompt": "Verify the card and declare a verdict."}),
     )
@@ -147,7 +147,7 @@ fn agent_create_saves_file_and_event_and_validates_first() {
     // 守卫失败零副作用：未知 profile 不落文件、不落事件
     let error = call(
         &workspace,
-        "kanban.agent_create",
+        "kanban_agent_create",
         json!({"board": "board_t", "name": "bad", "role": "r", "model": "auto", "permission_profile": "root", "prompt": "x"}),
     )
     .unwrap_err();
@@ -157,7 +157,7 @@ fn agent_create_saves_file_and_event_and_validates_first() {
     // 未建板拒绝
     let error = call(
         &workspace,
-        "kanban.agent_create",
+        "kanban_agent_create",
         json!({"board": "board_none", "name": "qa-x", "role": "r", "model": "auto", "permission_profile": "readonly", "prompt": "x"}),
     )
     .unwrap_err();
@@ -171,7 +171,7 @@ async fn agent_run_claim_is_adopted_by_runner_and_executed() {
     crate::kanban::save_agent_definition(&workspace, &driver_tests::agent_def()).unwrap();
     call(
         &workspace,
-        "kanban.board_create",
+        "kanban_board_create",
         json!({"board": "board_t", "title": "t", "columns": [
             {"id": "implementing", "title": "实现中", "on_enter": {"kind": "agent_run", "agent": "exec-impl"},
              "transitions": {"on_success": "done", "on_failure": "implementing"}},
@@ -179,14 +179,14 @@ async fn agent_run_claim_is_adopted_by_runner_and_executed() {
         ]}),
     )
     .expect("board_create");
-    let created = call(&workspace, "kanban.card_create", json!({"board": "board_t", "title": "Add login"})).expect("card_create");
+    let created = call(&workspace, "kanban_card_create", json!({"board": "board_t", "title": "Add login"})).expect("card_create");
     let card_id = created.strip_prefix("card created: ").and_then(|rest| rest.split(' ').next()).unwrap().to_string();
     // Runner 先于 claim 创建（生产语义：显式 claim 晚于 boot，走收养而非 orphan 恢复）
     let runner = crate::kanban::Runner::new();
-    let claimed = call(&workspace, "kanban.agent_run", json!({"board": "board_t", "card_id": card_id})).expect("agent_run");
+    let claimed = call(&workspace, "kanban_agent_run", json!({"board": "board_t", "card_id": card_id})).expect("agent_run");
     assert!(claimed.contains("run claimed: board_t:") && claimed.contains("attempt: 1"), "{claimed}");
     // 在飞守卫：同卡重复 claim 拒绝
-    let error = call(&workspace, "kanban.agent_run", json!({"board": "board_t", "card_id": card_id})).unwrap_err();
+    let error = call(&workspace, "kanban_agent_run", json!({"board": "board_t", "card_id": card_id})).unwrap_err();
     assert!(error.contains("run in progress"), "{error}");
     let launched =
         runner.scan_once(&workspace, &driver_tests::deps(&workspace, driver_tests::text_stream("done\nVERDICT: success"))).await.unwrap();
@@ -213,9 +213,9 @@ fn run_outcome(workspace: &Path, run_id: String) -> Option<Outcome> {
 fn agent_run_rejects_non_executable_column() {
     let workspace = temp("ranguard");
     create_default_board(&workspace);
-    let created = call(&workspace, "kanban.card_create", json!({"board": "board_t", "title": "x"})).unwrap();
+    let created = call(&workspace, "kanban_card_create", json!({"board": "board_t", "title": "x"})).unwrap();
     let card_id = created.strip_prefix("card created: ").and_then(|rest| rest.split(' ').next()).unwrap().to_string();
-    let error = call(&workspace, "kanban.agent_run", json!({"board": "board_t", "card_id": card_id})).unwrap_err();
+    let error = call(&workspace, "kanban_agent_run", json!({"board": "board_t", "card_id": card_id})).unwrap_err();
     assert!(error.contains("has no agent_run/workflow on_enter"), "{error}");
     std::fs::remove_dir_all(workspace).ok();
 }
@@ -223,12 +223,12 @@ fn agent_run_rejects_non_executable_column() {
 #[test]
 fn board_show_renders_state_and_rejects_missing_board() {
     let workspace = temp("show");
-    let error = call(&workspace, "kanban.board_show", json!({"board": "board_t"})).unwrap_err();
+    let error = call(&workspace, "kanban_board_show", json!({"board": "board_t"})).unwrap_err();
     assert!(error.contains("board not created"), "{error}");
     create_default_board(&workspace);
-    let created = call(&workspace, "kanban.card_create", json!({"board": "board_t", "title": "Add login"})).unwrap();
+    let created = call(&workspace, "kanban_card_create", json!({"board": "board_t", "title": "Add login"})).unwrap();
     let card_id = created.strip_prefix("card created: ").and_then(|rest| rest.split(' ').next()).unwrap().to_string();
-    let shown = call(&workspace, "kanban.board_show", json!({"board": "board_t"})).expect("board_show");
+    let shown = call(&workspace, "kanban_board_show", json!({"board": "board_t"})).expect("board_show");
     assert!(shown.contains("board board_t"), "{shown}");
     assert!(shown.contains("- requirements") && shown.contains("on_enter=human_gate"), "{shown}");
     assert!(shown.contains(&format!("* {card_id}")) && shown.contains("status=waiting_human"), "{shown}");
@@ -253,8 +253,8 @@ fn kanban_tools_are_deferred_discoverable_and_identity_filtered() {
     // 身份白名单（helpers.deferred_visible = 挂载集 ∩ 白名单）：主 Agent 无白名单全可见，
     // readonly 受限身份即使同 session 已挂载也不可见
     let extras = crate::agent::agent_loop::SessionExtras::default();
-    extras.extra_tools.lock().expect("tools").insert("kanban.board_show".to_string());
+    extras.extra_tools.lock().expect("tools").insert("kanban_board_show".to_string());
     let visible: Vec<_> = super::super::helpers::deferred_visible(Some(&extras), None).into_iter().map(|tool| tool.function.name).collect();
-    assert_eq!(visible, ["kanban.board_show"]);
+    assert_eq!(visible, ["kanban_board_show"]);
     assert!(super::super::helpers::deferred_visible(Some(&extras), Some(&["read", "glob", "grep"])).is_empty());
 }
