@@ -106,32 +106,9 @@ pub fn needs_compact(messages: &[Message], model: &ModelRef) -> bool {
     estimate_tokens(messages) > context_window(model) * 80 / 100
 }
 
-/// stored 消息压平成模型消息（Text/Context 进模型，tool/image/reasoning 丢弃）。
-/// llm_task 构建历史与 compact_session 蒸馏输入同口径，只此一份。
-pub fn flatten_stored(view: &[crate::core::session::Message]) -> Vec<Message> {
-    use crate::core::session::{Part, Role as StoredRole};
-    view.iter()
-        .filter_map(|m| {
-            let text: String = m
-                .parts
-                .iter()
-                .filter_map(|p| match p {
-                    Part::Text { text } | Part::Context { text } => Some(text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            if text.is_empty() {
-                return None;
-            }
-            Some(match m.role {
-                StoredRole::User => Message::user(text),
-                StoredRole::Assistant => Message::assistant(text),
-                StoredRole::System => Message::system(text),
-            })
-        })
-        .collect()
-}
+#[path = "compact/flatten.rs"]
+mod flatten;
+pub use flatten::flatten_stored;
 
 const COMPACT_PROMPT: &str = "\
 You are compacting a coding-agent conversation to free context space. \
@@ -225,9 +202,11 @@ pub async fn compact_session(
     }
     let view = crate::core::session::load_history_checked(dir, id).map_err(history_error)?;
     let raw_ids = raw.iter().map(|message| message.id.as_str()).collect::<std::collections::HashSet<_>>();
+    // 一条 stored 消息可能重建出多条 wire 消息（assistant_with_tools + N tool_result），
+    // 全部保留并共享同一 stored id，边界配对才不会在 tool 消息处断链
     let flattened = view
         .iter()
-        .filter_map(|stored| flatten_stored(std::slice::from_ref(stored)).into_iter().next().map(|message| (message, stored.id.as_str())))
+        .flat_map(|stored| flatten_stored(std::slice::from_ref(stored)).into_iter().map(move |message| (message, stored.id.as_str())))
         .collect::<Vec<_>>();
     let llm_msgs = flattened.iter().map(|(message, _)| message.clone()).collect::<Vec<_>>();
     let before = estimate_tokens(&llm_msgs);

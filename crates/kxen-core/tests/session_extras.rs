@@ -88,6 +88,7 @@ fn subagent_shares_parent_session_extras() {
         lsp: None,
         notify: None,
         persist_compaction: None,
+        persist_turn: None,
         auxiliary_usage: Arc::default(),
         usage_reporter: None,
         on_event: Arc::new(|_| {}),

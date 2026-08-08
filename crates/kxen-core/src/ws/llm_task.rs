@@ -11,6 +11,8 @@ mod early;
 mod persistence;
 #[path = "llm_task/spawn.rs"]
 mod spawn;
+#[path = "llm_task/turn_persistence.rs"]
+mod turn_persistence;
 pub(super) use spawn::{RunInput, spawn_claimed_run};
 
 pub(super) async fn run_llm(input: RunInput) {
@@ -224,6 +226,8 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
         }
     };
     let mut messages: Vec<Message> = kxen_core::agent::compact::flatten_stored(&stored_history);
+    // 上一 run 在迭代中崩溃：flatten 只含到最后一个 durable 迭代，先补注记声明副作用未知
+    turn_persistence::inject_recovery_note(&stored_history, &mut messages);
     // lead inbox：teammate 来信作为用户角色消息注入（排在本轮新消息之前）
     let inbox = match state.team.drain_lead_inbox(&session_id) {
         Ok(inbox) => inbox,
@@ -250,9 +254,11 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
         messages.push(Message::user(text));
     }
 
-    // 转录件：run 结束后整条 assistant 消息（reasoning + 工具调用 + 文本）一次落盘
+    // 转录件：只承载 Reasoning（finalize 拼最终消息用）；tool 交互由 persist_turn 逐迭代落盘
     let transcript = Arc::new(std::sync::Mutex::new(Vec::<ses::Part>::new()));
     let on_event = super::llm_context::event_handler(transcript.clone(), session_id.clone(), stream_id.clone(), model.clone(), bus.clone());
+    let (persist_turn, iterations_persisted) =
+        turn_persistence::turn_persister(sessions_dir.clone(), session_id.clone(), stream_id.clone(), model.clone());
 
     // 取消令牌已在入口原子占位注册（run_slot::claim_run），run 结束由 RunSlot / finalize 摘除
     // 后台 agent 完成通知路由：run 存活期由 run loop 逐轮 drain 注入 messages；
@@ -296,6 +302,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
             let session_id = session_id.clone();
             Arc::new(move |summary, covered| super::llm_compaction::save_run_checkpoint(&sessions_dir, &session_id, summary, covered))
         }),
+        persist_turn: Some(persist_turn),
         auxiliary_usage: Arc::default(),
         usage_reporter: Some(kxen_core::agent::agent_loop::UsageReporter::new(
             session_id.clone(),
@@ -317,6 +324,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
         outcome,
         sessions_dir,
         transcript,
+        iterations_persisted: iterations_persisted.load(std::sync::atomic::Ordering::Relaxed),
         cron_job_id: schedule_job_id,
     })
     .await;

@@ -24,13 +24,28 @@ pub(super) struct RunEnd<'a> {
     pub outcome: kxen_core::agent::agent_loop::AgentOutcome,
     pub sessions_dir: std::path::PathBuf,
     pub transcript: Arc<std::sync::Mutex<Vec<kxen_core::core::session::Part>>>,
+    /// 本 run 已落盘的迭代消息数（persist_turn 计数）：finalize 兜底口径依赖它判断无声结束。
+    pub iterations_persisted: u32,
     pub cron_job_id: Option<String>,
 }
 
 pub(super) async fn finalize_run(end: RunEnd<'_>) {
     use kxen_core::core::session as ses;
 
-    let RunEnd { state, runtime, session_id, stream_id, notify, cancel, files, outcome, sessions_dir, transcript, cron_job_id } = end;
+    let RunEnd {
+        state,
+        runtime,
+        session_id,
+        stream_id,
+        notify,
+        cancel,
+        files,
+        outcome,
+        sessions_dir,
+        transcript,
+        iterations_persisted,
+        cron_job_id,
+    } = end;
 
     // 通知路由收尾：通道残留与此后到达的通知全部入队 + kick 拉活（kick_session 判活，无活跃 run 才起）。
     // 本 run 的收尾 pop（下方）立即消化残留，kick 撞见活跃 run / 空队列即退，不并发起第二个 run。
@@ -92,17 +107,9 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
         kxen_core::core::shared::lock(&state.session_last_input).insert(session_id.clone(), stats.last_input_tokens);
     }
 
-    let mut parts = kxen_core::core::shared::lock(&transcript).clone();
-    if !outcome.final_text.is_empty() {
-        parts.push(ses::Part::Text { text: outcome.final_text });
-    }
-    if outcome.aborted {
-        parts.push(ses::Part::Text { text: "(已中断)".into() });
-    }
-    // 兜底：任何路径都不许无声结束（会话只剩用户消息是 P0 事故）
-    if parts.is_empty() {
-        parts.push(ses::Part::Text { text: "(run 异常结束，无输出——请重试或发送「继续」)".into() });
-    }
+    // transcript 只含 Reasoning；tool 交互已逐迭代落盘（persist_turn），finalize 只组最终消息。
+    let transcript_parts = kxen_core::core::shared::lock(&transcript).clone();
+    let parts = terminal::assemble_parts(transcript_parts, outcome.final_text, outcome.aborted, iterations_persisted > 0);
     let mut assistant_msg = ses::new_message(&session_id, ses::Role::Assistant, parts);
     assistant_msg.model = outcome.provider_model.clone();
     // Assistant -> schedule history -> visible terminal -> queue handoff。任一 durable gate

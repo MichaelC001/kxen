@@ -28,6 +28,7 @@ fn session_lifecycle() {
                 input: serde_json::json!("ls"),
                 output: "a.txt b.txt".into(),
                 args: Some(serde_json::json!({"command": "ls"})),
+                id: None,
             },
         ],
     );
@@ -164,6 +165,7 @@ fn tool_call_stores_exact_args_and_full_output() {
             input: serde_json::json!("/tmp/a.txt"),
             output: full_output.clone(),
             args: Some(serde_json::json!({"path": "/tmp/a.txt", "content": "hello"})),
+            id: None,
         }],
     );
     ses::append_message(&dir, &m).unwrap();

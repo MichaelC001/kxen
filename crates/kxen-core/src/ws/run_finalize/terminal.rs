@@ -115,3 +115,49 @@ fn terminal_message(terminal: &AgentEvent) -> &str {
         _ => "terminal persistence failed",
     }
 }
+
+/// finalize 消息 parts：transcript 只剩 Reasoning（tool 交互已逐迭代落盘，这里再组 ToolCall
+/// 就是双写）+ 最终文本 + 中断标记。兜底只在「本 run 无迭代落盘且无任何文本」时触发——
+/// reasoning 不算输出；迭代消息已落盘的 run 无最终文本也不是无声结束。
+pub(super) fn assemble_parts(transcript: Vec<Part>, final_text: String, aborted: bool, iterations_persisted: bool) -> Vec<Part> {
+    let mut parts = transcript;
+    if !final_text.is_empty() {
+        parts.push(Part::Text { text: final_text });
+    }
+    if aborted {
+        parts.push(Part::Text { text: "(已中断)".into() });
+    }
+    if !iterations_persisted && !parts.iter().any(|part| matches!(part, Part::Text { .. })) {
+        parts.push(Part::Text { text: "(run 异常结束，无输出——请重试或发送「继续」)".into() });
+    }
+    parts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assemble_parts_never_emits_tool_calls_and_skips_fallback_when_iterations_persisted() {
+        let reasoning = vec![Part::Reasoning { text: "thinking".into() }];
+        let parts = assemble_parts(reasoning, String::new(), false, true);
+        assert_eq!(parts.len(), 1, "迭代已落盘的 run 无最终文本不兜底，reasoning 原样保留");
+        assert!(!parts.iter().any(|part| matches!(part, Part::ToolCall { .. })), "finalize 不得重复落 ToolCall");
+    }
+
+    #[test]
+    fn assemble_parts_falls_back_only_without_iterations_and_text() {
+        let parts = assemble_parts(vec![], String::new(), false, false);
+        assert!(matches!(&parts[0], Part::Text { text } if text.contains("无输出")), "无迭代且无文本必须兜底");
+
+        let reasoning_only = assemble_parts(vec![Part::Reasoning { text: "r".into() }], String::new(), false, false);
+        assert!(reasoning_only.iter().any(|part| matches!(part, Part::Text { text } if text.contains("无输出"))), "reasoning 不算输出");
+
+        let aborted = assemble_parts(vec![], String::new(), true, false);
+        assert!(aborted.iter().any(|part| matches!(part, Part::Text { text } if text == "(已中断)")));
+        assert!(!aborted.iter().any(|part| matches!(part, Part::Text { text } if text.contains("无输出"))), "中断标记已是文本");
+
+        let done = assemble_parts(vec![], "答案".into(), false, true);
+        assert!(matches!(done.as_slice(), [Part::Text { text }] if text == "答案"));
+    }
+}

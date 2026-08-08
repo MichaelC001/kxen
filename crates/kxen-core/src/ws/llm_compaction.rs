@@ -156,18 +156,26 @@ pub(super) fn save_run_checkpoint(
         .map_err(|error| format!("session history unavailable: {error}"))?;
     let existing = kxen_core::core::session::load_compaction_checked(sessions_dir, session_id)
         .map_err(|error| format!("compaction checkpoint unavailable: {error}"))?;
+    // 一条 stored 消息可能重建出多条 wire 消息（assistant_with_tools + N tool_result）：
+    // 全部纳入配对，covered 里的 tool 消息才能与持久化前缀对齐（边界可覆盖本 run 已落盘迭代）。
     let flattened = history
         .iter()
         .enumerate()
-        .filter_map(|(index, stored)| {
-            kxen_core::agent::compact::flatten_stored(std::slice::from_ref(stored)).into_iter().next().map(|message| {
-                let boundary = if index == 0 && message.content.starts_with(kxen_core::core::session::COMPACT_MARK) {
-                    existing.as_ref().map(|checkpoint| checkpoint.upto_message_id.clone()).unwrap_or_else(|| stored.id.clone())
-                } else {
-                    stored.id.clone()
-                };
-                (message, boundary)
-            })
+        .flat_map(|(index, stored)| {
+            let compact_boundary = if index == 0 { existing.as_ref().map(|checkpoint| checkpoint.upto_message_id.clone()) } else { None };
+            kxen_core::agent::compact::flatten_stored(std::slice::from_ref(stored))
+                .into_iter()
+                .enumerate()
+                .map(move |(wire_index, message)| {
+                    let boundary = match &compact_boundary {
+                        Some(boundary) if wire_index == 0 && message.content.starts_with(kxen_core::core::session::COMPACT_MARK) => {
+                            boundary.clone()
+                        }
+                        _ => stored.id.clone(),
+                    };
+                    (message, boundary)
+                })
+                .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
     let mut boundary = None;

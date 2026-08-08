@@ -49,6 +49,7 @@ pub(super) fn build_ctx(
         lsp: Some(runtime.lsp()),
         notify: None,
         persist_compaction: None,
+        persist_turn: None,
         auxiliary_usage: Arc::default(),
         usage_reporter: Some(usage_reporter(state)),
         stream_override: None,

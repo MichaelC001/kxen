@@ -45,6 +45,7 @@ async fn main() {
         lsp: None,
         notify: None,
         persist_compaction: None,
+        persist_turn: None,
         auxiliary_usage: Arc::default(),
         usage_reporter: None,
         loop_detector: kxen_core::agent::loop_detect::LoopDetector::new(),

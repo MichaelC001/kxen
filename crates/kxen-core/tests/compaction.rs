@@ -26,6 +26,7 @@ fn full_assistant(sid: &str, tag: &str) -> ses::Message {
                 input: serde_json::json!(format!("ls {tag}")),
                 output: format!("out-{tag}"),
                 args: Some(serde_json::json!({"command": format!("ls {tag}")})),
+                id: Some(format!("call-{tag}")),
             },
             Part::Image { media_type: "image/png".into(), data: "aGVsbG8=".into() },
             Part::Text { text: format!("done-{tag}") },
@@ -33,29 +34,9 @@ fn full_assistant(sid: &str, tag: &str) -> ses::Message {
     )
 }
 
-/// 与 llm_task 同口径的历史压平（Text/Context 进模型，其余 part 丢弃）。
+/// 与 llm_task 同口径的历史压平：直接复用 flatten_stored（tool 交互完全重建）。
 fn to_llm(view: &[ses::Message]) -> Vec<Message> {
-    view.iter()
-        .filter_map(|m| {
-            let text: String = m
-                .parts
-                .iter()
-                .filter_map(|p| match p {
-                    Part::Text { text } | Part::Context { text } => Some(text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            if text.is_empty() {
-                return None;
-            }
-            Some(match m.role {
-                Role::User => Message::user(text),
-                Role::Assistant => Message::assistant(text),
-                Role::System => Message::system(text),
-            })
-        })
-        .collect()
+    compact::flatten_stored(view)
 }
 
 #[test]
@@ -82,13 +63,15 @@ fn manual_compact_writes_checkpoint_and_preserves_tail() {
 
     // 原始 JSONL 一条不动（rewind 的 message id -> commit 体系不破坏）
     assert_eq!(ses::load_messages(&dir, &s.id).len(), raw.len());
-    // 检查点 upto = 保留尾 4 条的前一条
+    // 检查点 upto = 保留尾的前一条：flatten 完全重建后每条 full_assistant 展开为
+    // assistant_with_tools + tool_result 两条 wire 消息，keep_recent=4 条 wire 覆盖
+    // 末尾两条 stored（u5/a5），边界落在 a4
     let c = ses::load_compaction(&dir, &s.id).expect("checkpoint 应落盘");
-    assert_eq!(c.upto_message_id, raw[raw.len() - 5].id);
+    assert_eq!(c.upto_message_id, raw[raw.len() - 3].id);
 
-    // 视图：1 条 user 摘要 + 保留尾 4 条（parts 全结构原样，含 tool/image/reasoning）
+    // 视图：1 条 user 摘要 + 保留尾 2 条（parts 全结构原样，含 tool/image/reasoning）
     let view = ses::load_history(&dir, &s.id);
-    assert_eq!(view.len(), 5);
+    assert_eq!(view.len(), 3);
     assert_eq!(view[0].role, Role::User);
     let Part::Text { text } = &view[0].parts[0] else { panic!("摘要应为 text part") };
     assert!(text.contains(ses::COMPACT_MARK));

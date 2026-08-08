@@ -77,11 +77,15 @@ pub enum Part {
         name: String,
         /// 一行摘要（UI 头行）；精确参数在 args
         input: serde_json::Value,
-        /// 完整结果（截断转录在写入侧做）
+        /// 完整结果（全量内联不截断；工具自身已有输出上限，10k 转录截断已移除）
         output: String,
         /// 精确调用参数；存量 JSONL 无此字段，serde 缺省兼容
         #[serde(default, skip_serializing_if = "Option::is_none")]
         args: Option<serde_json::Value>,
+        /// provider 下发的 call id，仅供审计配对；回放时一律确定性合成，绝不透传
+        /// （跨 provider 切换无净化矩阵）。存量 JSONL 无此字段，serde 缺省兼容。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
     },
     Reasoning {
         text: String,
@@ -92,7 +96,7 @@ pub enum Part {
         data: String,
     },
     /// 审批决定落盘（allow/deny/timeout/cancel）：刷新/重载后时间线仍有审批痕迹（灰色已决历史卡）。
-    /// 不回放给模型（flatten_stored 只取 Text/Context）；落盘角色固定 Assistant——
+    /// 不回放给模型（flatten_stored 跳过）；落盘角色固定 Assistant——
     /// User 会被 rewind 检查点定位当成 turn 起点（最近 user 消息语义），审批消息不是 turn。
     Approval {
         command: String,

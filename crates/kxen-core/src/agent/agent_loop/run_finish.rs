@@ -38,8 +38,15 @@ pub(super) async fn resolve(
         return TurnResolution::Stop { final_text: text, terminal: Some(event), aborted: false };
     }
 
-    let (exec_aborted, loop_stop) = super::run_calls::execute_calls(ctx, text, calls, messages).await;
+    let (exec_aborted, loop_stop, parts) = super::run_calls::execute_calls(ctx, text, calls, messages).await;
     ctx.auxiliary_usage.drain_into(usage);
+    // 迭代持久化在下一次 LLM 请求前完成，abort 迭代同样落盘（副作用记录缺口不许继续）。
+    // 失败 fail-closed 终止 run，与 commit_user/commit_and_publish 同口径，不能静默吞。
+    if let Some(persist) = &ctx.persist_turn
+        && let Err(error) = persist(turns, parts)
+    {
+        return stop_with_error(ctx, format!("turn persistence failed: {error}"));
+    }
     if exec_aborted {
         return TurnResolution::Stop { final_text: String::new(), terminal: None, aborted: true };
     }

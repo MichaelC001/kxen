@@ -58,6 +58,7 @@ fn test_ctx(notify: Option<Arc<NotifyRouter>>) -> AgentContext {
         lsp: None,
         notify,
         persist_compaction: None,
+        persist_turn: None,
         auxiliary_usage: Arc::default(),
         usage_reporter: None,
         on_event: Arc::new(|_| {}),

@@ -233,6 +233,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         lsp: deps.lsp.clone(),
         notify: None, // 子代理不开通知通道：不嵌套派发（background 只从主会话发起）
         persist_compaction: None,
+        persist_turn: None,
         auxiliary_usage: Arc::default(),
         usage_reporter: deps.usage_reporter.clone(),
         stream_override: deps.stream_override.clone(),

@@ -10,6 +10,10 @@ use std::sync::Arc;
 use super::events::AgentEvent;
 
 pub type PersistCompaction = Arc<dyn Fn(&str, &[crate::llm::Message]) -> Result<(), String> + Send + Sync>;
+/// 迭代级持久化回调：run loop 每完成一个 tool 迭代（下一次 LLM 请求前）调用，
+/// 入参为迭代序号（turn）与本迭代 parts（Text? + ToolCall×N，output 已填）。
+/// 失败必须 fail-closed 终止 run，不得静默吞（durable 缺口的副作用无记录）。
+pub type PersistTurn = Arc<dyn Fn(u32, Vec<crate::core::session::Part>) -> Result<(), String> + Send + Sync>;
 pub use super::usage::UsageReporter;
 
 /// 会话级共享态：tool_search 挂载的 deferred 工具 + todo 清单。
@@ -95,6 +99,9 @@ pub struct AgentContext {
     pub notify: Option<Arc<crate::agent::background::NotifyRouter>>,
     /// 主会话把 run 内 compaction 摘要落为 checkpoint；无持久化会话的子环境为 None。
     pub persist_compaction: Option<PersistCompaction>,
+    /// 主会话把每个 tool 迭代落为一条 Assistant 消息；None = 纯内存（subagent/team/background，
+    /// 行为与迭代持久化引入前完全一致）。
+    pub persist_turn: Option<PersistTurn>,
     /// completion judge 等辅助请求的 session/run 统计汇入点；Goal 已在调用处独立记账。
     pub auxiliary_usage: Arc<super::usage::AuxiliaryUsage>,
     /// 所有 lead/subagent/background/team run 共用的 session usage 汇入点。

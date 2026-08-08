@@ -168,6 +168,7 @@ mod tests {
             lsp: None,
             notify: None,
             persist_compaction: None,
+            persist_turn: None,
             auxiliary_usage: Arc::default(),
             usage_reporter: Some(reporter),
             on_event: Arc::new(|_| {}),

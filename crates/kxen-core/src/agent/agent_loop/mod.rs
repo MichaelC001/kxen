@@ -20,7 +20,7 @@ mod task_tool;
 mod usage;
 mod websearch_tool;
 
-pub use context::{AgentContext, SessionExtras, SessionExtrasRegistry, UsageReporter};
+pub use context::{AgentContext, PersistTurn, SessionExtras, SessionExtrasRegistry, UsageReporter};
 pub use events::{AgentEvent, AgentOutcome, RunStats};
 pub use execute::{dispatch_tool, execute_tool};
 pub use goal_tool::execute_goal_tool;
