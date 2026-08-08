@@ -170,6 +170,7 @@ fn illegal_card_and_column_commands_fail_closed() {
         on_enter: OnEnter::default(),
         transitions: Transitions::default(),
         wip_limit: None,
+        timeout_ms: None,
     };
     assert!(matches!(reject(&mut board, KanbanCommand::ColumnAdd { column: dup }), KanbanError::ColumnExists(_)));
     // transitions 指向不存在的列
@@ -179,6 +180,7 @@ fn illegal_card_and_column_commands_fail_closed() {
         on_enter: OnEnter::default(),
         transitions: Transitions { on_success: Some("nowhere".into()), on_failure: None },
         wip_limit: None,
+        timeout_ms: None,
     };
     assert!(matches!(reject(&mut board, KanbanCommand::ColumnAdd { column: dangling }), KanbanError::ColumnNotFound(_)));
     assert_fail_closed(&board, &workspace, events, state);
@@ -312,6 +314,7 @@ fn agent_defined_and_column_add_happy_path() {
         on_enter: OnEnter { kind: OnEnterKind::None, agent: None },
         transitions: Transitions::default(),
         wip_limit: Some(20),
+        timeout_ms: None,
     };
     board.apply(KanbanCommand::ColumnAdd { column }).unwrap();
     assert!(board.state().column("archive").is_some());

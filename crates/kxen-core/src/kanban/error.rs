@@ -24,6 +24,9 @@ pub enum KanbanError {
     RunInProgress(String),
     #[error("run not found or already closed: {0}")]
     RunNotOpen(String),
+    /// DCP Agent 定义文件解析/校验失败（P2a agents.rs）：与命令守卫同族，fail-closed 不产生副作用。
+    #[error("invalid agent definition: {0}")]
+    InvalidAgentDef(String),
     #[error("invalid column definition: {0}")]
     InvalidColumn(String),
     #[error("invalid command: {0}")]

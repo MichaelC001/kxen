@@ -62,6 +62,8 @@ pub struct AppState {
     pub foreground_session: std::sync::RwLock<String>,
     /// 原生对话框附件授权清单（选择即授权；context 边界守卫与 read_attachment 的唯一放行依据）
     pub picked_files: kxen_core::core::attachment::PickedFiles,
+    /// workspace 级 kanban runner（P2a）：在飞去重与 orphan 恢复状态，background_jobs 周期 tick 驱动
+    pub kanban: std::sync::Arc<kxen_core::kanban::Runner>,
 }
 
 impl AppState {
@@ -169,6 +171,7 @@ impl AppState {
             ),
             foreground_session: std::sync::RwLock::new(String::new()),
             picked_files: kxen_core::core::attachment::PickedFiles::default(),
+            kanban: std::sync::Arc::new(kxen_core::kanban::Runner::new()),
             workdir,
         })
     }

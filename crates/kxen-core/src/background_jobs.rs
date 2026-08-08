@@ -5,6 +5,9 @@ use std::time::Duration;
 
 const SCHEDULE_INTERVAL: Duration = Duration::from_secs(15);
 const CONSOLIDATION_INTERVAL: Duration = Duration::from_secs(30 * 60);
+/// kanban 列驱动 tick 5s：卡片流转的响应下限；扫描是纯文件读且板数为个位数，开销可忽略。
+/// 周期扫描同时承担崩溃恢复（orphan run 检测），比事件钩子少一条要保活的触发路径。
+const KANBAN_INTERVAL: Duration = Duration::from_secs(5);
 
 pub fn spawn(state: Arc<AppState>) {
     let schedule_state = state.clone();
@@ -12,9 +15,15 @@ pub fn spawn(state: Arc<AppState>) {
         let state = schedule_state.clone();
         async move { dispatch_schedule_tick(state) }
     }));
+    let consolidation_state = state.clone();
     tokio::spawn(run_periodic(CONSOLIDATION_INTERVAL, move || {
-        let state = state.clone();
+        let state = consolidation_state.clone();
         async move { consolidate_knowledge(state).await }
+    }));
+    let kanban_state = state.clone();
+    tokio::spawn(run_periodic(KANBAN_INTERVAL, move || {
+        let state = kanban_state.clone();
+        async move { kxen_core::kanban::tick(&state).await }
     }));
 }
 

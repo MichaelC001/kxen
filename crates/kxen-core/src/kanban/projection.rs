@@ -279,6 +279,7 @@ mod tests {
                         on_enter: Default::default(),
                         transitions: Default::default(),
                         wip_limit: Some(10),
+                        timeout_ms: None,
                     },
                 }),
             ),

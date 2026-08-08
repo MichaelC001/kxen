@@ -51,6 +51,9 @@ pub struct ColumnDef {
     pub transitions: Transitions,
     #[serde(default)]
     pub wip_limit: Option<u32>,
+    /// 列执行超时（毫秒，P2a）；None = driver 默认值（driver.rs DEFAULT_RUN_TIMEOUT_MS，含 WHY）。
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
 }
 
 impl ColumnDef {
@@ -60,8 +63,11 @@ impl ColumnDef {
             return Err(KanbanError::InvalidColumn("column title is required".into()));
         }
         match self.on_enter.kind {
-            OnEnterKind::AgentRun if self.on_enter.agent.as_deref().is_none_or(str::is_empty) => {
-                return Err(KanbanError::InvalidColumn(format!("column {} kind agent_run requires agent", self.id)));
+            OnEnterKind::AgentRun | OnEnterKind::Workflow if self.on_enter.agent.as_deref().is_none_or(str::is_empty) => {
+                return Err(KanbanError::InvalidColumn(format!(
+                    "column {} kind {:?} requires agent (definition file in .kxen/kanban/agents/)",
+                    self.id, self.on_enter.kind
+                )));
             }
             OnEnterKind::None | OnEnterKind::HumanGate if self.on_enter.agent.is_some() => {
                 return Err(KanbanError::InvalidColumn(format!(
@@ -74,6 +80,10 @@ impl ColumnDef {
         // wip_limit = 0 等于永久锁死该列，只能是误配
         if self.wip_limit == Some(0) {
             return Err(KanbanError::InvalidColumn(format!("column {} wip_limit must be >= 1", self.id)));
+        }
+        // timeout_ms = 0 等于每次执行立即超时，只能是误配
+        if self.timeout_ms == Some(0) {
+            return Err(KanbanError::InvalidColumn(format!("column {} timeout_ms must be >= 1", self.id)));
         }
         Ok(())
     }
@@ -163,6 +173,7 @@ pub fn default_template() -> Vec<ColumnDef> {
             on_enter: OnEnter { kind, agent: agent.map(str::to_string) },
             transitions: Transitions { on_success: on_success.map(str::to_string), on_failure: on_failure.map(str::to_string) },
             wip_limit: None,
+            timeout_ms: None,
         };
     vec![
         column("requirements", "需求", OnEnterKind::HumanGate, None, Some("implementing"), None),
@@ -211,6 +222,7 @@ mod tests {
             on_enter: OnEnter { kind: OnEnterKind::AgentRun, agent: None },
             transitions: Transitions::default(),
             wip_limit: None,
+            timeout_ms: None,
         };
         assert!(matches!(column.validate(), Err(KanbanError::InvalidColumn(_))), "agent_run 缺 agent 引用必须拒绝");
         column.on_enter = OnEnter { kind: OnEnterKind::HumanGate, agent: Some("x".into()) };
