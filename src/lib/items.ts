@@ -69,121 +69,212 @@ export function userSource(text: string): string | undefined {
   return undefined;
 }
 
-export function toItems(messages: StoredMessage[]): Item[] {
-  const items: Item[] = [];
-  for (const m of messages) {
-    if (m.role === "system") continue;
-    // reasoning 在 parts 里先于正文落盘（reasoning -> tool -> text）：先攒着，消息收尾时挂到本条 assistant 气泡
-    let reasoning = "";
-    for (const p of m.parts) {
-      if (p.type === "text" && p.text) {
-        const last = items.at(-1);
-        if (last?.kind === "msg" && last.role === m.role && last.messageId === m.id) {
-          items[items.length - 1] = {
-            ...last,
-            content: `${last.content}\n${p.text}`,
-            messageId: m.id,
-          };
-        } else {
-          items.push({
-            kind: "msg",
-            role: m.role,
-            content: p.text,
-            messageId: m.id,
-            source: m.role === "user" ? userSource(p.text) : undefined,
-            ...(m.role === "assistant" && m.model ? { model: m.model } : {}),
-          });
-        }
-      } else if (p.type === "reasoning" && p.text && m.role === "assistant") {
-        reasoning += p.text;
-      } else if (p.type === "context_sources" && p.items?.length && m.role === "user") {
-        const last = items.at(-1);
-        if (last?.kind === "msg" && last.role === "user" && last.messageId === m.id) {
-          items[items.length - 1] = {
-            ...last,
-            context: [...(last.context ?? []), ...p.items],
-            contextUnavailable: false,
-          };
-        } else {
-          items.push({
-            kind: "msg",
-            role: "user",
-            content: "",
-            context: p.items,
-            messageId: m.id,
-          });
-        }
-      } else if (p.type === "context" && m.role === "user") {
-        const last = items.at(-1);
-        if (
-          last?.kind === "msg" &&
-          last.role === "user" &&
-          last.messageId === m.id &&
-          !last.context?.length
-        ) {
-          items[items.length - 1] = { ...last, contextUnavailable: true };
-        }
-      } else if (p.type === "image" && p.media_type && p.data !== undefined) {
-        const img = { media_type: p.media_type, data: p.data };
-        const last = items.at(-1);
-        if (last?.kind === "msg" && last.role === m.role && last.messageId === m.id) {
-          items[items.length - 1] = {
-            ...last,
-            images: [...(last.images ?? []), img],
-            messageId: m.id,
-          };
-        } else {
-          items.push({
-            kind: "msg",
-            role: m.role,
-            content: "",
-            images: [img],
-            messageId: m.id,
-            ...(m.role === "assistant" && m.model ? { model: m.model } : {}),
-          });
-        }
-      } else if (p.type === "tool_call" && p.name) {
-        items.push({
-          kind: "tool",
-          name: p.name,
-          call: typeof p.input === "string" ? p.input : JSON.stringify(p.input),
-          args: p.args == null ? undefined : JSON.stringify(p.args, null, 2),
-          result: p.output || undefined,
-        });
-      } else if (p.type === "approval" && p.command !== undefined) {
-        // 落盘的审批决定：渲染为灰色已决历史卡（approvalId 空 = 无活体审批，按钮不出现）
-        items.push({
-          kind: "approval",
-          approvalId: "",
-          command: p.command,
-          reason: p.reason ?? "",
-          resolved: DECISION_RESOLVED[p.decision ?? ""] ?? "expired",
-        });
-      }
-    }
-    if (reasoning) {
-      // 只往回扫本条消息的尾部条目（tool 条目无 messageId，扫到即说明本条没建气泡）
-      let attached = false;
-      for (let i = items.length - 1; i >= 0; i--) {
-        const it = items[i];
-        if (!it || it.kind !== "msg" || it.messageId !== m.id) break;
-        if (it.role === "assistant") {
-          items[i] = { ...it, reasoning: `${it.reasoning ?? ""}${reasoning}` };
-          attached = true;
-          break;
-        }
-      }
-      // 纯思考无正文的极端情况也要补一条气泡，reasoning 不许静默丢
-      if (!attached)
-        items.push({
-          kind: "msg",
-          role: "assistant",
-          content: "",
-          reasoning,
-          messageId: m.id,
-          ...(m.model ? { model: m.model } : {}),
-        });
+function toolItem(p: StoredMessage["parts"][number]): ToolItem | undefined {
+  if (p.type !== "tool_call" || !p.name) return undefined;
+  return {
+    kind: "tool",
+    name: p.name,
+    call: typeof p.input === "string" ? p.input : JSON.stringify(p.input),
+    args: p.args == null ? undefined : JSON.stringify(p.args, null, 2),
+    result: p.output || undefined,
+  };
+}
+
+/** 落盘的审批决定 -> 灰色已决历史卡（approvalId 空 = 无活体审批，按钮不出现）。 */
+function approvalHistoryItem(p: StoredMessage["parts"][number]): ApprovalItem | undefined {
+  if (p.type !== "approval" || p.command === undefined) return undefined;
+  return {
+    kind: "approval",
+    approvalId: "",
+    command: p.command,
+    reason: p.reason ?? "",
+    resolved: DECISION_RESOLVED[p.decision ?? ""] ?? "expired",
+  };
+}
+
+/** 迭代消息 id = `{stream_id}:t{turn}`（crates/kxen-core/src/ws/llm_task/turn_persistence.rs）。
+ *  `:` 不在后端 id 白名单内（core/ids.rs），存量 msg_* id 不会误匹配。 */
+const ITERATION_ID = /^([A-Za-z0-9_-]+):t\d+$/;
+
+/** 进行中的视觉回合：agent loop 每个迭代各落一条 Assistant 消息，同一 stream 的连续迭代消息
+ *  + 紧随的一条收尾消息（Reasoning + 最终文本）属于同一回合——工具卡按序内嵌，全部文本
+ *  进回合末尾单条气泡，与存量打包消息（Reasoning+ToolCall×N+Text 一条）渲染同形。 */
+interface TurnAcc {
+  stream: string;
+  texts: string[];
+  reasoning: string;
+  images: { media_type: string; data: string }[];
+  model?: ModelIdentity | undefined;
+  lastMessageId: string;
+}
+
+/** 回合收尾合成末尾气泡；无可展示内容的纯工具回合不出气泡（崩溃无尾回合不留空白泡）。
+ *  messageId 取回合内最后一条消息：fork 覆盖整个回合，rewind 自回合尾逐层回退。 */
+function flushTurn(items: Item[], turn: TurnAcc | undefined): undefined {
+  if (turn && (turn.texts.length > 0 || turn.reasoning || turn.images.length > 0)) {
+    items.push({
+      kind: "msg",
+      role: "assistant",
+      content: turn.texts.join("\n"),
+      messageId: turn.lastMessageId,
+      ...(turn.reasoning ? { reasoning: turn.reasoning } : {}),
+      ...(turn.images.length > 0 ? { images: turn.images } : {}),
+      ...(turn.model ? { model: turn.model } : {}),
+    });
+  }
+  return undefined;
+}
+
+/** 回合内消息的 parts 归置：文本/reasoning/图片攒进回合气泡，tool/approval 按时序直接出条目。 */
+function absorbTurnParts(items: Item[], turn: TurnAcc, m: StoredMessage): void {
+  for (const p of m.parts) {
+    if (p.type === "text" && p.text) turn.texts.push(p.text);
+    else if (p.type === "reasoning" && p.text) turn.reasoning += p.text;
+    else if (p.type === "image" && p.media_type && p.data !== undefined)
+      turn.images.push({ media_type: p.media_type, data: p.data });
+    else {
+      const item = toolItem(p) ?? approvalHistoryItem(p);
+      if (item) items.push(item);
     }
   }
+  turn.lastMessageId = m.id;
+  if (m.model) turn.model = m.model;
+}
+
+export function toItems(messages: StoredMessage[]): Item[] {
+  const items: Item[] = [];
+  let turn: TurnAcc | undefined;
+  for (const m of messages) {
+    if (m.role === "system") continue;
+    if (m.role === "assistant") {
+      const stream = ITERATION_ID.exec(m.id)?.[1];
+      if (stream !== undefined) {
+        if (turn?.stream !== stream) {
+          turn = flushTurn(items, turn);
+          turn = { stream, texts: [], reasoning: "", images: [], lastMessageId: m.id };
+        }
+        absorbTurnParts(items, turn, m);
+        continue;
+      }
+      const hasToolCall = m.parts.some((p) => p.type === "tool_call");
+      const inlineOnly = m.parts.every((p) => p.type === "approval");
+      // 收尾消息口径（run_finalize/terminal.rs assemble_parts）：Reasoning + 最终文本，绝无 tool_call，
+      // 直接并入开放回合。纯审批/空 parts 消息是回合内联事件（审批落盘角色固定 Assistant）：
+      // 出卡但不打断、不关闭回合。
+      if (turn && !hasToolCall && !inlineOnly) {
+        absorbTurnParts(items, turn, m);
+        turn = flushTurn(items, turn);
+        continue;
+      }
+      if (!inlineOnly) turn = flushTurn(items, turn);
+      appendMessageItems(items, m);
+      continue;
+    }
+    turn = flushTurn(items, turn);
+    appendMessageItems(items, m);
+  }
+  flushTurn(items, turn);
   return items;
+}
+
+/** 单条消息逐 part 还原（存量打包 Assistant / user 消息，不做跨消息归并）。 */
+function appendMessageItems(items: Item[], m: StoredMessage): void {
+  if (m.role === "system") return;
+  // reasoning 在 parts 里先于正文落盘（reasoning -> tool -> text）：先攒着，消息收尾时挂到本条 assistant 气泡
+  let reasoning = "";
+  for (const p of m.parts) {
+    if (p.type === "text" && p.text) {
+      const last = items.at(-1);
+      if (last?.kind === "msg" && last.role === m.role && last.messageId === m.id) {
+        items[items.length - 1] = {
+          ...last,
+          content: `${last.content}\n${p.text}`,
+          messageId: m.id,
+        };
+      } else {
+        items.push({
+          kind: "msg",
+          role: m.role,
+          content: p.text,
+          messageId: m.id,
+          source: m.role === "user" ? userSource(p.text) : undefined,
+          ...(m.role === "assistant" && m.model ? { model: m.model } : {}),
+        });
+      }
+    } else if (p.type === "reasoning" && p.text && m.role === "assistant") {
+      reasoning += p.text;
+    } else if (p.type === "context_sources" && p.items?.length && m.role === "user") {
+      const last = items.at(-1);
+      if (last?.kind === "msg" && last.role === "user" && last.messageId === m.id) {
+        items[items.length - 1] = {
+          ...last,
+          context: [...(last.context ?? []), ...p.items],
+          contextUnavailable: false,
+        };
+      } else {
+        items.push({
+          kind: "msg",
+          role: "user",
+          content: "",
+          context: p.items,
+          messageId: m.id,
+        });
+      }
+    } else if (p.type === "context" && m.role === "user") {
+      const last = items.at(-1);
+      if (
+        last?.kind === "msg" &&
+        last.role === "user" &&
+        last.messageId === m.id &&
+        !last.context?.length
+      ) {
+        items[items.length - 1] = { ...last, contextUnavailable: true };
+      }
+    } else if (p.type === "image" && p.media_type && p.data !== undefined) {
+      const img = { media_type: p.media_type, data: p.data };
+      const last = items.at(-1);
+      if (last?.kind === "msg" && last.role === m.role && last.messageId === m.id) {
+        items[items.length - 1] = {
+          ...last,
+          images: [...(last.images ?? []), img],
+          messageId: m.id,
+        };
+      } else {
+        items.push({
+          kind: "msg",
+          role: m.role,
+          content: "",
+          images: [img],
+          messageId: m.id,
+          ...(m.role === "assistant" && m.model ? { model: m.model } : {}),
+        });
+      }
+    } else {
+      const item = toolItem(p) ?? approvalHistoryItem(p);
+      if (item) items.push(item);
+    }
+  }
+  if (reasoning) {
+    // 只往回扫本条消息的尾部条目（tool 条目无 messageId，扫到即说明本条没建气泡）
+    let attached = false;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (!it || it.kind !== "msg" || it.messageId !== m.id) break;
+      if (it.role === "assistant") {
+        items[i] = { ...it, reasoning: `${it.reasoning ?? ""}${reasoning}` };
+        attached = true;
+        break;
+      }
+    }
+    // 纯思考无正文的极端情况也要补一条气泡，reasoning 不许静默丢
+    if (!attached)
+      items.push({
+        kind: "msg",
+        role: "assistant",
+        content: "",
+        reasoning,
+        messageId: m.id,
+        ...(m.model ? { model: m.model } : {}),
+      });
+  }
 }

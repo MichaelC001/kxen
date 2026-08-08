@@ -220,6 +220,7 @@ export interface StoredPart {
   input?: unknown;
   output?: string;
   args?: unknown;
+  id?: string; // tool_call：provider 下发的 call id（仅供审计配对，前端不消费；存量 JSONL 缺省）
   media_type?: string;
   data?: string; // args=tool 精确 arguments；media_type/data=image 块
   command?: string; // approval 块：被审批的命令
