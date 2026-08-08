@@ -95,7 +95,10 @@ async fn refresh_async_panic_still_resets_single_flight_flag() {
     REFRESH_PANIC_FOR_TEST.store(true, std::sync::atomic::Ordering::SeqCst);
     refresh_async();
     let flag = REFRESHING.get().expect("flag initialized");
-    for _ in 0..50 {
+    // 注入标记是进程全局：可能被并发测试的在途 refresh 抢先消费，本任务退化为真实
+    // HTTP 请求（CI 网络慢时接近 20s 超时才复位）。轮询窗口必须覆盖该最坏路径，
+    // 命中注入的正常路径第一轮即 break，不为快路径付出等待。
+    for _ in 0..1500 {
         if !*crate::core::shared::lock(flag) {
             break;
         }
