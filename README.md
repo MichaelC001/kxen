@@ -14,7 +14,7 @@ macOS、Windows 和 Linux 上的 Coding Agent 工作台，也可以用浏览器�
 
 - **Workspace 与 Session**: 以本地项目为边界组织会话、配置和执行状态，中断后原子续跑，存储损坏可恢复。
 - **多模型**: 44 个内置 Provider 条目、多账号管理、订阅 OAuth 和 API key 登录，按角色路由模型与降级。
-- **目标与编排**: Goal、Subagent、Dynamic Workflow 和 Agent Teams，后台任务完成逐路回执。
+- **目标与编排**: Goal、Subagent、Dynamic Workflow、Agent Teams 和 Kanban 流水线，后台任务完成逐路回执。
 - **本地工具**: 文件、Shell、Web Fetch、Web Search、Browser、MCP 和 LSP。
 - **长期知识**: Rules、Skills、Memory 和自动沉淀的 Knowledge Library。
 - **安全边界**: 执行层 Safety 与 Approval、Checkpoint、Rewind、Worktree 隔离，文件删除只进废纸篓。

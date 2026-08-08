@@ -1,0 +1,71 @@
+---
+title: Kanban 流水线
+description: 用 Workspace 级持久看板驱动多阶段 Agent 执行与人工门控。
+status: canonical
+sidebar:
+  order: 5
+---
+
+Kanban 是 Workspace 级持久流水线。一张看板由若干列组成，卡片按列流转；列决定卡片进入时发生什么：派发 Agent 执行、运行 QuickJS 脚本，或停车等待人工裁定。看板不依附任何 Session，关闭界面后流水线状态完整保留。
+
+## 事件流是唯一真源
+
+看板状态的唯一真源是 append-only 事件流 `.kxen/kanban/<board>/events.jsonl`。同目录的 `snapshot.json` 只是加速加载的缓存，启动校验不符即从事件流全量重建。
+
+一切状态变化都走 Command -> 守卫 -> Event：非法命令被结构化拒绝且零副作用，模型和人都不能直写状态。界面操作和 Agent 工具走同一条命令路径，事件流因此可以完整回放每一次迁移、执行和裁定。
+
+## 列与默认模板
+
+新建看板自带软件开发默认模板，五列依次流转：
+
+- 需求：人工门，进卡即停车，确认意图后放行。
+- 实现中：Agent 执行，成功后自动流转测试中，失败回流需求。
+- 测试中：Agent 执行，成功后自动流转待验证，失败回流实现中。
+- 待验证：人工门，通过后进入完成，打回则回流实现中。
+- 完成：终态，无出边。
+
+列可以自定义：增减列、调整流转目标（on_success / on_failure）、设置在制品上限（wip_limit）和列执行超时（timeout_ms）。除 Agent 执行列外还有 QuickJS 脚本列、人工门列和普通列。
+
+## 入口
+
+- [Workspaces 看板](https://kxen.ai/workspace/workspaces-board) 中每个 Workspace 卡片有「看板」区，列出该 Workspace 的看板和待审数量，点击进入 `/kanban/<board>` 看板页。
+- 看板页提供列横排视图、卡片详情、通过 / 打回、重试、评论、新建卡片和授权设置。
+- 主线程 Agent 可以经 tool_search 发现 `kanban_*` 工具（建板、加列、建卡、迁移、评论、定义列 Agent），在对话中直接搭建和维护流水线。
+
+## 列执行
+
+卡片进入 Agent 执行列后，看板 runner 自动派发执行，同一卡片同时只有一个活跃执行。
+
+执行结果不可猜。完成协议分两阶段：`run_started` 事件先落盘，再开始任何执行；结果只由末轮显式声明的 `VERDICT: success` 或 `VERDICT: failure` 判定，跑完未声明按失败处理。超时、中断、进程死亡一律视为结果不可知：卡片停车进 blocked 并留下审计评论，只有显式重试才有第二次执行，系统绝不自动重发。
+
+QuickJS 脚本列复用列 Agent 定义文件，正文即脚本，由 [Workflow](https://kxen.ai/agent/workflow) 引擎执行。
+
+## 列 Agent 定义
+
+列引用的 Agent 定义保存在 `.kxen/kanban/agents/<name>.md`，frontmatter 包含 name、role、model 和 permission_profile，正文是 system prompt。permission_profile 决定该列实例能调用哪些工具：
+
+- `readonly`：只读检索。
+- `readonly+test`：只读检索加执行验证命令。
+- `full`：全部常驻工具。
+
+model 为 `auto` 时按 role 经模型路由选择，也可以显式钉选 `provider:model`。
+
+## 人工门
+
+人工门列进卡即停车，等待人在看板页通过或打回，系统绝不自动放行。通过按 on_success 流转，打回按 on_failure 流转；没有对应出边时命令被拒绝，卡片保持原列。
+
+## 看板级自主授权
+
+每块看板可以设置一份自主授权：命令前缀 allowlist，加可选的时限（分钟）和最大自动放行次数。列 Agent 的高危命令命中 allowlist 时自动放行并写入审计记录；未命中仍逐条走 [Approval](https://kxen.ai/agent/approval)，被 Safety 判定为 Deny 的命令永不放行。
+
+授权只能由人在看板页「授权」中设置，不暴露为 Agent 工具——模型不能自我扩权。
+
+## 每卡 worktree 隔离
+
+在 git Workspace 中，列执行在卡片专属 worktree（`.kxen/worktrees/card-<id>`，分支 `kxen/card-<id>`）内进行，多张卡并发执行互不踩踏。非 git Workspace 降级为项目根目录执行，并留下审计评论说明本次无隔离。
+
+卡片进入终态列后，看板先抢救未提交产物（含被 gitignore 忽略的文件），快照到 `.kxen/kanban/<board>/artifacts/<card>/`，再释放 worktree 目录、保留分支。把分支合回主树是人的工作，通常在待验证列完成。通用 worktree 能力见 [Worktree](https://kxen.ai/recovery/worktree)。
+
+## 与 Agent Teams 的边界
+
+[Agent Teams](https://kxen.ai/agent/agent-teams) 是 Session 内多成员协作：成员、inbox 和任务都依附会话。Kanban 是 Workspace 级持久流水线：列、卡片和事件流依附 Workspace。两者概念不互通。一次性并行分析优先 Workflow，会话内分工用 Team，跨会话的多阶段持久流程用 Kanban。
