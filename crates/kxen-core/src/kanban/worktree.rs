@@ -47,11 +47,11 @@ pub async fn ensure_card_worktree(workspace: &Path, card_id: &str) -> Result<Car
 }
 
 /// driver 分配编排：非 git 降级为 workspace 根并落审计评论；git 错误由调用方按 Config 裁定。
-pub async fn allocate(workspace: &Path, board_id: &str, card_id: &str) -> Result<PathBuf, String> {
+pub async fn allocate(workspace: &Path, board_id: &str, card_id: &str, bus: &crate::core::event::EventBus) -> Result<PathBuf, String> {
     match ensure_card_worktree(workspace, card_id).await? {
         CardWorkdir::Worktree(path) => Ok(path),
         CardWorkdir::WorkspaceRoot => {
-            land::comment(workspace, board_id, card_id, "workspace 不是 git 仓库，本次 run 无 worktree 隔离".into(), "kanban-driver");
+            land::comment(workspace, board_id, card_id, "workspace 不是 git 仓库，本次 run 无 worktree 隔离".into(), "kanban-driver", bus);
             Ok(workspace.to_path_buf())
         }
     }
@@ -84,7 +84,7 @@ pub async fn detach(workspace: &Path, board_id: &str, card_id: &str) -> Result<D
 /// land_finished 成功后的终态收口：卡片当前列无出边（terminal）则 detach。
 /// detach 失败只落评论不翻盘：outcome 已 durable，清理失败留残骸由人处理，fail-closed 不适用于已落地结果。
 /// timeout/blocked/landing 失败不进这里：worktree 保留，显式重试继续用。
-pub async fn detach_if_terminal(workspace: &Path, board_id: &str, card_id: &str) {
+pub async fn detach_if_terminal(workspace: &Path, board_id: &str, card_id: &str, bus: &crate::core::event::EventBus) {
     let terminal = Board::open(workspace, board_id).ok().and_then(|board| {
         let card = board.state().cards.get(card_id)?;
         let column = board.state().column(&card.column_id)?;
@@ -108,7 +108,7 @@ pub async fn detach_if_terminal(workspace: &Path, board_id: &str, card_id: &str)
         }
         Err(error) => format!("worktree detach 失败，目录与分支保留待人工处理: {error}"),
     };
-    land::comment(workspace, board_id, card_id, note, "kanban-driver");
+    land::comment(workspace, board_id, card_id, note, "kanban-driver", bus);
 }
 
 /// 快照抢救：worktree 内未提交/被 gitignore 的产物镜像到

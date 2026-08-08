@@ -183,6 +183,13 @@ pub fn reduce(state: &mut BoardState, event: &KanbanEvent) -> Result<(), KanbanE
         EventKind::AutoApproved(_) => {
             // 无授权却出现放行事件 = 事件流自相矛盾（绕过守卫写入），fail-closed 不猜
             let policy = state.policy.as_mut().ok_or_else(|| invariant("auto_approved without active policy".into()))?;
+            // 超放同语义：command 守卫是第一道，reduce 是最后一道——锁外写入者绕过 command 时，
+            // 事件流重放也必须能发现 used 已达 max_uses 的放行事件
+            if let Some(max) = policy.spec.max_uses
+                && policy.used >= max
+            {
+                return Err(invariant(format!("auto_approved exceeds max_uses ({}/{max})", policy.used)));
+            }
             policy.used += 1;
         }
     }

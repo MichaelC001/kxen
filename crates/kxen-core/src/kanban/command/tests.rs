@@ -289,6 +289,25 @@ fn run_timeout_blocks_card_and_retry_recovers() {
 }
 
 #[test]
+fn agent_defined_same_name_redefines_silently() {
+    // redefine 是有意语义：AI 迭代修改定义依赖静默覆盖，第二次同名定义必须成功且投影为新定义
+    let workspace = temp("redefine");
+    let mut board = open_board(&workspace);
+    let define = |role: &str, model: &str, permission_profile: &str| KanbanCommand::AgentDefined {
+        name: "exec-impl".into(),
+        role: role.into(),
+        model: model.into(),
+        permission_profile: permission_profile.into(),
+    };
+    board.apply(define("execution", "auto", "full")).unwrap();
+    board.apply(define("execution-v2", "sonnet", "readonly")).unwrap();
+    let agent = &board.state().agents["exec-impl"];
+    assert_eq!((agent.role.as_str(), agent.model.as_str(), agent.permission_profile.as_str()), ("execution-v2", "sonnet", "readonly"));
+    assert_eq!(board.state().agents.len(), 1);
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
 fn agent_defined_and_column_add_happy_path() {
     let workspace = temp("agents");
     let mut board = open_board(&workspace);

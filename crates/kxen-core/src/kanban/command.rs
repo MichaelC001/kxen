@@ -180,6 +180,8 @@ impl Board {
             }
             KanbanCommand::AgentDefined { name, role, model, permission_profile } => {
                 self.require_created()?;
+                // 同名重复定义是有意的 redefine 语义：AI 迭代修改定义依赖静默覆盖，
+                // 此处不得加重复守卫（投影侧 BTreeMap insert 同为覆盖）
                 ids::validate_id(name).map_err(KanbanError::InvalidId)?;
                 if role.trim().is_empty() || model.trim().is_empty() || permission_profile.trim().is_empty() {
                     return Err(KanbanError::InvalidCommand("agent role, model and permission_profile are required".into()));

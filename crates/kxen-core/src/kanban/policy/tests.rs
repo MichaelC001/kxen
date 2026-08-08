@@ -70,24 +70,24 @@ async fn safety_gate_auto_hit_skips_manual_approval_with_durable_audit() {
             .any(|event| matches!(&event.kind, EventKind::AutoApproved(p) if p.run_id == run_id && p.command == "echo auto-allowed")),
         "放行必须先落 auto_approved 事件"
     );
-    // bus 有 kanban.auto_approved，全程无人工审批请求
-    let mut saw_auto = false;
+    // bus 收到板粒度失效通知；全程无人工审批请求，命令原文不进全局流
+    let mut saw_update = false;
     loop {
         match events.try_recv() {
+            Ok(crate::core::event::Event::KanbanUpdate { board_id, workspace: ws }) => {
+                assert_eq!(board_id, "board_t");
+                assert_eq!(ws, workspace.to_string_lossy());
+                saw_update = true;
+            }
             Ok(crate::core::event::Event::LlmDelta(payload)) => {
                 assert_ne!(payload["kind"], "approval", "命中放行不得发起人工审批");
-                if payload["kind"] == "kanban.auto_approved" {
-                    assert_eq!(payload["board_id"], "board_t");
-                    assert_eq!(payload["run_id"], serde_json::json!(run_id));
-                    assert_eq!(payload["command"], "echo auto-allowed");
-                    saw_auto = true;
-                }
+                assert!(!payload.to_string().contains("echo auto-allowed"), "命令原文不得进全局流");
             }
             Ok(_) => continue,
             Err(_) => break,
         }
     }
-    assert!(saw_auto, "自动放行必须广播 kanban.auto_approved");
+    assert!(saw_update, "自动放行必须广播 KanbanUpdate 失效通知");
     std::fs::remove_dir_all(workspace).ok();
 }
 

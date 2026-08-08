@@ -135,7 +135,9 @@ fn board_id(params: &Value) -> Result<String, String> {
 }
 
 fn card_id(params: &Value) -> Result<String, String> {
-    Ok(params.get("card_id").and_then(Value::as_str).ok_or("missing card_id")?.to_string())
+    let id = params.get("card_id").and_then(Value::as_str).ok_or("missing card_id")?;
+    ids::validate_id(id)?;
+    Ok(id.to_string())
 }
 
 fn parse_outcome(params: &Value) -> Result<Outcome, String> {
@@ -222,6 +224,14 @@ mod tests {
 
         assert!(snapshot_body(&workspace, "board_missing").is_err(), "未创建的板 fail-closed");
         std::fs::remove_dir_all(&workspace).ok();
+    }
+
+    #[test]
+    fn card_id_rejects_invalid_id_format() {
+        assert_eq!(card_id(&json!({ "card_id": "card_1" })).unwrap(), "card_1");
+        assert!(card_id(&json!({ "card_id": "bad id" })).is_err(), "非法字符必须拒绝（同 board_id 口径）");
+        assert!(card_id(&json!({ "card_id": "../escape" })).is_err(), "路径穿越写法必须拒绝");
+        assert!(card_id(&json!({})).is_err(), "缺 card_id 拒绝");
     }
 
     #[test]

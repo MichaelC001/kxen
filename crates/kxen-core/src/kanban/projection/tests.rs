@@ -148,6 +148,19 @@ fn policy_events_project_active_policy() {
 }
 
 #[test]
+fn auto_approved_beyond_max_uses_fails_closed() {
+    // 锁外写入者绕过 command 守卫超放（used 已达 max_uses 仍追加放行事件）：重放必须 fail-closed 报矛盾
+    let events = vec![
+        event(1, EventKind::BoardCreate(BoardCreatePayload { title: "看板".into(), columns: default_template() })),
+        event(2, EventKind::PolicySet(PolicySetPayload { policy: policy_spec(Some(2)) })),
+        event(3, EventKind::AutoApproved(AutoApprovedPayload { run_id: "r1".into(), command: "cargo test".into() })),
+        event(4, EventKind::AutoApproved(AutoApprovedPayload { run_id: "r1".into(), command: "cargo build".into() })),
+        event(5, EventKind::AutoApproved(AutoApprovedPayload { run_id: "r1".into(), command: "cargo clippy".into() })),
+    ];
+    assert!(matches!(replay("board_t", &events), Err(KanbanError::Projection(_))));
+}
+
+#[test]
 fn auto_approved_without_policy_fails_closed() {
     // 事件流被篡改（绕过守卫写入放行事件）：fail-closed 报错，不猜
     let events = vec![

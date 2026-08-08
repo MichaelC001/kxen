@@ -23,7 +23,7 @@ use crate::llm::{Message, ModelRef};
 use super::context::{base_context, resolve_model};
 use super::error::KanbanError;
 use super::events::{EventKind, KanbanCommand, Outcome};
-use super::land::{comment as land_comment, land_finished, land_timeout, run_line};
+use super::land::{comment as land_comment, land_finished, land_timeout, publish_update, run_line};
 use super::model::OnEnterKind;
 use super::{Board, BoardAutoApprove, agents, render, store, worktree};
 
@@ -75,7 +75,6 @@ pub struct ExecuteFailure {
 fn fail(message: impl Into<String>) -> ExecuteFailure {
     ExecuteFailure { run_id: None, message: message.into() }
 }
-
 fn fail_at(run_id: &str, message: impl Into<String>) -> ExecuteFailure {
     ExecuteFailure { run_id: Some(run_id.to_string()), message: message.into() }
 }
@@ -87,7 +86,6 @@ enum StepFailure {
     /// 结果不可知（持久化失败/中断）：落 run_timeout（Unknown 处置），显式重试才有第二次付费。
     Unknown(String),
 }
-
 /// 执行完毕的判定输入：verdict 来自末轮文本显式声明；None = 未声明（调用方注记后落 Failure）。
 struct StepOutput {
     verdict: Option<Outcome>,
@@ -138,6 +136,7 @@ pub async fn execute(
             let column = board.state().column(&card.column_id).cloned().ok_or_else(|| fail("card column missing"))?;
             // 两阶段之 claim：run_started 先 durable，之后的所有失败都必须落到 outcome 事件
             let event = board.apply(KanbanCommand::RunStarted { card_id: card_id.to_string() }).map_err(|e| fail(e.to_string()))?;
+            publish_update(&deps.bus, workspace, board_id);
             let EventKind::RunStarted(payload) = event.kind else { return Err(fail("run_started apply returned unexpected event")) };
             (payload.run_id, column)
         }
@@ -159,7 +158,7 @@ pub async fn execute(
         bus: deps.bus.clone(),
     });
     // worktree 惰性分配：claim/adopt 之后、执行之前（WHY 见 kanban/worktree.rs 模块头）
-    let workdir = worktree::allocate(workspace, board_id, card_id).await;
+    let workdir = worktree::allocate(workspace, board_id, card_id, &deps.bus).await;
     let body = async {
         // git 错误 = 确定性环境错误，走既有 Config 裁定（落 run_finished(Failure)）
         let workdir = workdir.map_err(StepFailure::Config)?;
@@ -175,21 +174,22 @@ pub async fn execute(
         Ok(step) => step,
         Err(_) => {
             cancel.cancel();
-            comment(workspace, board_id, card_id, format!("run {run_id} timed out after {timeout_ms}ms"));
-            land_timeout(workspace, board_id, &run_id).map_err(|e| fail_at(&run_id, e))?;
+            comment(workspace, board_id, card_id, format!("run {run_id} timed out after {timeout_ms}ms"), &deps.bus);
+            land_timeout(workspace, board_id, &run_id, &deps.bus).map_err(|e| fail_at(&run_id, e))?;
             return Ok(RunLanding { run_id, kind: LandingKind::TimedOut });
         }
     };
     let output = match step {
         Ok(output) => output,
         Err(StepFailure::Config(message)) => {
-            comment(workspace, board_id, card_id, format!("run {run_id} failed: {message}"));
-            land_finished(workspace, board_id, &run_id, Outcome::Failure).map_err(|e| fail_at(&run_id, e))?;
+            comment(workspace, board_id, card_id, format!("run {run_id} failed: {message}"), &deps.bus);
+            land_finished(workspace, board_id, &run_id, Outcome::Failure, &deps.bus).map_err(|e| fail_at(&run_id, e))?;
             return Ok(RunLanding { run_id, kind: LandingKind::Finished(Outcome::Failure) });
         }
         Err(StepFailure::Unknown(message)) => {
-            comment(workspace, board_id, card_id, format!("run {run_id} outcome UNKNOWN: {message}; blocked pending explicit retry"));
-            land_timeout(workspace, board_id, &run_id).map_err(|e| fail_at(&run_id, e))?;
+            let note = format!("run {run_id} outcome UNKNOWN: {message}; blocked pending explicit retry");
+            comment(workspace, board_id, card_id, note, &deps.bus);
+            land_timeout(workspace, board_id, &run_id, &deps.bus).map_err(|e| fail_at(&run_id, e))?;
             return Ok(RunLanding { run_id, kind: LandingKind::TimedOut });
         }
     };
@@ -197,18 +197,18 @@ pub async fn execute(
         Some(outcome) => outcome,
         // 跑完未声明 VERDICT = 模型未完成协议动作，是显式的失败判定而非猜测
         None => {
-            comment(workspace, board_id, card_id, format!("run {run_id} ended without a VERDICT line; landing failure"));
+            comment(workspace, board_id, card_id, format!("run {run_id} ended without a VERDICT line; landing failure"), &deps.bus);
             Outcome::Failure
         }
     };
-    land_finished(workspace, board_id, &run_id, outcome).map_err(|e| {
+    land_finished(workspace, board_id, &run_id, outcome, &deps.bus).map_err(|e| {
         // outcome 落不了（如目标列 WIP 满）：run 保持 open，进程内不重发（runner handled 集），
         // 重启后按 orphan -> Unknown 停车，等显式裁定
-        comment(workspace, board_id, card_id, format!("run {run_id} outcome landing failed: {e}"));
+        comment(workspace, board_id, card_id, format!("run {run_id} outcome landing failed: {e}"), &deps.bus);
         fail_at(&run_id, e)
     })?;
     // 终态 detach（卡片落无出边列）：快照抢救产物后释放 worktree、保留分支；失败只注记不翻盘（WHY 见 worktree.rs）
-    worktree::detach_if_terminal(workspace, board_id, card_id).await;
+    worktree::detach_if_terminal(workspace, board_id, card_id, &deps.bus).await;
     Ok(RunLanding { run_id, kind: LandingKind::Finished(outcome) })
 }
 
@@ -341,8 +341,8 @@ async fn run_workflow(
 }
 
 /// 审计评论统一署名（runner 恢复用 kanban-runner 区分来源）。
-fn comment(workspace: &Path, board_id: &str, card_id: &str, body: String) {
-    land_comment(workspace, board_id, card_id, body, "kanban-driver");
+fn comment(workspace: &Path, board_id: &str, card_id: &str, body: String, bus: &crate::core::event::EventBus) {
+    land_comment(workspace, board_id, card_id, body, "kanban-driver", bus);
 }
 
 #[cfg(test)]

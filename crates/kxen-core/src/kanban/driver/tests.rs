@@ -239,6 +239,30 @@ fn scoped_journal_id(run_id: &str) -> String {
     hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
+#[tokio::test]
+async fn claim_and_landing_publish_kanban_update() {
+    let workspace = temp("bus");
+    agents::save(&workspace, &agent_def()).unwrap();
+    let mut board = agent_board(&workspace, None);
+    let card_id = create_card(&mut board, "implementing");
+    drop(board);
+    let driver_deps = deps(&workspace, text_stream("done\nVERDICT: success"));
+    let mut events = driver_deps.bus.subscribe();
+    execute(&workspace, "board_t", &card_id, &driver_deps, None).await.unwrap();
+    let mut updates = Vec::new();
+    loop {
+        match events.try_recv() {
+            Ok(crate::core::event::Event::KanbanUpdate { board_id, workspace: ws }) => updates.push((board_id, ws)),
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+    // claim 与 outcome 落地各补发一次（中途审计评论落盘成功会再补，只断言下限与内容）
+    assert!(updates.len() >= 2, "claim 与落地都必须补发 KanbanUpdate: {updates:?}");
+    assert!(updates.iter().all(|(board_id, ws)| board_id == "board_t" && *ws == workspace.to_string_lossy()));
+    std::fs::remove_dir_all(workspace).ok();
+}
+
 #[test]
 fn parse_verdict_reads_last_declaration() {
     assert_eq!(parse_verdict("work done\nVERDICT: success"), Some(Outcome::Success));

@@ -23,13 +23,12 @@ impl crate::tools::auto_approve::AutoApprove for BoardAutoApprove {
         board
             .apply(KanbanCommand::AutoApproved { run_id: self.run_id.clone(), command: command.to_string() })
             .map_err(|error| error.to_string())?;
-        // 广播供 UI 审计可见（P5 接 topic）；事件流已是 durable 真源，广播失败不算错误
-        self.bus.publish(crate::core::event::Event::LlmDelta(serde_json::json!({
-            "kind": "kanban.auto_approved",
-            "board_id": self.board_id,
-            "run_id": self.run_id,
-            "command": command,
-        })));
+        // 审计走事件流（durable 真源）；广播只做板粒度失效通知让看板页重拉 policy 徽标。
+        // 命令原文不进全局流：LlmDelta 无 ACL 全局广播，原文下发即泄漏面。广播失败不算错误
+        self.bus.publish(crate::core::event::Event::KanbanUpdate {
+            board_id: self.board_id.clone(),
+            workspace: self.workspace.to_string_lossy().into_owned(),
+        });
         Ok(())
     }
 }
