@@ -48,7 +48,7 @@ pub async fn execute_calls(
         let cx: &AgentContext = ctx;
         let batch_results = futures::future::join_all(batch.iter().map(|call| execute_one(call, cx, cancel.clone()))).await;
         for (call, result) in batch.iter().zip(batch_results) {
-            if matches!(&result, Err(e) if e == "(interrupted)") {
+            if is_interrupted(&result) {
                 (ctx.on_event)(AgentEvent::ToolResult {
                     name: call.name.clone(),
                     summary: "interrupted".into(),
@@ -56,21 +56,28 @@ pub async fn execute_calls(
                 });
                 results.push(result);
                 aborted = true;
-                break;
+                continue;
             }
             (ctx.on_event)(AgentEvent::ToolResult {
                 name: call.name.clone(),
                 summary: result_display(&result),
                 output: result_text(&result),
             });
-            if let crate::agent::loop_detect::LoopVerdict::Stop(stop) =
-                ctx.loop_detector.record(&call.name, &call.arguments, &result_text(&result))
+            // join_all 已把同批其余调用跑完：中断后它们的真实结果仍要按序落历史，
+            // 否则已完成的写工具会被占位符覆盖，模型按「未执行」盲目重试
+            if !aborted
+                && let crate::agent::loop_detect::LoopVerdict::Stop(stop) =
+                    ctx.loop_detector.record(&call.name, &call.arguments, &result_text(&result))
             {
                 loop_stop = Some(stop);
                 results.push(result);
                 break;
             }
             results.push(result);
+        }
+        // 工具跑完后才观察到取消（execute_one 保留了真实结果）：不再启动后续批次
+        if !aborted && ctx.cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
+            aborted = true;
         }
         if aborted || loop_stop.is_some() {
             break;
@@ -86,6 +93,21 @@ pub async fn execute_calls(
 
 const CANCEL_CLEANUP_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// 中断占位统一前缀：execute_calls 据此识别中断并停出。占位文本同时回传模型，
+/// 必须写明副作用是否可知，否则模型会把已生效的写操作当作未执行而盲目重试。
+const INTERRUPTED: &str = "(interrupted)";
+
+fn is_interrupted(result: &Result<String, String>) -> bool {
+    matches!(result, Err(e) if e.starts_with(INTERRUPTED))
+}
+
+/// 工具跑完后才观察到取消：副作用已发生，保留真实结果并标注终态，模型不会当中断重试。
+fn completed_before_cancel(result: Result<String, String>) -> Result<String, String> {
+    result.map(|output| {
+        format!("{output}\n\n{INTERRUPTED} run cancelled after this tool completed; the result above is final, do not retry this call")
+    })
+}
+
 fn needs_cancel_cleanup(name: &str) -> bool {
     matches!(name, "exec" | "agent" | "workflow" | "goal" | "websearch") || name.starts_with("mcp__")
 }
@@ -97,18 +119,22 @@ async fn execute_one(call: &ToolCall, ctx: &AgentContext, cancel: Option<crate::
     if !needs_cancel_cleanup(&call.name) {
         return tokio::select! {
             result = &mut run => result,
-            _ = cancel.wait() => Err("(interrupted)".to_string()),
+            _ = cancel.wait() => Err(INTERRUPTED.to_string()),
         };
     }
 
     let result = tokio::select! {
         result = &mut run => result,
         _ = cancel.wait() => {
-            let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut run).await;
-            return Err("(interrupted)".to_string());
+            return match tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut run).await {
+                // 清理窗口内完成：结果可知，必须留给模型
+                Ok(result) => completed_before_cancel(result),
+                // 窗口耗尽仍在跑：结果 UNKNOWN，提示先核实状态再决定重试
+                Err(_) => Err(format!("{INTERRUPTED} cancelled during execution; the tool may still have taken effect, verify state before retrying")),
+            };
         },
     };
-    if cancel.is_cancelled() { Err("(interrupted)".to_string()) } else { result }
+    if cancel.is_cancelled() { completed_before_cancel(result) } else { result }
 }
 
 /// 中断/截断时 results 短于 calls：provider 要求每个 tool_call 都有配对 tool_result，
@@ -165,5 +191,31 @@ mod tests {
         for name in ["read", "glob", "grep", "webfetch", "browser", "mcp_server_tool"] {
             assert!(!needs_cancel_cleanup(name), "{name}");
         }
+    }
+
+    #[test]
+    fn completed_tool_result_survives_late_cancel_with_annotation() {
+        let result = completed_before_cancel(Ok("file written".to_string()));
+        let text = result.as_ref().expect("completed result must survive cancellation").clone();
+        assert!(text.starts_with("file written"));
+        assert!(text.contains("do not retry"));
+        assert!(!is_interrupted(&result), "annotated completion must not read as interrupted");
+    }
+
+    #[test]
+    fn completed_tool_error_passes_through_unchanged() {
+        let result = completed_before_cancel(Err("disk full".to_string()));
+        assert_eq!(result, Err("disk full".to_string()));
+        assert!(!is_interrupted(&result));
+    }
+
+    #[test]
+    fn interrupted_markers_are_detected_by_prefix() {
+        assert!(is_interrupted(&Err("(interrupted)".to_string())));
+        assert!(is_interrupted(&Err(
+            "(interrupted) cancelled during execution; the tool may still have taken effect, verify state before retrying".to_string()
+        )));
+        assert!(!is_interrupted(&Err("ERROR: disk full".to_string())));
+        assert!(!is_interrupted(&Ok("(interrupted) appeared in normal output".to_string())));
     }
 }

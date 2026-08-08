@@ -216,7 +216,14 @@ async fn poll_once(spec: &DeviceSpec, device_code: &str, pkce: Option<&crate::mc
     for (key, value) in spec.extra_headers {
         request = request.header(*key, *value);
     }
-    let response = request.send().await.map_err(|error| format!("oauth device poll: {error}"))?;
+    let response = match request.send().await {
+        Ok(response) => response,
+        // 网络抖动属临时故障：按 interval 继续轮询，直至过期或用户取消。
+        Err(error) => {
+            tracing::debug!(%error, "oauth device poll transient network error");
+            return Ok(PollOutcome::Pending);
+        }
+    };
     let status = response.status();
     if minimax {
         return poll_minimax(response, status).await;
@@ -224,8 +231,10 @@ async fn poll_once(spec: &DeviceSpec, device_code: &str, pkce: Option<&crate::mc
     if status.is_success() {
         return Ok(PollOutcome::Granted(parse_grant(response).await?));
     }
+    // 5xx 属服务端临时故障：继续轮询，不终止整个登录；4xx 授权类错误走下方立即失败。
     if status.as_u16() >= 500 {
-        return Err(format!("oauth device poll http {status}"));
+        tracing::debug!(%status, "oauth device poll transient server error");
+        return Ok(PollOutcome::Pending);
     }
     let value = crate::net_response::json::<Value>(response, crate::net_response::JSON_BODY_LIMIT, "OAuth device poll error")
         .await

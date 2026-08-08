@@ -34,6 +34,10 @@ pub(crate) fn add_observed(
     if description.is_empty() {
         return Err("missing description".into());
     }
+    // description 直接写进 frontmatter 单行，多行值会注入伪字段或截断正文
+    if description.contains('\n') || description.contains('\r') {
+        return Err("description must be a single line".into());
+    }
     let slug = slugify(slug.unwrap_or(description));
     let dir = scope_root(scope, workdir).join(Kind::Note.dir_name());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -78,11 +82,13 @@ pub fn set_enabled(scope: Scope, workdir: &Path, slug: &str, enabled: bool) -> R
     let lock = path_lock(path);
     let _guard = lock.lock().map_err(|error| error.to_string())?;
     let text = std::fs::read_to_string(&e.path).map_err(|err| err.to_string())?;
+    // 与 parse_entry 同判定：有闭合 --- 才算 frontmatter；未闭合时整篇当正文，不得吞 enabled: 行
+    let has_frontmatter = text.strip_prefix("---").is_some_and(|rest| rest.contains("\n---"));
     let mut out = String::new();
     let mut seen = false;
     let mut in_fm = false;
     for (i, line) in text.lines().enumerate() {
-        if i == 0 && line == "---" {
+        if i == 0 && line == "---" && has_frontmatter {
             in_fm = true;
             out.push_str(line);
             out.push('\n');
@@ -106,6 +112,10 @@ pub fn set_enabled(scope: Scope, workdir: &Path, slug: &str, enabled: bool) -> R
         }
         out.push_str(line);
         out.push('\n');
+    }
+    // 无 frontmatter 的条目禁用时文首补一段，否则重写全文却静默不落标记
+    if !enabled && !seen && !has_frontmatter {
+        out = format!("---\nenabled: false\n---\n\n{out}");
     }
     match write_atomic_locked(path, out.as_bytes())? {
         Some(error) => Err(format!("knowledge entry is visible but durability is indeterminate: {error}")),
@@ -202,6 +212,50 @@ mod tests {
         assert!(warning.as_deref().is_some_and(|message| message.contains("directory sync failure")));
         assert!(Path::new(&path).is_file(), "visible commit must be observable to the caller");
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn disable_entry_without_frontmatter_inserts_marker() {
+        let dir = ws("disable-plain");
+        let notes = dir.join(".agents/notes");
+        std::fs::create_dir_all(&notes).unwrap();
+        std::fs::write(notes.join("plain.md"), "plain content\n").unwrap();
+
+        set_enabled(Scope::Project, &dir, "plain", false).unwrap();
+        let after = list(&dir);
+        let entry = after.iter().find(|e| e.scope == Scope::Project && e.slug == "plain").expect("entry");
+        assert!(!entry.enabled, "无 frontmatter 的条目禁用必须生效，不能静默落空");
+        assert!(entry.content.contains("plain content"), "正文不得被吞: {}", entry.content);
+
+        set_enabled(Scope::Project, &dir, "plain", true).unwrap();
+        let after = list(&dir);
+        let entry = after.iter().find(|e| e.scope == Scope::Project && e.slug == "plain").expect("entry");
+        assert!(entry.enabled, "补写的标记必须可移除");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn unterminated_frontmatter_preserves_body() {
+        let dir = ws("disable-unterminated");
+        let notes = dir.join(".agents/notes");
+        std::fs::create_dir_all(&notes).unwrap();
+        std::fs::write(notes.join("broken.md"), "---\ndescription: broken\nenabled: true\n正文行\n").unwrap();
+
+        set_enabled(Scope::Project, &dir, "broken", false).unwrap();
+        let text = std::fs::read_to_string(notes.join("broken.md")).unwrap();
+        assert!(text.contains("enabled: true\n正文行\n"), "未闭合 frontmatter 时正文原样保留: {text}");
+        let after = list(&dir);
+        let entry = after.iter().find(|e| e.scope == Scope::Project && e.slug == "broken").expect("entry");
+        assert!(!entry.enabled);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn multiline_description_rejected_instead_of_corrupting_frontmatter() {
+        let dir = ws("multiline-desc");
+        assert!(add(Scope::Project, &dir, None, "note", "首行\nenabled: false", "body").is_err());
+        assert!(list(&dir).iter().all(|e| e.scope != Scope::Project), "失败写入不得留下任何条目");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

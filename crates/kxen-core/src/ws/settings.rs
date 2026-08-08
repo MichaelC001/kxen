@@ -42,7 +42,7 @@ pub(super) async fn statusline_report(session_id: &str, state: &Arc<AppState>) -
         }
     };
 
-    // statusline 跟当前 session 的 goal 焦点（P2-08）：多会话并发各看各的，空 id 回落全局
+    // statusline 跟当前 session 的 goal 焦点：多会话并发各看各的，空 id 回落全局
     let focus = statusline_focus(&kxen_core::core::paths::goals_dir(), if session_id.is_empty() { None } else { Some(session_id) })?;
     let tasks_running = if session_id.is_empty() {
         0
@@ -148,7 +148,7 @@ fn update_role_document(
     Ok(())
 }
 
-/// 合并新旧 binding（P0-4 数据不丢的主防线，双保险以后端为准：RPC 面向所有调用方，
+/// 合并新旧 binding（数据不丢的主防线，双保险以后端为准：RPC 面向所有调用方，
 /// 前端全量带字段只是其中之一）。整表重建会把缺省参数的旧值抹掉（切 provider 丢
 /// fallback+account、改 model 丢降级链）。约定：None = 未提及沿用旧值；Some("") = 显式清除
 /// （前端选「无降级/账号轮转」、provider 变更清 account 走这里）；Some(v) = 覆盖。

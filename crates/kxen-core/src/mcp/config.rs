@@ -250,6 +250,12 @@ fn parse_server(name: String, def: ServerDef, scope: &ConfigScope, cwd: &Path) -
         if command.trim().is_empty() {
             return Err(format!("MCP server {name} command must not be empty"));
         }
+        if !def.headers.is_empty() {
+            return Err(format!("MCP server {name} headers are only supported for remote (url) servers"));
+        }
+        if def.oauth.is_some() {
+            return Err(format!("MCP server {name} oauth is only supported for remote (url) servers"));
+        }
         let config = StdioConfig { name, command, args: def.args, env: def.env, cwd: cwd.to_path_buf(), scope: scope.clone() };
         if scope.is_project() {
             validate_project_stdio(&config)?;

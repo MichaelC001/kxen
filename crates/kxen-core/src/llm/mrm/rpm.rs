@@ -75,7 +75,7 @@ impl ModelResourceManager {
                     0
                 } else {
                     let oldest = window[0].1;
-                    60_000u64.saturating_sub(oldest.elapsed().as_millis() as u64)
+                    (RPM_WINDOW.as_millis() as u64).saturating_sub(oldest.elapsed().as_millis() as u64)
                 }
             };
             if wait_ms == 0 {

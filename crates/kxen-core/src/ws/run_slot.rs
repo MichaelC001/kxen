@@ -1,4 +1,4 @@
-//! run 槽原子占位（P1-3）：rpc「查 active_runs 为空 -> spawn」与 run 内注册 token 之间隔着
+//! run 槽原子占位：rpc「查 active_runs 为空 -> spawn」与 run 内注册 token 之间隔着
 //! meta 加载与 checkpoint 屏障，快速双击 / team kick 并发会撞出双 run（交叉写 JSONL 历史）。
 //! 持锁内 check+insert 原子化；落败方按 queue 语义让位（用户消息入队、队列 delivery 释放）。
 

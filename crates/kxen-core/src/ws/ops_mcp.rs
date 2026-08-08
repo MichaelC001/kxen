@@ -59,12 +59,41 @@ async fn mcp_auth(params: &Value, state: &Arc<AppState>) -> Result<Value, String
 /// 开浏览器：桌面 GUI 平台用各自系统 opener；失败或无 GUI（kxen 无头服务器）返回 false，
 /// 调用方把 URL 给前端展示（web 模式前端本就在浏览器，直接展示/复制链接即可）。
 pub(super) fn open_browser(url: &str) -> bool {
+    if !is_web_url(url) {
+        return false;
+    }
     #[cfg(target_os = "macos")]
     let result = std::process::Command::new("open").arg(url).spawn();
-    // cmd 内建 start 首个引号参数是窗口标题，空串占位后才是 URL
+    // URL 来自可能恶意的 MCP server，经 cmd /C start 会被 cmd 解释其中的 & 等字符拼出额外命令；
+    // explorer.exe 把 URL 当单个参数接收、不经 shell，直接打开默认浏览器
     #[cfg(target_os = "windows")]
-    let result = std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn();
+    let result = std::process::Command::new("explorer.exe").arg(url).spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
     let result = std::process::Command::new("xdg-open").arg(url).spawn();
     result.is_ok()
+}
+
+/// opener 只接 http/https：授权 URL 上游（mcp::oauth::authorize_url -> validate_secure_endpoint）
+/// 已强制 https（仅 loopback 放行 http），此处 fail-closed 再挡一层，防止 javascript:/file:
+/// 等伪协议经系统 opener 触发本地动作。
+fn is_web_url(url: &str) -> bool {
+    reqwest::Url::parse(url).map(|u| matches!(u.scheme(), "http" | "https")).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn web_url_accepts_https_and_loopback_http() {
+        assert!(is_web_url("https://auth.example.test/authorize?client_id=x&state=%22y%22"));
+        assert!(is_web_url("http://localhost:3000/callback?state=abc"));
+    }
+
+    #[test]
+    fn web_url_rejects_non_web_schemes_and_garbage() {
+        for url in ["javascript:alert(1)", "file:///C:/Windows/system32/calc.exe", "not a url", ""] {
+            assert!(!is_web_url(url), "{url}");
+        }
+    }
 }

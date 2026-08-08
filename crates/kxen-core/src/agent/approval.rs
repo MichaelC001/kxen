@@ -149,9 +149,7 @@ impl ApprovalBroker {
     /// 等待中审批快照：Some(session) 只返回该会话；None 只返回无会话归属的全局审批。
     /// 全局与 Session 恢复面必须互斥，否则同一 approval 会在 Layout 和时间线重复展示。
     pub fn list_pending(&self, session_id: Option<&str>) -> Vec<PendingApproval> {
-        self.pending
-            .lock()
-            .expect("approvals")
+        crate::core::shared::lock(&self.pending)
             .iter()
             .filter(|(_, entry)| match session_id {
                 Some(session_id) => entry.session_id == session_id,

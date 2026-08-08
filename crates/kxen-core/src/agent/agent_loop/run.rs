@@ -142,12 +142,12 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
                     return terminal_error(ctx, message, turns, started, ttft, &usage_acc, provider_model);
                 }
             };
-            provider_model.get_or_insert_with(|| ctx.model.clone());
             if let Err(error) = request_meter.mark_started() {
                 drop(permit);
                 let message = format!("Provider request was not started because its durable start marker failed: {error}");
                 return terminal_error(ctx, message, turns, started, ttft, &usage_acc, provider_model);
             }
+            provider_model.get_or_insert_with(|| ctx.model.clone());
             let slot = permit.map(crate::llm::mrm::CallPermit::start);
             let mut stream =
                 LlmClient::stream_dispatch_in(&ctx.model, messages, &tools, &ctx.store, ctx.stream_override.as_ref(), ctx.mrm.as_deref());
@@ -266,7 +266,10 @@ pub async fn run_turn(ctx: &mut AgentContext, messages: &mut Vec<Message>) -> Ag
     }
 
     if aborted {
-        record_goal_tokens(ctx, &mut usage_acc);
+        // 记账失败与 goal 终态消息不能只进 tracing：abort 路径没有其他出口，用户会完全无感
+        if let Some(message) = record_goal_tokens(ctx, &mut usage_acc) {
+            (ctx.on_event)(AgentEvent::Error { message });
+        }
         let event = AgentEvent::Aborted;
         (ctx.on_event)(event.clone());
         terminal = Some(event);

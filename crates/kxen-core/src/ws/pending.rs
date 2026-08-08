@@ -1,4 +1,4 @@
-//! pending queue 的 AppState 侧接线（P1-13）：启动恢复续跑。
+//! pending queue 的 AppState 侧接线：启动恢复续跑。
 
 use std::sync::Arc;
 
@@ -88,7 +88,7 @@ fn report_session_recovery(state: &AppState) {
     }
 }
 
-/// P0-2b 续跑触发：delivery claim 与 run lease 原子完成；落败 kick 不接触 in_flight。
+/// 续跑触发：delivery claim 与 run lease 原子完成；落败 kick 不接触 in_flight。
 pub(crate) fn kick_session(state: Arc<AppState>, sid: String) {
     tokio::spawn(async move {
         let (q, cancel) = match super::run_slot::claim_queued_run(&state.active_runs, &kxen_core::core::paths::sessions_dir(), &sid, || {
@@ -126,7 +126,7 @@ pub(crate) fn kick_session(state: Arc<AppState>, sid: String) {
     });
 }
 
-/// P0-2 桥接：relay 的 kick 回调在本层注入（kxen_core agent 层够不着 run_llm 的 spawn 口）
+/// 桥接：relay 的 kick 回调在本层注入（kxen_core agent 层够不着 run_llm 的 spawn 口）
 pub fn wire_team_kick(state: &Arc<AppState>) {
     let kick_state = state.clone();
     state.team.relay().set_kick(move |sid| kick_session(kick_state.clone(), sid));

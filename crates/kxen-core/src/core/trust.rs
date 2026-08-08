@@ -25,7 +25,7 @@ fn load_from(file: &Path) -> Result<Vec<String>, String> {
 }
 
 fn trust_into(file: &Path, workdir: &Path) -> Result<Option<String>, String> {
-    // 读-改-写竞态防护：并发 trust 会互相覆盖丢失条目（并行测试抓出来的真 bug）
+    // 读-改-写竞态防护：并发 trust 会互相覆盖丢失条目
     static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = crate::core::shared::lock(&WRITE_LOCK);
     let mut list = load_from(file)?;

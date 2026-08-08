@@ -135,6 +135,50 @@ fn budget_limited_message_points_to_the_only_valid_recovery_action() {
     assert!(!message.contains("resume"), "plain resume is forbidden for BudgetLimited goals");
 }
 
+fn bare_ctx(goal_id: Option<&str>) -> AgentContext {
+    AgentContext {
+        registry: std::sync::Arc::new(crate::tools::task::TaskRegistry::new()),
+        tracker: crate::tools::fs_tool::FileTracker::default(),
+        workdir: std::sync::Arc::from(std::path::Path::new("/tmp")),
+        path_grants: std::sync::Arc::new(Default::default()),
+        model: crate::llm::ModelRef::new("p", "m"),
+        store: crate::auth::credential::AuthStore::default(),
+        max_turns: 4,
+        mrm: None,
+        allowed_tools: None,
+        extras: None,
+        hooks: None,
+        loop_detector: crate::agent::loop_detect::LoopDetector::new(),
+        cancel: None,
+        team: None,
+        team_identity: None,
+        session_id: None,
+        bound_goal_id: goal_id.map(str::to_string),
+        goal_binding_frozen: false,
+        agents: None,
+        bus: None,
+        approvals: None,
+        mcp: None,
+        lsp: None,
+        notify: None,
+        persist_compaction: None,
+        auxiliary_usage: std::sync::Arc::default(),
+        usage_reporter: None,
+        on_event: std::sync::Arc::new(|_| {}),
+        stream_override: None,
+    }
+}
+
+#[test]
+fn aborted_run_token_charge_failure_is_returned_not_only_traced() {
+    // abort 路径（run.rs）把本返回值作为唯一用户可见出口；退化为只打 tracing 会让记账失败无声
+    let ctx = bare_ctx(Some("missing-goal-for-abort-settle"));
+    let mut acc = UsageAcc::default();
+    acc.push(10, 5);
+    let message = record_goal_tokens(&ctx, &mut acc).expect("persistence failure must surface to the abort path");
+    assert!(message.contains("goal token persistence failed"), "{message}");
+}
+
 #[cfg(unix)]
 #[test]
 fn goal_store_inspection_rejects_a_broken_symlink() {

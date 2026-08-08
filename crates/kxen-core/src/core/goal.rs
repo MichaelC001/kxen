@@ -92,7 +92,7 @@ pub struct Goal {
     /// 归属会话（None = 全局 goal，多会话并发的误伤修复：record_turn 只推进同 session 的 goal）
     #[serde(default)]
     pub session_id: Option<String>,
-    /// 暂停累计 ms：wall 预算只计活跃时长，Paused 区间不烧预算（P2-06）
+    /// 暂停累计 ms：wall 预算只计活跃时长，Paused 区间不烧预算
     #[serde(default)]
     pub paused_ms: u64,
     /// 进入 Paused 的时刻（ms epoch）：resume 时结算进 paused_ms
@@ -297,7 +297,7 @@ fn is_zero(value: &u64) -> bool {
     *value == 0
 }
 
-/// complete 证据最小校验（P2-05）：trim 后 >= 20 字符，且不能只是 done/ok 类占位词
+/// complete 证据最小校验：trim 后 >= 20 字符，且不能只是 done/ok 类占位词
 /// （判定前剥两端标点："done!!!" 凑长、纯标点串都不算数）。
 pub fn evidence_sufficient(evidence: &str) -> bool {
     const PLACEHOLDERS: &[&str] =

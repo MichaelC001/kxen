@@ -59,7 +59,7 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
             Some(session_id.clone()),
         ));
     }
-    // P0-2a 摘除：此后 teammate -> lead 报告走 pending queue 续跑路（relay 查无 router）
+    // relay 摘除：此后 teammate -> lead 报告走 pending queue 续跑路（relay 查无 router）
     state.team.relay().unregister(&session_id, &notify);
     kxen_core::core::shared::lock(&state.session_involved).insert(session_id.clone(), files);
     // active_runs 槽位必须覆盖 stop hook、Assistant 落盘与 terminal 发布。

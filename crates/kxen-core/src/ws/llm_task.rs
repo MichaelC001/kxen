@@ -258,7 +258,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
     // 后台 agent 完成通知路由：run 存活期由 run loop 逐轮 drain 注入 messages；
     // run 收尾 close 后（含 run 结束后才完成的派发）通知直投 pending queue，由队列续跑消化
     let notify = std::sync::Arc::new(kxen_core::agent::background::NotifyRouter::new_for_session(sessions_dir.clone(), session_id.clone()));
-    // P0-2a：注册给 team relay，teammate -> lead 报告经本 run 的 router 就地注入（run 收尾摘除）
+    // 注册给 team relay：teammate -> lead 报告经本 run 的 router 就地注入（run 收尾摘除）
     state.team.relay().register(&session_id, &notify);
 
     let mut ctx = kxen_core::agent::agent_loop::AgentContext {

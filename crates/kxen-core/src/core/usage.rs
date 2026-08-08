@@ -9,7 +9,7 @@ mod completion_tests;
 mod storage;
 mod transaction;
 pub use attempt::{ProviderAttempt, ProviderAttemptPhase, ProviderAttemptStore};
-pub use storage::{PersistFailure, PersistPhase, completeness, load, persist, persist_committed};
+pub use storage::{PersistFailure, PersistPhase, completeness, load, persist_committed};
 pub use transaction::{MeteringOutcome, apply_metering_transaction, reconcile_pending_goal_charges};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]

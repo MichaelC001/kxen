@@ -139,7 +139,7 @@ fn load_from_distinguishes_missing_loaded_corrupt() {
     std::fs::write(&path, serde_json::to_string(&Vec::<CronJob>::new()).unwrap()).unwrap();
     assert!(matches!(load_from(&path), LoadResult::Jobs(_)), "合法文件 = Jobs");
 
-    // 损坏文件 = Corrupt：调用方保留内存 jobs 并隔离旧文件，不静默清空（P1-7）
+    // 损坏文件 = Corrupt：调用方保留内存 jobs 并隔离旧文件，不静默清空
     std::fs::write(&path, "{not json").unwrap();
     assert!(matches!(load_from(&path), LoadResult::Corrupt(_)));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{not json", "load_from 不得动旧文件");

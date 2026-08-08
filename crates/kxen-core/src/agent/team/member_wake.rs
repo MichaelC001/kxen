@@ -13,7 +13,7 @@ use super::inbox::{InboxDelivery, claim_inbox_entries};
 use super::types::TeamTaskStatus;
 
 /// idle 自醒周期（P1-3）：5min。notify 无超时会让空 inbox 的成员睡到下一封外部来信，
-/// shutdown 的 cancel 也要靠周期醒感知（shutdown 只置令牌不发 notify）
+/// 期间解锁的可 claim 任务无人认领；shutdown 的 cancel 经令牌即时醒，不靠本周期
 pub(super) const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// 超时自醒的 claim 提示：实际 claim 走模型既有 team_task 工具，不新造调度

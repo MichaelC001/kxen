@@ -180,9 +180,7 @@ impl McpManager {
     }
 
     pub fn status(&self) -> Vec<ServerStatus> {
-        self.servers
-            .lock()
-            .expect("mcp")
+        crate::core::shared::lock(&self.servers)
             .values()
             .map(|e| ServerStatus {
                 name: e.config.name().to_string(),

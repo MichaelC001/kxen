@@ -217,6 +217,14 @@ mod tests {
         assert_eq!(jwt_exp(token), Some(2_000_000_000_000));
     }
 
+    #[test]
+    fn jwt_exp_overflow_yields_none() {
+        use base64::Engine;
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"exp":18446744073709551615}"#);
+        let token = format!("x.{payload}.y");
+        assert_eq!(jwt_exp(&token), None, "exp*1000 溢出按无过期信息处理，不得 panic 或回绕");
+    }
+
     #[cfg(unix)]
     #[test]
     fn symlink_credential_file_refused() {

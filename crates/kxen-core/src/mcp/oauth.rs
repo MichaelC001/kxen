@@ -31,15 +31,11 @@ pub fn callback_id(server_url: &str) -> String {
     URL_SAFE_NO_PAD.encode(&digest[..9])
 }
 
-/// /dev/urandom 随机字节 -> base64url（零新依赖，与 ws token 同源）。
+/// 加密安全随机字节 -> base64url。getrandom 走 OS 熵源（跨平台；/dev/urandom 在 Windows 不存在）。
+/// 熵源不可用时 fail-closed 返回错误：PKCE/state 宁可授权流失败也不降级出可预测值。
 fn rand_urlsafe(bytes: usize) -> Result<String, String> {
-    let file = std::fs::File::open("/dev/urandom").map_err(|error| format!("OAuth secure randomness unavailable: {error}"))?;
-    rand_urlsafe_from(file, bytes)
-}
-
-fn rand_urlsafe_from(mut source: impl std::io::Read, bytes: usize) -> Result<String, String> {
     let mut buf = vec![0u8; bytes];
-    source.read_exact(&mut buf).map_err(|error| format!("OAuth secure randomness unavailable: {error}"))?;
+    getrandom::fill(&mut buf).map_err(|error| format!("OAuth secure randomness unavailable: {error}"))?;
     Ok(URL_SAFE_NO_PAD.encode(&buf))
 }
 
@@ -63,10 +59,21 @@ pub fn random_state() -> Result<String, String> {
 #[cfg(test)]
 mod random_tests {
     #[test]
-    fn secure_random_read_failure_is_returned_instead_of_panicking() {
-        let source = std::io::Cursor::new(vec![0_u8; 3]);
-        let error = super::rand_urlsafe_from(source, 16).expect_err("short entropy source must fail closed");
-        assert!(error.contains("secure randomness unavailable"));
+    fn rand_urlsafe_encodes_full_length_base64url() {
+        let value = super::rand_urlsafe(32).expect("OS entropy source");
+        assert_eq!(value.len(), 43, "32 字节 -> base64url 无 padding 43 字符");
+        assert!(value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'), "{value}");
+    }
+
+    #[test]
+    fn pkce_and_state_draw_independent_os_entropy() {
+        let pkce = super::pkce().expect("PKCE generation");
+        assert_eq!(pkce.verifier.len(), 43);
+        assert_eq!(pkce.challenge.len(), 43);
+        let first = super::random_state().expect("state");
+        let second = super::random_state().expect("state");
+        assert_eq!(first.len(), 22, "16 字节 -> base64url 无 padding 22 字符");
+        assert_ne!(first, second, "两次 state 必须独立随机");
     }
 }
 

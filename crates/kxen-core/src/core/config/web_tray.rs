@@ -1,4 +1,4 @@
-//! [web]/[tray] config section（config.rs 350 行门禁拆分）。
+//! [web]/[tray] config section。
 
 use serde::{Deserialize, Serialize};
 

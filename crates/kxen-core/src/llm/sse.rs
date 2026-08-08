@@ -147,7 +147,9 @@ fn parse_line(line: &str) -> Option<SseFrame> {
     if line.is_empty() || line.starts_with(':') {
         return None; // 空行分隔 / 心跳注释
     }
-    let data = line.strip_prefix("data:")?.trim_start();
+    // SSE 规范：data 值只剥一个前导空格，其余空白属于载荷；多行 data 不聚合（各 provider 单事件单行）
+    let payload = line.strip_prefix("data:")?;
+    let data = payload.strip_prefix(' ').unwrap_or(payload);
     if data == "[DONE]" { Some(SseFrame::Done) } else { Some(SseFrame::Data(data.to_string())) }
 }
 
@@ -208,6 +210,13 @@ mod tests {
         let mut parser = SseParser::new();
         let frames = parser.feed(b"data: \xff\n");
         assert!(matches!(frames.as_slice(), [SseFrame::Invalid(error)] if error.contains("invalid utf-8")));
+    }
+
+    #[test]
+    fn strips_exactly_one_leading_space_after_data_prefix() {
+        let mut p = SseParser::new();
+        let frames = p.feed(b"data:  padded\n\ndata:exact\n\ndata: \n");
+        assert_eq!(frames, vec![SseFrame::Data(" padded".into()), SseFrame::Data("exact".into()), SseFrame::Data(String::new())]);
     }
 
     #[test]

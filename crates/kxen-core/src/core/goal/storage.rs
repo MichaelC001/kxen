@@ -211,10 +211,6 @@ impl Goal {
         }
         Ok(removed)
     }
-
-    pub fn restore_all(dir: &std::path::Path, goals: &[Self]) -> usize {
-        goals.iter().filter(|goal| goal.save(dir).is_ok()).count()
-    }
 }
 
 #[cfg(unix)]

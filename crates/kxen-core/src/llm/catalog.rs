@@ -40,6 +40,19 @@ pub struct ProviderCatalog {
 }
 
 static CACHE: OnceLock<Mutex<Option<Vec<ProviderCatalog>>>> = OnceLock::new();
+static REFRESHING: OnceLock<Mutex<bool>> = OnceLock::new();
+
+/// 单飞 flag 复位：spawned 任务 panic 时也必须复位，否则后续刷新永久静默跳过。
+struct ResetRefreshOnDrop(&'static Mutex<bool>);
+
+impl Drop for ResetRefreshOnDrop {
+    fn drop(&mut self) {
+        *crate::core::shared::lock(self.0) = false;
+    }
+}
+
+#[cfg(test)]
+static REFRESH_PANIC_FOR_TEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn cache_file() -> std::path::PathBuf {
     crate::core::paths::data_dir().join("models-catalog.json")
@@ -74,7 +87,6 @@ pub fn catalog() -> Vec<ProviderCatalog> {
 
 /// 后台刷新（TTL 到期或首次）：成功则落盘 + 换内存；失败静默。
 pub fn refresh_async() {
-    static REFRESHING: OnceLock<Mutex<bool>> = OnceLock::new();
     let flag = REFRESHING.get_or_init(|| Mutex::new(false));
     {
         let mut running = crate::core::shared::lock(flag);
@@ -89,6 +101,11 @@ pub fn refresh_async() {
         return;
     };
     handle.spawn(async move {
+        let _reset = ResetRefreshOnDrop(flag);
+        #[cfg(test)]
+        if REFRESH_PANIC_FOR_TEST.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            panic!("catalog refresh panic injection");
+        }
         let result = async {
             let resp = crate::llm::client::shared_http()
                 .get(MODELS_DEV_URL)
@@ -113,7 +130,6 @@ pub fn refresh_async() {
             }
             Err(e) => tracing::warn!(error = %e, "models.dev refresh failed (keep old cache)"),
         }
-        *crate::core::shared::lock(flag) = false;
     });
 }
 

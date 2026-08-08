@@ -82,10 +82,6 @@ pub fn load() -> Result<HashMap<String, SessionUsage>, String> {
     load_from(&store_file())
 }
 
-pub fn persist(map: &HashMap<String, SessionUsage>) -> Result<(), String> {
-    persist_committed(map).map_err(|error| error.message)
-}
-
 pub fn persist_committed(map: &HashMap<String, SessionUsage>) -> Result<(), PersistFailure> {
     let ledger = store_file();
     persist_committed_to(&ledger, map)

@@ -181,7 +181,11 @@ impl LspClient {
         match tokio::time::timeout(REQUEST_TIMEOUT, rx).await {
             Ok(Ok(v)) => Ok(v),
             Ok(Err(_)) => Err(format!("{} died", self.spec.command)),
-            Err(_) => Err(format!("lsp request {method} timed out")),
+            // 超时后响应永不送达：摘掉 pending 项，否则挂起的 server 会让表单调增长
+            Err(_) => {
+                crate::core::shared::lock(&self.pending).remove(&id);
+                Err(format!("lsp request {method} timed out"))
+            }
         }
     }
 

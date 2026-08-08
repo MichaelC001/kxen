@@ -213,12 +213,12 @@ pub(super) fn read_credential_file(file: &std::path::Path) -> Option<String> {
     }
 }
 
-/// JWT exp（秒）-> ms；解析失败返回 None。
+/// JWT exp（秒）-> ms；解析失败或数值溢出返回 None（按无过期信息处理）。
 pub(super) fn jwt_exp(token: &str) -> Option<u64> {
     let payload = token.split('.').nth(1)?;
     let decoded = base64_url_decode(payload)?;
     let json: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
-    Some(json.get("exp")?.as_u64()? * 1000)
+    json.get("exp")?.as_u64()?.checked_mul(1000)
 }
 
 fn base64_url_decode(input: &str) -> Option<Vec<u8>> {

@@ -170,6 +170,19 @@ fn parses_remote_oauth_object() {
 }
 
 #[test]
+fn stdio_server_rejects_remote_only_fields() {
+    let dir = std::env::temp_dir().join(format!("kxen-mcp-stdio-fields-{}", uuid::Uuid::new_v4()));
+    let path = write(&dir, r#"{"mcpServers":{"bad":{"command":"/usr/bin/true","headers":{"X-Key":"v"}}}}"#);
+    let error = load_file(&path, &ConfigScope::Personal, &dir).unwrap_err();
+    assert!(error.contains("headers"), "{error}");
+
+    std::fs::write(&path, r#"{"mcpServers":{"bad":{"command":"/usr/bin/true","oauth":{"clientId":"cid"}}}}"#).unwrap();
+    let error = load_file(&path, &ConfigScope::Personal, &dir).unwrap_err();
+    assert!(error.contains("oauth"), "{error}");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
 fn infers_kind_from_command_or_url() {
     let dir = std::env::temp_dir().join(format!("kxen-mcp-infer-{}", std::process::id()));
     let path = write(

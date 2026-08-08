@@ -89,6 +89,24 @@ async fn refresh_async_single_flights_and_never_panics() {
     assert!(!catalog().is_empty(), "刷新失败必须保留旧缓存");
 }
 
+#[tokio::test]
+async fn refresh_async_panic_still_resets_single_flight_flag() {
+    // spawned 任务 panic：单飞 flag 必须由 Drop guard 复位，否则后续刷新永久静默跳过。
+    REFRESH_PANIC_FOR_TEST.store(true, std::sync::atomic::Ordering::SeqCst);
+    refresh_async();
+    let flag = REFRESHING.get().expect("flag initialized");
+    for _ in 0..50 {
+        if !*crate::core::shared::lock(flag) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(!*crate::core::shared::lock(flag), "panic 后 flag 必须复位");
+    // 复位后再次触发必须重新进入 spawn 分支（flag 同步置 true），而非单飞早退。
+    refresh_async();
+    assert!(*crate::core::shared::lock(flag), "复位后再次刷新必须能启动");
+}
+
 /// HOME 重定向到临时目录：data_dir() 派生自 HOME，隔离 disk 缓存读写（Once 写序防并行 env 竞态）。
 fn isolate_home() {
     static ONCE: std::sync::Once = std::sync::Once::new();
@@ -102,7 +120,7 @@ fn isolate_home() {
 fn disk_cache_roundtrips_and_parse_failure_is_an_error() {
     isolate_home();
     // 写入 -> 读回 roundtrip（rename 原子替换 + 目录 sync 路径）。
-    // 用空 Vec：catalog() 对空调用走静态兜底（66 行），不会把测试数据带进内存缓存污染同进程其他测试。
+    // 用空 Vec：catalog() 对空缓存走静态兜底，不会把测试数据带进内存缓存污染同进程其他测试。
     let catalog: Vec<ProviderCatalog> = Vec::new();
     write_disk_cache(&catalog).expect("write disk cache");
     let back = read_disk_cache().expect("read disk cache").expect("cache present");
