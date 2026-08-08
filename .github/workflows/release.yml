@@ -136,11 +136,12 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.target }}
       # tauri/webkit 系统依赖（tray-icon 需要 libayatana-appindicator），与 ci.yml 清单一致：仅 Linux
+      # xdg-utils：deb/AppImage bundler 调用 xdg-open（arm64 runner 镜像不自带，amd64 自带所以历史上没暴露）
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xdg-utils
       - run: pnpm install --frozen-lockfile
       - name: Validate signing credentials
         if: matrix.signed
@@ -281,7 +282,7 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: |
           set -euo pipefail
-          dmg_path="$(find "src-tauri/target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -name 'Kxen_*.dmg' | head -1)"
+          dmg_path="$(find "target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -name 'Kxen_*.dmg' | head -1)"
           if [[ -z "$dmg_path" ]]; then
             printf 'DMG bundle not found\n'
             exit 1
@@ -299,12 +300,12 @@ jobs:
         shell: bash
         run: >-
           bash "$RUNNER_TEMP/trusted-release-tools/verify-macos-release.sh"
-          "src-tauri/target/${{ matrix.target }}/release/bundle"
+          "target/${{ matrix.target }}/release/bundle"
       - name: Build kxen headless server
         shell: bash
         # rust-embed 编译期读取 dist/,tauri build 已产出前端产物,kxen 编译排在它后面。
         run: >-
-          cargo build --manifest-path src-tauri/Cargo.toml --release
+          cargo build --release
           -p kxen --target ${{ matrix.target }}
       # kxen 是裸 Mach-O,不签名会被 Gatekeeper 拦截;与 .app/DMG 共用同一证书和公证链。
       # 必须在 Clear temporary signing material 之前完成签名和公证。
@@ -316,7 +317,7 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: |
           set -euo pipefail
-          cli_path="src-tauri/target/${{ matrix.target }}/release/kxen"
+          cli_path="target/${{ matrix.target }}/release/kxen"
           if [[ ! -f "$cli_path" ]]; then
             printf 'kxen binary not found: %s\n' "$cli_path"
             exit 1
@@ -355,7 +356,7 @@ jobs:
           "${{ matrix.platform }}"
           "$RELEASE_TAG"
           "$GITHUB_REPOSITORY"
-          "src-tauri/target/${{ matrix.target }}/release/bundle"
+          "target/${{ matrix.target }}/release/bundle"
           "$RUNNER_TEMP/release-assets"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

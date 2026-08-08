@@ -41,18 +41,18 @@ pnpm typecheck
 pnpm test
 pnpm coverage
 pnpm build
-cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo check --manifest-path src-tauri/Cargo.toml --workspace --all-targets --all-features
-cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --all-features
-cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+cargo check --workspace --all-targets --all-features
+cargo test --workspace --all-targets --all-features
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 bash scripts/rust-coverage.sh
 pnpm audit --prod --audit-level high
-cargo audit --file src-tauri/Cargo.lock
+cargo audit --file Cargo.lock
 ```
 
 `pnpm check` 已包含 `pnpm typecheck`，CI 使用同一入口；单列命令用于本地快速复现 TypeScript strict 类型错误。
 
-`src-tauri` 是 Cargo workspace，包含 `kxen-gui` 桌面壳 crate(lib 为 `kxen_gui`）和 `crates/kxen` 无头 server crate,cargo 门禁必须使用 `--workspace` 覆盖两者。rust-embed 在编译期读取仓库根 `dist/`,cargo 命令前必须先执行 `pnpm build`，否则 Rust 编译失败。
+仓库根是 Cargo workspace，包含 `crates/kxen-core`（全部产品逻辑，lib `kxen_core`）、`crates/kxen-cli`（无头 server bin `kxen`）和 `src-tauri`（`kxen-gui` Tauri 桌面壳 crate），cargo 门禁必须使用 `--workspace` 覆盖三者。rust-embed 在编译期读取仓库根 `dist/`,cargo 命令前必须先执行 `pnpm build`，否则 Rust 编译失败。
 
 官网变更还必须运行:
 
@@ -72,7 +72,7 @@ Pull Request 需要说明问题、实现边界和验证结果。不要提交 `.e
 发布版本必须同时更新以下四处，版本号均不带 `v` 前缀:
 
 - `src-tauri/Cargo.toml` 的 `package.version`。
-- `src-tauri/Cargo.lock` 中 `kxen-gui` package 的 `version`。
+- `Cargo.lock` 中 `kxen-gui` package 的 `version`。
 - `src-tauri/tauri.conf.json` 的 `version`。
 - `CHANGELOG.md` 的精确标题 `## [x.y.z]`。
 

@@ -3,7 +3,7 @@
 //! mobile-only，桌面 show() 拿不到点击回调。改走其底层 notify-rust 的 wait_for_action：
 //! 投递路径同一实现，多拿点击语义 -> 聚焦主窗口 + emit 事件由前端切会话。
 
-use kxen_gui::app_state::NotifyTarget;
+use kxen_core::app_state::NotifyTarget;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// 前端切会话事件（payload = session_id；App.tsx 经 lib/os-notify.ts 挂 listen）。

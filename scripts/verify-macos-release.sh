@@ -5,7 +5,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/release-lib.sh
 source "$script_dir/release-lib.sh"
 
-bundle_root="${1:-src-tauri/target/aarch64-apple-darwin/release/bundle}"
+bundle_root="${1:-target/aarch64-apple-darwin/release/bundle}"
 app_path="$bundle_root/macos/Kxen.app"
 
 dmg_path="$(kxen_find_one DMG "$bundle_root/dmg" 'Kxen_*.dmg')"

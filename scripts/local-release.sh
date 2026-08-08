@@ -28,7 +28,7 @@ release_tag="${2:-}"
 repository="${3:-}"
 release_commit="${4:-}"
 asset_dir="$repo_root/release-assets"
-bundle_root="$repo_root/src-tauri/target/aarch64-apple-darwin/release/bundle"
+bundle_root="$repo_root/target/aarch64-apple-darwin/release/bundle"
 tauri_dir="$HOME/.tauri"
 
 usage() {
@@ -124,12 +124,12 @@ build_assets() {
 
   # 与 release.yml 的 Sign and notarize kxen CLI 步骤一致:同一 Developer ID 身份签名,
   # zip 提交公证后丢弃,ticket 在线生效;prepare-release-assets.sh 会再做 codesign --verify。
-  cargo build --manifest-path src-tauri/Cargo.toml --release \
+  cargo build --release \
     -p kxen --target aarch64-apple-darwin
   local identity
   identity="$(awk '{ print $2 }' <<< "$identity_line")"
   local cli_path cli_zip_dir
-  cli_path="src-tauri/target/aarch64-apple-darwin/release/kxen"
+  cli_path="target/aarch64-apple-darwin/release/kxen"
   codesign --sign "$identity" --options runtime --timestamp "$cli_path"
   codesign --verify --strict --verbose=2 "$cli_path"
   cli_zip_dir="$(mktemp -d "${TMPDIR:-/tmp}/kxen-notarize.XXXXXX")"

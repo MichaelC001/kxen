@@ -1,5 +1,5 @@
 // 仓库改动分段：git status 口径（含用户自己的未提交改动），与「会话改动」（本会话 agent 快照口径）并列。
-// 数据源 diff.status/diff.file RPC（src-tauri worktree.rs status/diff_file），本组件是唯一消费入口。
+// 数据源 diff.status/diff.file RPC（crates/kxen-core worktree.rs status/diff_file），本组件是唯一消费入口。
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { GitBranch, X } from "lucide-solid";
 import { diffFile, diffStatus, type DiffStatusEntry } from "../lib/chat-ops";

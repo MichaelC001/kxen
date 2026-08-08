@@ -106,7 +106,7 @@ function argsPath(args: string | undefined): string | undefined {
 }
 
 /** edit/write 工具结果 -> 可渲染的 old/new 文本对（失败或不可解析返回 undefined，调用方回落原文展示）。
- *  edit 的结果是 `diff_summary\n` + simple_diff（"- "/" + " 前缀行，最多各 5 行，见 src-tauri fs_tool.rs），
+ *  edit 的结果是 `diff_summary\n` + simple_diff（"- "/" + " 前缀行，最多各 5 行，见 crates/kxen-core fs_tool.rs），
  *  据此还原变更片段；write 的结果是 "wrote N bytes"，全文取自 args.content（新建文件口径，old 为空）。 */
 export function parseToolDiff(
   name: string,

@@ -50,7 +50,7 @@ def canonical_base64(value, label):
 
 with open("src-tauri/Cargo.toml", "rb") as handle:
     cargo_version = tomllib.load(handle)["package"]["version"]
-with open("src-tauri/Cargo.lock", "rb") as handle:
+with open("Cargo.lock", "rb") as handle:
     lock = tomllib.load(handle)
 lock_versions = [package["version"] for package in lock["package"] if package["name"] == "kxen-gui"]
 if len(lock_versions) != 1:

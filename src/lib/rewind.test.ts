@@ -1,5 +1,5 @@
 // rewind 确认流：dirty 门禁的「拒绝 -> 确认 -> 带 confirm 重发」序列，其余拒绝不重试。
-// fixture 与 src-tauri/src/ws/session_ops.rs 的 RewindBlock 序列化对齐（code 驱动，漂移即测试红）。
+// fixture 与 crates/kxen-core/src/ws/session_ops.rs 的 RewindBlock 序列化对齐（code 驱动，漂移即测试红）。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRoot, createSignal } from "solid-js";
 import {

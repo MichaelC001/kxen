@@ -70,7 +70,7 @@ kxen_verify_updater_signature "$updater_path" "$signature_path" "$updater_origin
 # kxen 无头产物:tar.gz(unix)/ zip(windows)。
 target="$(kxen_release_target "$platform")"
 web_asset="$(kxen_release_web_asset "$platform")"
-web_dir="src-tauri/target/$target/release"
+web_dir="target/$target/release"
 web_binary="kxen"
 if [[ "$(kxen_release_os "$platform")" == windows ]]; then
   web_binary="kxen.exe"

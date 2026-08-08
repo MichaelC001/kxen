@@ -13,9 +13,9 @@
 - [ ] `pnpm check`
 - [ ] `pnpm test`
 - [ ] `pnpm build`
-- [ ] `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --all-targets --all-features`
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`
+- [ ] `cargo fmt --all -- --check`
+- [ ] `cargo test --all-targets --all-features`
+- [ ] `cargo clippy --all-targets --all-features -- -D warnings`
 - [ ] 涉及官网：`cd website && pnpm check`
 
 ## 检查清单

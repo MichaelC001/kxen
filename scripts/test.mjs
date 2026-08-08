@@ -8,7 +8,8 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const coverageEnabled = process.argv.includes("--coverage");
 const lineLimit = 350;
 const sourceRoots = [
-  { directory: join(root, "src-tauri", "src"), extensions: [".rs"] },
+  { directory: join(root, "crates", "kxen-core", "src"), extensions: [".rs"] },
+  { directory: join(root, "crates", "kxen-cli", "src"), extensions: [".rs"] },
   { directory: join(root, "src"), extensions: [".ts", ".tsx"] },
 ];
 

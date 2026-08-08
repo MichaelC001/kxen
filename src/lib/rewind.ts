@@ -1,5 +1,5 @@
 // 回退编排：dirty 门禁的确认闭环 + 拒绝按 code 归类（供 Session 页与单测共用）。
-// 后端 RewindBlock（src-tauri/src/ws/session_ops.rs）序列化为 RPC 错误 message：
+// 后端 RewindBlock（crates/kxen-core/src/ws/session_ops.rs）序列化为 RPC 错误 message：
 // {code, message, dirty_count?, target?}，前端只按 code 归类，文案漂移不再炸确认流。
 import { createEffect, createSignal } from "solid-js";
 import { sessionRewind } from "./chat";

@@ -10,8 +10,8 @@ pub use logic::DefaultOpen;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use kxen_gui::AppState;
-use kxen_gui::web::WebServerHandle;
+use kxen_core::AppState;
+use kxen_core::web::WebServerHandle;
 use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItem, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::tray::TrayIconBuilder;
 #[cfg(not(target_os = "linux"))]
@@ -64,7 +64,7 @@ pub fn setup(
     default_open: DefaultOpen,
     close_to_tray: Arc<AtomicBool>,
 ) -> tauri::Result<TrayGuard> {
-    let port = *kxen_gui::core::shared::lock(&state.ws_port);
+    let port = *kxen_core::core::shared::lock(&state.ws_port);
     let url_available = logic::access_url(&bind_host, port, &state.ws_token).is_some();
     let browser_enabled = logic::browser_actions_enabled(web_enabled, url_available);
 
@@ -156,7 +156,7 @@ fn show_main_window(app: &AppHandle) {
 }
 
 fn access_url(shared: &Shared) -> Option<String> {
-    let port = *kxen_gui::core::shared::lock(&shared.state.ws_port);
+    let port = *kxen_core::core::shared::lock(&shared.state.ws_port);
     logic::access_url(&shared.bind_host, port, &shared.state.ws_token)
 }
 
