@@ -26,7 +26,7 @@ fn stable_hash(segments: &[&str]) -> String {
         h.update(seg.as_bytes());
         h.update([0u8]);
     }
-    format!("{:x}", h.finalize())
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 pub struct Journal {

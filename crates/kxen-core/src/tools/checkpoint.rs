@@ -12,7 +12,8 @@ fn repo_dir(workdir: &Path) -> PathBuf {
     // sha256 取代 DefaultHasher：后者输出跨 Rust 版本不受保证，工具链升级会让存量检查点变孤儿。
     let path = workdir.canonicalize().unwrap_or_else(|_| workdir.to_path_buf());
     let digest = sha2::Sha256::digest(path.to_string_lossy().as_bytes());
-    crate::core::paths::data_dir().join("shadow").join(format!("{:x}.git", digest))
+    let hex = digest.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    crate::core::paths::data_dir().join("shadow").join(format!("{hex}.git"))
 }
 
 fn git(workdir: &Path, args: &[&str]) -> Result<std::process::Output, String> {

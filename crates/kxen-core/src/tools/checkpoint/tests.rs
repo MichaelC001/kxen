@@ -15,7 +15,8 @@ fn repo_dir_stable_and_canonical() {
     std::fs::create_dir_all(&real).unwrap();
     let dir = repo_dir(&real);
     assert_eq!(dir, repo_dir(&real));
-    let expect = format!("{:x}", sha2::Sha256::digest(real.canonicalize().unwrap().to_string_lossy().as_bytes()));
+    let digest = sha2::Sha256::digest(real.canonicalize().unwrap().to_string_lossy().as_bytes());
+    let expect = digest.iter().map(|b| format!("{b:02x}")).collect::<String>();
     assert!(dir.ends_with(format!("{expect}.git")), "寻址必须是 canonical 路径的 sha256: {}", dir.display());
     #[cfg(unix)]
     {

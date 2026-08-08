@@ -74,7 +74,7 @@ impl Goal {
     pub fn completion_identity(&self, evidence: &str) -> CompletionIdentity {
         CompletionIdentity {
             contract_sha256: hash_contract(self),
-            evidence_sha256: format!("{:x}", sha2::Sha256::digest(evidence.as_bytes())),
+            evidence_sha256: sha2::Sha256::digest(evidence.as_bytes()).iter().map(|b| format!("{b:02x}")).collect(),
         }
     }
 
@@ -322,7 +322,7 @@ fn hash_contract(goal: &Goal) -> String {
     hash_part(&mut hasher, Some(&goal.contract.objective));
     hash_part(&mut hasher, Some(&goal.contract.completion_criteria));
     hash_part(&mut hasher, goal.contract.constraints.as_deref());
-    format!("{:x}", hasher.finalize())
+    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn hash_part(hasher: &mut sha2::Sha256, value: Option<&str>) {

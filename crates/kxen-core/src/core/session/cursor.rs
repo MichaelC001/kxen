@@ -10,7 +10,8 @@ pub fn message_cursor(messages: &[Message]) -> std::io::Result<String> {
         hasher.update((bytes.len() as u64).to_le_bytes());
         hasher.update(bytes);
     }
-    Ok(format!("sha256:{:x}", hasher.finalize()))
+    let hex = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>();
+    Ok(format!("sha256:{hex}"))
 }
 
 /// 原子读取 consolidation 所需的 meta + message snapshot。旧 Session 没有显式
