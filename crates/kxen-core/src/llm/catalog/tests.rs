@@ -92,12 +92,14 @@ async fn refresh_async_single_flights_and_never_panics() {
 #[tokio::test]
 async fn refresh_async_panic_still_resets_single_flight_flag() {
     // spawned 任务 panic：单飞 flag 必须由 Drop guard 复位，否则后续刷新永久静默跳过。
+    // 私有 flag 走完整 spawn/panic/复位路径：全局 REFRESHING 会被并发测试的 refresh
+    // 持续持有（CI 网络慢时真实请求链近乎不断），在全局 flag 上断言必然抖动。
+    static PANIC_TEST_REFRESHING: OnceLock<Mutex<bool>> = OnceLock::new();
     REFRESH_PANIC_FOR_TEST.store(true, std::sync::atomic::Ordering::SeqCst);
-    refresh_async();
-    let flag = REFRESHING.get().expect("flag initialized");
-    // 注入标记是进程全局：可能被并发测试的在途 refresh 抢先消费，本任务退化为真实
-    // HTTP 请求（CI 网络慢时接近 20s 超时才复位）。轮询窗口必须覆盖该最坏路径，
-    // 命中注入的正常路径第一轮即 break，不为快路径付出等待。
+    refresh_async_impl(&PANIC_TEST_REFRESHING);
+    let flag = PANIC_TEST_REFRESHING.get().expect("flag initialized");
+    // 注入标记仍是进程全局：被并发测试抢先消费时本任务退化为真实 HTTP 请求
+    // （最坏 20s 超时才复位），但 flag 只被本任务持有；窗口覆盖最坏路径，快路径第一轮 break。
     for _ in 0..1500 {
         if !*crate::core::shared::lock(flag) {
             break;
@@ -106,7 +108,7 @@ async fn refresh_async_panic_still_resets_single_flight_flag() {
     }
     assert!(!*crate::core::shared::lock(flag), "panic 后 flag 必须复位");
     // 复位后再次触发必须重新进入 spawn 分支（flag 同步置 true），而非单飞早退。
-    refresh_async();
+    refresh_async_impl(&PANIC_TEST_REFRESHING);
     assert!(*crate::core::shared::lock(flag), "复位后再次刷新必须能启动");
 }
 

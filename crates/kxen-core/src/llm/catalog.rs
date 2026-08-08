@@ -90,7 +90,13 @@ pub fn catalog() -> Vec<ProviderCatalog> {
 
 /// 后台刷新（TTL 到期或首次）：成功则落盘 + 换内存；失败静默。
 pub fn refresh_async() {
-    let flag = REFRESHING.get_or_init(|| Mutex::new(false));
+    refresh_async_impl(&REFRESHING);
+}
+
+/// 单飞 flag 注入为参数：测试可用私有 flag 走完整 spawn/panic/复位路径，
+/// 不受同进程并发测试对全局 REFRESHING 的持有竞争影响。
+fn refresh_async_impl(flag_cell: &'static OnceLock<Mutex<bool>>) {
+    let flag = flag_cell.get_or_init(|| Mutex::new(false));
     {
         let mut running = crate::core::shared::lock(flag);
         if *running {
