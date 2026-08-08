@@ -8,6 +8,8 @@ mod command;
 mod context;
 mod digest;
 pub(crate) mod driver;
+#[cfg(test)]
+mod e2e_tests;
 mod error;
 mod events;
 mod land;
