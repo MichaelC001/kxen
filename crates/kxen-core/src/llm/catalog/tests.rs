@@ -107,18 +107,19 @@ async fn refresh_async_panic_still_resets_single_flight_flag() {
     assert!(*crate::core::shared::lock(flag), "复位后再次刷新必须能启动");
 }
 
-/// HOME 重定向到临时目录：data_dir() 派生自 HOME，隔离 disk 缓存读写（Once 写序防并行 env 竞态）。
-fn isolate_home() {
+/// 缓存文件重定向到临时路径：进程级 HOME 翻转会改变并发测试的 data_dir() 解析，
+/// 只能用 cache_file() 的专用 env 覆盖隔离（与 KXEN_TRUST_FILE 同规约；Once 写序防重复 set）。
+fn isolate_cache_file() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        let dir = std::env::temp_dir().join(format!("kxen-catalog-home-{}", std::process::id()));
-        unsafe { std::env::set_var("HOME", &dir) };
+        let file = std::env::temp_dir().join(format!("kxen-catalog-cache-{}.json", std::process::id()));
+        unsafe { std::env::set_var("KXEN_CATALOG_FILE", &file) };
     });
 }
 
 #[test]
 fn disk_cache_roundtrips_and_parse_failure_is_an_error() {
-    isolate_home();
+    isolate_cache_file();
     // 写入 -> 读回 roundtrip（rename 原子替换 + 目录 sync 路径）。
     // 用空 Vec：catalog() 对空缓存走静态兜底，不会把测试数据带进内存缓存污染同进程其他测试。
     let catalog: Vec<ProviderCatalog> = Vec::new();

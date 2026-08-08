@@ -55,6 +55,9 @@ impl Drop for ResetRefreshOnDrop {
 static REFRESH_PANIC_FOR_TEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn cache_file() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("KXEN_CATALOG_FILE") {
+        return std::path::PathBuf::from(p);
+    }
     crate::core::paths::data_dir().join("models-catalog.json")
 }
 
