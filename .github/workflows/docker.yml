@@ -47,18 +47,18 @@ jobs:
           test -x context/kxen-amd64 && test -x context/kxen-arm64
           cp Dockerfile context/
 
-      - uses: docker/setup-qemu-action@b7b57377787b6b28354b4a8b15439ee49b3fbc1f # v4
-      - uses: docker/setup-buildx-action@4d0108bb0120d3cd17e1615efcb7e6cf7436ae01 # v4
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Login to GHCR
-        uses: docker/login-action@b45d80de39232cd6807999eace34051a90ac8ea7 # v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push multi-arch image
-        uses: docker/build-push-action@17ad435ebae2a9a5142768baa3df9653d947235e # v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: context
           file: Dockerfile
