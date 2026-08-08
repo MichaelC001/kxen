@@ -6,30 +6,11 @@
 
 ## [Unreleased]
 
-### Added
-
-- kxen server 的 Docker 多架构镜像（linux/amd64、linux/arm64）随每次 release 发布到 `ghcr.io/stringke/kxen`，默认以 Web 模式启动，数据持久化在 `/data` 卷。
-
-## [0.1.2]
-
-### Changed
-
-- 仓库结构：Cargo workspace 上移至仓库根，产品逻辑独立为 `crates/kxen-core` 库 crate，无头 server 为 `crates/kxen-cli`（产物仍名 `kxen`），`src-tauri` 仅保留 Tauri 桌面壳。
-
-### Fixed
-
-- Linux ARM64 发布构建：补齐 `xdg-utils`（deb/AppImage bundler 调用 `xdg-open`），此前该镜像不自带导致打包失败。
-
-## [0.1.1]
-
-### Fixed
-
-- 官网生产依赖审计：`postcss` 链的 `nanoid` 高危告警（size 为 0 时死循环），通过 pnpm override 锁定 `>=3.3.17`。
-
 ## [0.1.0]
 
 ### Added
 
+- kxen server 的 Docker 多架构镜像（linux/amd64、linux/arm64）随每次 release 发布到 `ghcr.io/stringke/kxen`，默认以 Web 模式启动，数据持久化在 `/data` 卷。
 - 无头 Web 模式：新增 `kxen` 命令行 server，不带 GUI 启动完整应用服务，浏览器打开启动时打印的带 token URL 即可使用全部功能；支持 `--bind`、`--port`、`--token`、`--allow-host` 参数和 `KXEN_DATA_DIR` 数据目录覆盖，远程访问可经 tailscale 终结 TLS。
 - 桌面应用内置浏览器访问：桌面窗口与浏览器是同一内嵌服务的两个平等客户端，经同一个 `/ws` 端点使用全部功能。
 - 系统托盘：打开窗口、在浏览器中打开、复制访问链接、浏览器访问开关、默认打开方式(窗口或浏览器)、关闭时最小化到托盘、检查更新和退出。
@@ -40,6 +21,7 @@
 
 ### Changed
 
+- 仓库结构：Cargo workspace 上移至仓库根，产品逻辑独立为 `crates/kxen-core` 库 crate，无头 server 为 `crates/kxen-cli`（产物仍名 `kxen`），`src-tauri` 仅保留 Tauri 桌面壳。
 - 桌面窗口与浏览器统一使用同一个内嵌 axum 服务的 `/ws` WebSocket 端点，webview 与浏览器使用相同的前端传输层。
 - 前端适配纯浏览器环境：自动更新、系统通知、原生对话框和拖放在浏览器中自动降级，项目选择改为输入路径，附件经浏览器文件选择控件；token 经 URL 一次性投递，存入 sessionStorage 后从地址栏抹除。
 - Windows 安装包(NSIS)和 Linux 安装包(AppImage、deb)进入正式发布矩阵；Windows 版本暂不做 Authenticode 签名，SmartScreen 提示时选择 More info -> Run anyway。
@@ -51,6 +33,8 @@
 
 ### Fixed
 
+- 官网生产依赖审计：`postcss` 链的 `nanoid` 高危告警（size 为 0 时死循环），通过 pnpm override 锁定 `>=3.3.17`。
+- Linux ARM64 发布构建：补齐 `xdg-utils`（deb/AppImage bundler 调用 `xdg-open`），该 runner 镜像不自带。
 - Linux 上 Hooks 和 dev server 不再硬依赖 `/bin/zsh`，按 zsh -> bash -> sh 探测可用解释器。
 - Linux 上进程组终止信号不再静默丢失：GNU kill 需要 `--` 分隔符才能正确解析负数 pgid，此前该平台上的组终止实际为空发并泄漏子进程。
 
@@ -102,8 +86,6 @@
 - 已被 Schedule durable dispatch 替代的 cron_dispatch 模块。
 - 与当前代码和产品文档重复的临时实现计划文档。
 
-[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.2...HEAD
-[0.1.2]: https://github.com/StringKe/kxen/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/StringKe/kxen/compare/v0.1.0...v0.1.1
+[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/StringKe/kxen/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/StringKe/kxen/releases/tag/v0.0.1
