@@ -5,6 +5,8 @@ overrides:
   # GHSA-5p4m-2wfm-xmqj：@astrojs/internal-helpers 链的 js-yaml !!omap 二次方 CPU 消耗，audit 门禁要求 >=4.3.1。
   # 锁 4.x：5.x 改为纯 ESM 无 default export，astro 7 的 CJS interop 不兼容。
   js-yaml: ">=4.3.1 <5.0.0"
+  # postcss 链的 nanoid size=0 死循环（pnpm audit high 告警，影响 <3.3.17),audit 门禁要求 >=3.3.17
+  nanoid: ">=3.3.17"
 # Declines install scripts for esbuild and sharp (they ship prebuilds),
 # clearing pnpm's build-scripts gate. Adding a package here lets it run scripts.
 packages: []

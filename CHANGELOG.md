@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+## [0.1.1]
+
+### Fixed
+
+- 官网生产依赖审计：`postcss` 链的 `nanoid` 高危告警（size 为 0 时死循环），通过 pnpm override 锁定 `>=3.3.17`。
+
 ## [0.1.0]
 
 ### Added
@@ -82,6 +88,7 @@
 - 已被 Schedule durable dispatch 替代的 cron_dispatch 模块。
 - 与当前代码和产品文档重复的临时实现计划文档。
 
-[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/StringKe/kxen/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/StringKe/kxen/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/StringKe/kxen/releases/tag/v0.0.1
