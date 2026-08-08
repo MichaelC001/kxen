@@ -10,7 +10,6 @@ KXEN_COVERAGE_IGNORE='(^|/)(main|app_state|os_notify)\.rs$|(^|/)ws/(llm_task|ops
 # （与 mcp/oauth_flow.rs 同类）；auth/refresh.rs 与 llm/kiro.rs 是 token 端点/推理端点 HTTP 适配器
 # （与 llm/anthropic.rs 同类）。纯逻辑（spec/zai_zcode/aws_sso/grant/wire/eventstream/stream）必须计入。
 cargo llvm-cov \
-  \
   --package kxen-core \
   --all-targets \
   --all-features \

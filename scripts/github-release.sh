@@ -145,6 +145,9 @@ verify_draft() {
     return 1
   fi
   remote_dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/kxen-remote-assets.XXXXXX")"
+  # set -e 下比对失败会直接退出脚本,用 EXIT trap 保证下载目录一定被清理;
+  # 路径在定义时展开,set -u 下 trap 触发时 local 已不可见
+  trap "rm -rf '$remote_dir'" EXIT
   gh release download "$release_tag" --repo "$repository" --dir "$remote_dir"
   bash "$script_dir/verify-release-assets.sh" "$release_tag" "$repository" "$remote_dir"
   while IFS= read -r local_path; do

@@ -190,13 +190,14 @@ fi
 printf 'sig-linux-x86_64\n' > "$merge_dir/$empty_sig_asset.sig"
 
 # 全部平台无 sig 必须失败。
-empty_dir="$(mktemp -d "${TMPDIR:-/tmp}/kxen-release-lib-test-empty.XXXXXX")"
+# merge_dir 子目录,EXIT trap 统一清理。
+empty_dir="$(mktemp -d "$merge_dir/empty.XXXXXX")"
 if kxen_merge_updater_manifest 9.9.9 example/project v9.9.9 "$empty_dir" "$empty_dir/latest.json" >/dev/null 2>&1; then
   fail 'merge without any signature was accepted'
 fi
 
 # kxen_write_sha256sums:覆盖全部文件且校验通过。
-sums_dir="$(mktemp -d "${TMPDIR:-/tmp}/kxen-release-lib-test-sums.XXXXXX")"
+sums_dir="$(mktemp -d "$merge_dir/sums.XXXXXX")"
 printf 'a\n' > "$sums_dir/a.txt"
 printf 'b\n' > "$sums_dir/b.txt"
 if ! kxen_write_sha256sums "$sums_dir"; then

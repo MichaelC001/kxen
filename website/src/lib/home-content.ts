@@ -41,7 +41,7 @@ kxen 无头 server（在服务器或本机运行后用浏览器访问全部功�
 
 ## 稳定边界
 
-- 桌面平台覆盖 macOS（Apple Silicon 和 Intel）、Windows（x64 和 ARM64）、Linux（x86_64 和 ARM64）;kxen 覆盖同样的六个平台。
+- 桌面平台覆盖 macOS（Apple Silicon 和 Intel）、Windows（x64 和 ARM64）、Linux（x86_64 和 ARM64）;kxen 无头 server 覆盖同样的六个平台。
 - 应用形态是 Tauri 2 桌面应用和 kxen 无头 server；桌面 webview 与浏览器是同一内嵌服务的两个平等客户端，经同一个 /ws 端点使用全部功能。除 kxen 无头 server 外，不提供其他 CLI、TUI 或公开 HTTP API。
 - Rust 后端拥有运行状态，SolidJS 前端负责交互和呈现。
 - 所有模型调用进入统一资源管理层。
