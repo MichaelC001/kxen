@@ -15,6 +15,7 @@ pub(super) fn build_ctx(
     model: &ModelRef,
     allowed: Option<&'static [&'static str]>,
     cancel: CancelToken,
+    wake: u32,
 ) -> AgentContext {
     let agent_name = name.to_string();
     let session_id = state.session_id.clone();
@@ -23,6 +24,20 @@ pub(super) fn build_ctx(
     let agents = state.deps.agents.clone();
     let agent_name_tx = name.to_string();
     let session_id_tx = session_id.clone();
+    // turn 级持久化：每迭代一条 Assistant 消息落 per-member JSONL，id 含成员+wake 维度
+    //（确定性，重试/恢复不写双份）；失败经 run_finish fail-closed 终止本轮
+    let persist_turn: crate::agent::agent_loop::PersistTurn = {
+        let path = super::persist::path(&state.dir, name);
+        let session_id_persist = session_id.clone();
+        let member = name.to_string();
+        let model = model.clone();
+        std::sync::Arc::new(move |turn, parts| {
+            let mut message = crate::core::session::new_message(&session_id_persist, crate::core::session::Role::Assistant, parts);
+            message.id = format!("{member}:w{wake}:t{turn}");
+            message.model = Some(model.clone());
+            crate::core::session::append_line_idempotent(&path, &message).map_err(|error| error.to_string())
+        })
+    };
     AgentContext {
         registry: state.deps.registry.clone(),
         tracker: crate::tools::fs_tool::FileTracker::default(),
@@ -49,7 +64,7 @@ pub(super) fn build_ctx(
         lsp: Some(runtime.lsp()),
         notify: None,
         persist_compaction: None,
-        persist_turn: None,
+        persist_turn: Some(persist_turn),
         auxiliary_usage: Arc::default(),
         usage_reporter: Some(usage_reporter(state)),
         stream_override: None,
@@ -70,6 +85,32 @@ pub(super) fn build_ctx(
 
 fn usage_reporter(state: &Arc<TeamState>) -> crate::agent::agent_loop::UsageReporter {
     crate::agent::agent_loop::UsageReporter::new(state.session_id.clone(), state.deps.session_usage.clone(), state.bus.clone())
+}
+
+pub(crate) fn teammate_system(state: &Arc<TeamState>, name: &str, role: &str, approved: bool) -> String {
+    let mode = if approved {
+        "You may use your full tool set to implement."
+    } else {
+        "You are in PLAN-ONLY mode: read-only tools. Produce a concrete plan and stop - the lead must approve it before you implement anything."
+    };
+    // roster 每轮重建：成员状态变化（新 spawn / shutdown / 状态流转）实时反映进 system prompt
+    let roster = lock(&state.members)
+        .iter()
+        .map(|m| format!("- {} (role: {}, model: {}, status: {:?})", m.name, m.role, m.model.model, m.status))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let observer_note = if role == "observer" {
+        " You are the OBSERVER: you receive copies of all team traffic. Watch the process and report summaries or issues to the lead."
+    } else {
+        ""
+    };
+    format!(
+        "You are teammate \"{name}\" (role: {role}) in a kxen agent team. {mode}{observer_note} \
+        Current team roster:\n{roster}\n\
+        Coordinate via send_message (to: \"lead\" or a teammate name from the roster) and team_task (claim/complete/list). \
+        Act on every task brief IMMEDIATELY with tools (write/edit/exec/read) in the SAME turn - never reply with intent-only text such as \"I will start\". \
+        Report results to the lead when done, then go idle."
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

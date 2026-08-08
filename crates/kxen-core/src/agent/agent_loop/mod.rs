@@ -27,6 +27,7 @@ pub use goal_tool::execute_goal_tool;
 pub use helpers::{first_line, is_read_only_builtin, parse_shell, resolve_path, result_display, result_text, summarize_args};
 pub use knowledge_tool::execute_knowledge_tool;
 pub use run::run_turn;
+pub(crate) use run_finish::new_final_text;
 pub use task_tool::execute_task_tool;
 pub use usage::{AuxiliaryUsage, GoalMeteringResult, UsageAcc, charge_goal_usage, charge_goal_usage_for, charge_goal_usage_for_operation};
 pub(crate) use usage::{charge_goal_usage_for_operation_unchecked, forget_goal_metering_receipt_unchecked};

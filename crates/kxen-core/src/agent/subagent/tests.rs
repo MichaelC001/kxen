@@ -142,3 +142,56 @@ async fn dispatch_rechecks_circuit_before_next_child_request() {
     assert!(error.contains("no available model"));
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1, "rejected child must not start another stream");
 }
+
+/// P1 turn 持久化端到端：dispatch 落 per-run turns JSONL（u + final，无工具调用故无 t*），
+/// flatten 重建 wire 合法；transcript 写穿 agents 目录；无 session 上下文（session_id=None）不落盘。
+#[tokio::test]
+async fn dispatch_persists_run_log_and_transcript_when_session_scoped() {
+    let dir = std::env::temp_dir().join(format!("kxen-subagent-runlog-{}", std::process::id()));
+    let sessions_root = dir.join("sessions");
+    let mut config = crate::core::config::Config::default();
+    config
+        .roles
+        .insert("execution".into(), crate::core::config::RoleBinding { provider: "p".into(), model: "m".into(), ..Default::default() });
+    let stream: crate::llm::StreamFn =
+        Arc::new(|_, _, _, _| Box::pin(futures::stream::iter(vec![crate::llm::Delta::Text("PONG".into()), crate::llm::Delta::Done])));
+    let agents = Arc::new(crate::agent::activity::AgentRegistry::default());
+    agents.set_agents_root(sessions_root.clone());
+    let deps = SubagentDeps {
+        registry: Arc::new(crate::tools::task::TaskRegistry::new()),
+        workdir: Arc::from(Path::new("/tmp")),
+        path_grants: Arc::new(Default::default()),
+        store: crate::auth::credential::AuthStore::default(),
+        mrm: Arc::new(ModelResourceManager::new(config)),
+        hooks: None,
+        extras: None,
+        cancel: None,
+        agents: agents.clone(),
+        session_id: Some("s1".into()),
+        bus: crate::core::event::EventBus::default(),
+        approvals: None,
+        mcp: None,
+        lsp: None,
+        stream_override: Some(stream),
+        usage_reporter: None,
+    };
+
+    let result = dispatch("execution", "reply PONG".into(), &deps, AgentKind::Subagent).await.expect("dispatch");
+    assert_eq!(result.answer, "PONG");
+
+    let turns = crate::core::session::load_lines(&sessions_root.join(format!("s1/agents/{}.turns.jsonl", result.name))).unwrap();
+    let ids: Vec<&str> = turns.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, vec![format!("{}:u", result.name), format!("{}:final", result.name)], "brief 与结论必须落盘: {ids:?}");
+    let rebuilt = crate::agent::compact::flatten_stored(&turns);
+    assert_eq!(rebuilt.len(), 2);
+    assert_eq!(rebuilt[0].content, "reply PONG");
+    assert_eq!(rebuilt[1].content, "PONG");
+    assert!(sessions_root.join(format!("s1/agents/{}.transcript.jsonl", result.name)).exists(), "transcript 必须写穿");
+
+    // 无 session 上下文的派发（ping 路径）：纯内存，不产生任何落盘文件
+    let mut deps2 = deps.clone();
+    deps2.session_id = None;
+    dispatch("execution", "ping".into(), &deps2, AgentKind::Subagent).await.expect("ping dispatch");
+    assert!(!sessions_root.join("default").exists(), "无 session 上下文不得落盘");
+    std::fs::remove_dir_all(&dir).ok();
+}

@@ -1,6 +1,9 @@
 // ---------------- teammate 常驻 loop ----------------
 
 mod context;
+mod persist;
+
+pub(super) use context::teammate_system;
 
 use super::TeamState;
 use super::inbox::append_inbox;
@@ -42,8 +45,18 @@ pub(super) async fn teammate_loop(
         }
     };
     // P0-1 跨 wake 历史：run_turn 就地累积（assistant 调用 + 工具结果 + 末轮文本），wake 只 append 新 inbox；
-    // system 不进历史（roster 每轮实时重建），装配时 prepend 新鲜副本
-    let mut history: Vec<Message> = Vec::new();
+    // system 不进历史（roster 每轮实时重建），装配时 prepend 新鲜副本。
+    // P1 turn 持久化：历史写穿透 per-member JSONL，启动时从盘重建（spawn 盘空 -> 空历史）；
+    // 盘损坏 fail-closed 封锁成员，不按降级历史起跑。
+    let (stored, mut history, mut wake) = match persist::restore(&state.dir, &name) {
+        Ok(restored) => restored,
+        Err(error) => {
+            report_delivery_error(&state, &name, "history load", &error);
+            block_member(&state, &name, "history load", &error);
+            return;
+        }
+    };
+    let restored = !stored.is_empty();
     let mut first_round = true;
     let mut pending_delivery = None;
     // approved 初值由调用方给：spawn 按 !plan_approval，restore 按落盘记录（崩溃前已批的不重批）
@@ -81,11 +94,14 @@ pub(super) async fn teammate_loop(
             }
             CredentialRefresh::Finished(RefreshOutcome::NotNeeded | RefreshOutcome::Refreshed) => false,
         };
-        let mut ctx = build_ctx(&state, &runtime, &name, &model, allowed, cancel.clone());
+        let mut ctx = build_ctx(&state, &runtime, &name, &model, allowed, cancel.clone(), wake);
         if first_round {
             first_round = false;
-            // 首轮从 brief 建起（restore 场景并入残存 inbox 与本人未完成 claim，P1-2）
-            let first = match first_prompt(&state, &name, &prompt) {
+            // 首轮从 brief 建起（restore 场景并入残存 inbox 与本人未完成 claim，P1-2）。
+            // 历史已从盘重建且 prompt 是落盘原 brief（restart_members 原样重启）时 brief 不重复注入；
+            // resume_member 的 recovery_prompt 是新指令，照常注入。
+            let brief = if restored && persist::is_original_brief(&stored, &prompt) { None } else { Some(prompt.as_str()) };
+            let first = match first_prompt(&state, &name, brief) {
                 Ok((first, delivery)) => {
                     pending_delivery = delivery;
                     first
@@ -96,10 +112,23 @@ pub(super) async fn teammate_loop(
                     return;
                 }
             };
-            history.push(Message::user(first));
+            if !first.is_empty() {
+                // 先落盘后注入：注入内容无记录会让恢复后的历史丢来信/指令
+                let id = persist::user_message_id(&name, wake, pending_delivery.as_ref());
+                if persist_or_block(&state, &name, persist::append_user(&state.dir, &name, &state.session_id, &id, &first)) {
+                    return;
+                }
+                history.push(Message::user(first));
+            }
         }
         let mut messages = round_messages(teammate_system(&state, &name, &role, approved), &history);
         let outcome = run_turn(&mut ctx, &mut messages).await;
+        // wake 末轮文本落盘：迭代已 persist_turn，final 缺档会让恢复后的历史丢掉本轮结论
+        if let Some(final_text) = crate::agent::agent_loop::new_final_text(&messages, &outcome)
+            && persist_or_block(&state, &name, persist::append_final(&state.dir, &name, &state.session_id, wake, &model, &final_text))
+        {
+            return;
+        }
         history = strip_system(messages);
         if outcome.aborted {
             if pending_delivery.is_some() {
@@ -183,16 +212,29 @@ pub(super) async fn teammate_loop(
         // idle：听 inbox 唤醒（P1-3：5min 超时自醒；shutdown 经 cancel 即刻醒）
         match idle_wait(&state, &name, &notify, &cancel, IDLE_TIMEOUT, approved).await {
             IdleWake::Cancel => break,
-            IdleWake::Nudge => history.push(Message::user(CLAIM_NUDGE)),
+            IdleWake::Nudge => {
+                wake += 1;
+                let id = persist::user_message_id(&name, wake, None);
+                if persist_or_block(&state, &name, persist::append_user(&state.dir, &name, &state.session_id, &id, CLAIM_NUDGE)) {
+                    return;
+                }
+                history.push(Message::user(CLAIM_NUDGE));
+            }
             IdleWake::Error(error) => {
                 report_delivery_error(&state, &name, "inbox drain", &error);
                 block_member(&state, &name, "inbox claim", &error);
                 return;
             }
             IdleWake::Inbox(delivery) => {
+                wake += 1;
                 let inbox = delivery.messages();
                 // P1-4：来信入 transcript（AgentFocusView 可见）
                 push_inbox_transcript(&state, &name, &inbox);
+                // 先落盘后注入：来信只在内存时崩溃即丢（restore 只剩 Blocked 状态）
+                let id = persist::user_message_id(&name, wake, Some(&delivery));
+                if persist_or_block(&state, &name, persist::append_user(&state.dir, &name, &state.session_id, &id, &inbox_text(&inbox))) {
+                    return;
+                }
                 history.push(Message::user(inbox_text(&inbox)));
                 pending_delivery = Some(delivery);
             }
@@ -245,34 +287,19 @@ fn report_delivery_error(state: &TeamState, name: &str, operation: &str, error: 
     state.bus.publish(crate::core::event::Event::notify(format!("Teammate {name} 消息保存失败：{error}"), Some(state.session_id.clone())));
 }
 
-fn durable_approval(state: &TeamState, name: &str, fallback: bool) -> bool {
-    lock(&state.members).iter().find(|member| member.name == name).map(|member| member.approved).unwrap_or(fallback)
+/// turn 落盘失败的统一出口：上报 + 封锁成员（fail-closed），返回 true 让调用方直接 return。
+fn persist_or_block(state: &Arc<TeamState>, name: &str, result: Result<(), String>) -> bool {
+    match result {
+        Ok(()) => false,
+        Err(error) => {
+            block_member(state, name, "turn persistence", &error);
+            true
+        }
+    }
 }
 
-pub(super) fn teammate_system(state: &Arc<TeamState>, name: &str, role: &str, approved: bool) -> String {
-    let mode = if approved {
-        "You may use your full tool set to implement."
-    } else {
-        "You are in PLAN-ONLY mode: read-only tools. Produce a concrete plan and stop - the lead must approve it before you implement anything."
-    };
-    // roster 每轮重建：成员状态变化（新 spawn / shutdown / 状态流转）实时反映进 system prompt
-    let roster = lock(&state.members)
-        .iter()
-        .map(|m| format!("- {} (role: {}, model: {}, status: {:?})", m.name, m.role, m.model.model, m.status))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let observer_note = if role == "observer" {
-        " You are the OBSERVER: you receive copies of all team traffic. Watch the process and report summaries or issues to the lead."
-    } else {
-        ""
-    };
-    format!(
-        "You are teammate \"{name}\" (role: {role}) in a kxen agent team. {mode}{observer_note} \
-        Current team roster:\n{roster}\n\
-        Coordinate via send_message (to: \"lead\" or a teammate name from the roster) and team_task (claim/complete/list). \
-        Act on every task brief IMMEDIATELY with tools (write/edit/exec/read) in the SAME turn - never reply with intent-only text such as \"I will start\". \
-        Report results to the lead when done, then go idle."
-    )
+fn durable_approval(state: &TeamState, name: &str, fallback: bool) -> bool {
+    lock(&state.members).iter().find(|member| member.name == name).map(|member| member.approved).unwrap_or(fallback)
 }
 
 fn set_status(state: &Arc<TeamState>, name: &str, status: MemberStatus) -> Result<(), String> {

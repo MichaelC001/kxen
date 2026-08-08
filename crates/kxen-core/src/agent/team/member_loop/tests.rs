@@ -45,9 +45,9 @@ fn member_context_uses_each_session_workspace_mrm() {
     let state_b = manager.state_for("ses_b").unwrap();
 
     let ctx_a =
-        build_ctx(&state_a, &runtime_a, "worker-a", &ModelRef::new("xai", "explicit"), None, crate::agent::cancel::CancelToken::new());
+        build_ctx(&state_a, &runtime_a, "worker-a", &ModelRef::new("xai", "explicit"), None, crate::agent::cancel::CancelToken::new(), 1);
     let ctx_b =
-        build_ctx(&state_b, &runtime_b, "worker-b", &ModelRef::new("xai", "explicit"), None, crate::agent::cancel::CancelToken::new());
+        build_ctx(&state_b, &runtime_b, "worker-b", &ModelRef::new("xai", "explicit"), None, crate::agent::cancel::CancelToken::new(), 1);
     assert_eq!(ctx_a.mrm.unwrap().role("execution").unwrap().model, "workspace-a-model");
     assert_eq!(ctx_b.mrm.unwrap().role("execution").unwrap().model, "workspace-b-model");
     std::fs::remove_dir_all(root).ok();
@@ -192,6 +192,34 @@ fn awaiting_plan_approval_maps_through_to_activity() {
     let list = state.deps.agents.list("s1");
     assert!(matches!(list[0].status, crate::agent::activity::ActivityStatus::AwaitingPlanApproval));
     assert_eq!(serde_json::to_value(list[0].status).unwrap(), "awaiting_plan_approval", "前端契约为 snake_case");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// build_ctx 装配的 persist_turn：迭代消息落 per-member JSONL（id 含成员+wake 维度），幂等重写不双份
+#[test]
+fn member_persist_turn_writes_iteration_to_history_log() {
+    let (state, dir) = state("persist-turn");
+    let runtime = state.deps.runtimes.runtime(&state.workdir).unwrap();
+    let ctx = build_ctx(&state, &runtime, "w", &ModelRef::new("p", "m"), None, crate::agent::cancel::CancelToken::new(), 3);
+    let persist = ctx.persist_turn.expect("member ctx 必须装 persist_turn");
+    let parts = vec![crate::core::session::Part::ToolCall {
+        name: "read".into(),
+        input: serde_json::json!("a.rs"),
+        output: "data".into(),
+        args: None,
+        id: None,
+    }];
+    persist(2, parts.clone()).unwrap();
+    persist(2, parts).unwrap();
+
+    let stored = super::persist::load(&state.dir, "w").unwrap();
+    assert_eq!(stored.len(), 1, "幂等重写不双份");
+    assert_eq!(stored[0].id, "w:w3:t2");
+    assert_eq!(stored[0].model.as_ref(), Some(&ModelRef::new("p", "m")));
+    // 从盘重建 wire 合法（assistant_with_tools + 配对 tool_result）
+    let rebuilt = crate::agent::compact::flatten_stored(&stored);
+    assert_eq!(rebuilt.len(), 2);
+    assert_eq!(rebuilt[1].tool_call_id, rebuilt[0].tool_calls.first().map(|c| c.id.clone()));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

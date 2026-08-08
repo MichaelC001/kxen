@@ -64,3 +64,18 @@ fn stop_with_error(ctx: &AgentContext, message: String) -> TurnResolution {
     (ctx.on_event)(event.clone());
     TurnResolution::Stop { final_text: message, terminal: Some(event), aborted: false }
 }
+
+/// run 新增的末轮 assistant 文本（member/subagent 落 wake final 用）：
+/// 只在 messages 尾消息确为本 run 新推的纯文本时返回（stop_with_error/max_turns 不推消息，
+/// final_text 与尾消息对不上即放弃）；fatal_stream_error 的部分产出 final_text 带错误后缀，
+/// starts_with 仍命中。落盘内容取尾消息原文，与内存 history 严格一致。
+pub(crate) fn new_final_text(messages: &[Message], outcome: &super::events::AgentOutcome) -> Option<String> {
+    if outcome.aborted {
+        return None;
+    }
+    let last = messages.last()?;
+    if last.role != crate::llm::types::Role::Assistant || !last.tool_calls.is_empty() || last.content.is_empty() {
+        return None;
+    }
+    outcome.final_text.starts_with(&last.content).then(|| last.content.clone())
+}

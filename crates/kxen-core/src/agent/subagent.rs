@@ -207,6 +207,19 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         done_tx
     });
 
+    // turn 级持久化（P1）：per-run JSONL（布局见 activity_disk），name 每 run 唯一即确定性 id。
+    // 无 session 上下文（session_id=None，如 ping 派发）或未注入 agents_root 时保持纯内存。
+    // subagent 一次性不续跑：落盘是恢复真源（registry 转录重建）与审计，崩溃窗口语义同主会话。
+    let run_log = deps.session_id.as_ref().and_then(|_| deps.agents.run_log_path(&session_id, &name));
+    let persist_turn: Option<crate::agent::agent_loop::PersistTurn> = run_log.clone().map(|path| {
+        let session_id = session_id.clone();
+        let member = name.clone();
+        let model = model.clone();
+        Arc::new(move |turn: u32, parts: Vec<crate::core::session::Part>| {
+            run_line(&path, &session_id, format!("{member}:t{turn}"), crate::core::session::Role::Assistant, parts, Some(model.clone()))
+        }) as crate::agent::agent_loop::PersistTurn
+    });
+
     let mut child = AgentContext {
         registry: deps.registry.clone(),
         tracker: crate::tools::fs_tool::FileTracker::default(),
@@ -233,7 +246,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         lsp: deps.lsp.clone(),
         notify: None, // 子代理不开通知通道：不嵌套派发（background 只从主会话发起）
         persist_compaction: None,
-        persist_turn: None,
+        persist_turn,
         auxiliary_usage: Arc::default(),
         usage_reporter: deps.usage_reporter.clone(),
         stream_override: deps.stream_override.clone(),
@@ -243,6 +256,9 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
             let agents = deps.agents.clone();
             let name_event = name.clone();
             let sid = session_id.clone();
+            // 无 session 上下文（"default" 兜底，如 ping 派发）：只广播不落 registry——
+            // push_transcript 会写穿落盘，"default" 伪 session 不得产生磁盘垃圾
+            let scoped = deps.session_id.is_some();
             Arc::new(move |event| {
                 use serde_json::json;
                 let mut payload = match serde_json::to_value(&event) {
@@ -253,7 +269,9 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
                     obj.insert("agent".into(), json!(name_event));
                     obj.insert("session_id".into(), json!(sid));
                 }
-                agents.push_transcript(&sid, &name_event, payload.clone());
+                if scoped {
+                    agents.push_transcript(&sid, &name_event, payload.clone());
+                }
                 bus.publish(crate::core::event::Event::LlmDelta(payload));
             })
         },
@@ -272,14 +290,59 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
             "\n\n<scheduling>{note}. Flag this downgrade in your final report if it affects result quality.</scheduling>"
         ));
     }
+    // 先落盘后注入：brief 无记录则重启后的可检查记录缺少任务输入
+    if let Some(path) = &run_log {
+        run_line(
+            path,
+            &session_id,
+            format!("{name}:u"),
+            crate::core::session::Role::User,
+            vec![crate::core::session::Part::Text { text: prompt.clone() }],
+            None,
+        )
+        .map_err(|error| {
+            deps.agents.set_status(&session_id, &name, crate::agent::activity::ActivityStatus::Failed);
+            format!("run log persist failed: {error}")
+        })?;
+    }
     let mut messages = vec![Message::system(system_prompt), Message::user(prompt)];
     let outcome = run_turn(&mut child, &mut messages).await;
+    // 末轮文本落盘：迭代已 persist_turn，final 缺档则恢复的记录缺结论（落盘内容与内存严格一致）
+    if let Some(path) = &run_log
+        && let Some(final_text) = crate::agent::agent_loop::new_final_text(&messages, &outcome)
+    {
+        run_line(
+            path,
+            &session_id,
+            format!("{name}:final"),
+            crate::core::session::Role::Assistant,
+            vec![crate::core::session::Part::Text { text: final_text }],
+            Some(model.clone()),
+        )
+        .map_err(|error| format!("run log persist failed: {error}"))?;
+    }
     deps.agents.set_status(
         &session_id,
         &name,
         if outcome.aborted { crate::agent::activity::ActivityStatus::Shutdown } else { crate::agent::activity::ActivityStatus::Done },
     );
     Ok(DispatchResult { name, degraded_note, answer: outcome.final_text, model: child.model, degraded_from: resolved.degraded_from })
+}
+
+/// per-run JSONL 追加一行（session Message 形态，与主会话/成员历史同基建）；
+/// 失败如实上传（fail-closed：审计缺档不得静默继续）。
+fn run_line(
+    path: &Path,
+    session_id: &str,
+    id: String,
+    role: crate::core::session::Role,
+    parts: Vec<crate::core::session::Part>,
+    model: Option<crate::llm::ModelRef>,
+) -> Result<(), String> {
+    let mut message = crate::core::session::new_message(session_id, role, parts);
+    message.id = id;
+    message.model = model;
+    crate::core::session::append_line_idempotent(path, &message).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

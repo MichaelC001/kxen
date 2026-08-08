@@ -1,6 +1,7 @@
 //! kxen-agent：agent loop（LLM -> tool_call -> 工具执行 -> 回传 -> 循环）、subagent、workflow。
 
 pub mod activity;
+pub mod activity_disk;
 pub mod agent_loop;
 pub mod approval;
 pub mod background;

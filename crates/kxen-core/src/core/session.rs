@@ -33,6 +33,9 @@ pub use storage_recovery::{MessageIntegrity, RecoveryReport, inspect_storage, re
 #[path = "session/append.rs"]
 mod append;
 pub use append::{append_message, append_message_durable, append_message_idempotent, append_message_idempotent_durable};
+#[path = "session/log.rs"]
+mod log;
+pub use log::{append_line_idempotent, load_lines};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,

@@ -87,6 +87,8 @@ impl AppState {
         let workdir: std::sync::Arc<std::path::Path> = std::sync::Arc::from(initial_workdir(&cwd, dirs::home_dir()));
         let bus = kxen_core::core::event::EventBus::default();
         let agents = std::sync::Arc::new(kxen_core::agent::activity::AgentRegistry::default());
+        // subagent 转录/turn 历史写穿根目录（sessions_dir，随会话子目录清理）；teammate 根目录由 TeamManager 注入
+        agents.set_agents_root(kxen_core::core::paths::sessions_dir());
         let approvals = std::sync::Arc::new(kxen_core::agent::approval::production_broker(bus.clone()));
         let workspace_runtimes = std::sync::Arc::new(kxen_core::workspace_runtime::WorkspaceRuntimeRegistry::with_mcp_execution_approval(
             approvals.clone(),

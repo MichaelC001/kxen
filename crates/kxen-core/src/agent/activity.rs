@@ -6,7 +6,7 @@ use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 
-const TRANSCRIPT_CAP: usize = 200;
+pub(crate) const TRANSCRIPT_CAP: usize = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -46,15 +46,19 @@ pub struct AgentRegistry {
     /// 子代理独立取消句柄 (session_id, name)：subagent/workflow 派发时挂载，agents.stop 按名停单个
     ///（teammate 不走这里，它的 token 在 TeamState.cancels，由 team shutdown 通道取消）。
     cancels: Mutex<HashMap<(String, String), crate::agent::cancel::CancelToken>>,
-    /// teammate 转录写穿根目录（data_dir/teams，TeamManager 构造时注入）：
-    /// 内存 ring 重启即失，teammate 是常驻代理，transcript 由 <root>/<session>/transcripts/<name>.jsonl 兜底；
-    /// subagent/workflow 一次性派发，不持久化。None = 纯内存（测试默认）。
+    /// teammate 转录写穿根目录（data_dir/teams，TeamManager 构造时注入）：内存 ring 重启即失，
+    /// teammate 是常驻代理，transcript 由 <root>/<session>/transcripts/<name>.jsonl 兜底；None = 纯内存（测试默认）。
     team_root: Mutex<Option<std::path::PathBuf>>,
+    /// subagent 转录/turn 历史根目录（sessions_dir，AppState 启动注入；布局见 activity_disk）。
+    agents_root: Mutex<Option<std::path::PathBuf>>,
+    /// 已从盘恢复过 subagent 条目的 session（惰性恢复只在首次访问时扫描一次）
+    restored: Mutex<std::collections::HashSet<String>>,
 }
 
 impl AgentRegistry {
     pub fn register(&self, session_id: &str, name: &str, kind: AgentKind, model: &ModelRef) {
         let mut map = crate::core::shared::lock(&self.sessions);
+        self.ensure_restored_locked(&mut map, session_id);
         let list = map.entry(session_id.to_string()).or_default();
         if let Some(existing) = list.iter_mut().find(|a| a.name == name) {
             existing.status = ActivityStatus::Working;
@@ -75,50 +79,44 @@ impl AgentRegistry {
         *crate::core::shared::lock(&self.team_root) = Some(root);
     }
 
-    fn transcript_path(&self, session_id: &str, name: &str) -> Option<std::path::PathBuf> {
-        if crate::core::ids::validate_id(session_id).is_err() || crate::core::ids::validate_id(name).is_err() {
-            tracing::warn!(session_id, name, "transcript persist skipped: invalid id");
-            return None;
+    pub fn set_agents_root(&self, root: std::path::PathBuf) {
+        *crate::core::shared::lock(&self.agents_root) = Some(root);
+    }
+
+    fn transcript_path(&self, session_id: &str, name: &str, kind: AgentKind) -> Option<std::path::PathBuf> {
+        let team_root = crate::core::shared::lock(&self.team_root).clone();
+        let agents_root = crate::core::shared::lock(&self.agents_root).clone();
+        super::activity_disk::transcript_path(team_root.as_deref(), agents_root.as_deref(), kind, session_id, name)
+    }
+
+    /// subagent per-run turn 历史落点（dispatch 的 persist_turn 用）；None = 无持久化上下文。
+    pub fn run_log_path(&self, session_id: &str, name: &str) -> Option<std::path::PathBuf> {
+        let agents_root = crate::core::shared::lock(&self.agents_root).clone();
+        super::activity_disk::run_log_path(agents_root.as_deref(), session_id, name)
+    }
+
+    /// 惰性恢复：进程重启后内存为空，首次访问该 session 时从盘重建 subagent 条目。
+    /// 必须在 sessions 锁内调用（调用方均持锁）；恢复条目占位唯一名，
+    /// 重启后的 register_unique 不会与落盘转录撞名（转录交错根因同 register_unique 注释）。
+    fn ensure_restored_locked(&self, map: &mut HashMap<String, Vec<AgentActivity>>, session_id: &str) {
+        let mut restored = crate::core::shared::lock(&self.restored);
+        if !restored.insert(session_id.to_string()) {
+            return;
         }
-        crate::core::shared::lock(&self.team_root)
-            .as_ref()
-            .map(|root| root.join(session_id).join("transcripts").join(format!("{name}.jsonl")))
+        drop(restored);
+        let Some(root) = crate::core::shared::lock(&self.agents_root).clone() else { return };
+        super::activity_disk::restore_into(map.entry(session_id.to_string()).or_default(), &root, session_id);
     }
 
     fn rehydrate(&self, session_id: &str, name: &str, kind: AgentKind) -> VecDeque<serde_json::Value> {
-        let mut out = VecDeque::new();
         if kind != AgentKind::Teammate {
-            return out;
+            return VecDeque::new();
         }
-        let Some(path) = self.transcript_path(session_id, name) else { return out };
-        let Ok(text) = std::fs::read_to_string(path) else { return out };
-        for line in text.lines() {
-            match serde_json::from_str::<serde_json::Value>(line) {
-                Ok(v) => {
-                    if out.len() >= TRANSCRIPT_CAP {
-                        out.pop_front();
-                    }
-                    out.push_back(v);
-                }
-                Err(e) => tracing::warn!(error = %e, "dropping malformed transcript line"),
-            }
-        }
-        out
+        super::activity_disk::rehydrate(self.transcript_path(session_id, name, kind))
     }
 
-    /// 追加写一行 JSONL；落盘失败只告警不丢内存态（transcript 是观测面，不该拖死 agent loop）
-    fn persist_line(&self, session_id: &str, name: &str, payload: &serde_json::Value) {
-        use std::io::Write;
-        let Some(path) = self.transcript_path(session_id, name) else { return };
-        let Some(parent) = path.parent() else { return };
-        let Ok(line) = serde_json::to_string(payload) else { return };
-        let result = std::fs::create_dir_all(parent).and_then(|()| {
-            let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
-            writeln!(f, "{line}")
-        });
-        if let Err(e) = result {
-            tracing::warn!(error = %e, "transcript persist failed");
-        }
+    fn persist_line(&self, session_id: &str, name: &str, kind: AgentKind, payload: &serde_json::Value) {
+        super::activity_disk::append_line(self.transcript_path(session_id, name, kind), payload);
     }
 
     /// 前缀定名注册（subagent/workflow 派发口）：「查重名 -> 生成唯一名 -> 插入」同一把锁内完成，
@@ -127,6 +125,7 @@ impl AgentRegistry {
     /// 重放与 register 同路：teammate 若经此口定名注册，磁盘转录照样注水（非 teammate 早退零开销）。
     pub fn register_unique(&self, session_id: &str, prefix: &str, kind: AgentKind, model: &ModelRef) -> String {
         let mut map = crate::core::shared::lock(&self.sessions);
+        self.ensure_restored_locked(&mut map, session_id);
         let list = map.entry(session_id.to_string()).or_default();
         let name = (1..1000)
             .map(|i| format!("{prefix}-{i}"))
@@ -150,14 +149,12 @@ impl AgentRegistry {
         }
     }
 
-    /// 追加一条转录（事件 payload），超过 cap 淘汰最旧；teammate 同步写穿落盘。
+    /// 追加一条转录（事件 payload），超过 cap 淘汰最旧；teammate/subagent 同步写穿落盘。
     /// 文件 append 在 sessions 锁内做：多线程推同一 (session, agent) 时行序不交错。
     pub fn push_transcript(&self, session_id: &str, name: &str, payload: serde_json::Value) {
         let mut map = crate::core::shared::lock(&self.sessions);
         if let Some(agent) = map.get_mut(session_id).and_then(|list| list.iter_mut().find(|a| a.name == name)) {
-            if agent.kind == AgentKind::Teammate {
-                self.persist_line(session_id, name, &payload);
-            }
+            self.persist_line(session_id, name, agent.kind, &payload);
             if agent.transcript.len() >= TRANSCRIPT_CAP {
                 agent.transcript.pop_front();
             }
@@ -195,12 +192,15 @@ impl AgentRegistry {
     }
 
     pub fn list(&self, session_id: &str) -> Vec<AgentActivity> {
-        crate::core::shared::lock(&self.sessions).get(session_id).cloned().unwrap_or_default()
+        let mut map = crate::core::shared::lock(&self.sessions);
+        self.ensure_restored_locked(&mut map, session_id);
+        map.get(session_id).cloned().unwrap_or_default()
     }
 
     pub fn transcript(&self, session_id: &str, name: &str) -> Vec<serde_json::Value> {
-        crate::core::shared::lock(&self.sessions)
-            .get(session_id)
+        let mut map = crate::core::shared::lock(&self.sessions);
+        self.ensure_restored_locked(&mut map, session_id);
+        map.get(session_id)
             .and_then(|list| list.iter().find(|a| a.name == name))
             .map(|a| a.transcript.iter().cloned().collect())
             .unwrap_or_default()
@@ -208,6 +208,7 @@ impl AgentRegistry {
 
     pub fn drop_session(&self, session_id: &str) {
         crate::core::shared::lock(&self.sessions).remove(session_id);
+        crate::core::shared::lock(&self.restored).remove(session_id);
         let mut cancels = crate::core::shared::lock(&self.cancels);
         let keys: Vec<(String, String)> = cancels.keys().filter(|(sid, _)| sid == session_id).cloned().collect();
         for key in keys {

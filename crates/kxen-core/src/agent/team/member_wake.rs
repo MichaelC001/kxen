@@ -71,13 +71,15 @@ pub(super) async fn idle_wait(
 /// 首轮 user 消息：brief 本体；restore 场景并入残存 inbox（P1-2：崩溃期间来信不丢）
 /// 与本人未完成 claim 清单（列出让模型自己续，不替它改任务状态）。
 /// spawn 与 restore 同路：新成员 inbox 必空、无本人任务，并入项自然为零。
-pub(super) fn first_prompt(state: &Arc<TeamState>, name: &str, brief: &str) -> Result<(String, Option<InboxDelivery>), String> {
-    let mut out = brief.to_string();
+/// brief = None（历史已从盘重建且 prompt 非新指令）：只拼并入项，brief 不重复注入；
+/// 全空返回空串（调用方跳过注入，恢复注记驱动本轮）。
+pub(super) fn first_prompt(state: &Arc<TeamState>, name: &str, brief: Option<&str>) -> Result<(String, Option<InboxDelivery>), String> {
+    let mut sections: Vec<String> = brief.map(str::to_string).into_iter().collect();
     let delivery = claim_inbox_entries(&state.dir, name)?;
     let inbox = delivery.messages();
     if !inbox.is_empty() {
         push_inbox_transcript(state, name, &inbox);
-        out.push_str(&format!("\n\n---\nNew messages:\n{}", inbox_text(&inbox)));
+        sections.push(format!("---\nNew messages:\n{}", inbox_text(&inbox)));
     }
     let mine: Vec<String> = lock(&state.tasks)
         .iter()
@@ -85,13 +87,10 @@ pub(super) fn first_prompt(state: &Arc<TeamState>, name: &str, brief: &str) -> R
         .map(|t| format!("- #{} {}", t.id, t.title))
         .collect();
     if !mine.is_empty() {
-        out.push_str(&format!(
-            "\n\n---\nYou have unfinished claimed tasks (resume them, then complete via team_task):\n{}",
-            mine.join("\n")
-        ));
+        sections.push(format!("---\nYou have unfinished claimed tasks (resume them, then complete via team_task):\n{}", mine.join("\n")));
     }
     let delivery = (!delivery.entries.is_empty()).then_some(delivery);
-    Ok((out, delivery))
+    Ok((sections.join("\n\n"), delivery))
 }
 
 /// 每轮 messages 装配：新鲜 system（roster 实时重建，不随历史冻结）+ 跨 wake 历史
@@ -200,12 +199,26 @@ mod tests {
         super::super::tasks::claim_task(&state, "w").unwrap();
         let other = super::super::tasks::create_task(&state, "job-y", vec![]).unwrap();
         super::super::tasks::claim_task(&state, "z").unwrap();
-        let (text, delivery) = first_prompt(&state, "w", "brief here").unwrap();
+        let (text, delivery) = first_prompt(&state, "w", Some("brief here")).unwrap();
         assert!(text.starts_with("brief here"));
         assert!(text.contains("[lead] extra context"), "残存 inbox 必须并入首轮: {text}");
         assert!(text.contains(&format!("#{} job-x", t.id)), "本人未完成 claim 必须列出: {text}");
         assert!(!text.contains(&format!("#{}", other.id)), "他人任务不得混入: {text}");
         assert_eq!(claim_inbox_entries(&state.dir, "w").unwrap().entries, delivery.unwrap().entries, "未 ack 消息必须仍可重放");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// brief=None（恢复场景 prompt 非新指令）：只拼残存 inbox/claims，brief 不重复注入；全空返回空串
+    #[test]
+    fn first_prompt_without_brief_merges_only_residuals() {
+        let (state, dir) = state("no-brief");
+        super::super::inbox::append_inbox(&state.dir, "w", "lead", "extra context").unwrap();
+        let (text, delivery) = first_prompt(&state, "w", None).unwrap();
+        assert!(text.starts_with("---\nNew messages:"), "无 brief 时只得并入段: {text}");
+        assert!(text.contains("[lead] extra context"));
+        assert!(delivery.is_some());
+        let (empty, none) = first_prompt(&state, "z", None).unwrap();
+        assert!(empty.is_empty() && none.is_none(), "全空必须返回空串（调用方跳过注入）");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
