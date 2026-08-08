@@ -8,7 +8,21 @@ use crate::AppState;
 /// 立即续跑而非等用户再发消息：「已排队」是后端对用户消息的承诺，重启不该变成无限搁置。
 pub fn restore_queues(state: Arc<AppState>) {
     tokio::spawn(async move {
-        let ready = state.pending_messages.restore();
+        let mut ready = state.pending_messages.restore();
+        // 中断补投必须在任何新 run 前投递：父 session 本次续跑即见中断事实，主模型不再干等不会来的通知。
+        // 顺序上必须先 restore 再 recover：enqueue 基于内存态整写 queue 文件，后于 restore 才不会覆盖
+        // 未恢复的存量队列；contains_delivery 副锚也需要内存队列已注水才生效。
+        // recover 补投的 session 不在首轮 ready（queue 文件由 recover 同步落盘，晚于首轮读盘），
+        // 补一次幂等 rescan 合并进续跑清单（重复 insert 内容相同）。
+        let recovered = kxen_core::agent::background::recover_interrupted(&state.pending_messages, &kxen_core::core::paths::sessions_dir());
+        if recovered > 0 {
+            tracing::info!(recovered, "interrupted background agent notifications recovered");
+            for sid in state.pending_messages.restore() {
+                if !ready.contains(&sid) {
+                    ready.push(sid);
+                }
+            }
+        }
         if let Some(error) = state.pending_messages.store_error() {
             state.bus.publish(kxen_core::core::event::Event::notify(format!("待处理队列存储不可用，已阻止后续覆盖：{error}"), None));
         }

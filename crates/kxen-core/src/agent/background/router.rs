@@ -6,8 +6,9 @@ use std::sync::Arc;
 pub struct RoutedNotice {
     pub id: String,
     pub text: String,
-    created_at: u64,
-    persisted: bool,
+    // recovery 补投需要按确定性 id/时间构造通知，字段对 background 子模块外也放开
+    pub created_at: u64,
+    pub persisted: bool,
 }
 
 impl RoutedNotice {

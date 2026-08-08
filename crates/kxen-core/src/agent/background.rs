@@ -5,8 +5,11 @@ use crate::agent::subagent::SubagentDeps;
 use std::path::Path;
 use std::sync::Arc;
 
+#[path = "background/recovery.rs"]
+mod recovery;
 #[path = "background/router.rs"]
 mod router;
+pub use recovery::recover_interrupted;
 pub use router::{LateDelivery, NotifyPath, NotifyRouter, RoutedNotice, deliver_late, drain_to_session, drain_to_session_in};
 
 /// run 结束后通知的去向闭包（late 投递 / 续跑触发共用的形态）。
