@@ -18,7 +18,8 @@ export default function KanbanCardDetail(props: {
   const [draft, setDraft] = createSignal("");
   const meta = () => kanbanStatusMeta(props.card.status);
   // 通过/打回只在 human_gate 列停车时给出：迁移目标由列 transitions 推导，别的列没有人工语义
-  const gated = () => props.card.status === "waiting_human" && props.column?.on_enter.kind === "human_gate";
+  const gated = () =>
+    props.card.status === "waiting_human" && props.column?.on_enter.kind === "human_gate";
 
   const submit = () => {
     const body = draft().trim();
@@ -99,12 +100,17 @@ export default function KanbanCardDetail(props: {
           <div class="text-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
             评论（{props.card.comments.length}）
           </div>
-          <For each={props.card.comments} fallback={<div class="text-2xs text-[var(--text-faint)]">还没有评论</div>}>
+          <For
+            each={props.card.comments}
+            fallback={<div class="text-2xs text-[var(--text-faint)]">还没有评论</div>}
+          >
             {(comment) => (
               <div class="py-1.5 border-t border-[var(--border)] first:border-t-0">
                 <div class="flex items-center gap-1.5 text-2xs">
                   <span
-                    class={comment.author === "agent" ? "text-[var(--text-faint)]" : "text-[var(--text)]"}
+                    class={
+                      comment.author === "agent" ? "text-[var(--text-faint)]" : "text-[var(--text)]"
+                    }
                   >
                     {comment.author}
                   </span>

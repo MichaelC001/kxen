@@ -44,7 +44,11 @@ export default function KanbanPolicy(props: {
         自主授权
         <Show
           when={current()}
-          fallback={<span class="text-2xs text-[var(--text-faint)]">当前未授权：列 Agent 的高危命令仍逐条审批</span>}
+          fallback={
+            <span class="text-2xs text-[var(--text-faint)]">
+              当前未授权：列 Agent 的高危命令仍逐条审批
+            </span>
+          }
         >
           {(p) => (
             <span class="text-2xs text-[var(--text-faint)]">

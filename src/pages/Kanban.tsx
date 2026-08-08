@@ -103,7 +103,8 @@ export default function Kanban() {
     return (id && snapshot()?.cards[id]) || null;
   };
   const columnOf = (card: KanbanCard) => snapshot()?.columns.find((c) => c.id === card.column_id);
-  const cardsIn = (columnId: string) => Object.values(snapshot()?.cards ?? {}).filter((c) => c.column_id === columnId);
+  const cardsIn = (columnId: string) =>
+    Object.values(snapshot()?.cards ?? {}).filter((c) => c.column_id === columnId);
 
   const createCard = () =>
     act(async () => {
@@ -229,13 +230,22 @@ export default function Kanban() {
                     return (
                       <div class="w-64 shrink-0 rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] flex flex-col">
                         <div class="flex items-center gap-1.5 px-3 py-2 border-b border-[var(--border)]">
-                          <span class="text-xs font-medium text-[var(--text)] truncate">{column.title}</span>
+                          <span class="text-xs font-medium text-[var(--text)] truncate">
+                            {column.title}
+                          </span>
                           <span class="ml-auto text-2xs tabular-nums text-[var(--text-faint)] shrink-0">
-                            {column.wip_limit != null ? `${cards().length}/${column.wip_limit}` : cards().length}
+                            {column.wip_limit != null
+                              ? `${cards().length}/${column.wip_limit}`
+                              : cards().length}
                           </span>
                         </div>
                         <div class="p-2 space-y-1.5">
-                          <For each={cards()} fallback={<div class="px-2 py-3 text-2xs text-[var(--text-faint)]">空</div>}>
+                          <For
+                            each={cards()}
+                            fallback={
+                              <div class="px-2 py-3 text-2xs text-[var(--text-faint)]">空</div>
+                            }
+                          >
                             {(card) => {
                               const meta = () => kanbanStatusMeta(card.status);
                               return (
@@ -245,16 +255,24 @@ export default function Kanban() {
                                     "border-[var(--text-dim)]": selected() === card.id,
                                     "border-[var(--border)]": selected() !== card.id,
                                   }}
-                                  onClick={() => setSelected(selected() === card.id ? null : card.id)}
+                                  onClick={() =>
+                                    setSelected(selected() === card.id ? null : card.id)
+                                  }
                                 >
-                                  <div class="text-xs text-[var(--text)] break-words">{card.title}</div>
+                                  <div class="text-xs text-[var(--text)] break-words">
+                                    {card.title}
+                                  </div>
                                   <div class="mt-0.5 flex items-center gap-1 text-2xs">
                                     <Show when={card.status === "running"}>
                                       <span class="w-1.5 h-1.5 rounded-full bg-[var(--ok)] animate-pulse" />
                                     </Show>
-                                    <span class={KANBAN_TONE_CLASS[meta().tone]}>{meta().label}</span>
+                                    <span class={KANBAN_TONE_CLASS[meta().tone]}>
+                                      {meta().label}
+                                    </span>
                                     <Show when={card.comments.length > 0}>
-                                      <span class="text-[var(--text-faint)]">{card.comments.length} 评论</span>
+                                      <span class="text-[var(--text-faint)]">
+                                        {card.comments.length} 评论
+                                      </span>
                                     </Show>
                                   </div>
                                 </button>
@@ -274,9 +292,21 @@ export default function Kanban() {
                     column={columnOf(card())}
                     acting={acting()}
                     onClose={() => setSelected(null)}
-                    onMove={(outcome) => void act(() => kanbanCardMove(workspace(), board(), card().id, outcome), outcome === "success" ? "通过失败" : "打回失败")}
-                    onRetry={() => void act(() => kanbanRunStart(workspace(), board(), card().id), "重试失败")}
-                    onComment={(body) => void act(() => kanbanCardComment(workspace(), board(), card().id, body), "评论失败")}
+                    onMove={(outcome) =>
+                      void act(
+                        () => kanbanCardMove(workspace(), board(), card().id, outcome),
+                        outcome === "success" ? "通过失败" : "打回失败",
+                      )
+                    }
+                    onRetry={() =>
+                      void act(() => kanbanRunStart(workspace(), board(), card().id), "重试失败")
+                    }
+                    onComment={(body) =>
+                      void act(
+                        () => kanbanCardComment(workspace(), board(), card().id, body),
+                        "评论失败",
+                      )
+                    }
                   />
                 )}
               </Show>

@@ -217,7 +217,12 @@ export interface KanbanDigest {
 }
 
 export interface KanbanBoardSummary extends KanbanDigest {
-  policy: { allowlist: number; used: number; max_uses: number | null; expires_at_ms: number | null } | null;
+  policy: {
+    allowlist: number;
+    used: number;
+    max_uses: number | null;
+    expires_at_ms: number | null;
+  } | null;
 }
 
 export interface KanbanColumn {
@@ -273,7 +278,10 @@ export interface KanbanSnapshot {
   columns: KanbanColumn[];
   cards: Record<string, KanbanCard>;
   runs: Record<string, KanbanRun>;
-  agents: Record<string, { name: string; role: string; model: string; permission_profile: string; defined_at: number }>;
+  agents: Record<
+    string,
+    { name: string; role: string; model: string; permission_profile: string; defined_at: number }
+  >;
   policy?: { spec: KanbanPolicySpec; used: number } | null;
   seq: number;
 }
@@ -291,7 +299,10 @@ export async function kanbanSnapshot(workspace: string, board: string): Promise<
   return client.rpc("kanban.snapshot", { workspace, board });
 }
 
-export async function kanbanBoardCreate(workspace: string, title: string): Promise<KanbanLanded & { board_id: string }> {
+export async function kanbanBoardCreate(
+  workspace: string,
+  title: string,
+): Promise<KanbanLanded & { board_id: string }> {
   return client.rpc("kanban.board_create", { workspace, title });
 }
 
@@ -322,10 +333,18 @@ export async function kanbanCardComment(
   return client.rpc("kanban.card_comment", { workspace, board, card_id: cardId, body });
 }
 
-export async function kanbanRunStart(workspace: string, board: string, cardId: string): Promise<KanbanLanded> {
+export async function kanbanRunStart(
+  workspace: string,
+  board: string,
+  cardId: string,
+): Promise<KanbanLanded> {
   return client.rpc("kanban.run_start", { workspace, board, card_id: cardId });
 }
 
-export async function kanbanPolicySet(workspace: string, board: string, policy: KanbanPolicySpec): Promise<KanbanLanded> {
+export async function kanbanPolicySet(
+  workspace: string,
+  board: string,
+  policy: KanbanPolicySpec,
+): Promise<KanbanLanded> {
   return client.rpc("kanban.policy_set", { workspace, board, policy });
 }

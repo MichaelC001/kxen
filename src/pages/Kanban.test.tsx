@@ -103,7 +103,9 @@ const btnByText = (text: string) =>
   [...document.body.querySelectorAll("button")].find((el) => el.textContent?.includes(text));
 
 beforeEach(() => {
-  h.rpc.mockImplementation(async (method: string) => (method === "kanban.snapshot" ? SNAPSHOT : {}));
+  h.rpc.mockImplementation(async (method: string) =>
+    method === "kanban.snapshot" ? SNAPSHOT : {},
+  );
 });
 
 afterEach(() => {
@@ -149,7 +151,9 @@ describe("Kanban snapshot 渲染", () => {
     await flush();
     expect(document.body.textContent).toContain("加载看板失败");
     expect(document.body.textContent).not.toContain("待验证");
-    h.rpc.mockImplementation(async (method: string) => (method === "kanban.snapshot" ? SNAPSHOT : {}));
+    h.rpc.mockImplementation(async (method: string) =>
+      method === "kanban.snapshot" ? SNAPSHOT : {},
+    );
     btnByText("重试")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
     expect(document.body.textContent).toContain("加登录");
@@ -231,7 +235,9 @@ describe("Kanban 人工动作", () => {
     await flush();
 
     const title = document.body.querySelector("input[aria-label='卡片标题']") as HTMLInputElement;
-    const body = document.body.querySelector("textarea[aria-label='卡片正文']") as HTMLTextAreaElement;
+    const body = document.body.querySelector(
+      "textarea[aria-label='卡片正文']",
+    ) as HTMLTextAreaElement;
     title.value = " 补文档 ";
     title.dispatchEvent(new Event("input", { bubbles: true }));
     body.value = "README 加看板章节";
@@ -254,9 +260,15 @@ describe("Kanban 人工动作", () => {
     btnByText("授权")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
 
-    const allowlist = document.body.querySelector("textarea[aria-label='授权命令前缀']") as HTMLTextAreaElement;
-    const uses = document.body.querySelector("input[aria-label='最大自动放行次数']") as HTMLInputElement;
-    const mins = document.body.querySelector("input[aria-label='授权时限分钟数']") as HTMLInputElement;
+    const allowlist = document.body.querySelector(
+      "textarea[aria-label='授权命令前缀']",
+    ) as HTMLTextAreaElement;
+    const uses = document.body.querySelector(
+      "input[aria-label='最大自动放行次数']",
+    ) as HTMLInputElement;
+    const mins = document.body.querySelector(
+      "input[aria-label='授权时限分钟数']",
+    ) as HTMLInputElement;
     allowlist.value = "cargo test\n\ncargo clippy\n";
     allowlist.dispatchEvent(new Event("input", { bubbles: true }));
     uses.value = "5";
@@ -270,7 +282,11 @@ describe("Kanban 人工动作", () => {
     await flush();
     const call = h.rpc.mock.calls.find(([method]) => method === "kanban.policy_set");
     expect(call).toBeTruthy();
-    const params = call![1] as { workspace: string; board: string; policy: { allowlist: string[]; max_uses: number; expires_at_ms: number } };
+    const params = call![1] as {
+      workspace: string;
+      board: string;
+      policy: { allowlist: string[]; max_uses: number; expires_at_ms: number };
+    };
     expect(params.workspace).toBe("/ws/a");
     expect(params.board).toBe("board_1");
     expect(params.policy.allowlist).toEqual(["cargo test", "cargo clippy"]); // 空行丢弃
