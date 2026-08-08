@@ -1,6 +1,5 @@
-//! 工具执行入口与路由（goal 工具单独在 goal_tool.rs，task 工具在 task_tool.rs）。
+//! 工具执行入口与路由（goal 工具单独在 goal_tool.rs，task 工具在 task_tool.rs，kanban 工具在 kanban_tool.rs）。
 use super::context::AgentContext;
-use super::goal_tool::execute_goal_tool;
 use super::helpers::{parse_shell, resolve_authorized_path, resolve_path};
 use super::knowledge_tool::execute_knowledge_tool;
 use super::task_tool::execute_task_tool;
@@ -152,25 +151,7 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
             other => Err(format!("unknown schedule action: {other}")),
         },
         "task" => execute_task_tool(args, ctx).await,
-        "goal" => {
-            // complete 只使用通过 MRM 解析的 review 模型，admission 失败不得回落绕过治理。
-            let judge = match (args.get("action").and_then(Value::as_str), &ctx.mrm) {
-                (Some("complete"), Some(mrm)) => {
-                    let resolved =
-                        mrm.resolve("review", &ctx.store).await.ok_or("no MRM-admitted model available for completion verification")?;
-                    Some(super::goal_tool::GoalJudge {
-                        mrm,
-                        model: crate::llm::ModelRef { provider: resolved.provider, model: resolved.model, account: resolved.account },
-                        store: &ctx.store,
-                        cancel: ctx.cancel.as_ref(),
-                        auxiliary_usage: &ctx.auxiliary_usage,
-                        usage_reporter: ctx.usage_reporter.as_ref(),
-                    })
-                }
-                _ => None,
-            };
-            execute_goal_tool(args, ctx.session_id.as_deref(), ctx.bus.as_ref(), judge.as_ref(), ctx.cancel.as_ref()).await
-        }
+        "goal" => super::goal_tool::execute_goal_tool_ctx(args, ctx).await,
         "glob" => {
             let base = resolve_path(args.get("path").and_then(Value::as_str).unwrap_or(cwd), ctx)?;
             let pattern = args.get("pattern").and_then(Value::as_str).ok_or("missing pattern")?;
@@ -336,6 +317,7 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
             // run_id 是模型参数，不能直通 journal：run_tool 内按 session 派生命名空间（open_scoped）
             Box::pin(crate::agent::workflow::run_tool(script, deps, ctx, run_id)).await
         }
+        other if other.starts_with("kanban.") => super::kanban_tool::execute_kanban_tool(other, args, ctx),
         other if other.starts_with("mcp__") => {
             let appr = crate::tools::exec::ApprovalCtx::new(
                 ctx.approvals.as_deref(),

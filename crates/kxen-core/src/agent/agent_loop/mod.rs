@@ -5,6 +5,7 @@ mod events;
 mod execute;
 mod goal_tool;
 mod helpers;
+mod kanban_tool;
 mod knowledge_tool;
 mod oauth_refresh;
 mod run;

@@ -108,6 +108,26 @@ pub async fn execute_goal_tool(
     }
 }
 
+/// execute.rs 的 ctx 装配收口：complete 的 judge 构建与 GoalJudge 同文件（execute.rs 贴 350 行门禁，
+/// 装配逻辑随 judge 定义走）。complete 只使用通过 MRM 解析的 review 模型，admission 失败不得回落绕过治理。
+pub async fn execute_goal_tool_ctx(args: &Value, ctx: &super::context::AgentContext) -> Result<String, String> {
+    let judge = match (args.get("action").and_then(Value::as_str), &ctx.mrm) {
+        (Some("complete"), Some(mrm)) => {
+            let resolved = mrm.resolve("review", &ctx.store).await.ok_or("no MRM-admitted model available for completion verification")?;
+            Some(GoalJudge {
+                mrm,
+                model: crate::llm::ModelRef { provider: resolved.provider, model: resolved.model, account: resolved.account },
+                store: &ctx.store,
+                cancel: ctx.cancel.as_ref(),
+                auxiliary_usage: &ctx.auxiliary_usage,
+                usage_reporter: ctx.usage_reporter.as_ref(),
+            })
+        }
+        _ => None,
+    };
+    execute_goal_tool(args, ctx.session_id.as_deref(), ctx.bus.as_ref(), judge.as_ref(), ctx.cancel.as_ref()).await
+}
+
 /// 与 goal_rpc.rs 同一收口：GoalUpdate payload 形态一致（id + snake_case 状态串），Dock goal 面板据此刷新。
 fn publish(bus: Option<&crate::core::event::EventBus>, goal: &crate::core::goal::Goal) {
     if let Some(bus) = bus {

@@ -6,7 +6,7 @@
 mod agents;
 mod command;
 mod context;
-mod driver;
+pub(crate) mod driver;
 mod error;
 mod events;
 mod land;
@@ -18,7 +18,7 @@ mod store;
 
 pub use agents::{
     AgentDefinition, agents_dir, load as load_agent_definition, parse as parse_agent_definition, profile_tools,
-    save as save_agent_definition,
+    save as save_agent_definition, to_markdown as agent_definition_to_markdown,
 };
 pub use command::{Board, board_lock};
 pub use driver::{DEFAULT_RUN_TIMEOUT_MS, DriverDeps, ExecuteFailure, LandingKind, RunLanding, execute, parse_verdict, turns_path};

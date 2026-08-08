@@ -17,6 +17,7 @@ pub mod skills;
 pub mod subagent;
 pub mod team;
 pub mod tools_deferred;
+pub mod tools_kanban;
 pub mod tools_spec;
 pub mod workflow;
 pub mod workflow_journal;

@@ -168,7 +168,7 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "tool_search",
-            "Discover additional tools that are not loaded by default (progressive disclosure): delete, lsp, agent, worktree, skill, knowledge, schedule, browser. Returns matching tool cards; matched tools become callable for the rest of this session.",
+            "Discover additional tools that are not loaded by default (progressive disclosure): delete, lsp, agent, worktree, skill, knowledge, schedule, browser, kanban.* (workspace board pipeline). Returns matching tool cards; matched tools become callable for the rest of this session.",
             json!({
                 "type": "object",
                 "properties": {

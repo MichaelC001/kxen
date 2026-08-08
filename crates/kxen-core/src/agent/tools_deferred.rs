@@ -116,6 +116,8 @@ pub fn deferred_tools() -> Vec<ToolDefinition> {
             }),
         ),
     ];
+    // kanban.* 工具面（P2b）同目录挂载：tool_search 发现、身份白名单过滤随之自动生效
+    tools.extend(crate::agent::tools_kanban::kanban_tools());
     if !crate::core::config::experimental_config().browser_automation {
         tools.retain(|tool| tool.function.name != "browser");
     }
