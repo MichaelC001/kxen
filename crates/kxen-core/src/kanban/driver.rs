@@ -233,8 +233,7 @@ async fn run_agent(
     let RunScope { workspace, board_id, run_id, turns, auto, .. } = *scope;
     let definition = agents::load(workspace, agent_name).map_err(|e| StepFailure::Config(format!("agent definition {agent_name}: {e}")))?;
     let model = resolve_model(&definition, deps).await.map_err(StepFailure::Config)?;
-    let allowed =
-        agents::profile_tools(&definition.permission_profile).ok_or_else(|| StepFailure::Config("unknown permission_profile".into()))?;
+    let allowed = agents::resolve_allowed_tools(&definition).map_err(|e| StepFailure::Config(e.to_string()))?;
     let persist_failed = Arc::new(AtomicBool::new(false));
     // brief 先于任何 LLM 请求落盘：任务输入无记录则崩溃后无法审计（与 subagent 落 u 行同语义）
     run_line(

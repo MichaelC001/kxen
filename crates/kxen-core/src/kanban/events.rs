@@ -88,6 +88,9 @@ pub struct AgentDefinedPayload {
     pub role: String,
     pub model: String,
     pub permission_profile: String,
+    /// custom profile 的显式工具白名单（固定三档恒 None）；旧事件流无此字段，serde default 兼容重放。
+    #[serde(default)]
+    pub tools: Option<Vec<String>>,
 }
 
 /// 自主授权配置本体进事件：投影重建不依赖任何外部状态，重放即恢复授权。
@@ -173,6 +176,8 @@ pub enum KanbanCommand {
         role: String,
         model: String,
         permission_profile: String,
+        /// custom 必填（闭集校验过）；固定三档必须为 None（权限语义单一来源）。
+        tools: Option<Vec<String>>,
     },
     /// human-only：看板级自主授权（重设即重置计数，是显式续期语义）；不进模型工具目录。
     PolicySet {

@@ -176,6 +176,7 @@ pub fn reduce(state: &mut BoardState, event: &KanbanEvent) -> Result<(), KanbanE
                     role: payload.role.clone(),
                     model: payload.model.clone(),
                     permission_profile: payload.permission_profile.clone(),
+                    tools: payload.tools.clone(),
                     defined_at: event.created_at,
                 },
             );

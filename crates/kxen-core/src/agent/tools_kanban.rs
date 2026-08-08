@@ -110,7 +110,7 @@ pub fn kanban_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "kanban_agent_create",
-            "Define a DCP agent for kanban column runs: validates the definition, writes .kxen/kanban/agents/<name>.md and registers it on the board. permission_profile decides the agent's tool set: readonly (read/glob/grep), readonly+test (+ exec), full (all tools). model is 'auto' (MRM-routed by role) or 'provider:model'.",
+            "Define a DCP agent for kanban column runs: validates the definition, writes .kxen/kanban/agents/<name>.md and registers it on the board. permission_profile decides the agent's tool set: readonly (read/glob/grep), readonly+test (+ exec), full (all resident tools), custom (exactly the tools you list). custom REQUIRES `tools` (closed allowlist: read, glob, grep, edit, write, delete, exec, lsp, webfetch, websearch, todo, task, goal, knowledge, skill) and the fixed profiles must NOT set it - e.g. a Go editing agent: permission_profile='custom', tools=['read','glob','grep','edit','write','exec','lsp']. model is 'auto' (MRM-routed by role) or 'provider:model'.",
             json!({
                 "type": "object",
                 "properties": {
@@ -118,7 +118,8 @@ pub fn kanban_tools() -> Vec<ToolDefinition> {
                     "name": { "type": "string", "description": "Agent id ([A-Za-z0-9_-]); column on_enter.agent references this" },
                     "role": { "type": "string", "description": "MRM routing role used when model = auto" },
                     "model": { "type": "string", "description": "'auto' or 'provider:model'" },
-                    "permission_profile": { "type": "string", "enum": ["readonly", "readonly+test", "full"] },
+                    "permission_profile": { "type": "string", "enum": ["readonly", "readonly+test", "full", "custom"] },
+                    "tools": { "type": "array", "items": { "type": "string" }, "description": "REQUIRED for permission_profile='custom' (exact tool set, closed allowlist); forbidden for the fixed profiles" },
                     "prompt": { "type": "string", "description": "Agent brief (system prompt body); for workflow columns this is the QuickJS script instead" }
                 },
                 "required": ["board", "name", "role", "model", "permission_profile", "prompt"]

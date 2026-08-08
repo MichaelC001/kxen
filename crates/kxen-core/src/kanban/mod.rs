@@ -22,8 +22,8 @@ mod store;
 mod worktree;
 
 pub use agents::{
-    AgentDefinition, agents_dir, load as load_agent_definition, parse as parse_agent_definition, profile_tools,
-    save as save_agent_definition, to_markdown as agent_definition_to_markdown,
+    AgentDefinition, agents_dir, load as load_agent_definition, parse as parse_agent_definition, resolve_allowed_tools,
+    save as save_agent_definition, to_markdown as agent_definition_to_markdown, validate_custom_tools,
 };
 pub use command::{Board, board_lock};
 pub use digest::{KanbanDigest, collect};

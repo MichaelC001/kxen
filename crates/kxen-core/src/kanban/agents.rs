@@ -6,8 +6,12 @@
 //! 但解析是收紧版 fail-closed：缺字段、未知字段、重名字段、空值、坏名一律拒绝——
 //! 定义文件即被调用 Agent 的 system prompt 与权限来源，半截定义放行等于静默注入。
 //! permission_profile 决定被调用实例的 allowed_tools（映射 AgentContext.allowed_tools，执行侧
-//! 由 agent_loop::tool_permitted 复验）；未知 profile 拒绝而非兜底：静默只读会把「跑不了」
+//! 由 agent_loop 白名单复验）；未知 profile 拒绝而非兜底：静默只读会把「跑不了」
 //! 藏成「跑完没改」，静默 Full 是权限放大。
+//! 四档语义：readonly / readonly+test / full 为固定映射（禁止自带 tools 字段，权限语义单一来源）；
+//! custom 必须显式给出 tools（逗号分隔的闭集白名单，见 CUSTOM_TOOL_ALLOWLIST）——
+//! 闭集之外的名一律拒绝：mcp__* 远端自报能力不可信，agent/workflow/team/kanban_* 是跨 run
+//! 提权派发面，schedule/browser 门控在 kanban 无持久 session 的上下文里本就不成立。
 
 use std::path::{Path, PathBuf};
 
@@ -24,6 +28,8 @@ pub struct AgentDefinition {
     /// "auto" = 经 mrm 按 role 路由；"provider:model" = 显式钉选（仍走 mrm admission 与计量）。
     pub model: String,
     pub permission_profile: String,
+    /// custom profile 的显式工具白名单（parse 已过 CUSTOM_TOOL_ALLOWLIST 校验）；固定三档恒为 None。
+    pub tools: Option<Vec<String>>,
     /// frontmatter 之后的正文：agent_run 列是 prompt；workflow 列复用为 QuickJS 脚本（单一引用面，
     /// 不发明第二套 workflow 存储）。
     pub prompt: String,
@@ -33,18 +39,59 @@ pub fn agents_dir(workspace: &Path) -> PathBuf {
     workspace.join(".kxen").join("kanban").join("agents")
 }
 
-const KEYS: [&str; 4] = ["name", "role", "model", "permission_profile"];
+const KEYS: [&str; 5] = ["name", "role", "model", "permission_profile", "tools"];
 
-/// profile -> allowed_tools（外层 None = 未知 profile；内层 None = 全部常驻工具，
-/// 与 subagent PermissionProfile::Full 同语义）。
-pub fn profile_tools(profile: &str) -> Option<Option<&'static [&'static str]>> {
-    match profile {
-        "readonly" => Some(Some(&["read", "glob", "grep"])),
+/// custom profile 的工具闭集（allowlist 而非 denylist）：只放本地内置、无跨 run 派发能力的工具。
+/// 不在此列的名（mcp__*、agent、workflow、team 系、kanban_*、schedule、tool_search、browser、
+/// 未知名）一律拒绝——fail-closed 不猜拼写，也不信远端自报能力。
+pub const CUSTOM_TOOL_ALLOWLIST: [&str; 15] = [
+    "read",
+    "glob",
+    "grep",
+    "edit",
+    "write",
+    "delete",
+    "exec",
+    "lsp",
+    "webfetch",
+    "websearch",
+    "todo",
+    "task",
+    "goal",
+    "knowledge",
+    "skill",
+];
+
+/// custom 工具集校验：非空、无重复、逐项精确命中闭集（工具名全小写，大写即未知名）。
+/// command.rs 的 AgentDefined 守卫复用此收口，保证文件口径与事件口径一致。
+pub fn validate_custom_tools(tools: &[String]) -> Result<(), KanbanError> {
+    if tools.is_empty() {
+        return Err(invalid("custom permission_profile requires a non-empty tools list"));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for tool in tools {
+        if !CUSTOM_TOOL_ALLOWLIST.contains(&tool.as_str()) {
+            return Err(invalid(format!("tool {tool:?} is not in the custom tool allowlist")));
+        }
+        if !seen.insert(tool) {
+            return Err(invalid(format!("duplicate tool {tool:?}")));
+        }
+    }
+    Ok(())
+}
+
+/// definition -> allowed_tools：custom 取已校验的显式白名单；固定三档按既有映射
+/// （full = None 全部常驻工具，与 subagent PermissionProfile::Full 同语义）；未知 profile 拒绝。
+pub fn resolve_allowed_tools(definition: &AgentDefinition) -> Result<Option<Vec<String>>, KanbanError> {
+    let owned = |names: &[&str]| names.iter().map(|name| name.to_string()).collect();
+    match definition.permission_profile.as_str() {
+        "readonly" => Ok(Some(owned(&["read", "glob", "grep"]))),
         // test 追加 exec 跑验证命令：exec 仍逐次过 safety gate / Approval（P3 前无看板自主授权），
         // 白名单只决定「能叫什么工具」，不放大 Safety 判定
-        "readonly+test" => Some(Some(&["read", "glob", "grep", "exec"])),
-        "full" => Some(None),
-        _ => None,
+        "readonly+test" => Ok(Some(owned(&["read", "glob", "grep", "exec"]))),
+        "full" => Ok(None),
+        "custom" => Ok(Some(definition.tools.clone().ok_or_else(|| invalid("custom permission_profile requires tools"))?)),
+        other => Err(invalid(format!("unknown permission_profile {other:?}"))),
     }
 }
 
@@ -81,20 +128,34 @@ pub fn parse(text: &str) -> Result<AgentDefinition, KanbanError> {
     let permission_profile = take("permission_profile")?;
     // name 拼进文件路径，先过 id 白名单（杜绝 ../ 穿越）
     ids::validate_id(&name).map_err(KanbanError::InvalidId)?;
-    if profile_tools(&permission_profile).is_none() {
-        return Err(invalid(format!("unknown permission_profile {permission_profile:?}")));
-    }
+    // tools 与 profile 强绑定：custom 必须显式工具集，固定档禁止自带（权限语义单一来源，不允两种口径并存）
+    let tools = match permission_profile.as_str() {
+        "custom" => {
+            let raw = fields.remove("tools").ok_or_else(|| invalid("custom permission_profile requires a tools field"))?;
+            let tools: Vec<String> = raw.split(',').map(|tool| tool.trim().to_string()).collect();
+            validate_custom_tools(&tools)?;
+            Some(tools)
+        }
+        "readonly" | "readonly+test" | "full" => {
+            if fields.remove("tools").is_some() {
+                return Err(invalid(format!("permission_profile {permission_profile:?} must not declare tools")));
+            }
+            None
+        }
+        other => return Err(invalid(format!("unknown permission_profile {other:?}"))),
+    };
     let prompt = rest[end + 4..].trim();
     if prompt.is_empty() {
         return Err(invalid("prompt body is empty"));
     }
-    Ok(AgentDefinition { name, role, model, permission_profile, prompt: prompt.to_string() })
+    Ok(AgentDefinition { name, role, model, permission_profile, tools, prompt: prompt.to_string() })
 }
 
 pub fn to_markdown(definition: &AgentDefinition) -> String {
+    let tools = definition.tools.as_ref().map(|tools| format!("tools: {}\n", tools.join(","))).unwrap_or_default();
     format!(
-        "---\nname: {}\nrole: {}\nmodel: {}\npermission_profile: {}\n---\n{}\n",
-        definition.name, definition.role, definition.model, definition.permission_profile, definition.prompt
+        "---\nname: {}\nrole: {}\nmodel: {}\npermission_profile: {}\n{}---\n{}\n",
+        definition.name, definition.role, definition.model, definition.permission_profile, tools, definition.prompt
     )
 }
 

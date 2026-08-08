@@ -101,7 +101,8 @@ fn git_repo(tag: &str) -> PathBuf {
     let workspace = temp(tag);
     std::fs::create_dir_all(&workspace).unwrap();
     git(&workspace, &["init"]);
-    git(&workspace, &["-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init"]);
+    // commit.gpgsign=false：宿主全局 gitconfig 可能开签名（如 1Password op-ssh-sign），测试环境签名必挂
+    git(&workspace, &["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "init"]);
     workspace
 }
 

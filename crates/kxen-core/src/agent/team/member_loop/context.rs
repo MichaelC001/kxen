@@ -13,7 +13,7 @@ pub(super) fn build_ctx(
     runtime: &Arc<crate::workspace_runtime::WorkspaceRuntime>,
     name: &str,
     model: &ModelRef,
-    allowed: Option<&'static [&'static str]>,
+    allowed: Option<Vec<String>>,
     cancel: CancelToken,
     wake: u32,
 ) -> AgentContext {

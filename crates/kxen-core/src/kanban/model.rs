@@ -173,6 +173,9 @@ pub struct AgentDef {
     pub role: String,
     pub model: String,
     pub permission_profile: String,
+    /// custom profile 的工具白名单（固定三档恒 None）；旧快照无此字段，serde default 兼容加载。
+    #[serde(default)]
+    pub tools: Option<Vec<String>>,
     pub defined_at: u64,
 }
 

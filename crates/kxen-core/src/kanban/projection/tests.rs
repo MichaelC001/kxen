@@ -17,6 +17,7 @@ fn sample_events() -> Vec<KanbanEvent> {
                 role: "review".into(),
                 model: "auto".into(),
                 permission_profile: "readonly+test".into(),
+                tools: None,
             }),
         ),
         event(

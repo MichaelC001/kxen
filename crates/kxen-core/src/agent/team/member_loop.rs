@@ -73,7 +73,8 @@ pub(super) async fn teammate_loop(
             return;
         }
         // 阶段 ctx：plan_approval 未批准前只读
-        let allowed: Option<&'static [&'static str]> = if approved { None } else { Some(READONLY_TEAM_TOOLS) };
+        let allowed: Option<Vec<String>> =
+            if approved { None } else { Some(READONLY_TEAM_TOOLS.iter().map(|name| name.to_string()).collect()) };
         // 凭证预防刷新：build_ctx 只克隆共享 store 快照，长过期 token 不先换新则当轮失败下轮才自愈
         let refresh = refresh_store_credentials(&state, &model, &cancel).await;
         let stop_after_run = match refresh {

@@ -16,6 +16,7 @@ pub(crate) fn agent_def() -> agents::AgentDefinition {
         role: "execution".into(),
         model: "auto".into(),
         permission_profile: "full".into(),
+        tools: None,
         prompt: "Implement the card, then declare the verdict.".into(),
     }
 }
@@ -270,6 +271,58 @@ fn parse_verdict_reads_last_declaration() {
     assert_eq!(parse_verdict("VERDICT: success\nchanged mind\nVERDICT: failure"), Some(Outcome::Failure), "以最后声明为准");
     assert_eq!(parse_verdict("verdict: success"), Some(Outcome::Success), "大小写不敏感");
     assert_eq!(parse_verdict("no verdict here"), None);
+}
+
+/// custom profile 列执行：定义即挂载（spec 含 deferred 的 lsp、不含白名单外 exec），
+/// 模型伪造白名单外 tool_call 被 tool_permitted 拒，错误进 turn 记录，run 按协议走到终态。
+#[tokio::test]
+async fn custom_profile_mounts_deferred_specs_and_rejects_forged_calls() {
+    let workspace = temp("custom");
+    let mut definition = agent_def();
+    definition.permission_profile = "custom".into();
+    definition.tools = Some(vec!["read".into(), "glob".into(), "grep".into(), "edit".into(), "lsp".into()]);
+    agents::save(&workspace, &definition).unwrap();
+    let mut board = agent_board(&workspace, None);
+    let card_id = create_card(&mut board, "implementing");
+    drop(board);
+    let captured = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let specs = captured.clone();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
+    let stream: crate::llm::StreamFn = Arc::new(move |_, _, tools, _| {
+        if seen.fetch_add(1, AtomicOrdering::SeqCst) == 0 {
+            *specs.lock().unwrap() = tools.iter().map(|tool| tool.function.name.clone()).collect();
+            // 伪造白名单外的 exec：执行侧白名单复验必须拦下
+            Box::pin(futures::stream::iter(vec![
+                crate::llm::Delta::ToolFragments(vec![crate::llm::tool::ChunkToolCall {
+                    index: Some(0),
+                    id: Some("call_1".into()),
+                    function: Some(crate::llm::tool::ChunkFunction {
+                        name: Some("exec".into()),
+                        arguments: Some(r#"{"command":"echo forged"}"#.into()),
+                    }),
+                }]),
+                crate::llm::Delta::Done,
+            ]))
+        } else {
+            Box::pin(futures::stream::iter(vec![
+                crate::llm::Delta::Text("done\nVERDICT: success".into()),
+                crate::llm::Delta::Usage { input: 1, output: 1 },
+                crate::llm::Delta::Done,
+            ]))
+        }
+    });
+    let landing = execute(&workspace, "board_t", &card_id, &deps(&workspace, stream), None).await.unwrap();
+    assert_eq!(landing.kind, LandingKind::Finished(Outcome::Success), "伪造调用被拒后 run 按协议走向终态");
+    let names = captured.lock().unwrap();
+    assert!(names.iter().any(|n| n == "lsp"), "custom 工具集必须挂载 deferred 的 lsp: {names:?}");
+    assert!(names.iter().any(|n| n == "read"));
+    assert!(!names.iter().any(|n| n == "exec"), "白名单外的 exec 不得出现在 spec: {names:?}");
+    drop(names);
+    let turns = crate::core::session::load_lines(&turns_path(&workspace, "board_t", &landing.run_id).unwrap()).unwrap();
+    let serialized = serde_json::to_string(&turns).unwrap();
+    assert!(serialized.contains("tool not allowed"), "被拒的 exec 错误必须进 turn 记录: {serialized}");
+    std::fs::remove_dir_all(workspace).ok();
 }
 
 #[tokio::test]

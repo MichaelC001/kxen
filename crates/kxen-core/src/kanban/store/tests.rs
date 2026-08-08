@@ -30,6 +30,7 @@ fn write_events(workspace: &Path, board_id: &str, count: u64) -> Vec<KanbanEvent
                 role: "r".into(),
                 model: "m".into(),
                 permission_profile: "p".into(),
+                tools: None,
             });
         }
         append_event(&path, &mut event).unwrap();

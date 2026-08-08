@@ -62,6 +62,8 @@ struct AgentCreateArgs {
     role: String,
     model: String,
     permission_profile: String,
+    /// custom profile 的显式工具集（校验由 parse/save 与 command 双层把守）。
+    tools: Option<Vec<String>>,
     prompt: String,
 }
 
@@ -160,9 +162,10 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
                 role: parsed.role,
                 model: parsed.model,
                 permission_profile: parsed.permission_profile,
+                tools: parsed.tools,
                 prompt: parsed.prompt,
             };
-            // 先按 save 的同一口径校验（四键/profile/name id）：守卫失败零副作用（不落文件、不落事件）
+            // 先按 save 的同一口径校验（四键/profile/tools/name id）：守卫失败零副作用（不落文件、不落事件）
             parse_agent_definition(&agent_definition_to_markdown(&definition)).map_err(|error| error.to_string())?;
             let mut board = open(workspace, &parsed.board)?;
             if !board.state().created() {
@@ -177,6 +180,7 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
                     role: definition.role.clone(),
                     model: definition.model.clone(),
                     permission_profile: definition.permission_profile.clone(),
+                    tools: definition.tools.clone(),
                 },
             )?;
             publish(ctx, &parsed.board);

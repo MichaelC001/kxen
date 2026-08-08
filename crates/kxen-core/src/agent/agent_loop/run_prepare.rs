@@ -9,7 +9,7 @@ pub(super) fn tools(ctx: &AgentContext, base: &[crate::llm::tool::ToolDefinition
         "send_message" | "team_task" => ctx.team_identity.is_some(),
         _ => true,
     });
-    tools.extend(super::helpers::deferred_visible(ctx.extras.as_deref(), ctx.allowed_tools));
+    tools.extend(super::helpers::deferred_visible(ctx.extras.as_deref(), ctx.allowed_tools.as_deref()));
     if let Some(mcp) = &ctx.mcp {
         tools.extend(crate::mcp::tools::tool_defs_for(&mcp.all_tools(), ctx.allowed_tools.is_some()));
     }

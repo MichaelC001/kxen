@@ -167,6 +167,54 @@ fn agent_create_saves_file_and_event_and_validates_first() {
     std::fs::remove_dir_all(workspace).ok();
 }
 
+#[test]
+fn agent_create_custom_profile_tools_roundtrip_and_fail_closed() {
+    let workspace = temp("agentcustom");
+    create_default_board(&workspace);
+    // custom + tools 成功：文件落盘、事件 payload 带 tools
+    let ok = call(
+        &workspace,
+        "kanban_agent_create",
+        json!({"board": "board_t", "name": "go-editor", "role": "execution", "model": "auto", "permission_profile": "custom",
+               "tools": ["read", "glob", "grep", "edit", "write", "exec", "lsp"],
+               "prompt": "Edit Go code and declare a verdict."}),
+    )
+    .expect("custom agent_create");
+    assert!(ok.contains("agent defined: go-editor"), "{ok}");
+    let file = workspace.join(".kxen/kanban/agents/go-editor.md");
+    assert!(file.is_file(), "定义文件必须落盘");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains("tools: read,glob,grep,edit,write,exec,lsp"), "tools 行必须进 frontmatter: {text}");
+    let board = Board::open(&workspace, "board_t").unwrap();
+    let agent = &board.state().agents["go-editor"];
+    assert_eq!(agent.permission_profile, "custom");
+    assert_eq!(agent.tools.as_ref().unwrap().len(), 7, "tools 必须进 agent_defined 事件 payload");
+    let seq_before = board.state().seq;
+    // custom 缺 tools -> Err 且零副作用
+    let error = call(
+        &workspace,
+        "kanban_agent_create",
+        json!({"board": "board_t", "name": "bad-a", "role": "r", "model": "auto", "permission_profile": "custom", "prompt": "x"}),
+    )
+    .unwrap_err();
+    assert!(error.contains("requires"), "{error}");
+    // tools 含闭集外名（派发面）-> Err 且零副作用
+    let error = call(
+        &workspace,
+        "kanban_agent_create",
+        json!({"board": "board_t", "name": "bad-b", "role": "r", "model": "auto", "permission_profile": "custom",
+               "tools": ["read", "kanban_agent_create"], "prompt": "x"}),
+    )
+    .unwrap_err();
+    assert!(error.contains("allowlist"), "{error}");
+    assert!(!workspace.join(".kxen/kanban/agents/bad-a.md").exists());
+    assert!(!workspace.join(".kxen/kanban/agents/bad-b.md").exists());
+    let board = Board::open(&workspace, "board_t").unwrap();
+    assert!(!board.state().agents.contains_key("bad-a") && !board.state().agents.contains_key("bad-b"));
+    assert_eq!(board.state().seq, seq_before, "非法输入不得新增事件");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
 #[tokio::test]
 async fn agent_run_claim_is_adopted_by_runner_and_executed() {
     let workspace = temp("run");
@@ -279,5 +327,6 @@ fn kanban_tools_are_deferred_discoverable_and_identity_filtered() {
     extras.extra_tools.lock().expect("tools").insert("kanban_board_show".to_string());
     let visible: Vec<_> = super::super::helpers::deferred_visible(Some(&extras), None).into_iter().map(|tool| tool.function.name).collect();
     assert_eq!(visible, ["kanban_board_show"]);
-    assert!(super::super::helpers::deferred_visible(Some(&extras), Some(&["read", "glob", "grep"])).is_empty());
+    let readonly: Vec<String> = ["read", "glob", "grep"].iter().map(|name| name.to_string()).collect();
+    assert!(super::super::helpers::deferred_visible(Some(&extras), Some(&readonly)).is_empty());
 }

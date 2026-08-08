@@ -101,6 +101,7 @@ fn apply_recovers_from_lock_external_write() {
             role: "r".into(),
             model: "m".into(),
             permission_profile: "full".into(),
+            tools: None,
         }),
     };
     store::append_event(&store::events_path(&dir), &mut forged).unwrap();

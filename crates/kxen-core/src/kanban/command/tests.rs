@@ -298,6 +298,7 @@ fn agent_defined_same_name_redefines_silently() {
         role: role.into(),
         model: model.into(),
         permission_profile: permission_profile.into(),
+        tools: None,
     };
     board.apply(define("execution", "auto", "full")).unwrap();
     board.apply(define("execution-v2", "sonnet", "readonly")).unwrap();
@@ -317,13 +318,20 @@ fn agent_defined_and_column_add_happy_path() {
             role: "review".into(),
             model: "auto".into(),
             permission_profile: "readonly+test".into(),
+            tools: None,
         })
         .unwrap();
     assert!(board.state().agents.contains_key("qa-verifier"));
     assert!(matches!(
         reject(
             &mut board,
-            KanbanCommand::AgentDefined { name: "bad name".into(), role: "r".into(), model: "m".into(), permission_profile: "p".into() }
+            KanbanCommand::AgentDefined {
+                name: "bad name".into(),
+                role: "r".into(),
+                model: "m".into(),
+                permission_profile: "p".into(),
+                tools: None
+            }
         ),
         KanbanError::InvalidId(_)
     ));

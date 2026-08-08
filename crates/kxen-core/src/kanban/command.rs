@@ -181,7 +181,7 @@ impl Board {
                 self.open_run(run_id)?;
                 Ok(EventKind::RunTimeout(RunTimeoutPayload { run_id: run_id.clone() }))
             }
-            KanbanCommand::AgentDefined { name, role, model, permission_profile } => {
+            KanbanCommand::AgentDefined { name, role, model, permission_profile, tools } => {
                 self.require_created()?;
                 // 同名重复定义是有意的 redefine 语义：AI 迭代修改定义依赖静默覆盖，
                 // 此处不得加重复守卫（投影侧 BTreeMap insert 同为覆盖）
@@ -189,11 +189,20 @@ impl Board {
                 if role.trim().is_empty() || model.trim().is_empty() || permission_profile.trim().is_empty() {
                     return Err(KanbanError::InvalidCommand("agent role, model and permission_profile are required".into()));
                 }
+                // tools 与 profile 单一口径（与 agents.rs parse 同守卫，事件层独立把守）：
+                // custom 必须显式工具集且过闭集；其余 profile 自带 tools = 两种权限口径并存，拒绝
+                match (permission_profile.as_str(), tools) {
+                    ("custom", Some(tools)) => super::agents::validate_custom_tools(tools)?,
+                    ("custom", None) => return Err(KanbanError::InvalidAgentDef("custom permission_profile requires tools".into())),
+                    (_, Some(_)) => return Err(KanbanError::InvalidAgentDef("tools is only valid with permission_profile custom".into())),
+                    (_, None) => {}
+                }
                 Ok(EventKind::AgentDefined(AgentDefinedPayload {
                     name: name.clone(),
                     role: role.clone(),
                     model: model.clone(),
                     permission_profile: permission_profile.clone(),
+                    tools: tools.clone(),
                 }))
             }
             KanbanCommand::PolicySet { policy } => {
@@ -269,6 +278,8 @@ impl Board {
     }
 }
 
+#[cfg(test)]
+mod agent_tools_tests;
 #[cfg(test)]
 mod drift_tests;
 #[cfg(test)]

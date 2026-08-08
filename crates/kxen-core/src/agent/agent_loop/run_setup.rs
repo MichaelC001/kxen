@@ -4,12 +4,18 @@ use super::context::AgentContext;
 use crate::llm::Message;
 
 pub(super) fn base_tools(ctx: &AgentContext) -> Vec<crate::llm::tool::ToolDefinition> {
-    match ctx.allowed_tools {
-        Some(allowed) => {
-            crate::agent::tools_spec::core_tools().into_iter().filter(|tool| allowed.contains(&tool.function.name.as_str())).collect()
-        }
-        None => crate::agent::tools_spec::core_tools(),
-    }
+    resolve_base_tools(ctx.allowed_tools.as_deref())
+}
+
+/// 白名单（Some）按名挂载：先查常驻 core_tools，查不到再查 deferred_tools，两者都命中才并入。
+/// WHY 查 deferred：custom DCP kanban agent 的工具集可含 lsp/delete/knowledge/skill 等 deferred 名，
+/// 而列执行上下文没有 tool_search 挂载通道（extras=None），定义即挂载是这些工具唯一的 spec 来源；
+/// 执行侧本就通（dispatch 按 ctx.lsp 等依赖分发，driver 已注入）。既有三档 profile 只含 core 名，行为不变。
+fn resolve_base_tools(allowed: Option<&[String]>) -> Vec<crate::llm::tool::ToolDefinition> {
+    let Some(allowed) = allowed else { return crate::agent::tools_spec::core_tools() };
+    let core = crate::agent::tools_spec::core_tools();
+    let deferred = crate::agent::tools_spec::deferred_tools();
+    allowed.iter().filter_map(|name| core.iter().chain(deferred.iter()).find(|tool| tool.function.name == *name).cloned()).collect()
 }
 
 pub(super) async fn initialize_system_prompt(ctx: &AgentContext, messages: &mut Vec<Message>) -> (bool, Vec<std::path::PathBuf>) {
@@ -71,4 +77,28 @@ pub(super) fn dispatch_failure(ctx: &AgentContext) -> Option<(super::events::Age
     let event = super::events::AgentEvent::Error { message: message.clone() };
     (ctx.on_event)(event.clone());
     Some((event, format!("(错误: {message})")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(tools: Vec<crate::llm::tool::ToolDefinition>) -> Vec<String> {
+        tools.into_iter().map(|tool| tool.function.name).collect()
+    }
+
+    #[test]
+    fn whitelist_mounts_core_and_deferred_by_name() {
+        let allowed: Vec<String> = ["read", "lsp"].iter().map(|name| name.to_string()).collect();
+        let mounted = names(resolve_base_tools(Some(&allowed)));
+        assert!(mounted.contains(&"read".to_string()), "core 名照常挂载");
+        assert!(mounted.contains(&"lsp".to_string()), "deferred 名定义即挂载: {mounted:?}");
+        // 白名单收窄：lsp 不在单内即不出现
+        let read_only = vec!["read".to_string()];
+        assert_eq!(names(resolve_base_tools(Some(&read_only))), ["read"]);
+        // None = 全部常驻（deferred 仍走 tool_search 挂载，不提前进上下文）
+        let all = names(resolve_base_tools(None));
+        assert!(all.contains(&"exec".to_string()));
+        assert!(!all.contains(&"lsp".to_string()), "None 不得混入 deferred: {all:?}");
+    }
 }

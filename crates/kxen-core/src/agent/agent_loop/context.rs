@@ -67,8 +67,9 @@ pub struct AgentContext {
     pub store: crate::auth::credential::AuthStore,
     pub max_turns: u32,
     pub mrm: Option<Arc<crate::llm::mrm::ModelResourceManager>>,
-    /// 子代理工具白名单（None = 全部常驻工具）。
-    pub allowed_tools: Option<&'static [&'static str]>,
+    /// 子代理/kanban 列执行的工具白名单（None = 全部常驻工具）。custom DCP agent 的白名单来自
+    /// 定义文件的 tools 字段（kanban::agents::resolve_allowed_tools 校验过的闭集）。
+    pub allowed_tools: Option<Vec<String>>,
     pub extras: Option<Arc<SessionExtras>>,
     pub hooks: Option<Arc<crate::tools::hooks::HookRunner>>,
     pub loop_detector: crate::agent::loop_detect::LoopDetector,
@@ -119,6 +120,12 @@ pub struct AgentContext {
 }
 
 impl AgentContext {
+    /// 执行侧白名单复验收口（execute_tool 用）：展示过滤只决定模型「看到什么」，
+    /// 模型伪造/幻觉 tool_call 名可直接抵达 dispatch，必须在执行侧同口径复验。
+    pub fn permits(&self, tool: &str) -> bool {
+        super::helpers::tool_permitted(tool, self.allowed_tools.as_deref())
+    }
+
     pub fn freeze_goal_binding(&mut self) -> Result<(), String> {
         if self.goal_binding_frozen {
             return Ok(());

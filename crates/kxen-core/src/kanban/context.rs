@@ -35,7 +35,7 @@ pub(super) async fn resolve_model(definition: &agents::AgentDefinition, deps: &D
 pub(super) fn base_context(
     deps: &DriverDeps,
     model: ModelRef,
-    allowed: Option<&'static [&'static str]>,
+    allowed: Option<Vec<String>>,
     persist_turn: Option<PersistTurn>,
     cancel: CancelToken,
     auto: Option<Arc<dyn crate::tools::auto_approve::AutoApprove>>,

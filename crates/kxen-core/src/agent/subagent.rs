@@ -88,7 +88,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         Some(acc) => crate::llm::ModelRef::with_account(resolved.provider.clone(), resolved.model.clone(), acc),
         None => crate::llm::ModelRef::new(resolved.provider.clone(), resolved.model.clone()),
     };
-    let allowed = agent.permission.allowed_tools();
+    let allowed: Vec<String> = agent.permission.allowed_tools().iter().map(|name| name.to_string()).collect();
     let session_id = deps.session_id.clone().unwrap_or_else(|| "default".into());
     // 定名 + 注册同一把锁内完成：并发派发同 role 不得同名并条（转录交错根因）
     let name = deps.agents.register_unique(&session_id, role, kind, &model);

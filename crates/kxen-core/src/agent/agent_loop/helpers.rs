@@ -66,12 +66,15 @@ pub fn first_line(s: &str, max: usize) -> String {
 
 /// 可见 deferred 工具：tool_search 挂载集 ∩ 身份白名单。
 /// readonly 子代理 / plan-mode teammate 与父 session 共享 extras，白名单过滤挡挂载工具的越权可见。
-pub fn deferred_visible(extras: Option<&super::context::SessionExtras>, allowed: Option<&[&str]>) -> Vec<crate::llm::tool::ToolDefinition> {
+pub fn deferred_visible(
+    extras: Option<&super::context::SessionExtras>,
+    allowed: Option<&[String]>,
+) -> Vec<crate::llm::tool::ToolDefinition> {
     let Some(extras) = extras else { return Vec::new() };
     let enabled = crate::core::shared::lock(&extras.extra_tools);
     crate::agent::tools_spec::deferred_tools()
         .into_iter()
-        .filter(|t| enabled.contains(&t.function.name) && allowed.is_none_or(|a| a.contains(&t.function.name.as_str())))
+        .filter(|t| enabled.contains(&t.function.name) && allowed.is_none_or(|a| a.contains(&t.function.name)))
         .collect()
 }
 
@@ -89,10 +92,10 @@ pub fn is_read_only_tool(name: &str, _ctx: &super::context::AgentContext) -> boo
 /// 执行侧白名单（与 run.rs 展示侧过滤同口径）：展示过滤只决定模型「看到什么」，
 /// 模型伪造/幻觉 tool_call 名可直接抵达 dispatch，必须在这里复验。restricted 角色只允许本地白名单精确命中，
 /// 远端 MCP metadata 不能扩大 capability set。
-pub fn tool_permitted(name: &str, allowed: Option<&[&str]>) -> bool {
+pub fn tool_permitted(name: &str, allowed: Option<&[String]>) -> bool {
     match allowed {
         None => true,
-        Some(allowed) => allowed.contains(&name),
+        Some(allowed) => allowed.iter().any(|tool| tool == name),
     }
 }
 
@@ -119,18 +122,24 @@ mod tests {
         }
     }
 
+    fn allowlist(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| name.to_string()).collect()
+    }
+
     #[test]
     fn tool_permitted_mirrors_visibility() {
         // 无白名单（主会话 / full 角色）：全放行
         assert!(tool_permitted("exec", None));
         // readonly 白名单：单内放行，写工具拒绝（模型伪造名过不了执行侧）
-        assert!(tool_permitted("read", Some(&["read", "glob", "grep"])));
-        assert!(!tool_permitted("exec", Some(&["read", "glob", "grep"])));
+        let readonly = allowlist(&["read", "glob", "grep"]);
+        assert!(tool_permitted("read", Some(&readonly)));
+        assert!(!tool_permitted("exec", Some(&readonly)));
         // 内置只读但不在白名单（如 lsp）：展示侧不可见，执行侧同拒
-        assert!(!tool_permitted("lsp", Some(&["read", "glob", "grep"])));
+        assert!(!tool_permitted("lsp", Some(&readonly)));
         // Server 自报 readOnlyHint 不能提升 restricted 权限。
-        assert!(!tool_permitted("mcp__fs__read_file", Some(&["read"])));
-        assert!(!tool_permitted("mcp__fs__write_file", Some(&["read"])));
+        let read_only = allowlist(&["read"]);
+        assert!(!tool_permitted("mcp__fs__read_file", Some(&read_only)));
+        assert!(!tool_permitted("mcp__fs__write_file", Some(&read_only)));
     }
 
     #[test]
@@ -142,9 +151,9 @@ mod tests {
         let names: Vec<_> = deferred_visible(Some(&extras), None).into_iter().map(|t| t.function.name).collect();
         assert_eq!(names, ["lsp", "schedule"]);
         // readonly 白名单（read/glob/grep）：共享 extras 里挂载的 deferred 一个都不可见
-        assert!(deferred_visible(Some(&extras), Some(&["read", "glob", "grep"])).is_empty());
+        assert!(deferred_visible(Some(&extras), Some(&allowlist(&["read", "glob", "grep"]))).is_empty());
         // 白名单显式含 lsp：只放白名单内的
-        let names: Vec<_> = deferred_visible(Some(&extras), Some(&["lsp"])).into_iter().map(|t| t.function.name).collect();
+        let names: Vec<_> = deferred_visible(Some(&extras), Some(&allowlist(&["lsp"]))).into_iter().map(|t| t.function.name).collect();
         assert_eq!(names, ["lsp"]);
         // 无 extras（子代理无 session 上下文）：空
         assert!(deferred_visible(None, None).is_empty());
