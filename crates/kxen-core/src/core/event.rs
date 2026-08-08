@@ -4,6 +4,9 @@ use tokio::sync::broadcast;
 
 #[derive(Debug, Clone)]
 pub enum Event {
+    // DCP 语义声明：llm.delta 是瞬态渲染流，只广播不落盘。主会话实质内容已按 loop 迭代
+    // 持久化（persist_turn），断连期间的增量不需要也无法从 EventBus 恢复；kanban 列执行的
+    // 增量将走自己的 event log 持久化，不依赖本总线。
     LlmDelta(serde_json::Value),
     TaskUpdate { id: String, status: &'static str },
     GoalUpdate { id: String, status: &'static str },

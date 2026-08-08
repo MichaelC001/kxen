@@ -146,6 +146,11 @@ pub(super) fn session_rewind(params: &Value, state: &crate::AppState) -> Result<
     rewind_gate(active_in_workspace, dirty_count, confirm, target).map_err(|b| b.to_wire())?;
     let idx = messages.iter().position(|m| m.id == message_id).expect("rewind_gate 已确认消息存在");
     let label = checkpoint_label(&messages, idx).ok_or("no user checkpoint before this message")?;
+    // 产品决策（DCP 审计「部分符合」rewind 项）：rewind 是用户显式确认的破坏性操作，直接原子重写
+    // JSONL 而不追加截断事件——被回退段不可向后回放，与 shadow repo 的 reset --hard 同语义。
+    // 追加式截断要求所有读取方（历史重建、compaction checkpoint 按 upto id 消失自动失效的机制、
+    // consolidation 的 message cursor CAS、fork/导出、前端时间线）都改为应用截断视图，成本与回归
+    // 风险不匹配一个显式回退操作换来的可回放性；维持重写，在此声明为有意取舍。
     let mut durability_warning = None;
     let (hash, ()) = kxen_core::tools::checkpoint::rewind(std::path::Path::new(&meta.directory), label, || {
         match kxen_core::core::session::rewrite_messages_durable(&dir, session_id, &messages[..=idx]) {

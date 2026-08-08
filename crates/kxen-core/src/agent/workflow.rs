@@ -45,7 +45,9 @@ struct WfStats {
 
 /// workflow 工具入口：QuickJS 在专属线程 + current_thread runtime 跑（rquickjs !Send 全隔离），
 /// 本任务侧只做 phase 转发 / 结果等待 / 超时取消（全部 Send）。
-/// run_id 给了就开 journal resume：同 run_id 重跑时已完成 agent 派发直接回缓存（崩溃/取消可续）。
+/// run_id 给了就开 journal resume：同 run_id 重跑时已完成 agent 派发直接回缓存（崩溃/取消可续）；
+/// dispatch 前落 durable intent，dispatch 与 record 之间崩溃的步重跑时报 Unknown（fail closed），
+/// 不静默重复派发——显式重跑途径是换新 run_id。
 /// run_id 经宿主按 session 派生后才进 journal（open_scoped）：模型参数不能直接命中其它会话的旧 journal。
 pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_id: Option<&str>) -> Result<String, String> {
     let journal = match run_id {
@@ -194,12 +196,18 @@ pub async fn run_script(
                         *entry = entry.saturating_add(1);
                         current
                     };
-                    if let Some(cached) = crate::core::shared::lock(&journal)
-                        .as_ref()
-                        .and_then(|j| j.cached(&role, &prompt, label.as_deref(), occurrence).cloned())
+                    match crate::core::shared::lock(&journal).as_mut().map(|j| j.resume_gate(&role, &prompt, label.as_deref(), occurrence))
                     {
-                        *crate::core::shared::lock(&stats).ok_by_role.entry(role).or_insert(0) += 1;
-                        return Ok(cached);
+                        Some(Ok(Some(cached))) => {
+                            *crate::core::shared::lock(&stats).ok_by_role.entry(role).or_insert(0) += 1;
+                            return Ok(cached);
+                        }
+                        // Unknown（dispatch 与 record 间崩溃，该步副作用不可知）或 intent 落盘失败：都不准派发
+                        Some(Err(msg)) => {
+                            crate::core::shared::lock(&stats).failures.push((label.unwrap_or(role), msg.clone()));
+                            return Err(workflow_err(msg));
+                        }
+                        None | Some(Ok(None)) => {}
                     }
                     match dispatch(&role, prompt.clone(), &deps, crate::agent::activity::AgentKind::Workflow).await {
                         Ok(result) => {

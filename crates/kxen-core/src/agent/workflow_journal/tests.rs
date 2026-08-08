@@ -169,3 +169,74 @@ fn scoped_run_id_isolates_sessions_but_resumes_within_session() {
     let _ = std::fs::remove_file(&file_b);
     let _ = std::fs::remove_file(journal_file(&stable_hash(&["no-session", &run_id])));
 }
+
+/// 崩溃注入：dispatch 完成（intent 已落盘）而 record 未发生时进程死亡，
+/// 重开必须报 Unknown 且闸门拒绝重派——绝不静默重复 dispatch。
+#[test]
+fn crash_between_dispatch_and_record_reopens_as_unknown_and_blocks_redispatch() {
+    let run_id = format!("test-intent-{}", std::process::id());
+    cleanup(&run_id);
+    {
+        let mut journal = Journal::open(&run_id, "script-v1").unwrap();
+        journal.begin("execution", "do A", None, 0).unwrap();
+        // 模拟崩溃：record 从未发生，Journal 随作用域 drop
+    }
+    let mut resumed = Journal::open(&run_id, "script-v1").unwrap();
+    assert!(matches!(resumed.state("execution", "do A", None, 0), DispatchState::Unknown));
+    assert_eq!(resumed.cached("execution", "do A", None, 0), None, "Unknown 不得当缓存命中");
+    assert_eq!(resumed.completed(), 0, "intent 不算完成");
+    let error = resumed.resume_gate("execution", "do A", None, 0).unwrap_err();
+    assert!(error.contains("unknown"), "{error}");
+    assert!(error.contains("fresh run_id"), "{error}");
+    cleanup(&run_id);
+}
+
+/// intent -> done 转换：begin 后 record 成功，重开即 Done 缓存命中，闸门回缓存不重派。
+#[test]
+fn record_after_begin_turns_intent_into_done() {
+    let run_id = format!("test-intent-done-{}", std::process::id());
+    cleanup(&run_id);
+    {
+        let mut journal = Journal::open(&run_id, "script-v1").unwrap();
+        journal.begin("execution", "do A", None, 0).unwrap();
+        journal.record("execution", "do A", None, 0, "result A").unwrap();
+    }
+    let mut resumed = Journal::open(&run_id, "script-v1").unwrap();
+    assert!(matches!(resumed.state("execution", "do A", None, 0), DispatchState::Done(_)));
+    assert_eq!(resumed.resume_gate("execution", "do A", None, 0).unwrap().as_deref(), Some("result A"));
+    assert_eq!(resumed.completed(), 1);
+    cleanup(&run_id);
+}
+
+/// Miss 放行时 intent 必须先于 dispatch durable：闸门返回后崩溃，重开即 Unknown。
+#[test]
+fn miss_gate_persists_intent_before_returning() {
+    let run_id = format!("test-intent-miss-{}", std::process::id());
+    cleanup(&run_id);
+    {
+        let mut journal = Journal::open(&run_id, "script-v1").unwrap();
+        assert_eq!(journal.resume_gate("execution", "do A", None, 0).unwrap(), None);
+    }
+    let resumed = Journal::open(&run_id, "script-v1").unwrap();
+    assert!(matches!(resumed.state("execution", "do A", None, 0), DispatchState::Unknown), "Miss 放行后 intent 必须 durable");
+    cleanup(&run_id);
+}
+
+/// 超 TTL 的 intent 与完成记录同口径清理：重开后该步回 Miss 可重新派发。
+#[test]
+fn expired_intent_is_purged_on_open() {
+    let run_id = format!("test-intent-ttl-{}", std::process::id());
+    let file = journal_file(&run_id);
+    cleanup(&run_id);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let stale = now_secs() - ENTRY_TTL_SECS - 1;
+    std::fs::write(
+        &file,
+        format!("{{\"schema\":{JOURNAL_SCHEMA},\"key\":\"stale\",\"occurrence\":0,\"phase\":\"started\",\"ts\":{stale}}}\n"),
+    )
+    .unwrap();
+    let resumed = Journal::open(&run_id, "script-v1").unwrap();
+    assert!(matches!(resumed.state("execution", "do A", None, 0), DispatchState::Miss));
+    assert!(!std::fs::read_to_string(&file).unwrap().contains("stale"), "过期 intent 必须随清理重写剔除");
+    cleanup(&run_id);
+}

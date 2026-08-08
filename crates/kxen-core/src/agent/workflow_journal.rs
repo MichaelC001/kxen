@@ -1,11 +1,14 @@
-//! workflow journal：agent 派发结果按 run_id 落盘，同 run_id 重跑自动跳过已完成项（resume）。
-//! 文件：data_dir/workflow-journals/<run_id>.jsonl（每行 {key, result, ts}）。
+//! workflow journal：agent 派发按 run_id 落盘，同 run_id 重跑自动跳过已完成项（resume）。
+//! 文件：data_dir/workflow-journals/<run_id>.jsonl（每行 {key, phase: started|done, result?, ts}；
+//! phase 缺省按 done 解析，兼容 intent 引入前的旧条目）。
+//! dispatch 前先落 started intent，成功后落 done 把 intent 转为完成：dispatch 与 record 之间崩溃，
+//! 重开时 intent 在、result 无 = Unknown，fail closed 报副作用不可知，绝不静默重复派发。
 //! 命名空间隔离：ns = sha256(run_id, sha256(script))，
 //! key = sha256(ns, role, prompt, label, occurrence)。同输入的多次独立调用不会互相冒充；
 //! 同 run_id 换了脚本语义全变，旧条目必须 miss；脚本哈希进 ns 让缓存自动失效。
 
 use sha2::Digest;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -32,6 +35,8 @@ fn stable_hash(segments: &[&str]) -> String {
 pub struct Journal {
     ns: String,
     done: HashMap<String, String>,
+    /// 已落盘但未完成的 durable intent（started 无 done）：resume 时按 Unknown fail closed。
+    pending: HashSet<String>,
     file: PathBuf,
     /// 同一 scoped run_id 同时只能有一个执行者；File lock 跨进程，Drop 自动释放。
     _lock: File,
@@ -45,8 +50,9 @@ impl Journal {
         let ns = stable_hash(&[run_id, &stable_hash(&[script])]);
         let file = journal_file(run_id);
         let lock = lock_journal(&file)?;
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let now = now_secs();
         let mut done = HashMap::new();
+        let mut pending = HashSet::new();
         let mut kept_lines: Vec<String> = Vec::new();
         let mut dropped = false;
         let text = match std::fs::read_to_string(&file) {
@@ -72,16 +78,26 @@ impl Journal {
                 .get("key")
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| format!("workflow journal {} line {} has no key", file.display(), index + 1))?;
-            let result = entry
-                .get("result")
-                .and_then(serde_json::Value::as_str)
-                .ok_or_else(|| format!("workflow journal {} line {} has no result", file.display(), index + 1))?;
+            // phase 缺省 = done：intent 引入前的旧条目只有完成记录，无需迁移即可继续 resume
+            let phase = entry.get("phase").and_then(serde_json::Value::as_str).unwrap_or("done");
+            if phase != "done" && phase != "started" {
+                return Err(format!("workflow journal {} line {} has unsupported phase {phase}", file.display(), index + 1));
+            }
             let ts = entry
                 .get("ts")
                 .and_then(serde_json::Value::as_u64)
                 .ok_or_else(|| format!("workflow journal {} line {} has no timestamp", file.display(), index + 1))?;
             if now.saturating_sub(ts) <= ENTRY_TTL_SECS {
-                done.insert(key.to_string(), result.to_string());
+                if phase == "done" {
+                    let result = entry
+                        .get("result")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| format!("workflow journal {} line {} has no result", file.display(), index + 1))?;
+                    pending.remove(key);
+                    done.insert(key.to_string(), result.to_string());
+                } else {
+                    pending.insert(key.to_string());
+                }
                 kept_lines.push(line.to_string());
             } else {
                 dropped = true;
@@ -90,7 +106,7 @@ impl Journal {
         if dropped {
             rewrite_journal(&file, &kept_lines)?;
         }
-        Ok(Self { ns, done, file, _lock: lock })
+        Ok(Self { ns, done, pending, file, _lock: lock })
     }
 
     /// 宿主命名空间版 open：模型传入的
@@ -103,15 +119,79 @@ impl Journal {
 
     /// 已完成的派发结果（resume 命中则免重跑）。
     pub fn cached(&self, role: &str, prompt: &str, label: Option<&str>, occurrence: u32) -> Option<&String> {
-        let occurrence = occurrence.to_string();
-        self.done.get(&stable_hash(&[&self.ns, role, prompt, label.unwrap_or(""), &occurrence]))
+        self.done.get(&self.key(role, prompt, label, occurrence))
     }
 
-    /// 追加一条完成记录（立即落盘，崩溃可续）。
+    /// 单步派发的 durable 状态（resume 判定用）。
+    pub fn state(&self, role: &str, prompt: &str, label: Option<&str>, occurrence: u32) -> DispatchState<'_> {
+        let key = self.key(role, prompt, label, occurrence);
+        if let Some(result) = self.done.get(&key) {
+            return DispatchState::Done(result);
+        }
+        if self.pending.contains(&key) {
+            return DispatchState::Unknown;
+        }
+        DispatchState::Miss
+    }
+
+    /// resume 闸门（判定与 intent 落盘在同一调用内完成）：Done 回缓存；Unknown fail closed，
+    /// 报错指明该步副作用不可知、换新 run_id 显式重跑；Miss 先落 durable intent 再放行——
+    /// dispatch 与 record 之间的崩溃由此转为可判定的 Unknown，而不是静默重复派发。
+    pub fn resume_gate(&mut self, role: &str, prompt: &str, label: Option<&str>, occurrence: u32) -> Result<Option<String>, String> {
+        match self.state(role, prompt, label, occurrence) {
+            DispatchState::Done(result) => Ok(Some(result.clone())),
+            DispatchState::Unknown => Err(format!(
+                "workflow dispatch outcome unknown for role {role}: intent persisted without result \
+                 (previous run crashed between dispatch and record); refusing silent re-dispatch, retry with a fresh run_id"
+            )),
+            DispatchState::Miss => self.begin(role, prompt, label, occurrence).map(|_| None),
+        }
+    }
+
+    /// dispatch 前的 durable intent（立即落盘）：崩溃后重开见 intent 无 result = Unknown。
+    /// 落盘失败必须拦住 dispatch——副作用先于持久化就违背了 intent 存在的意义。
+    pub fn begin(&mut self, role: &str, prompt: &str, label: Option<&str>, occurrence: u32) -> Result<(), String> {
+        let key = self.key(role, prompt, label, occurrence);
+        let line = serde_json::json!({
+            "schema": JOURNAL_SCHEMA,
+            "key": key,
+            "occurrence": occurrence,
+            "phase": "started",
+            "ts": now_secs(),
+        });
+        self.append_entry(&line)?;
+        self.pending.insert(key);
+        Ok(())
+    }
+
+    /// 追加一条完成记录（立即落盘，崩溃可续），把同 key 的 intent 转为 done。
     pub fn record(&mut self, role: &str, prompt: &str, label: Option<&str>, occurrence: u32, result: &str) -> Result<(), String> {
-        let occurrence_text = occurrence.to_string();
-        let key = stable_hash(&[&self.ns, role, prompt, label.unwrap_or(""), &occurrence_text]);
-        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let key = self.key(role, prompt, label, occurrence);
+        let line = serde_json::json!({
+            "schema": JOURNAL_SCHEMA,
+            "key": key,
+            "occurrence": occurrence,
+            "phase": "done",
+            "result": result,
+            "ts": now_secs(),
+        });
+        let outcome = self.append_entry(&line);
+        // 目录 sync 失败只上抛错误：行已 append，内存照常登记（重开仍可见，语义与引入 intent 前一致）
+        self.pending.remove(&key);
+        self.done.insert(key, result.to_string());
+        outcome
+    }
+
+    pub fn completed(&self) -> usize {
+        self.done.len()
+    }
+
+    fn key(&self, role: &str, prompt: &str, label: Option<&str>, occurrence: u32) -> String {
+        let occurrence = occurrence.to_string();
+        stable_hash(&[&self.ns, role, prompt, label.unwrap_or(""), &occurrence])
+    }
+
+    fn append_entry(&self, line: &serde_json::Value) -> Result<(), String> {
         if let Some(parent) = self.file.parent() {
             std::fs::create_dir_all(parent).map_err(|error| format!("create {}: {error}", parent.display()))?;
         }
@@ -120,24 +200,24 @@ impl Journal {
             .append(true)
             .open(&self.file)
             .map_err(|error| format!("open {}: {error}", self.file.display()))?;
-        let line = serde_json::json!({
-            "schema": JOURNAL_SCHEMA,
-            "key": key,
-            "occurrence": occurrence,
-            "result": result,
-            "ts": ts,
-        });
         writeln!(file, "{line}").map_err(|error| format!("append {}: {error}", self.file.display()))?;
         file.sync_data().map_err(|error| format!("sync {}: {error}", self.file.display()))?;
         let parent = self.file.parent().ok_or_else(|| format!("journal path has no parent: {}", self.file.display()))?;
-        let directory_sync = sync_journal_directory(parent).map_err(|error| format!("sync {}: {error}", parent.display()));
-        self.done.insert(key, result.to_string());
-        directory_sync
+        sync_journal_directory(parent).map_err(|error| format!("sync {}: {error}", parent.display()))
     }
+}
 
-    pub fn completed(&self) -> usize {
-        self.done.len()
-    }
+/// 单步派发的 durable 状态。
+pub enum DispatchState<'a> {
+    /// result 已落盘：resume 直接回缓存，不重派。
+    Done(&'a String),
+    /// intent 在、result 无：上次 dispatch 与 record 之间崩溃（或 dispatch 失败），副作用不可知。
+    Unknown,
+    Miss,
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
 fn lock_journal(path: &std::path::Path) -> Result<File, String> {

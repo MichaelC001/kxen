@@ -37,6 +37,11 @@ fn compact_preserves_system_and_recent() {
     let store = crate::auth::credential::AuthStore::default();
     let compacted =
         rt.block_on(compact_messages(None, &model, &store, &msgs, 4, COMPACT_TIMEOUT, None, None)).expect("fallback compaction");
+    assert!(compacted.used_fallback, "mrm=None 走降级必须置 used_fallback（调用方据此发用户可见通知）");
+    assert!(
+        compacted.summary.as_ref().expect("fallback summary").starts_with(FALLBACK_MARK),
+        "降级摘要必须带 FALLBACK_MARK 前缀，落盘后重建方可识别截断而非完整蒸馏"
+    );
     let out = compacted.messages;
     assert_eq!(out[0].content, "sys");
     assert_eq!(out[1].role, crate::llm::types::Role::User);
@@ -83,4 +88,13 @@ async fn cancelled_compaction_never_writes_a_fallback_summary() {
     )
     .await;
     assert!(matches!(result, Err(CompactError::Cancelled { unmetered_call: false, .. })));
+}
+
+/// 蒸馏成功时不置 used_fallback、摘要不带 FALLBACK_MARK（与降级路径严格区分）。
+/// 无 Provider 环境下用 summarize 的取消前置路径替代：只校验 fallback_summary 本身的标记契约。
+#[test]
+fn fallback_summary_carries_persistent_mark() {
+    let old = vec![Message::user("u1".to_string()), Message::assistant("a1".to_string())];
+    let summary = fallback_summary(&old);
+    assert!(summary.starts_with(FALLBACK_MARK), "重建方/UI 据此识别截断而非完整蒸馏");
 }

@@ -39,6 +39,9 @@ pub struct CompactResult {
     pub messages: Vec<Message>,
     pub summary: Option<String>,
     pub compacted_count: usize,
+    /// true = LLM 蒸馏不可用，降级为首尾截断摘要（fail-open 保留可用性）；
+    /// 摘要带 FALLBACK_MARK 前缀落盘，调用方据此让用户可见（bus 通知）。
+    pub used_fallback: bool,
     pub usage: Option<crate::llm::managed::TokenUsage>,
     pub request_started: bool,
     pub unmetered_call: bool,
@@ -119,7 +122,9 @@ Output plain markdown, <= 800 words.\n\nCONVERSATION:\n";
 
 /// 压缩消息序列：保留 system（若有）与最近 keep_recent 条，旧段蒸馏为一条 user 摘要。
 /// 返回（压缩后序列，摘要文本，被摘要的非 system 消息数）；无需压缩时摘要为 None。
-/// LLM 失败降级截断式保留（旧段只留首尾），绝不丢最近上下文。
+/// LLM 失败降级截断式保留（旧段只留首尾），绝不丢最近上下文：fail-open 保可用性，
+/// 但降级必须可识别——used_fallback=true 且摘要带 FALLBACK_MARK 前缀随 checkpoint/消息落盘，
+/// 重建方能区分「截断」与「完整蒸馏」，调用方负责发用户可见通知。
 /// start_barrier 在蒸馏请求越过 Provider 网络边界前触发（计量 claim 的 durable Started 标记）。
 #[allow(clippy::too_many_arguments)]
 pub async fn compact_messages<'a>(
@@ -141,6 +146,7 @@ pub async fn compact_messages<'a>(
             messages: messages.to_vec(),
             summary: None,
             compacted_count: 0,
+            used_fallback: false,
             usage: None,
             request_started: false,
             unmetered_call: false,
@@ -157,10 +163,9 @@ pub async fn compact_messages<'a>(
     let (old, recent) = rest.split_at(split);
     let segment: String = old.iter().map(|m| format!("{:?}: {}", m.role, m.content)).collect::<Vec<_>>().join("\n\n");
     let attempt = summarize(mrm, model, store, &segment, timeout, cancel, start_barrier).await?;
-    let summary = match attempt.output.as_ref().map(|output| output.text.trim()).filter(|text| !text.is_empty()) {
-        Some(summary) => summary.to_string(),
-        None => fallback_summary(old),
-    };
+    let distilled = attempt.output.as_ref().map(|output| output.text.trim()).filter(|text| !text.is_empty());
+    let used_fallback = distilled.is_none();
+    let summary = distilled.map(str::to_string).unwrap_or_else(|| fallback_summary(old));
     let mut out = system;
     // 摘要角色用 user：system 会让 run loop 的 system_owned 判假吞掉真正系统提示，
     // assistant 会与 recent 首条连排（provider 要求首条非 system 消息必须 user）
@@ -170,6 +175,7 @@ pub async fn compact_messages<'a>(
         messages: out,
         summary: Some(summary),
         compacted_count: old.len(),
+        used_fallback,
         usage: attempt.usage,
         request_started: attempt.request_started,
         unmetered_call: attempt.unmetered_call,
@@ -178,8 +184,13 @@ pub async fn compact_messages<'a>(
     })
 }
 
+/// 降级摘要的统一前缀：checkpoint/消息层据此区分「截断保留」与「完整蒸馏」。
+/// 持久化、重建方与 UI 检测共用这一个常量，防多处文案漂移。
+pub const FALLBACK_MARK: &str = "(compaction fallback: LLM unavailable, kept head/tail only)";
+
 fn fallback_summary(old: &[Message]) -> String {
-    let mut out = String::from("(compaction fallback: LLM unavailable, kept head/tail only)\n");
+    let mut out = String::from(FALLBACK_MARK);
+    out.push('\n');
     for message in old.iter().take(1).chain(old.iter().rev().take(1)) {
         out.push_str(&format!("{:?}: {}\n", message.role, message.content.chars().take(500).collect::<String>()));
     }

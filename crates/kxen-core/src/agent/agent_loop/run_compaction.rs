@@ -76,6 +76,16 @@ pub(super) async fn compact_if_needed(
     {
         return Err(AutoCompactStop::Error { message, model_used: compacted.model_used });
     }
+    // fail-open 降级必须用户可见：截断摘要已带 FALLBACK_MARK 随 checkpoint 落盘（重建方可识别），
+    // 这里再发通知，避免用户把首尾截断误认为完整蒸馏
+    if compacted.used_fallback
+        && let Some(bus) = &ctx.bus
+    {
+        bus.publish(crate::core::event::Event::notify(
+            "Provider 不可用：自动压缩降级为首尾截断（非完整蒸馏），中间段细节已丢失",
+            ctx.session_id.clone(),
+        ));
+    }
     if let Some(summary) = compacted.summary {
         if let Some(persist) = &ctx.persist_compaction {
             let system_offset = usize::from(messages.first().is_some_and(|message| message.role == crate::llm::types::Role::System));
@@ -244,6 +254,37 @@ mod tests {
 
         assert!(crate::core::shared::lock(&usage).is_empty(), "未发出的请求不得产生用量条目");
         assert!(crate::core::usage::ProviderAttemptStore::new(root.clone()).load_all().unwrap().is_empty());
+        cleanup(&root);
+    }
+
+    /// 降级可见性回归：Provider 不可用（mrm=None）时 fail-open 截断保留，
+    /// 但必须经 bus 通知用户、摘要带 FALLBACK_MARK，不能静默当完整蒸馏。
+    #[tokio::test]
+    async fn fallback_compaction_marks_summary_and_notifies_user() {
+        let (reporter, _usage, root) = unscoped_reporter("fallback");
+        let bus = crate::core::event::EventBus::new(16);
+        let mut events = bus.subscribe();
+        let mut ctx = test_ctx(reporter);
+        ctx.bus = Some(bus);
+        let mut messages = vec![Message::user("x".repeat(700_000))];
+        for index in 0..9 {
+            messages.push(Message::user(format!("m{index}")));
+        }
+        let mut acc = UsageAcc::default();
+        let mut wall = GoalWallCache::default();
+
+        let result = compact_if_needed(&mut ctx, &mut messages, &mut acc, &mut wall).await;
+        assert!(result.is_ok(), "fallback compaction must succeed");
+
+        let mut notified = false;
+        while let Ok(crate::core::event::Event::Notification { text, .. }) = events.try_recv() {
+            notified |= text.contains("降级");
+        }
+        assert!(notified, "降级必须经 bus 通知用户");
+        assert!(
+            messages.iter().any(|message| message.content.contains(crate::agent::compact::FALLBACK_MARK)),
+            "截断摘要必须带 FALLBACK_MARK"
+        );
         cleanup(&root);
     }
 }
