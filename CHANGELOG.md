@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- kxen server 的 Docker 多架构镜像（linux/amd64、linux/arm64）随每次 release 发布到 `ghcr.io/stringke/kxen`，默认以 Web 模式启动，数据持久化在 `/data` 卷。
+
 ## [0.1.2]
 
 ### Changed

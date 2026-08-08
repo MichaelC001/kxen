@@ -40,6 +40,23 @@ kxen --bind 127.0.0.1 --port 7824
 
 环境变量 `KXEN_DATA_DIR` 覆盖数据目录，`RUST_LOG` 控制日志过滤。
 
+## Docker
+
+每个发布的 `kxen` CLI 同时打包为多架构镜像（linux/amd64、linux/arm64），发布在 `ghcr.io/stringke/kxen`:
+
+```bash
+docker run -d --name kxen -p 7824:7824 -v kxen-data:/data ghcr.io/stringke/kxen:latest
+docker logs kxen   # 查看带 token 的访问 URL
+```
+
+镜像默认 `kxen --bind 0.0.0.0 --port 7824` 启动，数据持久化在 `/data` 卷。远程访问同样在容器前面终结 TLS（如 tailscale），自定义监听地址、端口或 token 直接覆盖启动参数:
+
+```bash
+docker run -d -p 7824:7824 -v kxen-data:/data ghcr.io/stringke/kxen:latest --bind 0.0.0.0 --token <固定token>
+```
+
+镜像不含 Chrome 与桌面集成，Browser 工具不可用，其余能力与 `kxen` 二进制一致。
+
 ## token 安全模型
 
 - token 是唯一访问凭证。任何拿到带 token URL 的人就获得完整访问权，不要分享 URL，不要把它提交到仓库或聊天工具。

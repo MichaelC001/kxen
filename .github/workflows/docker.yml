@@ -1,0 +1,75 @@
+name: Docker
+
+# release 正式发布后才构建镜像：复用该 release 的 kxen CLI 资产，镜像内容与发布产物同源。
+# draft/失败不会产生镜像；workflow_dispatch 用于为已发布版本补发。
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已发布的 release tag（如 v0.1.2）
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    name: Build and push GHCR image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { printf 'invalid tag: %s\n' "$tag" >&2; exit 1; }
+          printf 'tag=%s\nversion=%s\n' "$tag" "${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch kxen CLI assets from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p context
+          gh release download "$TAG" --pattern 'kxen-linux-x86_64.tar.gz' --pattern 'kxen-linux-aarch64.tar.gz' --dir context --clobber
+          tar -xzf context/kxen-linux-x86_64.tar.gz -C context
+          mv context/kxen context/kxen-amd64
+          tar -xzf context/kxen-linux-aarch64.tar.gz -C context
+          mv context/kxen context/kxen-arm64
+          rm context/*.tar.gz
+          test -x context/kxen-amd64 && test -x context/kxen-arm64
+          cp Dockerfile context/
+
+      - uses: docker/setup-qemu-action@b7b57377787b6b28354b4a8b15439ee49b3fbc1f # v4
+      - uses: docker/setup-buildx-action@4d0108bb0120d3cd17e1615efcb7e6cf7436ae01 # v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@b45d80de39232cd6807999eace34051a90ac8ea7 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@17ad435ebae2a9a5142768baa3df9653d947235e # v7
+        with:
+          context: context
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.version }}
+            ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}
+
+      - name: Verify published manifest
+        run: |
+          docker buildx imagetools inspect "ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}" \
+            | grep -E 'linux/amd64|linux/arm64'
