@@ -339,7 +339,9 @@ describe("Settings 实验能力与诊断导出", () => {
 
     btnByText("导出诊断包（markdown）").click();
     await vi.waitFor(() =>
-      expect(flash.msgs().some((message) => message.text === "导出诊断包失败")).toBe(true),
+      expect(flash.msgs().some((message) => message.text === "导出诊断包失败：export denied")).toBe(
+        true,
+      ),
     );
     dispose();
   });

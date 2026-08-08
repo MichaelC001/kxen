@@ -1,5 +1,5 @@
-// @pierre/trees 的 Solid 挂载壳：改动文件的树视图（目录聚合 + Git 状态行信号），
-// 取代原来的平铺列表。path-first 模型与 diff RPC 的路径口径天然对齐：
+// @pierre/trees 的 Solid 挂载壳：改动文件的树视图（目录聚合 + Git 状态行信号）。
+// path-first 模型与 diff RPC 的路径口径天然对齐：
 // 选中路径即加载该文件 diff，树本身只做展示与选择，不持有数据真相。
 // 库本体动态 import 按需加载，不进主 chunk（构建有 500KB 预算门禁）。
 import { createEffect, onCleanup, onMount } from "solid-js";

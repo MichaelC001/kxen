@@ -36,10 +36,14 @@ export default function SessionRow(props: {
   );
   const modelGuard = createSeqGuard();
   const [draft, setDraft] = createSignal("");
+  let renameBusy = false;
   let inputRef: HTMLInputElement | undefined;
 
   const commitRename = async () => {
+    // in-flight 去重：Enter 提交后 renaming 等 RPC 完结才复位，此窗口内 blur 会再触发一次
+    if (renameBusy) return;
     const t = draft().trim();
+    renameBusy = true;
     try {
       if (t && t !== s().title) {
         await sessionUpdateMeta(s().id, { title: t });
@@ -48,6 +52,7 @@ export default function SessionRow(props: {
     } catch (e) {
       flashErr(`重命名失败：${errText(e)}`);
     } finally {
+      renameBusy = false;
       // RPC 失败也必须退出编辑态，否则输入框卡死
       setRenaming(false);
     }

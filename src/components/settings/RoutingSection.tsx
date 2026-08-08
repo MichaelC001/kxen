@@ -39,6 +39,7 @@ export default function RoutingSection() {
   const [modelTouched, setModelTouched] = createSignal<Record<string, boolean>>({});
   let reloadSeq = 0;
   let telemetrySeq = 0;
+  let flashTimer: ReturnType<typeof setTimeout> | undefined;
 
   const reload = async () => {
     const seq = ++reloadSeq;
@@ -107,7 +108,9 @@ export default function RoutingSection() {
 
   const flash = (msg: string) => {
     setSaved(msg);
-    setTimeout(() => setSaved(""), 2000);
+    // 连续保存时重排消退计时，否则旧定时器提前清掉新提示
+    if (flashTimer) clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => setSaved(""), 2000);
   };
 
   const accountOptions = (provider: string) => accounts().filter((a) => a.provider === provider);

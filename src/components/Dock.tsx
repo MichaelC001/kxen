@@ -166,6 +166,7 @@ export default function Dock() {
   let unlisten: (() => void) | undefined;
   let offResync: (() => void) | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
+  let disposed = false;
 
   // goalAction：act 期间禁用按钮（连点产生并发 transit 裸 rejection 的根因），失败走 flashErr
   const goalAction = createAction();
@@ -227,10 +228,13 @@ export default function Dock() {
   });
 
   onMount(async () => {
-    unlisten = await onTopic(["goal.update", "task.update"], () => {
+    // await 期间组件已卸载时订阅即注册即注销，否则 cleanup 先跑、listener 永久泄漏
+    const off = await onTopic(["goal.update", "task.update"], () => {
       void reloadGoal();
       void reloadTasks();
     });
+    if (disposed) off();
+    else unlisten = off;
     // goal.update/task.update 丢帧后 topic 流不自愈：resync 信号按真源重拉
     offResync = client.onResync(() => {
       void reloadGoal();
@@ -242,6 +246,7 @@ export default function Dock() {
     }, 3000);
   });
   onCleanup(() => {
+    disposed = true;
     unlisten?.();
     offResync?.();
     if (timer) clearInterval(timer);
@@ -269,7 +274,10 @@ export default function Dock() {
       return;
     }
     // 失败不吞成空 diff（与「无改动」同形）：原因走 flashErr
-    const r = await fetchAgentDiffFile(activeSessionId(), path);
+    const sid = activeSessionId();
+    const r = await fetchAgentDiffFile(sid, path);
+    // await 期间会话已切换：旧会话的 diff 不得落进新会话视图
+    if (activeSessionId() !== sid) return;
     if (r.state === "err") {
       flashErr(`加载 diff 失败：${r.message}`);
       return;

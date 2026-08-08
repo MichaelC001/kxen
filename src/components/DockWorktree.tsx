@@ -41,6 +41,7 @@ export default function DockWorktree() {
   const [active, setActive] = createSignal("");
   const [name, setName] = createSignal("");
   const [pendingRemove, setPendingRemove] = createSignal<PendingRemove | null>(null);
+  const [createBusy, setCreateBusy] = createSignal(false);
   // 首载失败与真空区分（Session/Workspaces 同模式）：失败出重试条，5s 轮询成功自动复位
   const [loadFailed, setLoadFailed] = createSignal(false);
   const removeAction = createAction();
@@ -80,30 +81,36 @@ export default function DockWorktree() {
 
   const create = async (enter: boolean) => {
     const n = name().trim();
-    if (!n) return;
-    let r: WorktreeInfo;
+    // in-flight 去重：Enter 与按钮并发会重复 worktreeCreate（remove/switch 同走 createAction 门）
+    if (!n || createBusy()) return;
+    setCreateBusy(true);
     try {
-      r = await worktreeCreate(n);
-    } catch (e) {
-      flashErr(`创建失败：${errText(e)}`);
-      return;
-    }
-    if (enter) {
-      // 切换失败中止：树已建（不回滚），但不进草稿态——否则新会话跑在旧目录（同 SessionTree quickNew 门）
+      let r: WorktreeInfo;
       try {
-        await workspaceSwitch(r.path);
+        r = await worktreeCreate(n);
       } catch (e) {
-        flashErr(`已创建 ${r.branch}，但切换失败：${errText(e)}`);
-        await reload();
+        flashErr(`创建失败：${errText(e)}`);
         return;
       }
-      await newSession();
-      flashOk(`已进入 ${r.branch}`);
-    } else {
-      flashOk(`已创建 ${r.branch}`);
+      if (enter) {
+        // 切换失败中止：树已建（不回滚），但不进草稿态——否则新会话跑在旧目录（同 SessionTree quickNew 门）
+        try {
+          await workspaceSwitch(r.path);
+        } catch (e) {
+          flashErr(`已创建 ${r.branch}，但切换失败：${errText(e)}`);
+          await reload();
+          return;
+        }
+        await newSession();
+        flashOk(`已进入 ${r.branch}`);
+      } else {
+        flashOk(`已创建 ${r.branch}`);
+      }
+      setName("");
+      await reload();
+    } finally {
+      setCreateBusy(false);
     }
-    setName("");
-    await reload();
   };
 
   // confirmed=true 仅来自行内确认条确认后：后端据此跳过审批挂起（否则同一删除要确认两次，
@@ -240,15 +247,17 @@ export default function DockWorktree() {
           onKeyDown={(e) => e.key === "Enter" && void create(true)}
         />
         <button
-          class="pressable shrink-0 whitespace-nowrap px-1.5 py-1 rounded border border-[var(--border)] text-2xs text-[var(--text-dim)]"
+          class="pressable shrink-0 whitespace-nowrap px-1.5 py-1 rounded border border-[var(--border)] text-2xs text-[var(--text-dim)] disabled:opacity-50"
           title="仅创建 worktree（不切换工作区）"
+          disabled={createBusy()}
           onClick={() => void create(false)}
         >
           仅创建
         </button>
         <button
-          class="pressable shrink-0 whitespace-nowrap px-1.5 py-1 rounded bg-[var(--accent)] text-[var(--accent-contrast)] text-2xs"
+          class="pressable shrink-0 whitespace-nowrap px-1.5 py-1 rounded bg-[var(--accent)] text-[var(--accent-contrast)] text-2xs disabled:opacity-50"
           title="创建 worktree 并直接在其中起新会话"
+          disabled={createBusy()}
           onClick={() => void create(true)}
         >
           创建并进入

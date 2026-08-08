@@ -13,8 +13,13 @@ function systemTheme(): Theme {
 }
 
 function initialMode(): ThemeMode {
-  const m = localStorage.getItem(MODE_KEY);
-  return m === "dark" || m === "light" ? m : "auto";
+  try {
+    const m = localStorage.getItem(MODE_KEY);
+    return m === "dark" || m === "light" ? m : "auto";
+  } catch {
+    // storage 被禁用（隐私模式等）：按默认 auto 运行
+    return "auto";
+  }
 }
 
 export const [mode, setModeSignal] = createSignal<ThemeMode>(initialMode());
@@ -32,7 +37,11 @@ function applyCurrent(): void {
 
 /** 三态设置（auto/dark/light）。 */
 export function setMode(m: ThemeMode): void {
-  localStorage.setItem(MODE_KEY, m);
+  try {
+    localStorage.setItem(MODE_KEY, m);
+  } catch {
+    // 隐私模式等写不进去：主题仅在本次会话内生效
+  }
   setModeSignal(m);
   applyCurrent();
 }

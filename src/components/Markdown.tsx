@@ -6,6 +6,8 @@ import { copyWithFeedback } from "./copy-feedback";
 /** Markdown 渲染组件：shiki 高亮 + mermaid 图表 + 代码块复制（事件委托）。 */
 export default function Markdown(props: { text: string }) {
   let el: HTMLDivElement | undefined;
+  // 慢渲染（首次加载 shiki chunk）落地前文本可能已变：只允许最后一次发起的渲染上屏
+  let renderSeq = 0;
 
   const onClick = (e: MouseEvent) => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".code-copy");
@@ -20,15 +22,18 @@ export default function Markdown(props: { text: string }) {
 
   createEffect(() => {
     theme(); // 主题切换触发重渲染（shiki/mermaid 主题跟随）
-    void renderMarkdown(props.text)
+    const seq = ++renderSeq;
+    const text = props.text;
+    void renderMarkdown(text)
       .then((html) => {
-        if (!el) return;
+        if (!el || seq !== renderSeq) return;
         el.innerHTML = html;
-        void renderMermaid(el);
+        // mermaid 加载失败（网络等）保留占位原文：renderMermaid 内部已摘占位标记，下次渲染会重试
+        void renderMermaid(el).catch(() => {});
       })
       // 渲染管线失败（shiki/mermaid 加载失败等）降级纯文本：静默空白比无高亮更糟
       .catch(() => {
-        if (el) el.textContent = props.text;
+        if (el && seq === renderSeq) el.textContent = text;
       });
   });
 

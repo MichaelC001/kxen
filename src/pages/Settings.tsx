@@ -13,6 +13,7 @@ import GeneralSection from "../components/settings/GeneralSection";
 import { client } from "../lib/client";
 import { configGet, doctor } from "../lib/chat";
 import { flashErr, flashOk } from "../lib/flash";
+import { formatError } from "../lib/error-text";
 import { onDragStart } from "../lib/drag";
 import { isTauri, isWeb } from "../lib/runtime";
 
@@ -150,10 +151,12 @@ export default function Settings() {
   };
 
   const exportDiag = async () => {
-    const r = await client.rpc<{ path: string }>("diagnostics.export").catch(() => null);
+    const r = await client.rpc<{ path: string }>("diagnostics.export").catch((e: unknown) => {
+      flashErr(`导出诊断包失败：${formatError(e)}`);
+      return null;
+    });
     // web 模式拿到的是服务器本地路径，浏览器无法直接打开：提示语义明确，不静默
     if (r) flashOk(`已导出 ${r.path}${isWeb() ? "（服务器本地路径，浏览器端无法直接打开）" : ""}`);
-    else flashErr("导出诊断包失败");
   };
 
   return (

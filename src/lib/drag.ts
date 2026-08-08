@@ -9,5 +9,8 @@ export function onDragStart(e: MouseEvent): void {
   // 交互子元素（按钮/链接/输入）不抢
   const t = e.target as HTMLElement;
   if (t.closest("button, a, input, select, textarea, [contenteditable]")) return;
-  void getCurrentWindow().startDragging();
+  // Tauri IPC 也可能 reject（窗口状态异常等）：拖窗失败无用户可见后果，吞掉避免 unhandled rejection
+  void getCurrentWindow()
+    .startDragging()
+    .catch(() => {});
 }

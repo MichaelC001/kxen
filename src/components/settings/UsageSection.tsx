@@ -39,7 +39,10 @@ export default function UsageSection() {
   const [limitsErr, setLimitsErr] = createSignal("");
   const [providerErr, setProviderErr] = createSignal("");
   const [limitsSaving, setLimitsSaving] = createSignal(false);
+  // Provider 下拉键 = 列表 ∪ 配置里已有的 key（config-only key 不在列表也得可选，否则选中值显示空白）
+  const [providerOptions, setProviderOptions] = createSignal<string[]>([]);
   let limitsSeq = 0;
+  let savedTimer: ReturnType<typeof setTimeout> | undefined;
   const overviewGuard = createSeqGuard();
   let cachedProviderLimits: NonNullable<
     Awaited<ReturnType<typeof configGet>>["limits"]
@@ -83,6 +86,7 @@ export default function UsageSection() {
         : providers().map((item) => item.key)),
       ...Object.keys(cachedProviderLimits),
     ];
+    setProviderOptions([...new Set(providerKeys)]);
     const first = providerKeys.includes(provider()) ? provider() : (providerKeys[0] ?? "");
     setProvider(first);
     applyProviderLimit(first, cachedProviderLimits);
@@ -137,7 +141,9 @@ export default function UsageSection() {
       await client.rpc("config.set_limits", params);
       setSaveErr("");
       setSaved("已保存并热生效");
-      setTimeout(() => setSaved(""), 2000);
+      // 2s 内再次保存时重排消退计时，否则旧定时器提前清掉新提示
+      if (savedTimer) clearTimeout(savedTimer);
+      savedTimer = setTimeout(() => setSaved(""), 2000);
     } catch (error) {
       setSaveErr(errText(error));
     } finally {
@@ -279,8 +285,12 @@ export default function UsageSection() {
                 applyProviderLimit(id, cachedProviderLimits);
               }}
             >
-              <For each={providers()}>
-                {(item) => <option value={item.key}>{item.display}</option>}
+              <For each={providerOptions()}>
+                {(key) => (
+                  <option value={key}>
+                    {providers().find((item) => item.key === key)?.display ?? key}
+                  </option>
+                )}
               </For>
             </select>
           </label>

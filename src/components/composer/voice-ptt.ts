@@ -64,7 +64,7 @@ export function createVoicePtt(opts: {
   let stopFlight: Promise<void> | null = null;
   let pttTimer: ReturnType<typeof setTimeout> | undefined;
   let pttActive = false;
-  let spaceCountAtDown = 0;
+  let textAtDown = "";
   let errTimer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   // 每次启动和 discard 都换代。旧 partial、启动结果或 stop 终稿只能写回创建它的 generation。
@@ -214,13 +214,20 @@ export function createVoicePtt(opts: {
         if (pttTimer) e.preventDefault();
         return;
       }
-      spaceCountAtDown = opts.getText().length;
+      // 首个 keydown 未 preventDefault，空格插在光标处（不一定是末尾）：记录按下时原文，
+      // 激活时仅当当前文本恰好多一个空格就整体还原——按长度截尾会误删光标后的内容
+      textAtDown = opts.getText();
       pttTimer = setTimeout(() => {
         pttActive = true;
         // 撤销激活期误输入的空格再进语音
-        if (opts.getText().length > spaceCountAtDown) {
-          opts.setText(opts.getText().slice(0, spaceCountAtDown));
-          opts.afterChange();
+        const now = opts.getText();
+        if (now.length === textAtDown.length + 1) {
+          let i = 0;
+          while (i < textAtDown.length && now[i] === textAtDown[i]) i++;
+          if (now[i] === " " && now.slice(i + 1) === textAtDown.slice(i)) {
+            opts.setText(textAtDown);
+            opts.afterChange();
+          }
         }
         launch();
       }, 400);

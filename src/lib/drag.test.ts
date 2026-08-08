@@ -2,10 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   startDragging: vi.fn(),
+  // 裸函数桩：vi.fn 会给返回的 promise 挂 settled 追踪 handler，探测不到 onDragStart 自己的 catch
+  impl: undefined as (() => Promise<void>) | undefined,
+  handled: false,
 }));
 
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ startDragging: h.startDragging }),
+  getCurrentWindow: () => ({
+    startDragging: () => (h.impl ? h.impl() : h.startDragging()),
+  }),
 }));
 
 import { onDragStart } from "./drag";
@@ -21,6 +26,8 @@ function event(button: number, target: HTMLElement): MouseEvent {
 beforeEach(() => {
   h.startDragging.mockReset();
   h.startDragging.mockResolvedValue(undefined);
+  h.impl = undefined;
+  h.handled = false;
 });
 
 describe("onDragStart", () => {
@@ -47,5 +54,24 @@ describe("onDragStart", () => {
     } finally {
       w.__TAURI_INTERNALS__ = saved;
     }
+  });
+
+  it("startDragging 的 IPC rejection 被消化（不成 unhandled rejection）", () => {
+    let floating: Promise<void> | undefined;
+    h.impl = () => {
+      const p = Promise.reject(new Error("ipc down")) as Promise<void>;
+      const then = p.then.bind(p);
+      // oxlint-disable-next-line unicorn/no-thenable -- 测试插桩：探测 onDragStart 是否挂了 rejection handler
+      p.then = (onFulfilled, onRejected) => {
+        if (onRejected) h.handled = true;
+        return then(onFulfilled, onRejected);
+      };
+      floating = p;
+      return p;
+    };
+    onDragStart(event(0, document.createElement("div")));
+    expect(h.handled).toBe(true);
+    // 收尾挂 noop handler：避免测试自身遗留 unhandled rejection 干扰其他用例
+    void floating?.catch(() => {});
   });
 });

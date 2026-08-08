@@ -94,7 +94,9 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
   const spec = () => providers().find((p) => p.key === provider());
   const regions = () => spec()?.regions ?? [];
   const providerReady = () => kind() === "custom" || (providerLoaded() && visible().length > 0);
-  const chosenRegion = () => (regions().length > 1 && region() ? region() : undefined);
+  // 提交值与下拉显示值对齐：多区域且无手动选择时下拉显示首个区域，提交也带它
+  // （后端缺省即首区域，见 ProvidersSection 的「缺省」选项文案）
+  const chosenRegion = () => (regions().length > 1 ? region() || regions()[0]?.key : undefined);
 
   const toggleCap = (c: string) =>
     setCaps((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));

@@ -30,6 +30,28 @@ describe("markdown sanitizer", () => {
     expect(html).toContain("x");
   });
 
+  it("伪造 .code-block 容器无法放行 style", async () => {
+    const html = await renderMarkdown(
+      '<div class="code-block"><div style="position:fixed;inset:0">x</div></div>',
+    );
+    expect(html).not.toContain("style=");
+    expect(html).toContain("x");
+  });
+
+  it("伪造 pre 内 position style 被剥除", async () => {
+    const html = await renderMarkdown(
+      '<div class="code-block"><pre style="position:fixed;inset:0">x</pre></div>',
+    );
+    expect(html).not.toContain("position");
+  });
+
+  it("未知语言的 fence info string 被转义，无法注入属性", async () => {
+    const html = await renderMarkdown('```x"style="color:red\ny\n```');
+    const block = new DOMParser().parseFromString(html, "text/html").querySelector(".code-block");
+    expect(block?.getAttribute("style")).toBeNull();
+    expect(block?.getAttribute("data-lang")).toBe('x"style="color:red');
+  });
+
   it("style 标签连同内容被清除", async () => {
     const html = await renderMarkdown("<style>.md{display:none}</style>");
     expect(html).not.toContain("<style");

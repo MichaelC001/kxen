@@ -1,4 +1,6 @@
 /** 栏宽拖拽把手：pointer capture 跟踪位移，拖拽期间锁光标与文本选中；双击复位默认宽。 */
+import { onCleanup } from "solid-js";
+
 export default function ResizeHandle(props: {
   /** 位移增量（px，向右为正）；右栏把手由调用方取反 */
   onDrag: (dx: number) => void;
@@ -15,6 +17,8 @@ export default function ResizeHandle(props: {
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
   };
+  // 拖拽中组件被移除时 pointerup 丢失：兜底还 body 样式，否则 cursor/userSelect 永久残留
+  onCleanup(end);
 
   return (
     <div

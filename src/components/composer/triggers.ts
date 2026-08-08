@@ -64,7 +64,7 @@ const KNOWLEDGE_TARGETS = [
 ];
 
 export interface PopupActions {
-  // onChip 的实现方负责删触发词文本：apply 只许调一个动作，连调 onCloseToken 会在新文本上再删一次（误删触发段后的正文）
+  // onChip 的实现方负责删触发词文本：apply 只许调一个动作，连调 onPlainInsert 会在新文本上再删一次（误删触发段后的正文）
   onChip: (kind: "file" | "dir" | "knowledge", ref: string, label: string) => void;
   onPlainInsert: (text: string, triggerStart: number) => void;
 }

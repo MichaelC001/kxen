@@ -1,6 +1,7 @@
 // 诊断区：doctor RPC 结构化呈现（凭证 + MCP/LSP/MRM/event bus），与 /doctor markdown 同数据源。
 import { createSignal, For, onMount, Show } from "solid-js";
 import { doctor, type DoctorReport } from "../../lib/chat";
+import { errText } from "../err-text";
 
 const STATUS_TEXT: Record<string, string> = {
   ok: "正常",
@@ -20,22 +21,22 @@ function tone(status: string): string {
 
 export default function DoctorSection() {
   const [report, setReport] = createSignal<DoctorReport | null>(null);
-  const [failed, setFailed] = createSignal(false);
+  const [failErr, setFailErr] = createSignal("");
 
   onMount(async () => {
     try {
       setReport(await doctor());
-    } catch {
-      setFailed(true);
+    } catch (e) {
+      setFailErr(errText(e));
     }
   });
 
   return (
     <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-4 space-y-4 text-sm text-[var(--text-dim)]">
-      <Show when={failed()}>
-        <div class="text-xs text-[var(--err)]">诊断数据加载失败（后端未连接）</div>
+      <Show when={failErr()}>
+        <div class="text-xs text-[var(--err)]">诊断数据加载失败：{failErr()}</div>
       </Show>
-      <Show when={!failed() && !report()}>
+      <Show when={!failErr() && !report()}>
         <div class="text-xs text-[var(--text-faint)]">加载中…</div>
       </Show>
       <Show when={report()}>

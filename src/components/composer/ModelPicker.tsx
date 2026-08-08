@@ -49,6 +49,7 @@ export default function ModelPicker() {
   let root: HTMLDivElement | undefined;
   let searchInput: HTMLInputElement | undefined;
   let listEl: HTMLDivElement | undefined;
+  let roleMsgTimer: ReturnType<typeof setTimeout> | undefined;
   onClickOutside(
     () => root,
     () => setOpen(false),
@@ -161,7 +162,9 @@ export default function ModelPicker() {
     configSetRole(role, cur().provider, cur().model)
       .then(() => {
         setRoleMsg(`${curLabel()} → ${label.replace("设为", "")} ✓`);
-        setTimeout(() => setRoleMsg(""), 1800);
+        // 连点多个角色时只留最后一次的消退计时，否则旧计时器提前清掉新提示
+        if (roleMsgTimer) clearTimeout(roleMsgTimer);
+        roleMsgTimer = setTimeout(() => setRoleMsg(""), 1800);
       })
       .catch((e: unknown) => flashErr(`分配角色失败：${errText(e)}`));
   };
@@ -174,6 +177,8 @@ export default function ModelPicker() {
       const d = e.key === "ArrowDown" ? 1 : -1;
       setNav((n) => (n + d + list.length) % list.length);
     } else if (e.key === "Enter") {
+      // IME 组字中的 Enter 是上屏键，不得当成选中（同 TextComposer 的守卫）
+      if (e.isComposing || e.keyCode === 229) return;
       e.preventDefault();
       const r = list[nav() < 0 ? 0 : nav()];
       if (r) pick(r);

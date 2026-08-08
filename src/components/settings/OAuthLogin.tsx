@@ -40,6 +40,8 @@ export default function OAuthLogin(props: {
   }
 
   const account = () => name().trim() || "default";
+  // 成功提示用 begin 时刻的账号：授权会话期间 provider/账号名仍可编辑，settle 时再读会张冠李戴
+  let begunLabel = "";
 
   // 返回值是否 pending：pending 时轮询方继续排下一拍，其余结果定局
   const settle = (r: OAuthWaitResult): boolean => {
@@ -49,7 +51,7 @@ export default function OAuthLogin(props: {
     setSession(null);
     setManualCode("");
     if (r.status === "failed") setError(r.error);
-    else props.onDone(`账号 ${props.providerKey()}:${account()} 登录成功`);
+    else props.onDone(`账号 ${begunLabel} 登录成功`);
     return false;
   };
 
@@ -70,6 +72,7 @@ export default function OAuthLogin(props: {
       return;
     }
     setStarting(true);
+    const label = `${props.providerKey()}:${account()}`;
     const s = await oauthBegin(props.providerKey(), account()).catch((e: unknown) => {
       if (!disposed) setError(errText(e));
       return null;
@@ -77,6 +80,7 @@ export default function OAuthLogin(props: {
     if (disposed) return;
     setStarting(false);
     if (!s) return;
+    begunLabel = label;
     setSession(s);
     void poll(s); // 首查不等间隔：code 流用户可能已在浏览器完成授权
   };

@@ -1,5 +1,6 @@
 import { createEffect, createSignal, type Accessor } from "solid-js";
 import { sessionExport } from "./chat";
+import { formatError } from "./error-text";
 
 type ExportSession = (sessionId: string) => Promise<{ path: string }>;
 
@@ -40,7 +41,10 @@ export function createSessionExport(
     const request = ++requestGeneration;
     cancelTimer();
     setNote("");
-    const result = await exportSession(sessionId).catch(() => null);
+    const result = await exportSession(sessionId).then(
+      (r) => ({ path: r.path, error: null as unknown }),
+      (error: unknown) => ({ path: null as string | null, error }),
+    );
     if (
       disposed ||
       session !== sessionGeneration ||
@@ -49,7 +53,8 @@ export function createSessionExport(
     ) {
       return;
     }
-    setNote(result ? `已导出 ${result.path}` : "导出失败");
+    // 失败必须带原因（flash 约定）：磁盘满/权限拒绝/会话损坏要可区分
+    setNote(result.path ? `已导出 ${result.path}` : `导出失败：${formatError(result.error)}`);
     clearTimer = setTimeout(() => {
       clearTimer = undefined;
       if (!disposed && session === sessionGeneration && request === requestGeneration) setNote("");

@@ -20,14 +20,23 @@ function escapeHtml(text: string): string {
 
 /** 代码块包装：语言标签 + 复制按钮（复制行为由 Markdown 组件事件委托实现）。 */
 function wrapCodeBlock(body: string, lang: string): string {
-  return `<div class="code-block" data-lang="${lang}"><div class="code-header"><span>${lang || "text"}</span><button class="code-copy" type="button">复制</button></div>${body}</div>`;
+  // fence info string 由模型控制且 marked 原样透传：拼进属性/文本前必须转义
+  const safeLang = escapeHtml(lang).replace(/"/g, "&quot;");
+  return `<div class="code-block" data-lang="${safeLang}"><div class="code-header"><span>${safeLang || "text"}</span><button class="code-copy" type="button">复制</button></div>${body}</div>`;
 }
 
 // 模型输出最终写 innerHTML，marked 原样保留 raw HTML，必须过 sanitizer。
-// shiki 高亮的颜色靠 pre/span 内联 style（值由本地高亮器生成，非模型可控），
-// 全局禁 style 会打掉高亮，因此只放行 .code-block 内部的 style，其余一律剥除。
+// shiki 高亮的颜色靠 pre/span 内联 style，全局禁 style 会打掉高亮。
+// .code-block 容器可被模型用 raw HTML 伪造，所以同时限定：只在 pre/span 上放行，
+// 且值含 position 的一律剥除（高亮只有颜色/字体，position 只服务于覆盖 UI 的钓鱼层）。
 DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
-  if (data.attrName === "style" && node instanceof Element && node.closest(".code-block")) {
+  if (data.attrName !== "style" || !(node instanceof Element)) return;
+  const tag = node.tagName;
+  if (
+    (tag === "PRE" || tag === "SPAN") &&
+    node.closest(".code-block") &&
+    !/(?:^|;)\s*position\s*:/i.test(data.attrValue)
+  ) {
     data.forceKeepAttr = true;
   }
 });
@@ -131,10 +140,18 @@ let mermaidSeq = 0;
 export async function renderMermaid(container: HTMLElement): Promise<void> {
   const nodes = container.querySelectorAll<HTMLElement>(".mermaid:not([data-rendered])");
   if (nodes.length === 0) return;
-  const mermaid = await ensureMermaid();
+  // 先同步占位再 await：否则 theme 切换等快速重入会重复选中同批节点、双重渲染
+  for (const node of nodes) node.dataset.rendered = "pending";
+  let mermaid: Awaited<ReturnType<typeof ensureMermaid>>;
+  try {
+    mermaid = await ensureMermaid();
+  } catch (error) {
+    // 加载失败（网络等）摘掉占位，下次调用还能重试
+    for (const node of nodes) delete node.dataset.rendered;
+    throw error;
+  }
   for (const node of nodes) {
     const source = node.textContent ?? "";
-    node.dataset.rendered = "pending";
     try {
       const { svg } = await mermaid.render(`kxen-mmd-${mermaidSeq++}`, source);
       // strict 模式已禁 htmlLabels/click，再过 sanitizer 兜底（限 svg profile，顺带保住内嵌 style）

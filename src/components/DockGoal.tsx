@@ -1,4 +1,4 @@
-// Dock 目标分区：goal 徽标 / 判据 / 验证证据 / 操作按钮（自 Dock.tsx 拆出，350 行门禁）。
+// Dock 目标分区：goal 徽标 / 判据 / 验证证据 / 操作按钮。
 // budget_limited 不给裸「恢复」：已用量 >= 限额不变，下一轮立刻再超限，只留「提高预算并继续」。
 import { createSignal, Show } from "solid-js";
 import { Target } from "lucide-solid";
@@ -31,20 +31,26 @@ export default function DockGoal(props: {
   const acting = props.acting;
   const badge = () => GOAL_STATUS[goal()?.status ?? ""] ?? { text: "", cls: "" };
   const [creating, setCreating] = createSignal(false);
+  const [createBusy, setCreateBusy] = createSignal(false);
   const [objective, setObjective] = createSignal("");
   const [criteria, setCriteria] = createSignal("");
   const [createErr, setCreateErr] = createSignal("");
   const create = async () => {
+    // in-flight 去重：连点产生并发 goalCreate（同 act 按钮的 acting 门）
+    if (createBusy()) return;
     if (!objective().trim() || !criteria().trim()) {
       setCreateErr("目标和完成判据不能为空");
       return;
     }
+    setCreateBusy(true);
     try {
       await goalCreate(objective().trim(), criteria().trim(), activeSessionId() || undefined);
       setCreateErr("");
       setCreating(false);
     } catch (error) {
       setCreateErr(errText(error));
+    } finally {
+      setCreateBusy(false);
     }
   };
   // 「提高预算并继续」只做状态迁移（budget_limited 时 run 已终态，goal.adjust 不会续跑）：
@@ -99,7 +105,8 @@ export default function DockGoal(props: {
                   onInput={(event) => setCriteria(event.currentTarget.value)}
                 />
                 <button
-                  class="pressable px-2 py-0.5 rounded text-2xs bg-[var(--accent)] text-white"
+                  class="pressable px-2 py-0.5 rounded text-2xs bg-[var(--accent)] text-white disabled:opacity-50"
+                  disabled={createBusy()}
                   onClick={() => void create()}
                 >
                   创建草稿

@@ -24,6 +24,7 @@ export default function VoiceSection() {
   const [ov, setOv] = createSignal<VoiceOverview | null>(null);
   const [loadErr, setLoadErr] = createSignal("");
   const [keys, setKeys] = createSignal<Record<string, string>>({});
+  const [saving, setSaving] = createSignal(false);
 
   const reload = async () => {
     const r = await voiceEngines().catch((e: unknown) => {
@@ -40,7 +41,9 @@ export default function VoiceSection() {
   /** 写引擎配置的统一出口：engine/fallback/locale 一次 merge 落盘并热生效。 */
   const saveEngine = async (patch: { engine?: string; fallback?: string[]; locale?: string }) => {
     const cur = ov();
-    if (!cur) return;
+    // 保存互斥：patch 基于当前 ov() 合并，并发写会后写覆盖先写（降级链连点丢勾选）
+    if (!cur || saving()) return;
+    setSaving(true);
     try {
       await setVoiceEngine(
         patch.engine ?? cur.engine,
@@ -51,6 +54,8 @@ export default function VoiceSection() {
       flashOk("语音配置已保存并热生效");
     } catch (e) {
       flashErr(`保存语音配置失败：${errText(e)}`);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -129,7 +134,7 @@ export default function VoiceSection() {
                     <input
                       type="checkbox"
                       checked={inFallback(e.id)}
-                      disabled={ov()?.engine === e.id || e.status === "unavailable"}
+                      disabled={ov()?.engine === e.id || e.status === "unavailable" || saving()}
                       onChange={() => toggleFallback(e.id)}
                     />
                     降级链
@@ -137,7 +142,7 @@ export default function VoiceSection() {
                   <button
                     class="pressable px-2.5 py-1 rounded text-xs border border-[var(--border)]"
                     classList={{ "opacity-40": e.status === "unavailable" }}
-                    disabled={ov()?.engine === e.id || e.status === "unavailable"}
+                    disabled={ov()?.engine === e.id || e.status === "unavailable" || saving()}
                     onClick={() => switchEngine(e.id)}
                   >
                     {ov()?.engine === e.id ? "当前引擎" : "设为主引擎"}
@@ -158,6 +163,7 @@ export default function VoiceSection() {
             <select
               class="form-select"
               value={o().locale}
+              disabled={saving()}
               onChange={(e) => setLocale(e.currentTarget.value)}
             >
               <For each={LOCALES.includes(o().locale) ? LOCALES : [o().locale, ...LOCALES]}>

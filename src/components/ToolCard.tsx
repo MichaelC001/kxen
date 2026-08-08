@@ -8,7 +8,7 @@ import DiffView from "./DiffView";
  *  精确 arguments 与完整输出收在同一张卡的折叠体内——调用和结果是一个整体，不是两行孤立的文本。
  *  折叠是受控的：本地手动开合优先，未手动操作过则跟随全局「展开全部」（Ctrl+O）；
  *  不用原生 toggle 事件驱动，避免全局翻转时被动事件覆盖用户意图。
- *  edit/write 展开后渲染结构化 diff（@pierre/diffs），不再铺 JSON/纯文本。 */
+ *  edit/write 展开后渲染结构化 diff（@pierre/diffs），而不是铺 JSON/纯文本。 */
 export default function ToolCard(props: {
   name: string;
   call: string;

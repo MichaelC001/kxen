@@ -24,6 +24,8 @@ export default function NotificationCenter() {
   const { open, setOpen, toggle } = createExclusiveDisclosure();
   const [items, setItems] = createSignal<Notice[]>([]);
   const [loadErr, setLoadErr] = createSignal("");
+  // 已读基线进 signal：localStorage 非响应式，「全部已读」后徽标要等下轮轮询才收敛
+  const [readAt, setReadAt] = createSignal(Number(localStorage.getItem(READ_KEY) ?? 0));
   const guard = createSeqGuard();
   let root: HTMLDivElement | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -32,7 +34,6 @@ export default function NotificationCenter() {
     () => setOpen(false),
   );
 
-  const readAt = () => Number(localStorage.getItem(READ_KEY) ?? 0);
   const unread = () => items().filter((n) => n.at > readAt()).length;
 
   const reload = async () => {
@@ -79,7 +80,9 @@ export default function NotificationCenter() {
   };
 
   const markRead = () => {
-    localStorage.setItem(READ_KEY, String(Date.now()));
+    const now = Date.now();
+    localStorage.setItem(READ_KEY, String(now));
+    setReadAt(now);
     setOpen(false);
   };
 
@@ -93,7 +96,9 @@ export default function NotificationCenter() {
     guard.next();
     setItems([]);
     setLoadErr("");
-    localStorage.setItem(READ_KEY, String(Date.now()));
+    const now = Date.now();
+    localStorage.setItem(READ_KEY, String(now));
+    setReadAt(now);
   };
 
   // 跳来源会话：通知到达后会话可能已被删除，悬空切换会让主区变空白
