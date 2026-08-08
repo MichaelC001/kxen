@@ -255,7 +255,7 @@ async fn spawn_task_inner(
     let mut cmd = Command::new(bin);
     cmd.args(args).current_dir(workdir).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
     // 独立进程组组长:kill 走 killpg 才能覆盖 shell 的孙进程（dev server 子进程不泄漏）。
-    // 仅 unix 有进程组语义,Windows 终止走 TaskHandle 的直接 kill
+    // 仅 unix 有进程组语义与外部 kill 命令，支持范围即 unix
     #[cfg(unix)]
     cmd.process_group(0);
     let mut child = cmd.spawn().map_err(|e| ExecError::Spawn(format!("{bin}: {e}")))?;
@@ -279,7 +279,6 @@ async fn spawn_task_inner(
         started_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
         pid,
         exit_code: exit_code.clone(),
-        child: Arc::new(Mutex::new(None)),
         port: Arc::new(Mutex::new(registration.port)),
         killed: AtomicBool::new(false),
         health_failed: AtomicBool::new(false),

@@ -87,6 +87,10 @@ fn parse_authority(authority: &str, require_port: bool) -> Result<Target, String
     if authority.contains(['/', '?', '#', '@']) {
         return Err("invalid CONNECT authority".into());
     }
+    // "host:" 空端口会被 url crate 当缺省端口静默放行，与显式端口语义不符
+    if authority.ends_with(':') {
+        return Err("CONNECT authority has an empty port".into());
+    }
     let url = reqwest::Url::parse(&format!("http://{authority}/")).map_err(|error| format!("invalid CONNECT authority: {error}"))?;
     let host = normalized_host(&url)?;
     let explicit_port = if authority.starts_with('[') {

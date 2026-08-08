@@ -7,7 +7,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+mod lines;
 mod secure;
+
+pub(crate) use lines::{join_preserving_crlf, simple_diff, split_preserving_crlf};
 pub use secure::{delete_resolved, edit_resolved, read_resolved, write_resolved};
 
 const READ_MAX_LINES: usize = 2000;
@@ -146,11 +149,15 @@ pub fn edit(path: &Path, spec: &EditSpec, tracker: &FileTracker, cwd: &str) -> R
         return Err(FsToolError::ExternallyModified { path: path.display().to_string() });
     }
     let text = read_capped(path)?;
-    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    // 按行记录原行尾：lines() 吞掉 \r，join("\n") 会把 CRLF 文件静默转成 LF
+    let (mut lines, crlf) = split_preserving_crlf(&text);
 
     let before_lines: Vec<String> = text.lines().map(String::from).collect();
-    let applied = match spec {
-        EditSpec::Anchors { edits } => apply_anchor_edits(&text, &mut lines, edits, path)?,
+    let (applied, out) = match spec {
+        EditSpec::Anchors { edits } => {
+            let applied = apply_anchor_edits(&text, &mut lines, edits, path)?;
+            (applied, join_preserving_crlf(&lines, &crlf, text.ends_with('\n')))
+        }
         EditSpec::Match { old_string, new_string, expected_replacements } => {
             let count = text.matches(old_string.as_str()).count();
             let expected = expected_replacements.unwrap_or(1);
@@ -160,38 +167,19 @@ pub fn edit(path: &Path, spec: &EditSpec, tracker: &FileTracker, cwd: &str) -> R
             if count != expected {
                 return Err(FsToolError::Ambiguous { count, expected });
             }
+            // replacen 在原文上进行，未触及区域的行尾原样保留
             let replaced = text.replacen(old_string, new_string, expected);
             lines = replaced.lines().map(String::from).collect();
-            expected
+            (expected, replaced)
         }
     };
     let diff = simple_diff(&before_lines, &lines);
 
-    let trailing = text.ends_with('\n');
-    let mut out = lines.join("\n");
-    if trailing {
-        out.push('\n');
-    }
     tracker.snapshots.record_before(path)?;
     std::fs::write(path, &out)?;
     tracker.mark(path);
 
     Ok(EditResult { applied, diff_summary: format!("{applied} edit(s) applied to {}", path.display()), diff })
-}
-
-/// 简单 diff：首个不同行起的 before/after（最多各 5 行）。
-fn simple_diff(before: &[String], after: &[String]) -> String {
-    let mut out = String::new();
-    let common = before.iter().zip(after.iter()).take_while(|(a, b)| a == b).count();
-    let before_tail = before.iter().skip(common).take(5);
-    let after_tail = after.iter().skip(common).take(5);
-    for line in before_tail {
-        out.push_str(&format!("- {line}\n"));
-    }
-    for line in after_tail {
-        out.push_str(&format!("+ {line}\n"));
-    }
-    out
 }
 
 fn apply_anchor_edits(original: &str, lines: &mut [String], edits: &[AnchorEdit], _path: &Path) -> Result<usize, FsToolError> {
@@ -229,7 +217,7 @@ fn parse_anchor(anchor: &str) -> Option<(usize, String)> {
 /// 有界窗口内找回漂移的锚点（恰好一个匹配才用）。
 fn find_shifted(anchors: &[Anchor], lines: &[&str], line_no: usize, expected_hash: &str, radius: usize) -> Option<usize> {
     let start = line_no.saturating_sub(radius).max(1);
-    let end = (line_no + radius).min(lines.len());
+    let end = line_no.saturating_add(radius).min(lines.len());
     let mut found: Option<usize> = None;
     for (i, anchor) in anchors.iter().enumerate().take(end).skip(start.saturating_sub(1)) {
         if anchor.hash == expected_hash {
@@ -245,7 +233,7 @@ fn find_shifted(anchors: &[Anchor], lines: &[&str], line_no: usize, expected_has
 fn fresh_around(lines: &[&str], line_no: usize, radius: usize) -> String {
     let anchors = generate_anchors(lines);
     let start = line_no.saturating_sub(radius + 1);
-    let end = (line_no + radius).min(lines.len());
+    let end = line_no.saturating_add(radius).min(lines.len());
     (start..end).map(|i| format!("{}#{}  {}", anchors[i].line, anchors[i].hash, lines[i])).collect::<Vec<_>>().join("\n")
 }
 
@@ -309,16 +297,5 @@ fn read_capped(path: &Path) -> Result<String, FsToolError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tools::hashline::generate_anchors;
-
-    // find_shifted 是私有函数，此测试留在体内；公开 API 测试见 tests/fs_tool_eval.rs
-    #[test]
-    fn shifted_anchor_recovers() {
-        let lines = vec!["a", "b", "c", "d"];
-        let anchors = generate_anchors(&lines);
-        let shifted = find_shifted(&anchors, &lines, 3, &anchors[2].hash, 5);
-        assert_eq!(shifted, Some(3));
-    }
-}
+#[path = "fs_tool/tests.rs"]
+mod tests;

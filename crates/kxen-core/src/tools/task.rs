@@ -7,7 +7,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use tokio::process::Child;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -57,7 +56,6 @@ pub struct TaskHandle {
     pub started_at: u64,
     pub pid: Option<u32>,
     pub exit_code: Arc<Mutex<Option<i32>>>,
-    pub child: Arc<Mutex<Option<Child>>>,
     /// readiness 解析出的 port 会后写（spawn 时没有）：共享槽，list/health 读现值
     pub port: Arc<Mutex<Option<u16>>>,
     /// kill() 终止标记：kill 的退出码（-1/143）与自身失败同形，没有它 status 会把 Killed 误报成 Failed
@@ -274,10 +272,6 @@ impl TaskRegistry {
                     let _ = kill_quiet(&["-KILL", "--", &format!("-{pid}")]);
                 }
             }
-        }
-        let taken = lock(&task.child).take();
-        if let Some(mut child) = taken {
-            let _ = child.kill().await;
         }
     }
 }

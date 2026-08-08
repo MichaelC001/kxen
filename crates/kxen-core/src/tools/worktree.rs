@@ -30,6 +30,11 @@ pub async fn create(repo: &Path, name: &str) -> Result<WorktreeInfo, String> {
     let path = repo.join(".kxen").join("worktrees").join(name);
     let branch = format!("kxen/{name}");
     if path.exists() {
+        // 只复用真正的 worktree（worktree 的 .git 是指回主仓库 gitdir 的文件）：
+        // 同名残留目录直接复用会把改动写进非隔离目录
+        if !path.join(".git").exists() {
+            return Err(format!("{} exists but is not a git worktree; remove it or use another name", path.display()));
+        }
         return Ok(WorktreeInfo { name: name.into(), path, branch });
     }
     if let Some(parent) = path.parent() {
@@ -197,16 +202,7 @@ pub struct StatusEntry {
 pub async fn status(repo: &Path) -> Result<Vec<StatusEntry>, String> {
     let repo = &canon(repo);
     let out = git(repo, &["status", "--porcelain"]).await?;
-    Ok(out
-        .lines()
-        .filter(|l| l.len() > 3)
-        .map(|l| {
-            let code = l[..2].trim().to_string();
-            // 重命名 "R  old -> new" 取新路径
-            let path = l[3..].rsplit(" -> ").next().unwrap_or(&l[3..]).to_string();
-            StatusEntry { path, status: code }
-        })
-        .collect())
+    Ok(out.lines().filter_map(parse_status_line).collect())
 }
 
 /// 单文件 diff（未暂存）；未跟踪文件走 --no-index 合成 new-file diff。
@@ -314,3 +310,11 @@ async fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
         ))
     }
 }
+
+mod porcelain;
+
+use porcelain::parse_status_line;
+
+#[cfg(test)]
+#[path = "worktree/tests.rs"]
+mod tests;

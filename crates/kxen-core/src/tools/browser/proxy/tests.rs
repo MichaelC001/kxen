@@ -229,6 +229,28 @@ async fn validated_websocket_upgrade_becomes_a_fixed_target_tunnel() {
     proxy.close().await;
 }
 
+#[test]
+fn header_count_limit_rejects_the_101st_header() {
+    let build = |extra: usize| {
+        let mut request = String::from("GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n");
+        for index in 0..extra {
+            request.push_str(&format!("X-Fill-{index}: v\r\n"));
+        }
+        request.push_str("\r\n");
+        request.into_bytes()
+    };
+    assert!(request::parse(&build(request::MAX_HEADER_COUNT - 1)).is_ok());
+    assert!(request::parse(&build(request::MAX_HEADER_COUNT)).is_err());
+}
+
+#[test]
+fn connect_authority_with_empty_port_is_rejected() {
+    assert!(request::parse(b"CONNECT example.com: HTTP/1.1\r\nHost: example.com:\r\n\r\n").is_err());
+    assert!(request::parse(b"CONNECT [::1]: HTTP/1.1\r\nHost: [::1]:\r\n\r\n").is_err());
+    let explicit = request::parse(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n");
+    assert!(matches!(explicit, Ok(request::Request::Connect(_))), "{explicit:?}");
+}
+
 #[tokio::test]
 async fn oversized_headers_fail_closed() {
     let mut proxy = BrowserProxy::launch().await.unwrap();

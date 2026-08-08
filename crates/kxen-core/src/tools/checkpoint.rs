@@ -84,7 +84,7 @@ fn commit_args(label: &str) -> [&str; 13] {
 /// 打检查点：当前 worktree 全量提交（无变更也成功返回）。
 pub fn commit(workdir: &Path, label: &str) -> Result<(), String> {
     // 互斥覆盖 init + add + commit 全段：并发 ensure_repo 会双双 git init 撞模板拷贝，
-    // 并发 add/commit 撞 index.lock。find/dirty_count 只读不锁
+    // 并发 add/commit 撞 index.lock。find 只读不锁；dirty_count 为避开并发 add 同样进锁
     let lock = repo_lock(workdir);
     let _guard = crate::core::shared::lock(&lock);
     commit_locked(workdir, label)

@@ -142,9 +142,19 @@ fn compile_hooks(config: &Config) -> HashMap<String, Vec<CompiledHook>> {
     for (event, defs) in &config.hooks {
         let compiled: Vec<CompiledHook> = defs
             .iter()
-            .map(|d: &HookDef| CompiledHook {
-                matcher: d.matcher.as_deref().and_then(|m| regex::Regex::new(m).ok()),
-                command: d.command.clone(),
+            .filter_map(|d: &HookDef| {
+                let matcher = match d.matcher.as_deref() {
+                    Some(m) => match regex::Regex::new(m) {
+                        Ok(compiled) => Some(compiled),
+                        // matcher 编译失败若按 None 处理会退化成「匹配全部工具」（fail-open），整条 hook 禁用
+                        Err(error) => {
+                            tracing::warn!(event = %event, matcher = m, %error, "hook matcher regex invalid; hook disabled");
+                            return None;
+                        }
+                    },
+                    None => None,
+                };
+                Some(CompiledHook { matcher, command: d.command.clone() })
             })
             .collect();
         if !compiled.is_empty() {
@@ -222,6 +232,19 @@ command = "rm -rf /"
         );
         let err = r.run_pre("exec", &json!({})).await.unwrap_err();
         assert!(err.contains("safety"), "unexpected: {err}");
+    }
+
+    #[tokio::test]
+    async fn invalid_matcher_disables_hook_instead_of_matching_all() {
+        let r = runner(
+            r#"
+[[hooks.pre_tool_use]]
+matcher = "(unclosed"
+command = "exit 1"
+"#,
+        );
+        assert!(r.is_empty(), "非法 matcher 的 hook 必须整条禁用，不得退化成匹配全部工具");
+        assert!(r.run_pre("exec", &json!({})).await.is_ok());
     }
 
     #[tokio::test]

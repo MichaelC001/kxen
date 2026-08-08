@@ -43,9 +43,13 @@ pub fn edit_resolved(path: &ResolvedPath, spec: &EditSpec, tracker: &FileTracker
     }
     let text = read_capped_resolved(path)?;
     let before_lines: Vec<String> = text.lines().map(String::from).collect();
-    let mut lines = before_lines.clone();
-    let applied = match spec {
-        EditSpec::Anchors { edits } => apply_anchor_edits(&text, &mut lines, edits, path.as_path())?,
+    // 按行记录原行尾：lines() 吞掉 \r，join("\n") 会把 CRLF 文件静默转成 LF
+    let (mut lines, crlf) = split_preserving_crlf(&text);
+    let (applied, out) = match spec {
+        EditSpec::Anchors { edits } => {
+            let applied = apply_anchor_edits(&text, &mut lines, edits, path.as_path())?;
+            (applied, join_preserving_crlf(&lines, &crlf, text.ends_with('\n')))
+        }
         EditSpec::Match { old_string, new_string, expected_replacements } => {
             let count = text.matches(old_string.as_str()).count();
             let expected = expected_replacements.unwrap_or(1);
@@ -55,15 +59,13 @@ pub fn edit_resolved(path: &ResolvedPath, spec: &EditSpec, tracker: &FileTracker
             if count != expected {
                 return Err(FsToolError::Ambiguous { count, expected });
             }
-            lines = text.replacen(old_string, new_string, expected).lines().map(String::from).collect();
-            expected
+            // replacen 在原文上进行，未触及区域的行尾原样保留
+            let replaced = text.replacen(old_string, new_string, expected);
+            lines = replaced.lines().map(String::from).collect();
+            (expected, replaced)
         }
     };
     let diff = simple_diff(&before_lines, &lines);
-    let mut out = lines.join("\n");
-    if text.ends_with('\n') {
-        out.push('\n');
-    }
     tracker.snapshots.record_before_resolved(path, Some(text))?;
     path.write_atomic(out.as_bytes())?;
     tracker.mark_resolved(path);
@@ -171,6 +173,30 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), "secret");
         std::fs::remove_dir_all(workspace).ok();
         std::fs::remove_file(outside).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_edit_preserves_crlf_line_endings() {
+        let workspace = std::env::temp_dir().join(format!("kxen-cap-crlf-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).unwrap();
+        let file = workspace.join("win.txt");
+        std::fs::write(&file, "alpha\r\nbeta\r\ngamma\r\n").unwrap();
+        let resolved = crate::tools::path_policy::resolve("win.txt", &workspace, &HashSet::new()).unwrap();
+        let tracker = FileTracker::default();
+        let cwd = workspace.to_str().unwrap();
+
+        let spec = EditSpec::Match { old_string: "beta".into(), new_string: "BETA".into(), expected_replacements: Some(1) };
+        edit_resolved(&resolved, &spec, &tracker, cwd).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "alpha\r\nBETA\r\ngamma\r\n");
+
+        let text = std::fs::read_to_string(&file).unwrap();
+        let orig: Vec<&str> = text.lines().collect();
+        let anchors = crate::tools::hashline::generate_anchors(&orig);
+        let spec = EditSpec::Anchors { edits: vec![AnchorEdit { anchor: format!("3#{}", anchors[2].hash), new_text: "GAMMA".into() }] };
+        edit_resolved(&resolved, &spec, &tracker, cwd).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "alpha\r\nBETA\r\nGAMMA\r\n");
+        std::fs::remove_dir_all(&workspace).ok();
     }
 
     #[cfg(unix)]
