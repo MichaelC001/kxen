@@ -12,6 +12,7 @@ import AgentFocusView from "./components/AgentFocusView";
 import Session from "./pages/Session";
 import Settings from "./pages/Settings";
 import Workspaces from "./pages/Workspaces";
+import Kanban from "./pages/Kanban";
 import {
   activeAgentFocus,
   agents,
@@ -219,6 +220,7 @@ export default function App() {
       <Route path="/" component={Home} />
       <Route path="/settings" component={Settings} />
       <Route path="/workspaces" component={Workspaces} />
+      <Route path="/kanban/:board" component={Kanban} />
     </Router>
   );
 }

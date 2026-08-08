@@ -13,6 +13,7 @@ function card(path: string, opt: Partial<WorkspaceOverview> = {}): WorkspaceOver
     running_sessions: [],
     worktrees: [],
     goal: null,
+    kanban: [],
     queued: 0,
     cron: 0,
     ...opt,

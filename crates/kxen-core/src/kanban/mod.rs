@@ -1,11 +1,12 @@
 //! Kanban Agent 核心：append-only 事件流 + 确定性投影 + 命令守卫（P1）+
-//! DCP Agent 定义、列执行 driver、触发器 runner 与完成协议（P2a）+ 看板级自主授权（P3）+ 每卡 worktree 隔离（P4）。
+//! DCP Agent 定义、列执行 driver、触发器 runner 与完成协议（P2a）+ 看板级自主授权（P3）+ 每卡 worktree 隔离（P4）+
+//! 摘要 digest（P5，overview 卡片与 boards RPC 共用口径；RPC handler 在 crate 根 kanban_rpc.rs）。
 //! BoardState 的唯一真源是 `<workspace>/.kxen/kanban/<board_id>/events.jsonl`，快照只是可删缓存。
-//! 本阶段不含 RPC/前端（P5）。
 
 mod agents;
 mod command;
 mod context;
+mod digest;
 pub(crate) mod driver;
 mod error;
 mod events;
@@ -23,6 +24,7 @@ pub use agents::{
     save as save_agent_definition, to_markdown as agent_definition_to_markdown,
 };
 pub use command::{Board, board_lock};
+pub use digest::{KanbanDigest, collect};
 pub use driver::{DEFAULT_RUN_TIMEOUT_MS, DriverDeps, ExecuteFailure, LandingKind, RunLanding, execute, parse_verdict, turns_path};
 pub use error::KanbanError;
 pub use events::{

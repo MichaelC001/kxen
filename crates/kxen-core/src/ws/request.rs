@@ -126,7 +126,9 @@ pub(super) fn validate_system(request: &Request, stream_ids: &[String]) -> Reque
 
 fn valid_topic(topic: &str) -> bool {
     matches!(topic, "llm.delta" | "approval.global" | "task.update" | "goal.update" | "notification" | "session.update")
-        || topic.strip_prefix("session:").is_some_and(|id| !id.is_empty() && !id.chars().any(char::is_whitespace))
+        || ["session:", "kanban:"]
+            .iter()
+            .any(|prefix| topic.strip_prefix(prefix).is_some_and(|id| !id.is_empty() && !id.chars().any(char::is_whitespace)))
 }
 
 fn required_string<'a>(request: &'a Request, field: &str) -> RequestResult<&'a str> {
@@ -184,9 +186,17 @@ mod tests {
                 .unwrap();
         assert!(validate_system(&invalid, &[]).is_err());
         let valid = parse(
-            r#"{"jsonrpc":"3.0","id":1,"method":"rpc.subscribe","params":{"topics":["llm.delta","approval.global","session:s1"]},"options":{"stream":true}}"#,
+            r#"{"jsonrpc":"3.0","id":1,"method":"rpc.subscribe","params":{"topics":["llm.delta","approval.global","session:s1","kanban:board_1"]},"options":{"stream":true}}"#,
         )
         .unwrap();
         assert!(validate_system(&valid, &[]).is_ok());
+        // kanban: 与 session: 同规则：空 id / 含空白一律拒绝
+        for bad in ["kanban:", "kanban:has space"] {
+            let request = parse(&format!(
+                r#"{{"jsonrpc":"3.0","id":1,"method":"rpc.subscribe","params":{{"topics":["{bad}"]}},"options":{{"stream":true}}}}"#
+            ))
+            .unwrap();
+            assert!(validate_system(&request, &[]).is_err(), "{bad} 必须拒绝");
+        }
     }
 }

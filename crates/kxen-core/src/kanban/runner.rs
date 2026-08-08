@@ -49,9 +49,10 @@ impl Runner {
 
     /// 单轮扫描：orphan 恢复 + 收养显式 claim + 拉起 Ready 卡。返回新拉起的执行数。
     /// 单块板损坏不拖垮整轮：warn 后跳过（fail-closed 在板内，不在扫描器）。
+    /// 板有实际变动（派发/落地/停车）时发 KanbanUpdate：UI 靠它失效重拉，不发空信号。
     pub async fn scan_once(&self, workspace: &Path, deps: &DriverDeps) -> Result<usize, String> {
         let mut launched = 0;
-        for board_id in list_boards(workspace)? {
+        for board_id in super::digest::list_boards(workspace)? {
             let board = match Board::open(workspace, &board_id) {
                 Ok(board) => board,
                 Err(error) => {
@@ -59,7 +60,7 @@ impl Runner {
                     continue;
                 }
             };
-            self.recover_orphans(workspace, &board);
+            let mut changed = self.recover_orphans(workspace, &board);
             for run in board.state().runs.values().filter(|run| run.outcome.is_none()) {
                 if run.started_at < self.boot_ms {
                     continue; // 遗留 run 已由 recover_orphans 处置
@@ -71,6 +72,7 @@ impl Runner {
                 crate::core::shared::lock(&self.inner).handled.insert(run.id.clone());
                 self.spawn_run(workspace.to_path_buf(), board_id.clone(), run.card_id.clone(), Some(run.id.clone()), deps);
                 launched += 1;
+                changed += 1;
             }
             for card in board.state().cards.values() {
                 if card.status != CardStatus::Ready {
@@ -85,6 +87,13 @@ impl Runner {
                 }
                 self.spawn_run(workspace.to_path_buf(), board_id.clone(), card.id.clone(), None, deps);
                 launched += 1;
+                changed += 1;
+            }
+            if changed > 0 {
+                deps.bus.publish(crate::core::event::Event::KanbanUpdate {
+                    board_id: board_id.clone(),
+                    workspace: workspace.to_string_lossy().into_owned(),
+                });
             }
         }
         Ok(launched)
@@ -92,7 +101,8 @@ impl Runner {
 
     /// 进程死亡遗留的 open run：started_at 早于本进程启动（本进程拉起的 run 必然晚于 boot）。
     /// 结果不可知 -> run_timeout 停车 + 审计评论；重试必须显式（新 claim 晚于 boot，走收养路径）。
-    fn recover_orphans(&self, workspace: &Path, board: &Board) {
+    /// 返回实际改动数（落盘的评论/停车事件），供 scan_once 决定是否广播。
+    fn recover_orphans(&self, workspace: &Path, board: &Board) -> usize {
         let orphans: Vec<(String, String)> = board
             .state()
             .runs
@@ -101,26 +111,34 @@ impl Runner {
             .map(|run| (run.id.clone(), run.card_id.clone()))
             .collect();
         if orphans.is_empty() {
-            return;
+            return 0;
         }
         let mut board = match Board::open(workspace, &board.state().board_id) {
             Ok(board) => board,
             Err(error) => {
                 tracing::warn!(%error, "kanban orphan recovery failed to reopen board");
-                return;
+                return 0;
             }
         };
+        let mut changed = 0;
         for (run_id, card_id) in orphans {
             tracing::warn!(%run_id, "kanban run recovered as UNKNOWN after process restart");
-            let _ = board.apply(KanbanCommand::CardComment {
-                card_id,
-                author: "kanban-runner".into(),
-                body: format!("run {run_id} recovered as UNKNOWN after process restart; blocked pending explicit retry"),
-            });
-            if let Err(error) = board.apply(KanbanCommand::RunTimeout { run_id: run_id.clone() }) {
-                tracing::warn!(%run_id, %error, "kanban orphan run_timeout failed");
+            if board
+                .apply(KanbanCommand::CardComment {
+                    card_id,
+                    author: "kanban-runner".into(),
+                    body: format!("run {run_id} recovered as UNKNOWN after process restart; blocked pending explicit retry"),
+                })
+                .is_ok()
+            {
+                changed += 1;
+            }
+            match board.apply(KanbanCommand::RunTimeout { run_id: run_id.clone() }) {
+                Ok(_) => changed += 1,
+                Err(error) => tracing::warn!(%run_id, %error, "kanban orphan run_timeout failed"),
             }
         }
+        changed
     }
 
     fn claim_card(&self, card_id: &str) -> bool {
@@ -147,29 +165,6 @@ impl Runner {
             }
         });
     }
-}
-
-/// 扫描 `<workspace>/.kxen/kanban/` 下的板：含 events.jsonl 的目录即板（agents/ 等附属目录自然排除）。
-fn list_boards(workspace: &Path) -> Result<Vec<String>, String> {
-    let root = workspace.join(".kxen").join("kanban");
-    let entries = match std::fs::read_dir(&root) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("read {}: {error}", root.display())),
-    };
-    let mut boards = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|error| format!("read {}: {error}", root.display()))?;
-        let path = entry.path();
-        if path.is_dir()
-            && path.join("events.jsonl").is_file()
-            && let Some(name) = path.file_name().and_then(|name| name.to_str())
-        {
-            boards.push(name.to_string());
-        }
-    }
-    boards.sort();
-    Ok(boards)
 }
 
 /// background_jobs 挂载点：扫当前活跃 workspace 的看板并驱动列执行。无看板目录直接返回（零开销）。

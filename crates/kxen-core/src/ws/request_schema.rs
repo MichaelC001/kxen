@@ -71,7 +71,7 @@ impl Kind {
 }
 
 fn required_fields(method: &str) -> &'static [(&'static str, Kind)] {
-    use Kind::{Bool as B, String as S, StringArray as SA};
+    use Kind::{Bool as B, Object as O, String as S, StringArray as SA};
     match method {
         "task.kill"
         | "session.activate"
@@ -117,6 +117,12 @@ fn required_fields(method: &str) -> &'static [(&'static str, Kind)] {
         "diff.agent_file" => &[("session_id", S), ("path", S)],
         "goal.create" => &[("objective", S), ("completion_criteria", S)],
         "goal.activate" | "goal.pause" | "goal.resume" | "goal.cancel" | "goal.adjust" => &[("id", S)],
+        "kanban.boards" | "kanban.board_create" => &[("workspace", S)],
+        "kanban.snapshot" => &[("workspace", S), ("board", S)],
+        "kanban.card_create" => &[("workspace", S), ("board", S), ("title", S)],
+        "kanban.card_move" => &[("workspace", S), ("board", S), ("card_id", S), ("outcome", S)],
+        "kanban.card_comment" | "kanban.run_start" => &[("workspace", S), ("board", S), ("card_id", S)],
+        "kanban.policy_set" => &[("workspace", S), ("board", S), ("policy", O)],
         _ => &[],
     }
 }
@@ -164,6 +170,9 @@ fn optional_fields(method: &str) -> &'static [(&'static str, Kind)] {
         "worktree.remove" => &[("delete_branch", B), ("confirmed", B)],
         "worktree.status" | "diff.status" | "diff.file" => &[("session_id", S)],
         "goal.create" => &[("constraints", S), ("session_id", S), ("budget", O)],
+        "kanban.board_create" => &[("columns", A)],
+        "kanban.card_create" => &[("body", S), ("column_id", S)],
+        "kanban.card_comment" => &[("author", S)],
         _ => &[],
     }
 }

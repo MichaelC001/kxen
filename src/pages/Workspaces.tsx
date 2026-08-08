@@ -2,7 +2,7 @@
 // 列内分区：运行中会话 / 隔离树 / goal / 排队与 cron 计数；8s 轮询 + goal/task 事件 250ms 去抖刷新 + resync 对账。
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { A } from "@solidjs/router";
-import { ArrowLeft, FolderGit2, GitBranch, Play, Target } from "lucide-solid";
+import { ArrowLeft, FolderGit2, GitBranch, Play, SquareKanban, Target } from "lucide-solid";
 import { onTopic, workspacesOverview, workspaceSwitch, type WorkspaceOverview } from "../lib/chat";
 import { client } from "../lib/client";
 import { newSession, sessions, switchSession } from "../lib/state";
@@ -240,6 +240,41 @@ function Column(props: {
                   </span>
                 </Show>
               </button>
+            )}
+          </For>
+        </Section>
+
+        <Section title="看板">
+          <For each={c().kanban} fallback={<EmptyLine text="无看板" />}>
+            {(b) => (
+              <A
+                href={`/kanban/${b.board_id}?workspace=${encodeURIComponent(c().path)}`}
+                class="pressable w-full flex items-center gap-1.5 px-1 py-0.5 rounded text-xs hover:bg-[var(--bg-overlay)]"
+                title="打开看板"
+              >
+                <SquareKanban size={11} class="text-[var(--text-faint)] shrink-0" />
+                <span class="flex-1 truncate text-left text-[var(--text)]">{b.title}</span>
+                <Show when={b.waiting_human > 0}>
+                  <span class="text-2xs tabular-nums text-[var(--warn)] shrink-0">
+                    {b.waiting_human} 待审
+                  </span>
+                </Show>
+                <Show when={b.running > 0}>
+                  <span class="text-2xs tabular-nums text-[var(--ok)] shrink-0">
+                    {b.running} 运行
+                  </span>
+                </Show>
+                <Show when={b.blocked > 0}>
+                  <span class="text-2xs tabular-nums text-[var(--err)] shrink-0">
+                    {b.blocked} 阻塞
+                  </span>
+                </Show>
+                <Show when={b.waiting_human === 0 && b.running === 0 && b.blocked === 0}>
+                  <span class="text-2xs tabular-nums text-[var(--text-faint)] shrink-0">
+                    {b.total_cards} 卡
+                  </span>
+                </Show>
+              </A>
             )}
           </For>
         </Section>

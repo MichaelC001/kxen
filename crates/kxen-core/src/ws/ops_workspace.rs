@@ -23,7 +23,8 @@ pub(super) async fn handle(method: &str, _params: &Value, state: &Arc<AppState>)
             let worktrees = gather_worktrees(&workspaces).await?;
             // 聚合内 dirty_count 是同步 git spawn（每 workspace 一次）：移出 async worker，不卡运行时
             let cards = tokio::task::spawn_blocking(move || {
-                kxen_core::core::workspace::overview(workspaces, &sessions, &running, &queued, &goals, &cron, &worktrees)
+                let inject = kxen_core::core::workspace::OverviewInjections { worktrees, kanban: gather_kanban(&workspaces) };
+                kxen_core::core::workspace::overview(workspaces, &sessions, &running, &queued, &goals, &cron, &inject)
             })
             .await
             .map_err(|e| e.to_string())?;
@@ -31,6 +32,13 @@ pub(super) async fn handle(method: &str, _params: &Value, state: &Arc<AppState>)
         }
         _ => Err(format!("unknown method: {method}")),
     }
+}
+
+/// 逐 workspace 采集看板摘要（同步读 .kxen/kanban 目录；digest 尽力而为，坏板在 collect 内跳过）。
+fn gather_kanban(
+    workspaces: &[kxen_core::core::workspace::Workspace],
+) -> std::collections::HashMap<String, Vec<kxen_core::kanban::KanbanDigest>> {
+    workspaces.iter().map(|w| (w.path.clone(), kxen_core::kanban::collect(std::path::Path::new(&w.path)))).collect()
 }
 
 /// 逐 workspace 采集 kxen 隔离树摘要（name/branch/dirty）。

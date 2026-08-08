@@ -12,6 +12,7 @@ pub mod core;
 pub mod doctor;
 pub mod goal_rpc;
 pub mod kanban;
+pub mod kanban_rpc;
 pub mod knowledge;
 pub mod llm;
 pub mod lsp;

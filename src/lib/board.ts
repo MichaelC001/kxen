@@ -27,3 +27,28 @@ export function goalStatusMeta(status: string): { label: string; tone: GoalTone 
       return { label: status, tone: "dim" };
   }
 }
+
+export type KanbanTone = "ok" | "warn" | "err" | "dim";
+
+/** kanban 卡片状态 -> 文案与色调：running 在推进（ok），waiting_human 等人（warn），blocked 要介入（err）。 */
+export function kanbanStatusMeta(status: string): { label: string; tone: KanbanTone } {
+  switch (status) {
+    case "running":
+      return { label: "运行中", tone: "ok" };
+    case "waiting_human":
+      return { label: "待审", tone: "warn" };
+    case "blocked":
+      return { label: "阻塞", tone: "err" };
+    case "ready":
+      return { label: "就绪", tone: "dim" };
+    default:
+      return { label: status, tone: "dim" };
+  }
+}
+
+export const KANBAN_TONE_CLASS: Record<KanbanTone, string> = {
+  ok: "text-[var(--ok)]",
+  warn: "text-[var(--warn)]",
+  err: "text-[var(--err)]",
+  dim: "text-[var(--text-faint)]",
+};

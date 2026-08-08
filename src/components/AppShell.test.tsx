@@ -38,6 +38,7 @@ vi.mock("./AgentFocusView", () => ({ default: () => <div>agent focus</div> }));
 vi.mock("../pages/Session", () => ({ default: () => <div>session page</div> }));
 vi.mock("../pages/Settings", () => ({ default: () => <div>settings page</div> }));
 vi.mock("../pages/Workspaces", () => ({ default: () => <div>workspaces page</div> }));
+vi.mock("../pages/Kanban", () => ({ default: () => <div>kanban page</div> }));
 vi.mock("./ResizeHandle", () => ({
   default: (props: { onDrag: (dx: number) => void; onReset: () => void }) => (
     <button

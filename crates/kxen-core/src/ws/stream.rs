@@ -39,6 +39,20 @@ pub(super) fn event_to_chunks(
             let seq = sequences.next(&binding.stream_id);
             vec![StreamChunk::new(&binding.stream_id, seq, serde_json::json!({ "topic": "llm.delta", "payload": payload }))]
         }
+        Event::KanbanUpdate { board_id, workspace } => {
+            // 动态 topic（同 session: 臂）：只发订阅了该板的连接。
+            // 无会话 ACL：板 metadata 是 workspace 本地信息，与 goal.update 全局同级。
+            let topic = format!("kanban:{board_id}");
+            let Some(binding) = subs.iter().find(|b| b.topics.contains(&topic)) else {
+                return Vec::new();
+            };
+            let seq = sequences.next(&binding.stream_id);
+            vec![StreamChunk::new(
+                &binding.stream_id,
+                seq,
+                serde_json::json!({ "topic": topic, "payload": { "board_id": board_id, "workspace": workspace } }),
+            )]
+        }
         other => {
             let (topic, payload) = map_event(other);
             let Some(binding) = subs.iter().find(|b| b.topics.contains(topic)) else {
@@ -65,6 +79,8 @@ fn map_event(event: kxen_core::core::event::Event) -> (&'static str, Value) {
         Event::SessionRun { session_id, running } => {
             ("session.update", serde_json::json!({ "session_id": session_id, "running": running }))
         }
+        // 动态 topic 放不进 &'static str：event_to_chunks 的专用臂先行拦截，到不了这里
+        Event::KanbanUpdate { .. } => unreachable!("KanbanUpdate 由 event_to_chunks 的动态 topic 臂处理"),
     }
 }
 
@@ -174,5 +190,20 @@ mod tests {
         let payload = &chunks[0].result["payload"];
         assert_eq!(payload["session_id"], "s1");
         assert_eq!(payload["running"], true);
+    }
+
+    /// KanbanUpdate 走动态 kanban:<board_id> topic：订阅该板的连接收到，未订阅/订别板的收不到
+    #[test]
+    fn kanban_update_follows_dynamic_board_topic() {
+        let update = || kxen_core::core::event::Event::KanbanUpdate { board_id: "board_1".into(), workspace: "/ws".into() };
+        let subscribed = vec![binding(&["kanban:board_1"])];
+        let chunks = event_to_chunks(update(), &subscribed, &mut StreamSequences::default());
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].result["topic"], "kanban:board_1");
+        assert_eq!(chunks[0].result["payload"]["board_id"], "board_1");
+        assert_eq!(chunks[0].result["payload"]["workspace"], "/ws");
+
+        let unsubscribed = vec![binding(&["kanban:board_2"])];
+        assert!(event_to_chunks(update(), &unsubscribed, &mut StreamSequences::default()).is_empty());
     }
 }

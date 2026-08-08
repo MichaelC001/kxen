@@ -1,5 +1,5 @@
 //! kanban_* 工具执行（P2b 工具面）：参数 fail-closed 解析 -> 打开 workspace 的 Board ->
-//! KanbanCommand -> Board::apply（守卫校验 + append 事件）-> 结构化结果文本。
+//! KanbanCommand -> Board::apply（守卫校验 + append 事件）-> 变更类工具 publish KanbanUpdate（P5）-> 结构化结果文本。
 //! 模型只交意图不直写状态；守卫拒绝（流转表/WIP/重复/未建板）以 KanbanError 原文返回，
 //! 原因可读，模型据此修正重试（与 goal_tool 的结构化错误形态一致）。
 
@@ -94,6 +94,7 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
             let board_id = parsed.board.unwrap_or_else(|| ids::new_id("board"));
             let mut board = open(workspace, &board_id)?;
             let event = apply(&mut board, KanbanCommand::BoardCreate { title: parsed.title, columns: parsed.columns })?;
+            publish(ctx, &board_id);
             let state = board.state();
             let columns =
                 state.columns.iter().map(|column| format!("{} ({})", column.id, kind_name(column.on_enter.kind))).collect::<Vec<_>>();
@@ -109,6 +110,7 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
             let column_id = parsed.column.id.clone();
             let mut board = open(workspace, &parsed.board)?;
             let event = apply(&mut board, KanbanCommand::ColumnAdd { column: parsed.column })?;
+            publish(ctx, &parsed.board);
             Ok(format!("column added: {column_id} ({})", landed(&event)))
         }
         "kanban_card_create" => {
@@ -119,6 +121,7 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
                 KanbanCommand::CardCreate { column_id: parsed.column_id, title: parsed.title, body: parsed.body.unwrap_or_default() },
             )?;
             let EventKind::CardCreate(ref payload) = event.kind else { return Err("card_create returned unexpected event".into()) };
+            publish(ctx, &parsed.board);
             Ok(format!("card created: {} in column {} ({})\ntitle: {}", payload.card_id, payload.column_id, landed(&event), payload.title))
         }
         "kanban_card_move" => {
@@ -126,6 +129,7 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
             let mut board = open(workspace, &parsed.board)?;
             let event = apply(&mut board, KanbanCommand::CardMove { card_id: parsed.card_id, outcome: parsed.outcome })?;
             let EventKind::CardMove(ref payload) = event.kind else { return Err("card_move returned unexpected event".into()) };
+            publish(ctx, &parsed.board);
             Ok(format!(
                 "card moved: {} {} -> {} (outcome {:?}, {})",
                 payload.card_id,
@@ -146,6 +150,7 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
                     body: parsed.body,
                 },
             )?;
+            publish(ctx, &parsed.board);
             Ok(format!("comment added on {} ({})", parsed.card_id, landed(&event)))
         }
         "kanban_agent_create" => {
@@ -174,6 +179,7 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
                     permission_profile: definition.permission_profile.clone(),
                 },
             )?;
+            publish(ctx, &parsed.board);
             Ok(format!(
                 "agent defined: {} (role {}, model {}, profile {}, {})\ndefinition: .kxen/kanban/agents/{}.md",
                 definition.name,
@@ -191,6 +197,7 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
             // 工具本身不另起执行通道（runner.rs「显式重试」路径）
             let event = apply(&mut board, KanbanCommand::RunStarted { card_id: parsed.card_id })?;
             let EventKind::RunStarted(ref payload) = event.kind else { return Err("agent_run returned unexpected event".into()) };
+            publish(ctx, &parsed.board);
             Ok(format!(
                 "run claimed: {} ({})\ncolumn: {} attempt: {}\nthe kanban runner adopts claimed runs automatically; check kanban_board_show for the outcome",
                 payload.run_id,
@@ -221,6 +228,17 @@ fn open(workspace: &std::path::Path, board_id: &str) -> Result<Board, String> {
 
 fn apply(board: &mut Board, command: KanbanCommand) -> Result<KanbanEvent, String> {
     board.apply(command).map_err(|error| error.to_string())
+}
+
+/// 变更成功后广播粗粒度信号：订阅了 kanban:<board_id> 的 UI 失效重拉 snapshot。
+/// 只带 board_id/workspace 不带状态（snapshot 才是恢复口径）；无 bus 的子环境静默跳过。
+fn publish(ctx: &AgentContext, board_id: &str) {
+    if let Some(bus) = &ctx.bus {
+        bus.publish(crate::core::event::Event::KanbanUpdate {
+            board_id: board_id.into(),
+            workspace: ctx.workdir.to_string_lossy().into_owned(),
+        });
+    }
 }
 
 fn kind_name(kind: OnEnterKind) -> &'static str {

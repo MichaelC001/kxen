@@ -15,6 +15,7 @@ const HANDLER_FILES: &[&str] = &[
     "src/ws/ops_recovery.rs",
     "src/ws/worktree_rpc.rs",
     "src/goal_rpc.rs",
+    "src/kanban_rpc.rs",
 ];
 
 #[test]

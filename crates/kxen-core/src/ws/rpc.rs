@@ -70,6 +70,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
             Ok(json!({ "task_id": task_id }))
         }
         m if m.starts_with("goal.") => crate::goal_rpc::call(m, params, state).await,
+        m if m.starts_with("kanban.") => crate::kanban_rpc::call(m, params, state).await,
         "workspace.list" => {
             Ok(json!(kxen_core::core::workspace::list(&kxen_core::core::paths::data_dir()).map_err(|error| error.to_string())?))
         }

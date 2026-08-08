@@ -73,6 +73,7 @@ const CARD: WorkspaceOverview = {
   running_sessions: [{ id: "s1", title: "跑着的事", queued: 0 }],
   worktrees: [],
   goal: null,
+  kanban: [],
   queued: 0,
   cron: 0,
 };
