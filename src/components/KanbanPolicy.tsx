@@ -4,6 +4,7 @@
 import { createSignal, Show } from "solid-js";
 import { ShieldCheck } from "lucide-solid";
 import type { KanbanPolicySpec } from "../lib/chat";
+import { flashErr } from "../lib/flash";
 import { relTime } from "../lib/time";
 
 export default function KanbanPolicy(props: {
@@ -28,12 +29,26 @@ export default function KanbanPolicy(props: {
     return at != null && at <= Date.now();
   };
 
+  // 非法数值必须显式拒绝：Math.floor 静默截断小数、Infinity 序列化成 null 都会被后端当成
+  // 「不设上限/永不过期」，授权面反向扩大。返回 null = 非法，undefined = 留空不设置
+  const parseBound = (raw: string): number | undefined | null => {
+    const trimmed = raw.trim();
+    if (!trimmed) return undefined;
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) return null;
+    return n;
+  };
+
   const save = () => {
-    const uses = maxUses().trim() ? Number(maxUses().trim()) : undefined;
-    const mins = minutes().trim() ? Number(minutes().trim()) : undefined;
+    const uses = parseBound(maxUses());
+    const mins = parseBound(minutes());
+    if (uses === null || mins === null) {
+      flashErr("次数与时限必须是正整数（留空 = 不限）");
+      return;
+    }
     const policy: KanbanPolicySpec = { allowlist: prefixes() };
-    if (uses && uses > 0) policy.max_uses = Math.floor(uses);
-    if (mins && mins > 0) policy.expires_at_ms = Date.now() + Math.floor(mins) * 60_000;
+    if (uses !== undefined) policy.max_uses = uses;
+    if (mins !== undefined) policy.expires_at_ms = Date.now() + mins * 60_000;
     props.onSave(policy);
   };
 

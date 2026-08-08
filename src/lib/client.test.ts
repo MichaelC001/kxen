@@ -98,4 +98,17 @@ describe("createSubChunkHandler（P0-1 断线重连假恢复回归）", () => {
     onChunk({ stream: { id: "run-1", seq: 2 }, result: { kind: "delta", text: "x" } });
     expect(got).toEqual([]);
   });
+
+  it("topic 随 payload 一并下传（多 topic 订阅按来源区分帧）", () => {
+    const got: Array<[unknown, string]> = [];
+    const onChunk = createSubChunkHandler(["llm.delta", "task.update"], (p, topic) =>
+      got.push([p, topic]),
+    );
+    onChunk({ stream: { id: "sub-1", seq: 1 }, result: { topic: "llm.delta", payload: { n: 1 } } });
+    onChunk({ stream: { id: "sub-1", seq: 2 }, result: { topic: "task.update", payload: 2 } });
+    expect(got).toEqual([
+      [{ n: 1 }, "llm.delta"],
+      [2, "task.update"],
+    ]);
+  });
 });

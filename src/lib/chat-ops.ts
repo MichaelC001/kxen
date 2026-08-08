@@ -201,7 +201,7 @@ export function onTopic(
   topics: string[],
   handler: (topic: string, payload: unknown) => void,
 ): () => void {
-  return client.stream(topics).on((payload) => handler("", payload));
+  return client.stream(topics).on((payload, topic) => handler(topic ?? "", payload));
 }
 
 // ---------------- kanban（看板 RPC，字段与后端 BoardState JSON 对齐） ----------------

@@ -8,7 +8,7 @@ import type { KanbanSnapshot } from "../lib/chat";
 
 const h = vi.hoisted(() => ({
   rpc: vi.fn(async (_method: string, _params?: unknown): Promise<unknown> => null),
-  on: vi.fn((_handler: (payload: unknown) => void) => vi.fn()),
+  on: vi.fn((_handler: (payload: unknown, topic?: string) => void) => vi.fn()),
   stream: vi.fn(),
   resync: new Set<() => void>(),
 }));
@@ -141,6 +141,28 @@ describe("Kanban snapshot 渲染", () => {
     expect(h.resync.size).toBe(1);
     dispose();
     expect(h.resync.size).toBe(0);
+  });
+
+  it("KanbanUpdate 按 workspace 过滤：跨 workspace 帧不触发重拉", async () => {
+    const dispose = render(() => <Kanban />, document.body);
+    await flush();
+    const cb = h.on.mock.calls[0]![0] as (payload: unknown, topic?: string) => void;
+    const snapshots = () =>
+      h.rpc.mock.calls.filter(([method]) => method === "kanban.snapshot").length;
+    expect(snapshots()).toBe(1);
+
+    cb({ workspace: "/ws/b" }, "kanban:board_1");
+    await new Promise((r) => setTimeout(r, 300));
+    expect(snapshots()).toBe(1); // 其他 workspace 的同名 board 更新不误重拉
+
+    cb({ workspace: "/ws/a" }, "kanban:board_1");
+    await new Promise((r) => setTimeout(r, 300));
+    expect(snapshots()).toBe(2);
+
+    cb({ board_id: "board_1" }, "kanban:board_1"); // 无 workspace 字段的帧保持失效语义
+    await new Promise((r) => setTimeout(r, 300));
+    expect(snapshots()).toBe(3);
+    dispose();
   });
 
   it("首载失败显示错误态与重试（与真空区分）", async () => {

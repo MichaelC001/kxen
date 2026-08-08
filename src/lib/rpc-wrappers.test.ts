@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   fail: new Set<string>(),
-  on: vi.fn((_handler: (payload: unknown) => void) => vi.fn()),
+  on: vi.fn((_handler: (payload: unknown, topic?: string) => void) => vi.fn()),
   rpc: vi.fn(async (method: string) => {
     if (h.fail.delete(method)) throw new Error(`${method} failed`);
     return {};
@@ -55,12 +55,12 @@ describe("RPC wrappers", () => {
 
     const handler = vi.fn();
     const off = vi.fn();
-    h.on.mockImplementationOnce((callback: (payload: unknown) => void) => {
-      callback({ id: 1 });
+    h.on.mockImplementationOnce((callback: (payload: unknown, topic?: string) => void) => {
+      callback({ id: 1 }, "goal.update");
       return off;
     });
     expect(chatOps.onTopic(["goal.update"], handler)).toBe(off);
-    expect(handler).toHaveBeenCalledWith("", { id: 1 });
+    expect(handler).toHaveBeenCalledWith("goal.update", { id: 1 });
 
     expect(h.rpc).toHaveBeenCalledWith("worktree.remove", {
       name: "feature",

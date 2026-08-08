@@ -23,10 +23,12 @@ export async function restoreSubscriptions<K, V>(
 
 export function createSubChunkHandler(
   topics: string[],
-  handler: (payload: unknown) => void,
+  handler: (payload: unknown, topic: string) => void,
 ): (chunk: StreamChunk) => void {
   return (chunk) => {
     const result = chunk.result as { topic?: unknown; payload?: unknown } | undefined;
-    if (typeof result?.topic === "string" && topics.includes(result.topic)) handler(result.payload);
+    // topic 一并下传：同一连接多 topic 订阅时，消费方需要按来源 topic 区分帧
+    if (typeof result?.topic === "string" && topics.includes(result.topic))
+      handler(result.payload, result.topic);
   };
 }

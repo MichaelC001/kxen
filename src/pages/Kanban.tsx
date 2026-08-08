@@ -62,7 +62,10 @@ export default function Kanban() {
   };
 
   // KanbanUpdate 只承担失效通知：连发帧（runner 批量落地）250ms 去抖合并成一次全量重拉
-  const bump = () => {
+  const bump = (payload: unknown) => {
+    // 跨 workspace 同名 board 共享 kanban:<board_id> topic：不带 workspace 过滤会误重拉
+    const ws = (payload as { workspace?: string } | undefined)?.workspace;
+    if (ws && ws !== workspace()) return;
     if (eventTimer) clearTimeout(eventTimer);
     eventTimer = setTimeout(() => {
       eventTimer = undefined;
@@ -72,7 +75,7 @@ export default function Kanban() {
 
   onMount(() => {
     void reload();
-    unlisten = onTopic([`kanban:${board()}`], bump);
+    unlisten = onTopic([`kanban:${board()}`], (_topic, payload) => bump(payload));
     // topic 丢帧后不自愈：resync 信号按真源重拉（同 Workspaces 模式）
     offResync = client.onResync(() => void reload());
     timer = setInterval(() => void reload(), 8000);

@@ -23,12 +23,16 @@ export class RpcError extends Error {
 }
 
 export class TopicStream<T = unknown> {
-  constructor(private readonly source: (handler: (payload: unknown) => void) => Promise<Unsub>) {}
+  constructor(
+    private readonly source: (
+      handler: (payload: unknown, topic?: string) => void,
+    ) => Promise<Unsub>,
+  ) {}
 
-  on(cb: (value: T) => void): Unsub {
+  on(cb: (value: T, topic?: string) => void): Unsub {
     let cancelled = false;
-    const ready = this.source((payload) => {
-      if (!cancelled) cb(payload as T);
+    const ready = this.source((payload, topic) => {
+      if (!cancelled) cb(payload as T, topic);
     });
     const safe = ready.catch(() => () => {});
     return () => {
