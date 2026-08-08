@@ -2,7 +2,6 @@
 //! 完整应用服务经单一 HTTP 端点对外（GET /ws + dist 静态托管），浏览器（含 tailscale 远端）凭带 token 的 URL 使用全部功能。
 
 mod args;
-mod notify_sink;
 
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -48,7 +47,7 @@ async fn run(cli: args::Cli) -> ExitCode {
     kxen_core::ws::pending::wire_team_kick(&state);
     kxen_core::ws::pending::wire_background_kick(&state);
     // 通知落盘 + notification hook（无 OS 通知：AppState 默认 NoopNotify 保持不动）
-    notify_sink::spawn(state.clone());
+    kxen_core::notify_sink::spawn(state.clone());
     // cron 与 Knowledge consolidation 使用独立时钟和任务。Provider 慢请求不得阻塞定时消息。
     kxen_core::background_jobs::spawn(state.clone());
     // MCP servers：信任门 + 双 scope 加载后台启动（server 冷启动可至 60s，绝不阻塞启动路径）
@@ -80,10 +79,12 @@ async fn run(cli: args::Cli) -> ExitCode {
 
 fn print_banner(cli: &args::Cli, port: u16, token: &str) {
     let bind = cli.bind;
-    println!("kxen listening on http://{bind}:{port}/");
+    // IPv6 字面量在 URL host 位置必须带方括号
+    let host = if bind.is_ipv6() { format!("[{bind}]") } else { bind.to_string() };
+    println!("kxen listening on http://{host}:{port}/");
     println!();
     println!("  open in browser (keep this URL secret, it carries the only auth token):");
-    println!("  http://{bind}:{port}/?token={token}");
+    println!("  http://{host}:{port}/?token={token}");
     if !bind.is_loopback() || !cli.allow_hosts.is_empty() {
         println!();
         println!("  remote access: terminate TLS with `tailscale serve` instead of exposing plain HTTP");

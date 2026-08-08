@@ -1,25 +1,9 @@
-use super::{notification_workdir, should_dispatch_schedule, ws_endpoint};
+use super::{should_dispatch_schedule, ws_endpoint};
 
 #[test]
 fn ws_endpoint_is_unavailable_until_listener_port_is_ready() {
     assert_eq!(ws_endpoint(0, "boot-token").unwrap_err(), "websocket server is not ready");
     assert_eq!(ws_endpoint(3131, "ready-token").unwrap(), serde_json::json!({ "port": 3131, "token": "ready-token" }));
-}
-
-#[test]
-fn notification_session_never_falls_back_to_active_workspace() {
-    let base = std::env::temp_dir().join(format!("kxen-notification-workdir-{}", std::process::id()));
-    let sessions = base.join("sessions");
-    let active = base.join("active");
-    let owned = base.join("owned");
-    std::fs::create_dir_all(&active).unwrap();
-    std::fs::create_dir_all(&owned).unwrap();
-    let session = kxen_core::core::session::create(&sessions, owned.to_str().unwrap()).unwrap();
-
-    assert_eq!(notification_workdir(&sessions, &active, None).unwrap(), active);
-    assert_eq!(notification_workdir(&sessions, &active, Some(&session.id)).unwrap(), owned);
-    assert!(notification_workdir(&sessions, &active, Some("ses_missing")).is_err());
-    std::fs::remove_dir_all(base).ok();
 }
 
 #[test]

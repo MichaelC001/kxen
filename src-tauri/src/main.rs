@@ -55,7 +55,7 @@ pub fn run() {
             .manage(state)
             .setup(move |app| {
                 // 窗口代码建（tauri.conf.json windows 留空）：titleBarStyle/hiddenTitle 是 macOS 专属，
-                // 配置 JSON 无法按平台分支；其余平台用系统默认装饰窗口（docs.rs TitleBarStyle 官方示范同法）。
+                // 配置 JSON 无法按平台分支；其余平台用系统默认装饰窗口。
                 let window_builder = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
                     .title("Kxen")
                     .inner_size(1280.0, 800.0)
@@ -138,67 +138,20 @@ pub fn run() {
                 kxen_core::ws::pending::restore_queues(state.clone());
                 kxen_core::ws::pending::wire_team_kick(&state);
                 kxen_core::ws::pending::wire_background_kick(&state);
-                // 通知落盘：bus 订阅一条，Notification 事件进环形缓冲（通知中心数据源）
+                // 通知落盘：bus 订阅一条，Notification 事件进环形缓冲（通知中心数据源）；
+                // on_event 挂桌面专属分支：非前台会话的 run 完成 -> OS 桌面通知（前台会话用户在看，不打扰）
                 {
                     let state = state.clone();
-                    tauri::async_runtime::spawn(async move {
-                        use kxen_core::core::event::{RecvVerdict, recv_verdict};
-                        let mut rx = state.bus.subscribe();
-                        // Lagged 跳过继续收（静默退出 = 通知中心永久停更），Closed（app 退出）才停
-                        loop {
-                            let event = match recv_verdict(rx.recv().await) {
-                                RecvVerdict::Event(e) => e,
-                                RecvVerdict::Skip => continue,
-                                RecvVerdict::Stop => break,
-                            };
-                            // 非前台会话的 run 完成：OS 桌面通知（前台会话用户在看，不打扰）
-                            if let kxen_core::core::event::Event::LlmDelta(payload) = &event {
-                                let fg = kxen_core::core::shared::read(&state.foreground_session).clone();
-                                if os_notify::should_notify_done(payload, &fg) {
-                                    let sid = payload.get("session_id").and_then(|s| s.as_str()).unwrap_or("");
-                                    let title = kxen_core::core::session::load_meta(&kxen_core::core::paths::sessions_dir(), sid)
-                                        .map(|m| m.title)
-                                        .unwrap_or_else(|_| sid.to_string());
-                                    // 点击通知经 NotifyTarget 聚焦主窗口并跳来源会话（os_notify 说明为什么不用插件 API）
-                                    os_notify::notify_session_done(kxen_core::core::shared::read(&state.notify).clone(), sid, &title);
-                                }
-                            }
-                            if let kxen_core::core::event::Event::Notification { text, session_id } = event {
-                                // notification hook（全部 Notification 事件的单一收口点；Ask 档走审批）
-                                let active = kxen_core::core::shared::read(&state.active_workspace).clone();
-                                let runtime = notification_workdir(&kxen_core::core::paths::sessions_dir(), &active, session_id.as_deref())
-                                    .and_then(|workdir| state.workspace_runtimes.runtime(&workdir));
-                                // broker/bus 克隆进任务（借用无法跨 spawn 的 'static 边界）
-                                let broker = state.approvals.clone();
-                                let bus = state.bus.clone();
-                                let (text2, sid) = (text.clone(), session_id.clone());
-                                tauri::async_runtime::spawn(async move {
-                                    let runtime = match runtime {
-                                        Ok(runtime) => runtime,
-                                        Err(e) => {
-                                            tracing::warn!(error = %e, "notification workspace runtime unavailable");
-                                            return;
-                                        }
-                                    };
-                                    let appr = kxen_core::tools::exec::ApprovalCtx::new(Some(broker.as_ref()), Some(&bus), None, None);
-                                    let payload = &serde_json::json!({ "text": text2, "session_id": sid });
-                                    if let Err(e) =
-                                        runtime.hooks().run_named_with_approval("notification", &text2, payload, appr.as_ref()).await
-                                    {
-                                        tracing::warn!(error = %e, "notification hook failed");
-                                    }
-                                });
-                                let now = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .map(|d| d.as_millis() as u64)
-                                    .unwrap_or(0);
-                                let mut buf = kxen_core::core::shared::lock(&state.notifications);
-                                let previous = buf.clone();
-                                kxen_core::core::notifications::push(&mut buf, now, text, session_id);
-                                if let Err(error) = kxen_core::core::notifications::persist_checked(&buf) {
-                                    *buf = previous;
-                                    tracing::error!(%error, "notification persistence failed");
-                                }
+                    kxen_core::notify_sink::spawn_with(state.clone(), move |event| {
+                        if let kxen_core::core::event::Event::LlmDelta(payload) = event {
+                            let fg = kxen_core::core::shared::read(&state.foreground_session).clone();
+                            if os_notify::should_notify_done(payload, &fg) {
+                                let sid = payload.get("session_id").and_then(|s| s.as_str()).unwrap_or("");
+                                let title = kxen_core::core::session::load_meta(&kxen_core::core::paths::sessions_dir(), sid)
+                                    .map(|m| m.title)
+                                    .unwrap_or_else(|_| sid.to_string());
+                                // 点击通知经 NotifyTarget 聚焦主窗口并跳来源会话（os_notify 说明为什么不用插件 API）
+                                os_notify::notify_session_done(kxen_core::core::shared::read(&state.notify).clone(), sid, &title);
                             }
                         }
                     });
@@ -256,19 +209,6 @@ pub fn run() {
 
 fn main() {
     run();
-}
-
-fn notification_workdir(
-    sessions_dir: &std::path::Path,
-    active_workspace: &std::path::Path,
-    session_id: Option<&str>,
-) -> Result<std::path::PathBuf, String> {
-    match session_id {
-        Some(id) => kxen_core::core::session::load_meta(sessions_dir, id)
-            .map(|meta| std::path::PathBuf::from(meta.directory))
-            .map_err(|error| format!("notification session {id}: {error}")),
-        None => Ok(active_workspace.to_path_buf()),
-    }
 }
 
 #[cfg(test)]

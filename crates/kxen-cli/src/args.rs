@@ -24,7 +24,7 @@ USAGE:
 
 OPTIONS:
     --bind <IP>          listen address (default 127.0.0.1; non-loopback exposes the LAN)
-    --port <PORT>        listen port (default 7824; exits with an error if occupied)
+    --port <PORT>        listen port (default 7824; exits with an error if occupied; 0 is rejected, no random fallback)
     --token <TOKEN>      fixed WS handshake token (default: random per start; fix it to bookmark the URL)
     --allow-host <HOST>  add a Host header whitelist entry (repeatable; e.g. a tailscale hostname)
     -h, --help           print this help
@@ -54,6 +54,10 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Parsed, String> {
             "--port" => {
                 let value = value_of(&mut args, "--port")?;
                 port = value.parse().map_err(|_| format!("--port expects a u16 port, got {value:?}"))?;
+                // 显式端口语义：0 = 随机端口，书签化 URL 会漂，与静默回退一样必须拒绝
+                if port == 0 {
+                    return Err("--port 0 would bind a random port; pick an explicit port".to_string());
+                }
             }
             "--token" => {
                 let value = value_of(&mut args, "--token")?;
@@ -119,6 +123,12 @@ mod tests {
         assert!(run(&["--allow-host", "evil host"]).is_err());
         assert!(run(&["--allow-host", "http://x"]).is_err());
         assert!(run(&["--bogus"]).is_err());
+    }
+
+    #[test]
+    fn port_zero_is_rejected_not_silently_random() {
+        let error = run(&["--port", "0"]).err().unwrap();
+        assert!(error.contains("random port"), "错误必须点明拒绝原因: {error}");
     }
 
     #[test]
