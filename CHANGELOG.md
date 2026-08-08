@@ -6,6 +6,16 @@
 
 ## [Unreleased]
 
+## [0.1.2]
+
+### Changed
+
+- 仓库结构：Cargo workspace 上移至仓库根，产品逻辑独立为 `crates/kxen-core` 库 crate，无头 server 为 `crates/kxen-cli`（产物仍名 `kxen`），`src-tauri` 仅保留 Tauri 桌面壳。
+
+### Fixed
+
+- Linux ARM64 发布构建：补齐 `xdg-utils`（deb/AppImage bundler 调用 `xdg-open`），此前该镜像不自带导致打包失败。
+
 ## [0.1.1]
 
 ### Fixed
@@ -88,7 +98,8 @@
 - 已被 Schedule durable dispatch 替代的 cron_dispatch 模块。
 - 与当前代码和产品文档重复的临时实现计划文档。
 
-[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/StringKe/kxen/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/StringKe/kxen/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/StringKe/kxen/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/StringKe/kxen/releases/tag/v0.0.1

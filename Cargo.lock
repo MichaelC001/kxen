@@ -2424,7 +2424,7 @@ dependencies = [
 
 [[package]]
 name = "kxen-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "futures",
  "kxen-core",
@@ -2437,7 +2437,7 @@ dependencies = [
 
 [[package]]
 name = "kxen-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2473,7 +2473,7 @@ dependencies = [
 
 [[package]]
 name = "kxen-gui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "arboard",
  "kxen-core",
