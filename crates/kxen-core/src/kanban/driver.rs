@@ -1,4 +1,4 @@
-//! 列执行 runtime（P2a）：卡片进入 agent_run/workflow 列后的执行者，由 runner 调度（runner.rs）。
+//! 列执行 runtime（P2a；P4 起在卡专属 worktree 内执行，见 kanban/worktree.rs）：卡片进入 agent_run/workflow 列后的执行者，由 runner 调度（runner.rs）。
 //!
 //! 完成协议两阶段（套用 goal completion 四相语义——Claimed/Prepared/Scored/Unknown，类型不复用）：
 //!   claim   —— run_started 事件经 Command durable，先于任何 LLM/脚本副作用（含 brief 落盘）；
@@ -25,7 +25,7 @@ use super::error::KanbanError;
 use super::events::{EventKind, KanbanCommand, Outcome};
 use super::land::{comment as land_comment, land_finished, land_timeout, run_line};
 use super::model::OnEnterKind;
-use super::{Board, BoardAutoApprove, agents, render, store};
+use super::{Board, BoardAutoApprove, agents, render, store, worktree};
 
 /// 默认列执行超时 30min：实现类列任务合法地长（编辑+构建+测试多轮工具调用），但 P1 租约语义
 /// 要求绝不永远 running，必须有上限；workflow 引擎自身 10min 上限（workflow.rs）在此之下先触发。
@@ -158,8 +158,12 @@ pub async fn execute(
         run_id: run_id.clone(),
         bus: deps.bus.clone(),
     });
-    let scope = RunScope { workspace, board_id, run_id: &run_id, turns: &turns, auto: &auto };
+    // worktree 惰性分配：claim/adopt 之后、执行之前（WHY 见 kanban/worktree.rs 模块头）
+    let workdir = worktree::allocate(workspace, board_id, card_id).await;
     let body = async {
+        // git 错误 = 确定性环境错误，走既有 Config 裁定（落 run_finished(Failure)）
+        let workdir = workdir.map_err(StepFailure::Config)?;
+        let scope = RunScope { workspace, board_id, run_id: &run_id, turns: &turns, auto: &auto, workdir };
         match column.on_enter.kind {
             OnEnterKind::AgentRun => run_agent(&scope, &agent_name, prompt, deps, cancel.clone()).await,
             OnEnterKind::Workflow => run_workflow(&scope, &agent_name, prompt, deps, cancel.clone()).await,
@@ -203,6 +207,8 @@ pub async fn execute(
         comment(workspace, board_id, card_id, format!("run {run_id} outcome landing failed: {e}"));
         fail_at(&run_id, e)
     })?;
+    // 终态 detach（卡片落无出边列）：快照抢救产物后释放 worktree、保留分支；失败只注记不翻盘（WHY 见 worktree.rs）
+    worktree::detach_if_terminal(workspace, board_id, card_id).await;
     Ok(RunLanding { run_id, kind: LandingKind::Finished(outcome) })
 }
 
@@ -213,6 +219,8 @@ struct RunScope<'a> {
     run_id: &'a str,
     turns: &'a Path,
     auto: &'a Arc<BoardAutoApprove>,
+    /// 本 run 的实际工作目录：卡专属 worktree；非 git workspace 降级为 workspace 根
+    workdir: PathBuf,
 }
 
 async fn run_agent(
@@ -222,7 +230,7 @@ async fn run_agent(
     deps: &DriverDeps,
     cancel: CancelToken,
 ) -> Result<StepOutput, StepFailure> {
-    let RunScope { workspace, board_id, run_id, turns, auto } = *scope;
+    let RunScope { workspace, board_id, run_id, turns, auto, .. } = *scope;
     let definition = agents::load(workspace, agent_name).map_err(|e| StepFailure::Config(format!("agent definition {agent_name}: {e}")))?;
     let model = resolve_model(&definition, deps).await.map_err(StepFailure::Config)?;
     let allowed =
@@ -259,6 +267,8 @@ async fn run_agent(
         crate::agent::prompt::subagent_prompt(&definition.name, &definition.prompt, crate::core::config::coding_rules_enabled());
     system.push_str(VERDICT_PROTOCOL);
     let mut ctx = base_context(deps, model, allowed, Some(persist_turn), cancel, Some(auto.clone()));
+    // 列执行在卡专属 worktree 内工作（tools 相对路径解析基准 = ctx.workdir）
+    ctx.workdir = Arc::from(scope.workdir.as_path());
     let mut messages = vec![Message::system(system), Message::user(prompt)];
     let outcome = run_turn(&mut ctx, &mut messages).await;
     if persist_failed.load(Ordering::Relaxed) {
@@ -290,7 +300,7 @@ async fn run_workflow(
     deps: &DriverDeps,
     cancel: CancelToken,
 ) -> Result<StepOutput, StepFailure> {
-    let RunScope { workspace, board_id, run_id, turns, auto } = *scope;
+    let RunScope { workspace, board_id, run_id, turns, auto, .. } = *scope;
     // workflow 列复用 agent 定义文件：正文 = QuickJS 脚本（不发明第二套 workflow 存储）
     let script =
         agents::load(workspace, agent_name).map_err(|e| StepFailure::Config(format!("workflow definition {agent_name}: {e}")))?.prompt;
@@ -300,7 +310,8 @@ async fn run_workflow(
         .map_err(StepFailure::Unknown)?;
     let sub = SubagentDeps {
         registry: deps.registry.clone(),
-        workdir: deps.workdir.clone(),
+        // 派发子代理同样落在卡专属 worktree
+        workdir: Arc::from(scope.workdir.as_path()),
         path_grants: Arc::new(Default::default()),
         store: deps.store.clone(),
         mrm: deps.mrm.clone(),
@@ -316,7 +327,8 @@ async fn run_workflow(
         stream_override: deps.stream_override.clone(),
         usage_reporter: deps.usage_reporter.clone(),
     };
-    let ctx = base_context(deps, ModelRef::default(), None, None, cancel, Some(auto.clone()));
+    let mut ctx = base_context(deps, ModelRef::default(), None, None, cancel, Some(auto.clone()));
+    ctx.workdir = Arc::from(scope.workdir.as_path());
     // run_id = board:card:column:attempt（P1 派生）：同 run_id 重跑命中 journal 缓存不重复付费；
     // open_scoped 内部先哈希，run_id 含冒号不影响 journal 文件命名
     let text = crate::agent::workflow::run_tool(&script, sub, &ctx, Some(run_id)).await.map_err(StepFailure::Config)?;

@@ -102,9 +102,9 @@ async fn end_to_end_success_claim_precedes_llm_and_outcome_lands() {
     let check = events_file.clone();
     let stream: crate::llm::StreamFn = Arc::new(move |_, _, _, _| {
         // 完成协议第一阶段：LLM 请求发起前 run_started 必须已 durable
+        // （P4 起 claim 与 LLM 之间可能插入 kanban-driver 的 worktree 降级评论，只断言 claim 先于 LLM）
         let events = store::load_events(&check).unwrap();
-        let last = events.last().unwrap();
-        assert!(matches!(last.kind, EventKind::RunStarted(_)), "LLM 请求前必须先落 run_started，实际: {:?}", last.kind);
+        assert!(events.iter().any(|e| matches!(&e.kind, EventKind::RunStarted(_))), "LLM 请求前必须先落 run_started");
         Box::pin(futures::stream::iter(vec![
             crate::llm::Delta::Text("implemented\nVERDICT: success".into()),
             crate::llm::Delta::Usage { input: 1, output: 1 },

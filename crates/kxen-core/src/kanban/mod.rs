@@ -1,7 +1,7 @@
 //! Kanban Agent 核心：append-only 事件流 + 确定性投影 + 命令守卫（P1）+
-//! DCP Agent 定义、列执行 driver、触发器 runner 与完成协议（P2a）+ 看板级自主授权（P3）。
+//! DCP Agent 定义、列执行 driver、触发器 runner 与完成协议（P2a）+ 看板级自主授权（P3）+ 每卡 worktree 隔离（P4）。
 //! BoardState 的唯一真源是 `<workspace>/.kxen/kanban/<board_id>/events.jsonl`，快照只是可删缓存。
-//! 本阶段不含 worktree（P4）、RPC/前端（P5）。
+//! 本阶段不含 RPC/前端（P5）。
 
 mod agents;
 mod command;
@@ -16,6 +16,7 @@ mod projection;
 mod render;
 mod runner;
 mod store;
+mod worktree;
 
 pub use agents::{
     AgentDefinition, agents_dir, load as load_agent_definition, parse as parse_agent_definition, profile_tools,

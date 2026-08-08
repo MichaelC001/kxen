@@ -126,7 +126,13 @@ async fn ready_card_runs_once_with_in_flight_dedup() {
     let first = runner.scan_once(&workspace, &deps).await.unwrap();
     let second = runner.scan_once(&workspace, &deps).await.unwrap();
     assert_eq!((first, second), (1, 0), "同一卡片同时只能有一个活跃 run");
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // 等首个 run 抵达 LLM 调用点（P4 起执行前有 worktree 分配的 git 探测，固定 sleep 在并行负载下不可靠）
+    for _ in 0..100 {
+        if calls.load(Ordering::SeqCst) > 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
     assert_eq!(calls.load(Ordering::SeqCst), 1, "LLM 流只能发起一次");
     std::fs::remove_dir_all(workspace).ok();
 }

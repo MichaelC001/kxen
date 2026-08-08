@@ -1,0 +1,196 @@
+use super::*;
+use crate::kanban::driver::tests::{agent_board, agent_def, create_card, deps, text_stream};
+use crate::kanban::driver::{LandingKind, execute};
+use crate::kanban::events::Outcome;
+use crate::kanban::{Board, agents};
+use std::sync::Arc;
+
+fn temp(tag: &str) -> PathBuf {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    std::env::temp_dir().join(format!("kxen-kanban-wt-{tag}-{}-{nanos}", std::process::id()))
+}
+
+fn git(workspace: &Path, args: &[&str]) {
+    let out = std::process::Command::new("git").args(args).current_dir(workspace).output().unwrap();
+    assert!(out.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+}
+
+/// git temp 仓库：init + 初始 commit（worktree add 需要已born的 HEAD）+ 预置 .gitignore（提交进去，worktree 才继承）。
+fn git_repo(tag: &str, gitignore: &str) -> PathBuf {
+    let workspace = temp(tag);
+    std::fs::create_dir_all(&workspace).unwrap();
+    git(&workspace, &["init"]);
+    if !gitignore.is_empty() {
+        std::fs::write(workspace.join(".gitignore"), gitignore).unwrap();
+        git(&workspace, &["add", ".gitignore"]);
+    }
+    git(&workspace, &["-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init"]);
+    workspace
+}
+
+fn worktree_dir(workspace: &Path, card_id: &str) -> PathBuf {
+    workspace.join(".kxen").join("worktrees").join(format!("card-{card_id}"))
+}
+
+fn artifact_dir(workspace: &Path, card_id: &str) -> PathBuf {
+    workspace.join(".kxen").join("kanban").join("board_t").join("artifacts").join(card_id)
+}
+
+/// run 中往 worktree 写产物的假流：write 闭包在 LLM 请求时执行（此时 worktree 已分配）。
+fn writing_stream(write: impl Fn() + Send + Sync + 'static) -> crate::llm::StreamFn {
+    Arc::new(move |_, _, _, _| {
+        write();
+        Box::pin(futures::stream::iter(vec![crate::llm::Delta::Text("done\nVERDICT: success".into()), crate::llm::Delta::Done]))
+    })
+}
+
+#[tokio::test]
+async fn terminal_column_detaches_worktree_keeping_branch_and_manifest() {
+    let workspace = git_repo("terminal", "");
+    agents::save(&workspace, &agent_def()).unwrap();
+    let mut board = agent_board(&workspace, None);
+    let card_id = create_card(&mut board, "implementing");
+    drop(board);
+    let wt = worktree_dir(&workspace, &card_id);
+    let wt_in_run = wt.clone();
+    let stream = writing_stream(move || std::fs::write(wt_in_run.join("output.txt"), "artifact").unwrap());
+    let landing = execute(&workspace, "board_t", &card_id, &deps(&workspace, stream), None).await.unwrap();
+    assert_eq!(landing.kind, LandingKind::Finished(Outcome::Success));
+    assert!(!wt.exists(), "终态 detach 必须释放 worktree 目录");
+    git(&workspace, &["rev-parse", "--verify", &format!("refs/heads/kxen/card-{card_id}")]); // 分支保留
+    let artifacts = artifact_dir(&workspace, &card_id);
+    assert_eq!(std::fs::read_to_string(artifacts.join("files/output.txt")).unwrap(), "artifact", "产物被快照抢救");
+    let manifest: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(artifacts.join("manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest["card_id"], serde_json::Value::String(card_id.clone()));
+    assert!(manifest["collected"].as_array().unwrap().iter().any(|p| p == "output.txt"), "manifest collected 含产物: {manifest}");
+    let board = Board::open(&workspace, "board_t").unwrap();
+    assert!(board.state().cards[&card_id].comments.iter().any(|c| c.body.contains("worktree 已释放")), "detach 必须落审计评论");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[tokio::test]
+async fn detach_snapshots_untracked_and_ignored_files() {
+    let workspace = git_repo("snapshot", "*.log\n");
+    agents::save(&workspace, &agent_def()).unwrap();
+    let mut board = agent_board(&workspace, None);
+    let card_id = create_card(&mut board, "implementing");
+    drop(board);
+    let wt = worktree_dir(&workspace, &card_id);
+    let wt_in_run = wt.clone();
+    let stream = writing_stream(move || {
+        std::fs::write(wt_in_run.join("new.txt"), "untracked").unwrap();
+        std::fs::write(wt_in_run.join("debug.log"), "ignored").unwrap();
+    });
+    let landing = execute(&workspace, "board_t", &card_id, &deps(&workspace, stream), None).await.unwrap();
+    assert_eq!(landing.kind, LandingKind::Finished(Outcome::Success));
+    let files = artifact_dir(&workspace, &card_id).join("files");
+    assert_eq!(std::fs::read_to_string(files.join("new.txt")).unwrap(), "untracked");
+    assert_eq!(std::fs::read_to_string(files.join("debug.log")).unwrap(), "ignored", "被 gitignore 的产物也要抢救");
+    let manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(files.parent().unwrap().join("manifest.json")).unwrap()).unwrap();
+    let collected: Vec<&str> = manifest["collected"].as_array().unwrap().iter().filter_map(|p| p.as_str()).collect();
+    assert!(collected.contains(&"new.txt") && collected.contains(&"debug.log"), "两类产物都在 collected: {collected:?}");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[tokio::test]
+async fn failure_to_nonterminal_column_keeps_worktree_for_retry() {
+    let workspace = git_repo("keep", "");
+    agents::save(&workspace, &agent_def()).unwrap();
+    let mut board = agent_board(&workspace, None); // on_failure 回流 implementing（非终态）
+    let card_id = create_card(&mut board, "implementing");
+    drop(board);
+    let landing = execute(&workspace, "board_t", &card_id, &deps(&workspace, text_stream("nope\nVERDICT: failure")), None).await.unwrap();
+    assert_eq!(landing.kind, LandingKind::Finished(Outcome::Failure));
+    assert!(worktree_dir(&workspace, &card_id).exists(), "非终态保留 worktree 供显式重试复跑");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[tokio::test]
+async fn non_git_workspace_runs_at_root_with_degrade_comment() {
+    let workspace = temp("nogit");
+    std::fs::create_dir_all(&workspace).unwrap();
+    agents::save(&workspace, &agent_def()).unwrap();
+    let mut board = agent_board(&workspace, None);
+    let card_id = create_card(&mut board, "implementing");
+    drop(board);
+    let landing = execute(&workspace, "board_t", &card_id, &deps(&workspace, text_stream("done\nVERDICT: success")), None).await.unwrap();
+    assert_eq!(landing.kind, LandingKind::Finished(Outcome::Success));
+    assert!(!workspace.join(".kxen").join("worktrees").exists(), "非 git workspace 不得创建 worktree");
+    let board = Board::open(&workspace, "board_t").unwrap();
+    let card = &board.state().cards[&card_id];
+    assert_eq!(card.column_id, "done", "降级 run 正常流转");
+    assert!(card.comments.iter().any(|c| c.body.contains("无 worktree 隔离")), "降级必须落审计评论");
+    assert!(!card.comments.iter().any(|c| c.body.contains("worktree 已释放")), "无 worktree 可拆不得落 detach 评论");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[tokio::test]
+async fn ignored_directory_is_recorded_skipped_not_copied() {
+    let workspace = git_repo("ignored-dir", "node_modules/\n");
+    agents::save(&workspace, &agent_def()).unwrap();
+    let mut board = agent_board(&workspace, None);
+    let card_id = create_card(&mut board, "implementing");
+    drop(board);
+    let wt = worktree_dir(&workspace, &card_id);
+    let wt_in_run = wt.clone();
+    let stream = writing_stream(move || {
+        let dir = wt_in_run.join("node_modules").join("pkg");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("index.js"), "module").unwrap();
+    });
+    let landing = execute(&workspace, "board_t", &card_id, &deps(&workspace, stream), None).await.unwrap();
+    assert_eq!(landing.kind, LandingKind::Finished(Outcome::Success));
+    let artifacts = artifact_dir(&workspace, &card_id);
+    assert!(!artifacts.join("files").join("node_modules").exists(), "ignored 目录不递归拷贝");
+    let manifest: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(artifacts.join("manifest.json")).unwrap()).unwrap();
+    let skipped = manifest["skipped"].as_array().unwrap();
+    assert!(skipped.iter().any(|s| s["path"] == "node_modules/"), "ignored 目录必须记 manifest skipped: {manifest}");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
+fn parse_porcelain_z_classifies_three_entry_kinds() {
+    let entries = parse_porcelain_z("?? new.txt\0 M src/a.rs\0!! debug.log\0R  new name.txt\0old name.txt\0");
+    assert_eq!(
+        entries,
+        vec![
+            ("??".to_string(), "new.txt".to_string()),
+            (" M".to_string(), "src/a.rs".to_string()),
+            ("!!".to_string(), "debug.log".to_string()),
+            ("R ".to_string(), "new name.txt".to_string()),
+        ],
+        "?? / 已跟踪改动 / !! 三类行 + 重命名取新路径跳过源段"
+    );
+    assert!(parse_porcelain_z("").is_empty());
+}
+
+#[tokio::test]
+async fn ignored_file_over_size_limit_is_skipped() {
+    let workspace = git_repo("limit", "*.bin\n");
+    let CardWorkdir::Worktree(wt) = ensure_card_worktree(&workspace, "c1").await.unwrap() else {
+        panic!("git 仓库必须分配 worktree")
+    };
+    std::fs::write(wt.join("big.bin"), vec![0u8; 32]).unwrap();
+    std::fs::write(wt.join("small.bin"), vec![0u8; 4]).unwrap();
+    // 上限做成参数：用小上限测边界语义（生产为 MAX_IGNORED_FILE_BYTES = 10MB）
+    let report = snapshot_artifacts(&workspace, "board_t", "c1", &wt, 10).await.unwrap();
+    assert!(report.collected.iter().any(|p| p == "small.bin"), "限额内的 ignored 文件照收");
+    assert!(report.skipped.iter().any(|s| s.path == "big.bin"), "超限 ignored 文件记 skipped");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[tokio::test]
+async fn ensure_degrades_on_non_git_workspace() {
+    let workspace = temp("ensure-nogit");
+    std::fs::create_dir_all(&workspace).unwrap();
+    assert!(matches!(ensure_card_worktree(&workspace, "c1").await.unwrap(), CardWorkdir::WorkspaceRoot));
+    assert!(!workspace.join(".gitignore").exists(), "非 git workspace 不得被写 .gitignore");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
+fn worktree_name_enforces_whitelist() {
+    assert_eq!(worktree_name("card_ok-1").unwrap(), "card-card_ok-1");
+    assert!(worktree_name("../escape").is_err(), "路径穿越必须被白名单拒绝");
+}
