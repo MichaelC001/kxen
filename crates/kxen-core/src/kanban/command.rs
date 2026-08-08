@@ -42,6 +42,13 @@ impl Board {
     pub fn apply(&mut self, command: KanbanCommand) -> Result<KanbanEvent, KanbanError> {
         let lock = board_lock(&self.state.board_id);
         let _guard = crate::core::shared::lock(&lock);
+        // 锁内漂移预检：锁外写入者（另一进程/绕开共享锁的实例）推进过事件流时先补折再校验，
+        // 否则 validate 用过期投影放行，非法事件已 durable 才报 divergence
+        let on_disk = store::last_event_seq(&store::events_path(&self.dir))?;
+        let projected = if self.state.seq == 0 { None } else { Some(self.state.seq) };
+        if on_disk != projected {
+            self.state = store::load_state_from_dir(&self.dir, &self.state.board_id)?;
+        }
         let kind = self.validate(&command)?;
         let mut event = KanbanEvent { id: ids::new_id("kev"), board_id: self.state.board_id.clone(), seq: 0, created_at: now_ms(), kind };
         store::append_event(&store::events_path(&self.dir), &mut event)?;
@@ -212,8 +219,22 @@ impl Board {
                     return Err(KanbanError::PolicyDenied(format!("policy exhausted ({}/{max})", policy.used)));
                 }
                 let command_head = command.trim_start();
-                if !policy.spec.allowlist.iter().any(|prefix| command_head.starts_with(prefix.as_str())) {
+                // 词边界：prefix 之后必须是串结束或 ASCII 空白，否则 "git" 会放行 "gitx upload"
+                let prefix_hit = policy.spec.allowlist.iter().any(|prefix| {
+                    command_head
+                        .strip_prefix(prefix.as_str())
+                        .is_some_and(|rest| rest.is_empty() || rest.as_bytes()[0].is_ascii_whitespace())
+                });
+                if !prefix_hit {
                     return Err(KanbanError::PolicyDenied("command matches no allowlist prefix".into()));
+                }
+                // 复合命令不可自动放行：元字符意味着前缀命中之外还藏着第二段动作
+                // （; & | 换行 反引号 $ 括号 重定向 反斜杠）。拒绝 = 回落逐次审批，不是硬拒执行
+                if command_head
+                    .bytes()
+                    .any(|b| matches!(b, b';' | b'&' | b'|' | b'\n' | b'\r' | b'`' | b'$' | b'(' | b')' | b'<' | b'>' | b'\\'))
+                {
+                    return Err(KanbanError::PolicyDenied("command contains shell metacharacters".into()));
                 }
                 self.open_run(run_id)?;
                 Ok(EventKind::AutoApproved(AutoApprovedPayload { run_id: run_id.clone(), command: command.clone() }))
@@ -243,6 +264,8 @@ impl Board {
     }
 }
 
+#[cfg(test)]
+mod drift_tests;
 #[cfg(test)]
 mod policy_tests;
 #[cfg(test)]

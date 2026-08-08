@@ -55,6 +55,7 @@ pub(super) fn build_ctx(
         team: state.manager.upgrade(),
         team_identity: Some((session_id.clone(), agent_name.clone())),
         session_id: Some(session_id),
+        exec_scope: None,
         bound_goal_id: None,
         goal_binding_frozen: false,
         agents: Some(state.deps.agents.clone()),

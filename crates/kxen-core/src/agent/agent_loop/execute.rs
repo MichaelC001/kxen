@@ -51,8 +51,8 @@ pub async fn execute_tool(name: &str, arguments: &str, ctx: &AgentContext) -> Re
 pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a AgentContext) -> Result<String, String> {
     match name {
         "exec" => {
-            let session_id = ctx.session_id.as_deref().ok_or("exec requires a session context")?;
-            let owner = crate::tools::task::TaskOwner::new(session_id, &ctx.workdir)?;
+            let owner_id = ctx.session_id.as_deref().or(ctx.exec_scope.as_deref()).ok_or("exec requires a session context")?;
+            let owner = crate::tools::task::TaskOwner::new(owner_id, &ctx.workdir)?;
             let params = ExecParams {
                 shell_type: parse_shell(args.get("type").and_then(Value::as_str).unwrap_or("zsh"))?,
                 path: resolve_path(args.get("path").and_then(Value::as_str).unwrap_or(cwd), ctx)?.to_string_lossy().into_owned(),

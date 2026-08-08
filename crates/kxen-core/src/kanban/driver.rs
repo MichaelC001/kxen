@@ -269,6 +269,7 @@ async fn run_agent(
     let mut ctx = base_context(deps, model, allowed, Some(persist_turn), cancel, Some(auto.clone()));
     // 列执行在卡专属 worktree 内工作（tools 相对路径解析基准 = ctx.workdir）
     ctx.workdir = Arc::from(scope.workdir.as_path());
+    ctx.exec_scope = Some(format!("kanban:{run_id}")); // exec/task 作用域；session_id 保持 None 使 durable-session 门控 fail-closed
     let mut messages = vec![Message::system(system), Message::user(prompt)];
     let outcome = run_turn(&mut ctx, &mut messages).await;
     if persist_failed.load(Ordering::Relaxed) {
@@ -320,6 +321,7 @@ async fn run_workflow(
         cancel: Some(cancel.clone()),
         agents: deps.agents.clone(),
         session_id: None,
+        exec_scope: Some(format!("kanban:{run_id}")), // workflow 子代理与 agent_run 同作用域：exec 可用，session 门控不受影响
         bus: deps.bus.clone(),
         approvals: deps.approvals.clone(),
         mcp: deps.mcp.clone(),
@@ -329,6 +331,7 @@ async fn run_workflow(
     };
     let mut ctx = base_context(deps, ModelRef::default(), None, None, cancel, Some(auto.clone()));
     ctx.workdir = Arc::from(scope.workdir.as_path());
+    ctx.exec_scope = Some(format!("kanban:{run_id}")); // 同 run_agent：ctx 是 run_tool 的门控上下文
     // run_id = board:card:column:attempt（P1 派生）：同 run_id 重跑命中 journal 缓存不重复付费；
     // open_scoped 内部先哈希，run_id 含冒号不影响 journal 文件命名
     let text = crate::agent::workflow::run_tool(&script, sub, &ctx, Some(run_id)).await.map_err(StepFailure::Config)?;

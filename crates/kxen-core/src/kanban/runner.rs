@@ -65,6 +65,10 @@ impl Runner {
                 if run.started_at < self.boot_ms {
                     continue; // 遗留 run 已由 recover_orphans 处置
                 }
+                // 本进程已执行过的 run：outcome 没落上（如目标列 WIP 满）也不重复收养，防重复付费
+                if crate::core::shared::lock(&self.inner).handled.contains(&run.id) {
+                    continue;
+                }
                 if !self.claim_card(&run.card_id) {
                     continue;
                 }

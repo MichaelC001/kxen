@@ -49,6 +49,7 @@ fn test_ctx(notify: Option<Arc<NotifyRouter>>) -> AgentContext {
         team: None,
         team_identity: None,
         session_id: Some("s-bg".into()),
+        exec_scope: None,
         bound_goal_id: None,
         goal_binding_frozen: false,
         agents: Some(Arc::new(kxen_core::agent::activity::AgentRegistry::default())),

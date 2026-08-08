@@ -25,6 +25,7 @@ fn test_ctx() -> AgentContext {
         team: None,
         team_identity: Some(("s".into(), "worker".into())),
         session_id: Some("s".into()),
+        exec_scope: None,
         bound_goal_id: None,
         goal_binding_frozen: false,
         agents: None,

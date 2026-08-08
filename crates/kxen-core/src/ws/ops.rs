@@ -267,6 +267,7 @@ async fn test_dispatch(state: &Arc<AppState>, params: &Value) -> Result<Value, S
         cancel: None,
         agents: state.agents.clone(),
         session_id: None,
+        exec_scope: None,
         bus: state.bus.clone(),
         approvals: Some(state.approvals.clone()),
         mcp: Some(runtime.mcp()),

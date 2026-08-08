@@ -79,6 +79,7 @@ fn subagent_shares_parent_session_extras() {
         team: None,
         team_identity: None,
         session_id: Some("s-parent".into()),
+        exec_scope: None,
         bound_goal_id: None,
         goal_binding_frozen: false,
         agents: Some(Arc::new(kxen_core::agent::activity::AgentRegistry::default())),

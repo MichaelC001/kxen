@@ -10,8 +10,8 @@ use super::helpers::{parse_shell, resolve_path};
 pub async fn execute_task_tool(args: &Value, ctx: &AgentContext) -> Result<String, String> {
     let action = args.get("action").and_then(Value::as_str).ok_or("missing action")?;
     let cwd = ctx.workdir.to_string_lossy().to_string();
-    let session_id = ctx.session_id.as_deref().ok_or("task operation requires a session context")?;
-    let owner = crate::tools::task::TaskOwner::new(session_id, &ctx.workdir)?;
+    let owner_id = ctx.session_id.as_deref().or(ctx.exec_scope.as_deref()).ok_or("task operation requires a session context")?;
+    let owner = crate::tools::task::TaskOwner::new(owner_id, &ctx.workdir)?;
     match action {
         "start" => {
             let params = DevServerParams {

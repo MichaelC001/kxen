@@ -136,3 +136,56 @@ async fn ready_card_runs_once_with_in_flight_dedup() {
     assert_eq!(calls.load(Ordering::SeqCst), 1, "LLM 流只能发起一次");
     std::fs::remove_dir_all(workspace).ok();
 }
+
+#[tokio::test]
+async fn handled_run_not_readopted_when_outcome_landing_failed() {
+    let workspace = temp("handled");
+    agents::save(&workspace, &driver_tests::agent_def()).unwrap();
+    let runner = Runner::new();
+    let mut board = Board::open(&workspace, "board_t").unwrap();
+    let mut done = driver_tests::column("done", OnEnterKind::None, None, None, None, None);
+    done.wip_limit = Some(1);
+    board
+        .apply(KanbanCommand::BoardCreate {
+            title: "t".into(),
+            columns: Some(vec![
+                driver_tests::column("implementing", OnEnterKind::AgentRun, Some("exec-impl"), Some("done"), Some("implementing"), None),
+                done,
+            ]),
+        })
+        .unwrap();
+    // 目标列 WIP 占满：run 执行成功但 run_finished 落不上，run 保持 open
+    let _filler = driver_tests::create_card(&mut board, "done");
+    let card_id = driver_tests::create_card(&mut board, "implementing");
+    let event = board.apply(KanbanCommand::RunStarted { card_id: card_id.clone() }).unwrap();
+    let EventKind::RunStarted(started) = event.kind else { panic!("expected run_started") };
+    drop(board);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
+    let stream: crate::llm::StreamFn = Arc::new(move |_, _, _, _| {
+        seen.fetch_add(1, Ordering::SeqCst);
+        Box::pin(futures::stream::iter(vec![
+            crate::llm::Delta::Text("done\nVERDICT: success".into()),
+            crate::llm::Delta::Usage { input: 1, output: 1 },
+            crate::llm::Delta::Done,
+        ]))
+    });
+    let deps = driver_tests::deps(&workspace, stream);
+    let launched = runner.scan_once(&workspace, &deps).await.unwrap();
+    assert_eq!(launched, 1, "首轮收养显式 claim");
+    // 等执行走到 landing 失败（审计评论落地即完成），轮询而非定长 sleep
+    for _ in 0..200 {
+        let board = Board::open(&workspace, "board_t").unwrap();
+        if board.state().cards[&card_id].comments.iter().any(|c| c.body.contains("outcome landing failed")) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let board = Board::open(&workspace, "board_t").unwrap();
+    assert!(board.state().runs[&started.run_id].outcome.is_none(), "WIP 满时 outcome 落不上，run 保持 open");
+    drop(board);
+    let launched = runner.scan_once(&workspace, &deps).await.unwrap();
+    assert_eq!(launched, 0, "handled 集中的 run 不得重复收养执行");
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "重复收养 = 重复付费，LLM 流只能发起一次");
+    std::fs::remove_dir_all(workspace).ok();
+}

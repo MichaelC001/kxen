@@ -80,6 +80,9 @@ pub struct AgentContext {
     pub team_identity: Option<(String, String)>,
     /// lead 的 session id（team 工具路由用）。
     pub session_id: Option<String>,
+    /// 无持久 session 的执行上下文（kanban run）给 exec/task 的 TaskOwner 作用域。
+    /// session_id 必须保持 None：schedule/goal/browser 等 durable-session 门控工具继续 fail-closed。
+    pub exec_scope: Option<String>,
     /// run 首次进入 Provider 前绑定的 Goal。结算必须按 id，不能在终态后重新 focus。
     pub bound_goal_id: Option<String>,
     /// `bound_goal_id = None` 既可能表示尚未捕获，也可能表示本 run 开始时没有 Goal。

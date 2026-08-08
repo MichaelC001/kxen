@@ -152,3 +152,47 @@ fn auto_approved_guards_fail_closed() {
     assert!(denied, "过期后 AutoApproved 必须 PolicyDenied");
     std::fs::remove_dir_all(workspace).ok();
 }
+
+#[test]
+fn auto_approved_prefix_word_boundary() {
+    let workspace = temp("boundary");
+    let mut board = open_board(&workspace);
+    let run_id = open_run(&mut board);
+    board.apply(KanbanCommand::PolicySet { policy: spec(&["git"], None, None) }).unwrap();
+    // 整串命中与空白结尾放行
+    board.apply(KanbanCommand::AutoApproved { run_id: run_id.clone(), command: "git".into() }).unwrap();
+    board.apply(KanbanCommand::AutoApproved { run_id: run_id.clone(), command: "git status".into() }).unwrap();
+    // 无词边界：prefix 是更长单词的头部，不得放行
+    let error = reject(&mut board, KanbanCommand::AutoApproved { run_id: run_id.clone(), command: "gitx upload".into() });
+    assert!(matches!(error, KanbanError::PolicyDenied(_)), "{error:?}");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
+fn auto_approved_shell_metacharacters_fall_back_to_manual_approval() {
+    let workspace = temp("metachar");
+    let mut board = open_board(&workspace);
+    let run_id = open_run(&mut board);
+    board.apply(KanbanCommand::PolicySet { policy: spec(&["cargo test"], None, None) }).unwrap();
+    // 前缀命中之外藏着第二段动作的复合命令：一律 PolicyDenied（safety_gate 靠它回落逐次审批）
+    for bad in [
+        "cargo test && echo hi",
+        "cargo test; echo hi",
+        "cargo test || echo hi",
+        "cargo test | tee out",
+        "cargo test\nfoo",
+        "cargo test\rfoo",
+        "cargo test $(evil)",
+        "cargo test `evil`",
+        "cargo test > out",
+        "cargo test 2>&1",
+        "cargo test (subshell)",
+        "cargo test C:\\path",
+    ] {
+        let error = reject(&mut board, KanbanCommand::AutoApproved { run_id: run_id.clone(), command: bad.into() });
+        assert!(matches!(error, KanbanError::PolicyDenied(_)), "必须 PolicyDenied: {bad:?} -> {error:?}");
+    }
+    // 双横线不在元字符集：普通参数放行
+    board.apply(KanbanCommand::AutoApproved { run_id: run_id.clone(), command: "cargo test -- --exact".into() }).unwrap();
+    std::fs::remove_dir_all(workspace).ok();
+}

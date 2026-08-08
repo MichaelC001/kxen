@@ -153,6 +153,7 @@ fn bare_ctx(goal_id: Option<&str>) -> AgentContext {
         team: None,
         team_identity: None,
         session_id: None,
+        exec_scope: None,
         bound_goal_id: goal_id.map(str::to_string),
         goal_binding_frozen: false,
         agents: None,

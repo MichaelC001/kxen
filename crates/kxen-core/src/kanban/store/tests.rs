@@ -152,3 +152,36 @@ fn stale_snapshot_tail_folds_to_same_state() {
     assert_eq!(loaded.seq, 5);
     std::fs::remove_dir_all(workspace).ok();
 }
+
+#[test]
+fn last_event_seq_reads_tail_only() {
+    let workspace = temp("lastseq");
+    let missing = workspace.join("board_c").join("events.jsonl");
+    assert_eq!(last_event_seq(&missing).unwrap(), None, "文件不存在 = 空事件流");
+    write_events(&workspace, "board_c", 3);
+    let dir = board_dir(&workspace, "board_c").unwrap();
+    let path = events_path(&dir);
+    assert_eq!(last_event_seq(&path).unwrap(), Some(3));
+    // 超长尾行（超过 8KiB 预检窗口）：扩窗后仍取到正确 seq
+    let mut long = sample_event(4);
+    long.kind = EventKind::CardComment(CardCommentPayload { card_id: "c".into(), author: "a".into(), body: "x".repeat(16 * 1024) });
+    append_event(&path, &mut long).unwrap();
+    assert_eq!(last_event_seq(&path).unwrap(), Some(4));
+    // torn 尾行：解析失败必须 Err，不猜
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+    file.write_all(br#"{"id":"#).unwrap();
+    file.sync_all().unwrap();
+    assert!(last_event_seq(&path).is_err(), "torn 尾行不得猜 seq");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
+fn last_event_seq_empty_file_is_none() {
+    let dir = temp("emptyseq");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("events.jsonl");
+    std::fs::write(&path, b"").unwrap();
+    assert_eq!(last_event_seq(&path).unwrap(), None);
+    std::fs::remove_dir_all(dir).ok();
+}

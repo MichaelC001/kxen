@@ -43,6 +43,7 @@ fn test_deps() -> SubagentDeps {
         cancel: None,
         agents: Arc::new(kxen_core::agent::activity::AgentRegistry::default()),
         session_id: None,
+        exec_scope: None,
         bus: kxen_core::core::event::EventBus::default(),
         approvals: None,
         mcp: None,

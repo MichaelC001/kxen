@@ -169,6 +169,7 @@ mod tests {
             team: None,
             team_identity: None,
             session_id: Some("compact-meter".into()),
+            exec_scope: None,
             bound_goal_id: None,
             goal_binding_frozen: false,
             agents: None,

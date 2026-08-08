@@ -57,6 +57,7 @@ pub(super) fn base_context(
         team: None,
         team_identity: None,
         session_id: None,
+        exec_scope: None,
         bound_goal_id: None,
         // kanban run 不绑定用户 goal：focus 查找会把列执行挂到无关 goal 的 deadline/记账下
         goal_binding_frozen: true,
@@ -75,3 +76,7 @@ pub(super) fn base_context(
         stream_override: deps.stream_override.clone(),
     }
 }
+
+#[cfg(test)]
+#[path = "context/tests.rs"]
+mod tests;

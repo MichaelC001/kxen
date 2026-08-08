@@ -76,12 +76,56 @@ pub fn append_event(path: &Path, event: &mut KanbanEvent) -> Result<(), KanbanEr
     storage::append_synced(path, &line).map_err(|failure| log_error(failure.to_string()))
 }
 
+/// apply 的锁内漂移预检：只读事件流尾部取最后一条的 seq，全量 load_events 是 O(历史)，
+/// 每次 apply 不可接受。窗口可能从行中切开，含不了完整尾行时成倍扩窗直到覆盖；
+/// 完整尾行解析失败即 Err（torn 行不猜）。文件不存在/空 -> Ok(None)。
+pub fn last_event_seq(path: &Path) -> Result<Option<u64>, KanbanError> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(log_error(error)),
+    };
+    let len = file.metadata().map_err(log_error)?.len();
+    if len == 0 {
+        return Ok(None);
+    }
+    let mut window: u64 = 8 * 1024;
+    loop {
+        let take = window.min(len);
+        file.seek(SeekFrom::End(-(take as i64))).map_err(log_error)?;
+        let mut buf = vec![0u8; take as usize];
+        file.read_exact(&mut buf).map_err(log_error)?;
+        let mut end = buf.len();
+        while end > 0 && matches!(buf[end - 1], b'\n' | b'\r') {
+            end -= 1;
+        }
+        if end == 0 {
+            return Ok(None);
+        }
+        let start = buf[..end].iter().rposition(|b| *b == b'\n').map(|pos| pos + 1).unwrap_or(0);
+        if start == 0 && take < len {
+            window = window.saturating_mul(4);
+            continue;
+        }
+        let line = std::str::from_utf8(&buf[start..end]).map_err(|error| log_error(format!("tail of {}: {error}", path.display())))?;
+        let event: KanbanEvent =
+            serde_json::from_str(line).map_err(|error| log_error(format!("parse last event in {}: {error}", path.display())))?;
+        return Ok(Some(event.seq));
+    }
+}
+
 /// 启动加载：快照是缓存。锚点校验（board_id 一致且 seq 不越过事件流长度）通过则只补折尾部事件，
 /// 快照缺失/损坏/锚点不符一律从事件流全量重建——缓存永远不掩盖真源。
 pub fn load_state(workspace: &Path, board_id: &str) -> Result<BoardState, KanbanError> {
     let dir = board_dir(workspace, board_id)?;
-    let events = load_events(&events_path(&dir))?;
-    let snapshot = std::fs::read(snapshot_path(&dir)).ok().and_then(|bytes| serde_json::from_slice::<BoardState>(&bytes).ok());
+    load_state_from_dir(&dir, board_id)
+}
+
+/// 按目录加载（apply 锁内补折用）：与 load_state 同一实现，不绕开锚点校验。
+pub fn load_state_from_dir(dir: &Path, board_id: &str) -> Result<BoardState, KanbanError> {
+    let events = load_events(&events_path(dir))?;
+    let snapshot = std::fs::read(snapshot_path(dir)).ok().and_then(|bytes| serde_json::from_slice::<BoardState>(&bytes).ok());
     match snapshot {
         Some(mut state) if state.board_id == board_id && state.seq as usize <= events.len() => {
             for event in &events[state.seq as usize..] {

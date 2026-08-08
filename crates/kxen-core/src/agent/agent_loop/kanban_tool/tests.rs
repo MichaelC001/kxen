@@ -27,6 +27,7 @@ fn ctx(workspace: &Path) -> AgentContext {
         team: None,
         team_identity: None,
         session_id: None,
+        exec_scope: None,
         bound_goal_id: None,
         goal_binding_frozen: false,
         agents: None,

@@ -289,6 +289,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
         team: Some(state.team.clone()),
         team_identity: None,
         session_id: Some(session_id.clone()),
+        exec_scope: None,
         bound_goal_id,
         goal_binding_frozen: true,
         agents: Some(state.agents.clone()),
