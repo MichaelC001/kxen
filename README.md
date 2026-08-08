@@ -6,14 +6,7 @@ macOS、Windows 和 Linux 上的 Coding Agent 工作台，也可以用浏览器�
 
 ## 下载
 
-在 [GitHub Releases](https://github.com/StringKe/kxen/releases/latest) 下载最新版本，稳定 asset 命名保证同一链接始终解析到最新版本:
-
-- macOS(Apple Silicon、Intel): DMG，经过 Developer ID 签名和 Apple 公证，打开后把 `Kxen.app` 拖入「应用程序」，需要 macOS 14 及以上版本。
-- Windows(x64、ARM64): NSIS 安装包，暂无 Authenticode 签名，SmartScreen 提示时选择 More info -> Run anyway。
-- Linux(x86_64、ARM64): AppImage 与 deb。
-- kxen 无头 server(六个平台的 tar.gz/zip): macOS 包同样经 Developer ID 签名和 Apple 公证。启动后打印带 token 的访问 URL，浏览器（含 tailscale 远程）打开即可使用全部功能，用法见官网 Web 模式文档。
-
-桌面应用内置自动更新（deb 除外）。每个版本附带 `SHA256SUMS` 和 updater 签名，可校验下载产物。签名状态和验签方法见官网 [代码签名说明](https://kxen.ai/reference/code-signing)。
+在 [GitHub Releases](https://github.com/StringKe/kxen/releases/latest) 下载最新版本，覆盖 macOS、Windows、Linux 的桌面应用和可无头运行的 kxen server（浏览器访问，含 tailscale 远程场景）；kxen server 同时以多架构镜像发布在 `ghcr.io/stringke/kxen`。安装说明、签名状态和验签方法见官网。
 
 当前为开发预览版本。
 
@@ -39,7 +32,7 @@ pnpm tauri:dev
 ```bash
 pnpm check
 pnpm test
-cargo test --manifest-path src-tauri/Cargo.toml
+cargo test --workspace
 ```
 
 官网源码在 `website/`。发布流程与贡献规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
