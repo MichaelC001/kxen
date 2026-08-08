@@ -30,6 +30,7 @@ pub async fn execute_task_tool(args: &Value, ctx: &AgentContext) -> Result<Strin
                 ctx.bus.as_ref(),
                 ctx.cancel.as_ref(),
                 ctx.session_id.as_deref(),
+                None,
             );
             crate::tools::exec::safety_gate(&params.command, &params.workdir, appr.as_ref()).await.map_err(|e| e.to_string())?;
             dev_server(params, &ctx.registry, &owner)
@@ -68,6 +69,7 @@ pub async fn execute_task_tool(args: &Value, ctx: &AgentContext) -> Result<Strin
                 ctx.bus.as_ref(),
                 ctx.cancel.as_ref(),
                 ctx.session_id.as_deref(),
+                None,
             );
             crate::tools::exec::safety_gate(&command, &workdir, appr.as_ref()).await.map_err(|e| e.to_string())?;
             restart_task(id, &owner, &ctx.registry)

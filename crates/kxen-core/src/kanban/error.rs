@@ -31,6 +31,9 @@ pub enum KanbanError {
     InvalidColumn(String),
     #[error("invalid command: {0}")]
     InvalidCommand(String),
+    /// 自主授权守卫拒绝（无授权/过期/次数用尽/前缀不匹配）：回落逐次审批，不是执行失败。
+    #[error("policy denied: {0}")]
+    PolicyDenied(String),
     #[error("event log error: {0}")]
     Log(String),
     /// 投影重放发现事件流自相矛盾：日志已被篡改或写入路径绕过守卫，fail-closed 不继续。

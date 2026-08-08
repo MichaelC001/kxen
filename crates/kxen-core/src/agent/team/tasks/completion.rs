@@ -11,7 +11,8 @@ pub(super) async fn complete_task(state: &Arc<TeamState>, who: &str, id: u64) ->
     let attempt_id = uuid::Uuid::new_v4().to_string();
     let title = claim_completion(state, who, id, &attempt_id)?;
 
-    let approval = crate::tools::exec::ApprovalCtx::new(state.deps.approvals.as_deref(), Some(&state.bus), None, Some(&state.session_id));
+    let approval =
+        crate::tools::exec::ApprovalCtx::new(state.deps.approvals.as_deref(), Some(&state.bus), None, Some(&state.session_id), None);
     let hook = runtime
         .hooks()
         .run_named_with_approval(

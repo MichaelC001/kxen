@@ -294,6 +294,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
         agents: Some(state.agents.clone()),
         bus: Some(bus.clone()),
         approvals: Some(state.approvals.clone()),
+        kanban_auto: None,
         mcp: Some(runtime.mcp()),
         lsp: Some(runtime.lsp()),
         notify: Some(notify.clone()),

@@ -184,6 +184,40 @@ impl Board {
                     permission_profile: permission_profile.clone(),
                 }))
             }
+            KanbanCommand::PolicySet { policy } => {
+                self.require_created()?;
+                if policy.allowlist.is_empty() || policy.allowlist.iter().any(|prefix| prefix.trim().is_empty()) {
+                    return Err(KanbanError::InvalidCommand("policy allowlist must be non-empty command prefixes".into()));
+                }
+                // max_uses = 0 等于设了立即失效，只能是误配
+                if policy.max_uses == Some(0) {
+                    return Err(KanbanError::InvalidCommand("policy max_uses must be >= 1".into()));
+                }
+                // 守卫可读墙钟（投影保持纯函数）：设了就已过期只能是误配
+                if policy.expires_at_ms.is_some_and(|expires| expires <= now_ms()) {
+                    return Err(KanbanError::InvalidCommand("policy expires_at_ms must be in the future".into()));
+                }
+                Ok(EventKind::PolicySet(PolicySetPayload { policy: policy.clone() }))
+            }
+            KanbanCommand::AutoApproved { run_id, command } => {
+                self.require_created()?;
+                // 计数与放行的原子点（board_lock 已串行化）：全部条件同一次守卫内判定，通过才转事件
+                let policy = self.state.policy.as_ref().ok_or_else(|| KanbanError::PolicyDenied("no active policy".into()))?;
+                if policy.spec.expires_at_ms.is_some_and(|expires| now_ms() > expires) {
+                    return Err(KanbanError::PolicyDenied("policy expired".into()));
+                }
+                if let Some(max) = policy.spec.max_uses
+                    && policy.used >= max
+                {
+                    return Err(KanbanError::PolicyDenied(format!("policy exhausted ({}/{max})", policy.used)));
+                }
+                let command_head = command.trim_start();
+                if !policy.spec.allowlist.iter().any(|prefix| command_head.starts_with(prefix.as_str())) {
+                    return Err(KanbanError::PolicyDenied("command matches no allowlist prefix".into()));
+                }
+                self.open_run(run_id)?;
+                Ok(EventKind::AutoApproved(AutoApprovedPayload { run_id: run_id.clone(), command: command.clone() }))
+            }
         }
     }
 
@@ -209,5 +243,7 @@ impl Board {
     }
 }
 
+#[cfg(test)]
+mod policy_tests;
 #[cfg(test)]
 mod tests;

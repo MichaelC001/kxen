@@ -32,6 +32,7 @@ fn ctx(workspace: &Path) -> AgentContext {
         agents: None,
         bus: None,
         approvals: None,
+        kanban_auto: None,
         mcp: None,
         lsp: None,
         notify: None,
@@ -233,6 +234,27 @@ fn board_show_renders_state_and_rejects_missing_board() {
     assert!(shown.contains("- requirements") && shown.contains("on_enter=human_gate"), "{shown}");
     assert!(shown.contains(&format!("* {card_id}")) && shown.contains("status=waiting_human"), "{shown}");
     assert!(shown.contains("runs:\n- none") && shown.contains("agents:\n- none"), "{shown}");
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
+fn board_show_renders_policy_state() {
+    let workspace = temp("showpolicy");
+    create_default_board(&workspace);
+    let shown = call(&workspace, "kanban_board_show", json!({"board": "board_t"})).expect("board_show");
+    assert!(shown.contains("policy:\n- none"), "{shown}");
+    let mut board = Board::open(&workspace, "board_t").unwrap();
+    board
+        .apply(KanbanCommand::PolicySet {
+            policy: crate::kanban::PolicySpec {
+                allowlist: vec!["cargo".into(), "git status".into()],
+                expires_at_ms: None,
+                max_uses: Some(5),
+            },
+        })
+        .unwrap();
+    let shown = call(&workspace, "kanban_board_show", json!({"board": "board_t"})).expect("board_show");
+    assert!(shown.contains("policy:\n- allowlist=2 used=0 max_uses=5 expires_at_ms=none"), "{shown}");
     std::fs::remove_dir_all(workspace).ok();
 }
 

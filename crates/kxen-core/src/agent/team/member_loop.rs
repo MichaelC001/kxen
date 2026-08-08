@@ -186,6 +186,7 @@ pub(super) async fn teammate_loop(
                 Some(&state.bus),
                 Some(&cancel),
                 Some(&state.session_id),
+                None,
             );
             if let Err(feedback) = runtime
                 .hooks()

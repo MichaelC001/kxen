@@ -242,6 +242,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         agents: Some(deps.agents.clone()),
         bus: Some(deps.bus.clone()),
         approvals: deps.approvals.clone(),
+        kanban_auto: None,
         mcp: deps.mcp.clone(),
         lsp: deps.lsp.clone(),
         notify: None, // 子代理不开通知通道：不嵌套派发（background 只从主会话发起）

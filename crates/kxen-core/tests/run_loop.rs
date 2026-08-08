@@ -62,6 +62,7 @@ fn test_ctx(stream: StreamFn, session_id: &str) -> AgentContext {
         agents: None,
         bus: None,
         approvals: None,
+        kanban_auto: None,
         mcp: None,
         lsp: None,
         notify: None,

@@ -38,6 +38,7 @@ pub(super) fn base_context(
     allowed: Option<&'static [&'static str]>,
     persist_turn: Option<PersistTurn>,
     cancel: CancelToken,
+    auto: Option<Arc<dyn crate::tools::auto_approve::AutoApprove>>,
 ) -> AgentContext {
     AgentContext {
         registry: deps.registry.clone(),
@@ -62,6 +63,7 @@ pub(super) fn base_context(
         agents: None,
         bus: Some(deps.bus.clone()),
         approvals: deps.approvals.clone(),
+        kanban_auto: auto,
         mcp: deps.mcp.clone(),
         lsp: deps.lsp.clone(),
         notify: None,

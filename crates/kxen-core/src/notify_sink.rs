@@ -46,7 +46,7 @@ fn dispatch_hook(state: &Arc<AppState>, text: String, session_id: Option<String>
                 return;
             }
         };
-        let approval = crate::tools::exec::ApprovalCtx::new(Some(broker.as_ref()), Some(&bus), None, None);
+        let approval = crate::tools::exec::ApprovalCtx::new(Some(broker.as_ref()), Some(&bus), None, None, None);
         let payload = &serde_json::json!({ "text": text, "session_id": session_id });
         if let Err(error) = runtime.hooks().run_named_with_approval("notification", &text, payload, approval.as_ref()).await {
             tracing::warn!(%error, "notification hook failed");

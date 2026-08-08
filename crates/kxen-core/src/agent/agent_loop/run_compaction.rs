@@ -174,6 +174,7 @@ mod tests {
             agents: None,
             bus: None,
             approvals: None,
+            kanban_auto: None,
             mcp: None,
             lsp: None,
             notify: None,

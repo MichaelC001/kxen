@@ -279,6 +279,17 @@ fn show_board(state: &BoardState) -> String {
     for agent in state.agents.values() {
         out.push_str(&format!("- {} role={} model={} profile={}\n", agent.name, agent.role, agent.model, agent.permission_profile));
     }
+    out.push_str("policy:\n");
+    match &state.policy {
+        None => out.push_str("- none\n"),
+        Some(policy) => out.push_str(&format!(
+            "- allowlist={} used={} max_uses={} expires_at_ms={}\n",
+            policy.spec.allowlist.len(),
+            policy.used,
+            policy.spec.max_uses.map(|max| max.to_string()).unwrap_or_else(|| "none".into()),
+            policy.spec.expires_at_ms.map(|expires| expires.to_string()).unwrap_or_else(|| "none".into()),
+        )),
+    }
     out.trim_end().to_string()
 }
 

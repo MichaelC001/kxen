@@ -36,7 +36,7 @@ pub(super) async fn try_handle(method: &str, params: &Value, state: &Arc<AppStat
             // 前端行内确认条已显式确认（confirmed）：跳过后端审批挂起，避免双确认
             let confirmed = params.get("confirmed").and_then(Value::as_bool).unwrap_or(false);
             let dir = kxen_core::core::shared::read(&state.active_workspace).clone();
-            let approval = kxen_core::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), None, None);
+            let approval = kxen_core::tools::exec::ApprovalCtx::new(Some(state.approvals.as_ref()), Some(&state.bus), None, None, None);
             kxen_core::tools::worktree::remove_with_approval(&dir, name, delete_branch, approval.as_ref(), confirmed).await?;
             Ok(json!(true))
         }

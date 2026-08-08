@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::model::ColumnDef;
+use super::model::{ColumnDef, PolicySpec};
 
 /// 迁移/执行结果收口：human approve = Success、reject = Failure；Timeout 只能由 run_timeout 事件产生。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,6 +90,21 @@ pub struct AgentDefinedPayload {
     pub permission_profile: String,
 }
 
+/// 自主授权配置本体进事件：投影重建不依赖任何外部状态，重放即恢复授权。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicySetPayload {
+    pub policy: PolicySpec,
+}
+
+/// 自动放行审计：命令本体进事件（放行决策的可回放证据），计数由投影推导。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AutoApprovedPayload {
+    pub run_id: String,
+    pub command: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventKind {
@@ -102,6 +117,8 @@ pub enum EventKind {
     RunFinished(RunFinishedPayload),
     RunTimeout(RunTimeoutPayload),
     AgentDefined(AgentDefinedPayload),
+    PolicySet(PolicySetPayload),
+    AutoApproved(AutoApprovedPayload),
 }
 
 /// seq 由 store 在 append 时指派（从 1 连续递增），调用方不得预设。
@@ -156,6 +173,17 @@ pub enum KanbanCommand {
         role: String,
         model: String,
         permission_profile: String,
+    },
+    /// human-only：看板级自主授权（重设即重置计数，是显式续期语义）；不进模型工具目录。
+    PolicySet {
+        policy: PolicySpec,
+    },
+    /// 仅由 BoardAutoApprove 在放行时提交：守卫全过才转事件，这条命令就是计数与放行的原子点。
+    AutoApproved {
+        run_id: String,
+        // serde 键避开 enum tag「command」：同键冲突在类型层即被拒绝
+        #[serde(rename = "shell_command")]
+        command: String,
     },
 }
 

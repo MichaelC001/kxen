@@ -60,6 +60,7 @@ pub(super) fn build_ctx(
         agents: Some(state.deps.agents.clone()),
         bus: Some(state.bus.clone()),
         approvals: state.deps.approvals.clone(),
+        kanban_auto: None,
         mcp: Some(runtime.mcp()),
         lsp: Some(runtime.lsp()),
         notify: None,

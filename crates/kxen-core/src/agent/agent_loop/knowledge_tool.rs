@@ -46,9 +46,13 @@ async fn add(args: &Value, ctx: &AgentContext) -> Result<String, String> {
 }
 
 async fn approve_project_change(ctx: &AgentContext, command: &str, reason: &str) -> Result<(), String> {
-    let Some(approval) =
-        crate::tools::exec::ApprovalCtx::new(ctx.approvals.as_deref(), ctx.bus.as_ref(), ctx.cancel.as_ref(), ctx.session_id.as_deref())
-    else {
+    let Some(approval) = crate::tools::exec::ApprovalCtx::new(
+        ctx.approvals.as_deref(),
+        ctx.bus.as_ref(),
+        ctx.cancel.as_ref(),
+        ctx.session_id.as_deref(),
+        None,
+    ) else {
         return Err("project knowledge changes require user preview and approval; no approval channel is available".into());
     };
     match crate::agent::approval::request_approval(&approval, command, reason).await {

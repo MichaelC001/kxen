@@ -9,7 +9,13 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 /// Ask 档审批通道（broker+bus 齐备才为 Some；hooks 与 exec 共用）。
 fn approval_ctx<'a>(ctx: &'a AgentContext) -> Option<crate::tools::exec::ApprovalCtx<'a>> {
-    crate::tools::exec::ApprovalCtx::new(ctx.approvals.as_deref(), ctx.bus.as_ref(), ctx.cancel.as_ref(), ctx.session_id.as_deref())
+    crate::tools::exec::ApprovalCtx::new(
+        ctx.approvals.as_deref(),
+        ctx.bus.as_ref(),
+        ctx.cancel.as_ref(),
+        ctx.session_id.as_deref(),
+        ctx.kanban_auto.as_deref(),
+    )
 }
 
 pub async fn execute_tool(name: &str, arguments: &str, ctx: &AgentContext) -> Result<String, String> {
@@ -319,11 +325,13 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
         }
         other if other.starts_with("kanban_") => super::kanban_tool::execute_kanban_tool(other, args, ctx),
         other if other.starts_with("mcp__") => {
+            // MCP 调用不是 Shell 命令，不在看板自主授权范围（auto 恒 None）
             let appr = crate::tools::exec::ApprovalCtx::new(
                 ctx.approvals.as_deref(),
                 ctx.bus.as_ref(),
                 ctx.cancel.as_ref(),
                 ctx.session_id.as_deref(),
+                None,
             );
             ctx.mcp.as_ref().ok_or("mcp not configured")?.call_gated(other, args, appr.as_ref()).await
         }

@@ -163,7 +163,7 @@ async fn request_approval_omits_session_id_when_empty() {
     let bus = EventBus::new(16);
     let mut sub = bus.subscribe();
     let broker = ApprovalBroker::with_timeout(std::time::Duration::from_millis(50));
-    let ctx = kxen_core::tools::exec::ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "" };
+    let ctx = kxen_core::tools::exec::ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "", auto: None };
     let outcome = request_approval(&ctx, "git worktree remove wt1", "r").await;
     assert_eq!(outcome, ApprovalOutcome::Timeout);
     let event = sub.try_recv().expect("必须发 approval 请求帧");
@@ -179,7 +179,7 @@ async fn request_approval_keeps_session_id_when_present() {
     let bus = EventBus::new(16);
     let mut sub = bus.subscribe();
     let broker = ApprovalBroker::with_timeout(std::time::Duration::from_millis(50));
-    let ctx = kxen_core::tools::exec::ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "s1" };
+    let ctx = kxen_core::tools::exec::ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "s1", auto: None };
     let outcome = request_approval(&ctx, "cmd", "r").await;
     assert_eq!(outcome, ApprovalOutcome::Timeout);
     let event = sub.try_recv().expect("必须发 approval 请求帧");

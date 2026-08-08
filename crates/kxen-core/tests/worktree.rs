@@ -69,7 +69,7 @@ async fn lifecycle() {
     // 删分支必须过审批：用户放行后 worktree 与分支一起清掉
     let broker = ApprovalBroker::new();
     let bus = EventBus::default();
-    let ctx = ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "t" };
+    let ctx = ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "t", auto: None };
     respond_via_bus(&broker, &bus, true, remove_with_approval(&repo, "wt1", true, Some(&ctx), false)).await.unwrap();
     assert!(list(&repo).await.unwrap().is_empty());
 
@@ -132,7 +132,7 @@ async fn delete_branch_requires_approval() {
 
     let broker = ApprovalBroker::new();
     let bus = EventBus::default();
-    let ctx = ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "t" };
+    let ctx = ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "t", auto: None };
     respond_via_bus(&broker, &bus, true, remove_with_approval(&repo, "b1", true, Some(&ctx), false)).await.unwrap();
     assert!(!repo.join(".kxen/worktrees/b1").exists());
     assert!(git_out(&repo, &["branch", "--list", "kxen/b1"]).trim().is_empty());
@@ -153,7 +153,7 @@ async fn dirty_remove_guarded_by_approval() {
 
     let broker = ApprovalBroker::new();
     let bus = EventBus::default();
-    let ctx = ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "t" };
+    let ctx = ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "t", auto: None };
     let err = respond_via_bus(&broker, &bus, false, remove_with_approval(&repo, "d1", false, Some(&ctx), false)).await.unwrap_err();
     assert!(err.contains("用户拒绝"), "{err}");
     assert!(wt.join("dirty.txt").exists());

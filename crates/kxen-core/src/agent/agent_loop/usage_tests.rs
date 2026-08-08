@@ -158,6 +158,7 @@ fn bare_ctx(goal_id: Option<&str>) -> AgentContext {
         agents: None,
         bus: None,
         approvals: None,
+        kanban_auto: None,
         mcp: None,
         lsp: None,
         notify: None,

@@ -8,7 +8,16 @@ use serde::{Deserialize, Serialize};
 
 use super::error::KanbanError;
 use super::events::{EventKind, KanbanEvent, Outcome};
-use super::model::{AgentDef, CardComment, CardState, CardStatus, ColumnDef, OnEnterKind, RunState};
+use super::model::{AgentDef, CardComment, CardState, CardStatus, ColumnDef, OnEnterKind, PolicySpec, RunState};
+
+/// 生效中的自主授权：spec 来自 policy_set 事件，used 由 auto_approved 事件计数推导。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActivePolicy {
+    pub spec: PolicySpec,
+    #[serde(default)]
+    pub used: u32,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BoardState {
@@ -23,6 +32,8 @@ pub struct BoardState {
     pub runs: BTreeMap<String, RunState>,
     #[serde(default)]
     pub agents: BTreeMap<String, AgentDef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<ActivePolicy>,
     #[serde(default)]
     pub seq: u64,
 }
@@ -36,6 +47,7 @@ impl BoardState {
             cards: BTreeMap::new(),
             runs: BTreeMap::new(),
             agents: BTreeMap::new(),
+            policy: None,
             seq: 0,
         }
     }
@@ -164,6 +176,15 @@ pub fn reduce(state: &mut BoardState, event: &KanbanEvent) -> Result<(), KanbanE
                 },
             );
         }
+        EventKind::PolicySet(payload) => {
+            // 重设即重置计数（显式续期语义）：授权内容本身即新事实，不做差异合并
+            state.policy = Some(ActivePolicy { spec: payload.policy.clone(), used: 0 });
+        }
+        EventKind::AutoApproved(_) => {
+            // 无授权却出现放行事件 = 事件流自相矛盾（绕过守卫写入），fail-closed 不猜
+            let policy = state.policy.as_mut().ok_or_else(|| invariant("auto_approved without active policy".into()))?;
+            policy.used += 1;
+        }
     }
     state.seq = event.seq;
     Ok(())
@@ -201,138 +222,4 @@ fn block_card(state: &mut BoardState, card_id: &str, at: u64, reason: String) ->
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::kanban::events::*;
-    use crate::kanban::model::default_template;
-
-    fn event(seq: u64, kind: EventKind) -> KanbanEvent {
-        KanbanEvent { id: format!("kev_{seq}"), board_id: "board_t".into(), seq, created_at: 1_000 + seq, kind }
-    }
-
-    /// 覆盖全部事件类型的固定序列（时间戳固定，与挂钟无关）。
-    fn sample_events() -> Vec<KanbanEvent> {
-        vec![
-            event(1, EventKind::BoardCreate(BoardCreatePayload { title: "看板".into(), columns: default_template() })),
-            event(
-                2,
-                EventKind::AgentDefined(AgentDefinedPayload {
-                    name: "qa".into(),
-                    role: "review".into(),
-                    model: "auto".into(),
-                    permission_profile: "readonly+test".into(),
-                }),
-            ),
-            event(
-                3,
-                EventKind::CardCreate(CardCreatePayload {
-                    card_id: "card_a".into(),
-                    column_id: "requirements".into(),
-                    title: "加登录".into(),
-                    body: "支持邮箱登录".into(),
-                }),
-            ),
-            event(
-                4,
-                EventKind::CardComment(CardCommentPayload {
-                    card_id: "card_a".into(), author: "human".into(), body: "先做这个".into()
-                }),
-            ),
-            event(
-                5,
-                EventKind::CardMove(CardMovePayload {
-                    card_id: "card_a".into(),
-                    from: "requirements".into(),
-                    to: "implementing".into(),
-                    outcome: Outcome::Success,
-                }),
-            ),
-            event(
-                6,
-                EventKind::RunStarted(RunStartedPayload {
-                    run_id: "board_t:card_a:implementing:1".into(),
-                    card_id: "card_a".into(),
-                    column_id: "implementing".into(),
-                    attempt: 1,
-                }),
-            ),
-            event(
-                7,
-                EventKind::RunFinished(RunFinishedPayload { run_id: "board_t:card_a:implementing:1".into(), outcome: Outcome::Success }),
-            ),
-            event(
-                8,
-                EventKind::RunStarted(RunStartedPayload {
-                    run_id: "board_t:card_a:testing:1".into(),
-                    card_id: "card_a".into(),
-                    column_id: "testing".into(),
-                    attempt: 1,
-                }),
-            ),
-            event(9, EventKind::RunTimeout(RunTimeoutPayload { run_id: "board_t:card_a:testing:1".into() })),
-            event(
-                10,
-                EventKind::ColumnAdd(ColumnAddPayload {
-                    column: ColumnDef {
-                        id: "archive".into(),
-                        title: "归档".into(),
-                        on_enter: Default::default(),
-                        transitions: Default::default(),
-                        wip_limit: Some(10),
-                        timeout_ms: None,
-                    },
-                }),
-            ),
-        ]
-    }
-
-    #[test]
-    fn replay_twice_is_byte_identical() {
-        let events = sample_events();
-        let first = serde_json::to_string(&replay("board_t", &events).unwrap()).unwrap();
-        let second = serde_json::to_string(&replay("board_t", &events).unwrap()).unwrap();
-        assert_eq!(first, second, "同一事件序列重放两次必须逐字节一致");
-    }
-
-    #[test]
-    fn incremental_reduce_matches_full_replay() {
-        let events = sample_events();
-        let mut state = BoardState::new("board_t");
-        for e in &events {
-            reduce(&mut state, e).unwrap();
-        }
-        assert_eq!(serde_json::to_string(&state).unwrap(), serde_json::to_string(&replay("board_t", &events).unwrap()).unwrap());
-    }
-
-    #[test]
-    fn replay_applies_semantics() {
-        let state = replay("board_t", &sample_events()).unwrap();
-        assert_eq!(state.seq, 10);
-        assert_eq!(state.title.as_deref(), Some("看板"));
-        let card = &state.cards["card_a"];
-        // run_timeout 后卡片停在原列 blocked，绝不留在 running
-        assert_eq!(card.column_id, "testing");
-        assert_eq!(card.status, CardStatus::Blocked);
-        assert!(card.block_reason.as_deref().unwrap().contains("timeout"));
-        assert_eq!(card.comments.len(), 1);
-        assert_eq!(state.runs["board_t:card_a:testing:1"].outcome, Some(Outcome::Timeout));
-        assert!(state.agents.contains_key("qa"));
-        assert!(state.column("archive").is_some());
-    }
-
-    #[test]
-    fn replay_fails_closed_on_contradictory_stream() {
-        // card_move 的 from 与投影不符：事件流被篡改，必须报错而非猜测
-        let mut events = sample_events();
-        events[4] = event(
-            5,
-            EventKind::CardMove(CardMovePayload {
-                card_id: "card_a".into(),
-                from: "done".into(),
-                to: "implementing".into(),
-                outcome: Outcome::Success,
-            }),
-        );
-        assert!(matches!(replay("board_t", &events), Err(KanbanError::Projection(_))));
-    }
-}
+mod tests;

@@ -63,6 +63,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
                 Some(&state.bus),
                 None,
                 params.get("session_id").and_then(Value::as_str),
+                None,
             );
             kxen_core::tools::exec::safety_gate(&command, &workdir, appr.as_ref()).await.map_err(|e| e.to_string())?;
             let task_id = kxen_core::tools::dev_server::restart_task(id, &owner, &state.registry).await.map_err(|e| e.to_string())?;

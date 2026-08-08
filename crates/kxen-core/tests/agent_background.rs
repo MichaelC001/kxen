@@ -54,6 +54,7 @@ fn test_ctx(notify: Option<Arc<NotifyRouter>>) -> AgentContext {
         agents: Some(Arc::new(kxen_core::agent::activity::AgentRegistry::default())),
         bus: Some(kxen_core::core::event::EventBus::default()),
         approvals: None,
+        kanban_auto: None,
         mcp: None,
         lsp: None,
         notify,

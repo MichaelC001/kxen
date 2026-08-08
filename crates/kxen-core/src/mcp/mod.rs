@@ -145,7 +145,8 @@ impl McpManager {
             "项目级 stdio MCP '{}' 将在宿主机执行进程。此审批独立于项目信任；仅上述 canonical command、args、cwd 与 env 获批，敏感 env 值仅显示 SHA-256 摘要",
             config.name
         );
-        let approval = crate::tools::exec::ApprovalCtx::new(Some(broker), Some(bus), None, None).expect("MCP execution approval channel");
+        let approval =
+            crate::tools::exec::ApprovalCtx::new(Some(broker), Some(bus), None, None, None).expect("MCP execution approval channel");
         let allowed = matches!(
             crate::agent::approval::request_approval(&approval, &command, &reason).await,
             crate::agent::approval::ApprovalOutcome::Allow

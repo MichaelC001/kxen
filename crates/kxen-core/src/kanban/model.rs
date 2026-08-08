@@ -154,6 +154,18 @@ pub struct RunState {
     pub outcome: Option<Outcome>,
 }
 
+/// 看板级自主授权配置（P3）：命令前缀 allowlist + 可选时限 + 可选最大自动放行次数。
+/// 只能由人经核心 API（KanbanCommand::PolicySet）设置，不暴露为 Agent 工具——模型能自我扩权 = 安全漏洞。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicySpec {
+    pub allowlist: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_uses: Option<u32>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentDef {

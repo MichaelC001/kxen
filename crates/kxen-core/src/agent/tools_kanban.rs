@@ -2,6 +2,8 @@
 //! 独立文件守 350 行门禁（tools_deferred.rs 无空位）；描述英文是既定口径（UI 文案才用中文）。
 //! 全部工具只提交 KanbanCommand（意图），kanban core 校验通过才转 Event：模型不直写状态
 //! （对齐 goal 工具的意图校验模式，design.md「工具面」）。
+//! PolicySet/AutoApproved 刻意不在此目录：授权是 human-only 命令，
+//! 模型能给自己扩权 = 安全漏洞（P3 看板级自主授权只经核心 API 设置）。
 
 use crate::llm::tool::ToolDefinition;
 use serde_json::json;
@@ -168,5 +170,12 @@ mod tests {
                 "kanban_board_show",
             ]
         );
+    }
+
+    #[test]
+    fn policy_commands_are_never_exposed_as_tools() {
+        // 防回归：PolicySet/AutoApproved 是 human-only 命令，模型工具目录永不得出现授权面
+        let names: Vec<_> = kanban_tools().into_iter().map(|tool| tool.function.name).collect();
+        assert!(!names.iter().any(|name| name.contains("policy") || name.contains("approve")), "授权命令不得进模型工具目录: {names:?}");
     }
 }

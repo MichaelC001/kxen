@@ -87,6 +87,7 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
         Some(&state.bus),
         Some(&cancel),
         Some(session_id.as_str()),
+        None,
     );
     if let Err(e) = runtime
         .hooks()

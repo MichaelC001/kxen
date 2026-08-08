@@ -10,7 +10,8 @@ pub(super) fn spawn(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let payload = serde_json::json!({ "id": session_id, "directory": directory });
-        let approval = kxen_core::tools::exec::ApprovalCtx::new(Some(approvals.as_ref()), Some(&bus), None, Some(session_id.as_str()));
+        let approval =
+            kxen_core::tools::exec::ApprovalCtx::new(Some(approvals.as_ref()), Some(&bus), None, Some(session_id.as_str()), None);
         if let Err(error) = hooks.run_named_with_approval("session_start", &session_id, &payload, approval.as_ref()).await {
             tracing::warn!(%error, "session_start hook failed");
         }

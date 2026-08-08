@@ -91,6 +91,9 @@ pub struct AgentContext {
     pub bus: Option<crate::core::event::EventBus>,
     /// Ask 档审批 broker（exec 高危命令挂起等用户决定；None = 无审批通道按拒绝）。
     pub approvals: Option<Arc<crate::agent::approval::ApprovalBroker>>,
+    /// 看板级自主授权句柄（P3）：仅 kanban 列执行挂载，命中 allowlist 的 Shell 自动放行。
+    /// 交互会话/子代理一律 None——授权配置只能由人设置，Agent 侧只有消费路径。
+    pub kanban_auto: Option<Arc<dyn crate::tools::auto_approve::AutoApprove>>,
     /// MCP 工具桥（mcp__server__tool 前缀调用；None = 未配置 MCP server）。
     pub mcp: Option<Arc<crate::mcp::McpManager>>,
     /// LSP 多语言诊断/导航（rust/ts/js/py/go per-language 懒启动；None = 未接线）。

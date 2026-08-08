@@ -1,5 +1,6 @@
 //! kxen-tools：exec / 读写删 / safety / hooks / worktree。
 
+pub mod auto_approve;
 pub mod browser;
 pub mod checkpoint;
 pub mod dev_server;

@@ -53,6 +53,8 @@ pub struct ApprovalCtx<'a> {
     pub bus: &'a crate::core::event::EventBus,
     pub cancel: Option<&'a crate::agent::cancel::CancelToken>,
     pub session_id: &'a str,
+    /// 看板级自主授权句柄（P3）：命中 allowlist 则自动放行（审计由实现方 durable）；None = 逐次审批。
+    pub auto: Option<&'a dyn crate::tools::auto_approve::AutoApprove>,
 }
 
 impl<'a> ApprovalCtx<'a> {
@@ -62,8 +64,9 @@ impl<'a> ApprovalCtx<'a> {
         bus: Option<&'a crate::core::event::EventBus>,
         cancel: Option<&'a crate::agent::cancel::CancelToken>,
         session_id: Option<&'a str>,
+        auto: Option<&'a dyn crate::tools::auto_approve::AutoApprove>,
     ) -> Option<Self> {
-        Some(Self { broker: broker?, bus: bus?, cancel, session_id: session_id.unwrap_or("") })
+        Some(Self { broker: broker?, bus: bus?, cancel, session_id: session_id.unwrap_or(""), auto })
     }
 }
 
@@ -89,6 +92,14 @@ pub async fn safety_gate(command: &str, cwd: &str, approval: Option<&ApprovalCtx
             suggestion: String::new(),
         });
     };
+    // 自主授权短路在 Deny 返回之后、人工审批之前：Deny 物理上不可绕过；
+    // 未命中/授权失效回落逐次审批（fail-closed 语义不变），原因只进日志不执行
+    if let Some(auto) = appr.auto {
+        match auto.try_auto_allow(command) {
+            Ok(()) => return Ok(()),
+            Err(reason) => tracing::debug!(%reason, "auto approve miss, falling back to manual approval"),
+        }
+    }
     match crate::agent::approval::request_approval(appr, command, &reason).await {
         crate::agent::approval::ApprovalOutcome::Allow => Ok(()),
         crate::agent::approval::ApprovalOutcome::Timeout => {
