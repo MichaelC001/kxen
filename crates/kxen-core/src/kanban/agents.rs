@@ -41,26 +41,13 @@ pub fn agents_dir(workspace: &Path) -> PathBuf {
 
 const KEYS: [&str; 5] = ["name", "role", "model", "permission_profile", "tools"];
 
-/// custom profile 的工具闭集（allowlist 而非 denylist）：只放本地内置、无跨 run 派发能力的工具。
+/// custom profile 的工具闭集（allowlist 而非 denylist）：只放本地内置、无跨 run 派发能力、
+/// 且在 kanban 列上下文真实可用的工具——列执行上下文 extras 为 None，todo/skill 在该上下文
+/// 恒报 unavailable，挂进 spec 只会诱导模型反复调用反复拿错。
 /// 不在此列的名（mcp__*、agent、workflow、team 系、kanban_*、schedule、tool_search、browser、
 /// 未知名）一律拒绝——fail-closed 不猜拼写，也不信远端自报能力。
-pub const CUSTOM_TOOL_ALLOWLIST: [&str; 15] = [
-    "read",
-    "glob",
-    "grep",
-    "edit",
-    "write",
-    "delete",
-    "exec",
-    "lsp",
-    "webfetch",
-    "websearch",
-    "todo",
-    "task",
-    "goal",
-    "knowledge",
-    "skill",
-];
+pub const CUSTOM_TOOL_ALLOWLIST: [&str; 13] =
+    ["read", "glob", "grep", "edit", "write", "delete", "exec", "lsp", "webfetch", "websearch", "task", "goal", "knowledge"];
 
 /// custom 工具集校验：非空、无重复、逐项精确命中闭集（工具名全小写，大写即未知名）。
 /// command.rs 的 AgentDefined 守卫复用此收口，保证文件口径与事件口径一致。

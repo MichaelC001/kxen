@@ -113,3 +113,29 @@ fn apply_recovers_from_lock_external_write() {
     assert_eq!(events_len(&workspace), 3);
     std::fs::remove_dir_all(workspace).ok();
 }
+
+#[test]
+fn apply_reloads_state_after_equal_length_rewrite() {
+    let workspace = temp("rewrite");
+    let mut board = Board::open(&workspace, "board_t").unwrap();
+    board.apply(KanbanCommand::BoardCreate { title: "旧看板".into(), columns: None }).unwrap();
+    // 模拟锁外写入者等长重写：同条数同 seq，不同事件 id 与内容（合法事件流，纯 seq 比对会漏检）
+    let dir = store::board_dir(&workspace, "board_t").unwrap();
+    let rewritten = KanbanEvent {
+        id: ids::new_id("kev"),
+        board_id: "board_t".into(),
+        seq: 1,
+        created_at: now_ms(),
+        kind: EventKind::BoardCreate(BoardCreatePayload { title: "重写后".into(), columns: wip_one_columns() }),
+    };
+    let mut line = serde_json::to_vec(&rewritten).unwrap();
+    line.push(b'\n');
+    std::fs::write(store::events_path(&dir), line).unwrap();
+    // 本实例 apply：内容锚不符先补折，后续行为必须基于新投影（旧投影里根本没有 queued 列）
+    board.apply(KanbanCommand::CardCreate { column_id: Some("queued".into()), title: "占满 WIP".into(), body: String::new() }).unwrap();
+    assert_eq!(board.state().title.as_deref(), Some("重写后"), "必须按重写后的内容补折");
+    let error =
+        board.apply(KanbanCommand::CardCreate { column_id: Some("queued".into()), title: "超限".into(), body: String::new() }).unwrap_err();
+    assert!(matches!(error, KanbanError::WipLimit { .. }), "WIP 判定必须按新投影: {error:?}");
+    std::fs::remove_dir_all(workspace).ok();
+}

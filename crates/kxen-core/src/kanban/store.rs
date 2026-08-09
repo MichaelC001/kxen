@@ -102,10 +102,11 @@ pub fn append_event(path: &Path, event: &mut KanbanEvent) -> Result<(), KanbanEr
     storage::append_synced(path, &line).map_err(|failure| log_error(failure.to_string()))
 }
 
-/// apply 的锁内漂移预检：只读事件流尾部取最后一条的 seq，全量 load_events 是 O(历史)，
-/// 每次 apply 不可接受。窗口可能从行中切开，含不了完整尾行时成倍扩窗直到覆盖；
-/// 完整尾行解析失败即 Err（torn 行不猜）。文件不存在/空 -> Ok(None)。
-pub fn last_event_seq(path: &Path) -> Result<Option<u64>, KanbanError> {
+/// apply 的锁内漂移预检：只读事件流尾部取最后一条的 (seq, id) 内容锚，全量 load_events 是 O(历史)，
+/// 每次 apply 不可接受。id 必须同取：锁外写入者等长重写（seq 不变、内容不同）时纯 seq 比对会
+/// 漏检，错投影继续 validate 会把错状态洗白进快照。窗口可能从行中切开，含不了完整尾行时成倍
+/// 扩窗直到覆盖；完整尾行解析失败即 Err（torn 行不猜）。文件不存在/空 -> Ok(None)。
+pub fn last_event_anchor(path: &Path) -> Result<Option<(u64, String)>, KanbanError> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file = match std::fs::File::open(path) {
         Ok(file) => file,
@@ -137,7 +138,7 @@ pub fn last_event_seq(path: &Path) -> Result<Option<u64>, KanbanError> {
         let line = std::str::from_utf8(&buf[start..end]).map_err(|error| log_error(format!("tail of {}: {error}", path.display())))?;
         let event: KanbanEvent =
             serde_json::from_str(line).map_err(|error| log_error(format!("parse last event in {}: {error}", path.display())))?;
-        return Ok(Some(event.seq));
+        return Ok(Some((event.seq, event.id)));
     }
 }
 

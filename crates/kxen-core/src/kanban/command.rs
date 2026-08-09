@@ -45,10 +45,11 @@ impl Board {
         // 锁顺序固定：进程内 board_lock -> 文件锁（全代码库只此一处同时持两把，单向顺序无死锁面）。
         // 文件锁持到函数结束，覆盖预检/校验/append/reduce/快照写全程，挡住另一进程的同时 apply
         let _file_guard = store::lock_events(&self.dir)?;
-        // 锁内漂移预检：锁外写入者（另一进程/绕开共享锁的实例）推进过事件流时先补折再校验，
-        // 否则 validate 用过期投影放行，非法事件已 durable 才报 divergence
-        let on_disk = store::last_event_seq(&store::events_path(&self.dir))?;
-        let projected = if self.state.seq == 0 { None } else { Some(self.state.seq) };
+        // 锁内漂移预检：锁外写入者（另一进程/绕开共享锁的实例）推进或等长重写事件流时先补折再校验，
+        // 否则 validate 用过期投影放行，非法事件已 durable 才报 divergence。比对 (seq, 尾事件 id)
+        // 内容锚而非纯 seq：等长重写 seq 不变但 id 不同，纯 seq 漏检会把错状态洗白进快照
+        let on_disk = store::last_event_anchor(&store::events_path(&self.dir))?;
+        let projected = if self.state.seq == 0 { None } else { self.state.anchor_event_id.clone().map(|anchor| (self.state.seq, anchor)) };
         if on_disk != projected {
             self.state = store::load_state_from_dir(&self.dir, &self.state.board_id)?;
         }
@@ -207,7 +208,10 @@ impl Board {
             }
             KanbanCommand::PolicySet { policy } => {
                 self.require_created()?;
-                if policy.allowlist.is_empty() || policy.allowlist.iter().any(|prefix| prefix.trim().is_empty()) {
+                // 匹配语义以 trim 后的前缀为准，存储的即 trim 后的：配置里的装饰空白不该改变授权面
+                // （尾空格前缀会因词边界判定永不命中，方向安全但用户困惑）
+                let allowlist: Vec<String> = policy.allowlist.iter().map(|prefix| prefix.trim().to_string()).collect();
+                if allowlist.is_empty() || allowlist.iter().any(String::is_empty) {
                     return Err(KanbanError::InvalidCommand("policy allowlist must be non-empty command prefixes".into()));
                 }
                 // max_uses = 0 等于设了立即失效，只能是误配
@@ -218,7 +222,9 @@ impl Board {
                 if policy.expires_at_ms.is_some_and(|expires| expires <= now_ms()) {
                     return Err(KanbanError::InvalidCommand("policy expires_at_ms must be in the future".into()));
                 }
-                Ok(EventKind::PolicySet(PolicySetPayload { policy: policy.clone() }))
+                let mut policy = policy.clone();
+                policy.allowlist = allowlist;
+                Ok(EventKind::PolicySet(PolicySetPayload { policy }))
             }
             KanbanCommand::AutoApproved { run_id, command } => {
                 self.require_created()?;

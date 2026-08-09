@@ -101,11 +101,22 @@ pub(crate) struct RestoredAgent {
     pub(crate) status: ActivityStatus,
     pub(crate) started_at: u64,
     pub(crate) transcript: std::collections::VecDeque<serde_json::Value>,
+    /// 转录里的首个终态事件；None = 进程死在完结前（中断补投只认这档）
+    pub(crate) terminal: Option<TerminalKind>,
+}
+
+/// 转录终态事件（AgentEvent 的 serde tag）：done 完结 / aborted 显式停止 / error 失败终止。
+/// 三者都无 done 行之外的 UI 区分：aborted/error 在 status 上映射为 Shutdown，只供恢复决策分流。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TerminalKind {
+    Done,
+    Aborted,
+    Error,
 }
 
 /// 扫描 <sid>/agents/*.transcript.jsonl 重建条目。转录是观测面：坏行跳过不 fail-closed
-///（与 teammate rehydrate 同口径）。status 语义：转录含 done 事件 = run 在进程死前完结 -> Done；
-/// 否则进程中断 -> Shutdown（与 agents.stop 主动停同语义，UI 已有渲染）。
+///（与 teammate rehydrate 同口径）。terminal 记录首个终态事件；status 映射保持旧语义：
+/// 仅 done -> Done，aborted/error/无终态 -> Shutdown（UI 渲染语义不动）。
 pub(crate) fn scan_session(agents_root: &Path, session_id: &str) -> Vec<RestoredAgent> {
     let mut out = Vec::new();
     if crate::core::ids::validate_id(session_id).is_err() {
@@ -123,11 +134,19 @@ pub(crate) fn scan_session(agents_root: &Path, session_id: &str) -> Vec<Restored
         }
         let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
         let mut transcript = std::collections::VecDeque::new();
-        let mut done = false;
+        let mut terminal: Option<TerminalKind> = None;
         for line in text.lines() {
             match serde_json::from_str::<serde_json::Value>(line) {
                 Ok(value) => {
-                    done |= value.get("kind").and_then(|kind| kind.as_str()) == Some("done");
+                    // 首个终态生效：转录 append-only，终态之后不该再有事件，后来的同名行视为噪声
+                    if terminal.is_none() {
+                        terminal = match value.get("kind").and_then(|kind| kind.as_str()) {
+                            Some("done") => Some(TerminalKind::Done),
+                            Some("aborted") => Some(TerminalKind::Aborted),
+                            Some("error") => Some(TerminalKind::Error),
+                            _ => None,
+                        };
+                    }
                     if transcript.len() >= TRANSCRIPT_CAP {
                         transcript.pop_front();
                     }
@@ -146,9 +165,10 @@ pub(crate) fn scan_session(agents_root: &Path, session_id: &str) -> Vec<Restored
             .unwrap_or(0);
         out.push(RestoredAgent {
             name: name.to_string(),
-            status: if done { ActivityStatus::Done } else { ActivityStatus::Shutdown },
+            status: if terminal == Some(TerminalKind::Done) { ActivityStatus::Done } else { ActivityStatus::Shutdown },
             started_at,
             transcript,
+            terminal,
         });
     }
     out

@@ -1,5 +1,6 @@
 // 后台子代理中断补投集成测试：进程死在子代理完结前，重启把「中断事实」投递给父 session pending queue。
-// 覆盖：Shutdown 投递 + marker 幂等、done 不投递、多 session 聚合、非法目录名跳过、marker 主锚单跳。
+// 覆盖：无终态投递 + marker 幂等、done/aborted/error 终态不投递、多 session 聚合、非法目录名跳过、
+// marker 主锚单跳。返回值为实际投递的 session id 列表。
 
 use kxen_core::agent::background::recover_interrupted;
 use kxen_core::core::pending_queue::PendingQueues;
@@ -24,6 +25,13 @@ fn delivery_ids(queues: &PendingQueues, sid: &str) -> Vec<String> {
     queues.snapshot(sid).unwrap().into_iter().map(|item| item.id).collect()
 }
 
+/// read_dir 顺序不定：多 session 断言先排序再比
+fn sorted_recovered(queues: &PendingQueues, dir: &Path) -> Vec<String> {
+    let mut recovered = recover_interrupted(queues, dir);
+    recovered.sort();
+    recovered
+}
+
 #[test]
 fn shutdown_agent_gets_interruption_notice_and_is_idempotent() {
     let dir = temp("shutdown");
@@ -32,14 +40,14 @@ fn shutdown_agent_gets_interruption_notice_and_is_idempotent() {
     write_transcript(&dir, &sid, "kxen-research-abc123", "{\"kind\":\"text\",\"text\":\"half\"}\n");
     let queues = PendingQueues::new(dir.clone());
 
-    assert_eq!(recover_interrupted(&queues, &dir), 1, "Shutdown 子代理必须补投");
+    assert_eq!(sorted_recovered(&queues, &dir), vec![sid.clone()], "无终态的中断子代理必须补投");
     let snapshot = queues.snapshot(&sid).unwrap();
     assert_eq!(snapshot.len(), 1, "队列恰好一条补投");
     assert_eq!(snapshot[0].id, "bgshutdown-kxen-research-abc123", "确定性 delivery id");
     assert!(snapshot[0].text.contains("interrupted"), "通知文本含中断事实: {}", snapshot[0].text);
     assert!(marker(&dir, &sid, "kxen-research-abc123").exists(), "投递后写 marker");
 
-    assert_eq!(recover_interrupted(&queues, &dir), 0, "重复恢复不重复投递");
+    assert!(recover_interrupted(&queues, &dir).is_empty(), "重复恢复不重复投递");
     assert_eq!(delivery_ids(&queues, &sid), vec!["bgshutdown-kxen-research-abc123".to_string()], "队列仍只有一条");
     std::fs::remove_dir_all(dir).ok();
 }
@@ -52,9 +60,42 @@ fn done_transcript_is_not_re_delivered() {
     write_transcript(&dir, &sid, "kxen-exec-def456", "{\"kind\":\"text\",\"text\":\"ok\"}\n{\"kind\":\"done\",\"turns\":2}\n");
     let queues = PendingQueues::new(dir.clone());
 
-    assert_eq!(recover_interrupted(&queues, &dir), 0, "done = 进程死前已完结，不投递");
+    assert!(recover_interrupted(&queues, &dir).is_empty(), "done = 进程死前已完结，不投递");
     assert!(queues.snapshot(&sid).unwrap().is_empty());
     assert!(!marker(&dir, &sid, "kxen-exec-def456").exists(), "未投递不写 marker");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn aborted_transcript_is_not_re_delivered() {
+    let dir = temp("aborted");
+    let session = kxen_core::core::session::create(&dir, "/tmp").unwrap();
+    let sid = session.id;
+    write_transcript(&dir, &sid, "kxen-research-eee555", "{\"kind\":\"text\",\"text\":\"half\"}\n{\"kind\":\"aborted\"}\n");
+    let queues = PendingQueues::new(dir.clone());
+
+    assert!(recover_interrupted(&queues, &dir).is_empty(), "aborted = 显式停止，发起方已知，不投递");
+    assert!(queues.snapshot(&sid).unwrap().is_empty());
+    assert!(!marker(&dir, &sid, "kxen-research-eee555").exists(), "未投递不写 marker");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn error_transcript_is_not_re_delivered() {
+    let dir = temp("error");
+    let session = kxen_core::core::session::create(&dir, "/tmp").unwrap();
+    let sid = session.id;
+    write_transcript(
+        &dir,
+        &sid,
+        "kxen-exec-fff666",
+        "{\"kind\":\"text\",\"text\":\"half\"}\n{\"kind\":\"error\",\"message\":\"llm down\"}\n",
+    );
+    let queues = PendingQueues::new(dir.clone());
+
+    assert!(recover_interrupted(&queues, &dir).is_empty(), "error = 失败通知已 best-effort 送达，不投递");
+    assert!(queues.snapshot(&sid).unwrap().is_empty());
+    assert!(!marker(&dir, &sid, "kxen-exec-fff666").exists(), "未投递不写 marker");
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -67,7 +108,9 @@ fn two_sessions_each_recover_one_shutdown_agent() {
     write_transcript(&dir, &second, "kxen-exec-bbb222", "{\"kind\":\"text\",\"text\":\"b\"}\n");
     let queues = PendingQueues::new(dir.clone());
 
-    assert_eq!(recover_interrupted(&queues, &dir), 2, "两个 session 各补投一条");
+    let mut expected = vec![first.clone(), second.clone()];
+    expected.sort();
+    assert_eq!(sorted_recovered(&queues, &dir), expected, "两个 session 各补投一条");
     assert_eq!(delivery_ids(&queues, &first), vec!["bgshutdown-kxen-research-aaa111".to_string()]);
     assert_eq!(delivery_ids(&queues, &second), vec!["bgshutdown-kxen-exec-bbb222".to_string()]);
     std::fs::remove_dir_all(dir).ok();
@@ -84,7 +127,7 @@ fn invalid_session_dir_names_are_skipped_without_panic() {
     std::fs::write(dir.join("stray.queue.json"), "{}").unwrap();
     let queues = PendingQueues::new(dir.clone());
 
-    assert_eq!(recover_interrupted(&queues, &dir), 0);
+    assert!(recover_interrupted(&queues, &dir).is_empty());
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -98,7 +141,7 @@ fn existing_marker_without_queued_delivery_skips() {
     std::fs::write(marker(&dir, &sid, "kxen-research-ddd444"), "1").unwrap();
     let queues = PendingQueues::new(dir.clone());
 
-    assert_eq!(recover_interrupted(&queues, &dir), 0, "marker 主锚单跳");
+    assert!(recover_interrupted(&queues, &dir).is_empty(), "marker 主锚单跳");
     assert!(queues.snapshot(&sid).unwrap().is_empty());
     std::fs::remove_dir_all(dir).ok();
 }

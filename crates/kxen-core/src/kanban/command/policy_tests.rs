@@ -92,6 +92,18 @@ fn policy_set_rejects_misconfiguration_fail_closed() {
 }
 
 #[test]
+fn policy_set_trims_allowlist_prefixes() {
+    let workspace = temp("trim");
+    let mut board = open_board(&workspace);
+    let run_id = open_run(&mut board);
+    // 装饰空白不改变授权面：trim 后存储即 trim 后匹配
+    board.apply(KanbanCommand::PolicySet { policy: spec(&[" cargo test "], None, None) }).unwrap();
+    assert_eq!(board.state().policy.as_ref().unwrap().spec.allowlist, ["cargo test"]);
+    board.apply(KanbanCommand::AutoApproved { run_id, command: "cargo test -- --exact".into() }).unwrap();
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
 fn auto_approved_guards_fail_closed() {
     let workspace = temp("autoguard");
     let mut board = open_board(&workspace);

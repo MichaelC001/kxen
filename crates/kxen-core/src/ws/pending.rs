@@ -12,12 +12,13 @@ pub fn restore_queues(state: Arc<AppState>) {
         // 中断补投必须在任何新 run 前投递：父 session 本次续跑即见中断事实，主模型不再干等不会来的通知。
         // 顺序上必须先 restore 再 recover：enqueue 基于内存态整写 queue 文件，后于 restore 才不会覆盖
         // 未恢复的存量队列；contains_delivery 副锚也需要内存队列已注水才生效。
-        // recover 补投的 session 不在首轮 ready（queue 文件由 recover 同步落盘，晚于首轮读盘），
-        // 补一次幂等 rescan 合并进续跑清单（重复 insert 内容相同）。
+        // 补投返回的 sid 定点合并进续跑清单，不再二次全量 restore：restore 对盘上非空队列无条件
+        // insert，启动窗口内并发 enqueue（已落盘+更新内存）会被旧盘内容覆盖，消息躺到下次重启；
+        // 补投本身已同步更新内存态与盘，返回值即差异全集。
         let recovered = kxen_core::agent::background::recover_interrupted(&state.pending_messages, &kxen_core::core::paths::sessions_dir());
-        if recovered > 0 {
-            tracing::info!(recovered, "interrupted background agent notifications recovered");
-            for sid in state.pending_messages.restore() {
+        if !recovered.is_empty() {
+            tracing::info!(recovered = recovered.len(), "interrupted background agent notifications recovered");
+            for sid in recovered {
                 if !ready.contains(&sid) {
                     ready.push(sid);
                 }

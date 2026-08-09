@@ -111,8 +111,21 @@ fn custom_roundtrip_and_profile_tools_rules() {
 fn custom_tools_closed_set_fail_closed() {
     let parse_custom =
         |tools: &str| parse(&format!("---\nname: qa\nrole: r\nmodel: m\npermission_profile: custom\ntools: {tools}\n---\nbody"));
-    // 闭集之外一律拒绝：跨 run 派发面、远端自报、门控不适用、未知名（含大写变体）
-    for bad in ["agent", "workflow", "kanban_agent_create", "mcp__x", "schedule", "tool_search", "browser", "team", "unknown", "READ"] {
+    // 闭集之外一律拒绝：跨 run 派发面、远端自报、门控不适用、列上下文不可用、未知名（含大写变体）
+    for bad in [
+        "agent",
+        "workflow",
+        "kanban_agent_create",
+        "mcp__x",
+        "schedule",
+        "tool_search",
+        "browser",
+        "team",
+        "todo",
+        "skill",
+        "unknown",
+        "READ",
+    ] {
         assert!(parse_custom(bad).is_err(), "{bad} 必须拒绝");
     }
     // 空项与重复项拒

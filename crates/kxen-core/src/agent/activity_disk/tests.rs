@@ -51,6 +51,30 @@ fn scan_restores_done_and_interrupted_runs() {
 }
 
 #[test]
+fn scan_records_terminal_kind_and_keeps_shutdown_status_mapping() {
+    let dir = temp("terminal");
+    let agents = dir.join("s1/agents");
+    std::fs::create_dir_all(&agents).unwrap();
+    std::fs::write(agents.join("done-1.transcript.jsonl"), "{\"kind\":\"done\",\"turns\":1}\n").unwrap();
+    std::fs::write(agents.join("abort-1.transcript.jsonl"), "{\"kind\":\"text\",\"text\":\"x\"}\n{\"kind\":\"aborted\"}\n").unwrap();
+    std::fs::write(agents.join("err-1.transcript.jsonl"), "{\"kind\":\"error\",\"message\":\"boom\"}\n").unwrap();
+    std::fs::write(agents.join("half-1.transcript.jsonl"), "{\"kind\":\"text\",\"text\":\"x\"}\n").unwrap();
+
+    let restored = scan_session(&dir, "s1");
+    let find = |name: &str| restored.iter().find(|a| a.name == name).unwrap();
+    assert_eq!(find("done-1").terminal, Some(TerminalKind::Done));
+    assert_eq!(find("done-1").status, ActivityStatus::Done);
+    // UI 映射回归：aborted/error 仍是 Shutdown，仅 terminal 分流恢复决策
+    assert_eq!(find("abort-1").terminal, Some(TerminalKind::Aborted));
+    assert_eq!(find("abort-1").status, ActivityStatus::Shutdown);
+    assert_eq!(find("err-1").terminal, Some(TerminalKind::Error));
+    assert_eq!(find("err-1").status, ActivityStatus::Shutdown);
+    assert_eq!(find("half-1").terminal, None, "无终态 = 进程死在完结前");
+    assert_eq!(find("half-1").status, ActivityStatus::Shutdown);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
 fn scan_caps_transcript_tail() {
     let dir = temp("cap");
     let agents = dir.join("s1/agents");
