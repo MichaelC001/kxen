@@ -69,10 +69,12 @@ Pull Request 需要说明问题、实现边界和验证结果。不要提交 `.e
 
 ## 发布流程
 
-发布版本必须同时更新以下四处，版本号均不带 `v` 前缀:
+发布版本必须同时更新以下版本来源，版本号均不带 `v` 前缀:
 
+- `crates/kxen-core/Cargo.toml` 的 `package.version`。
+- `crates/kxen-cli/Cargo.toml` 的 `package.version`。
 - `src-tauri/Cargo.toml` 的 `package.version`。
-- `Cargo.lock` 中 `kxen-gui` package 的 `version`。
+- `Cargo.lock` 中 `kxen-core`、`kxen-cli` 和 `kxen-gui` package 的 `version`。
 - `src-tauri/tauri.conf.json` 的 `version`。
 - `CHANGELOG.md` 的精确标题 `## [x.y.z]`。
 

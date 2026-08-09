@@ -255,7 +255,7 @@ impl StreamableHttpTransport {
             "params": {
                 "protocolVersion": protocol_version,
                 "capabilities": {},
-                "clientInfo": { "name": "kxen", "version": "0.1.0" }
+                "clientInfo": { "name": "kxen", "version": env!("CARGO_PKG_VERSION") }
             }
         });
         let response = self.post_with_auth(&initialize, None, false).await.map_err(reject_message)?;

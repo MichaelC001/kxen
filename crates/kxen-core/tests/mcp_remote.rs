@@ -42,6 +42,9 @@ fn route(body: &str, seen: &Arc<Mutex<Seen>>) -> String {
             if v.pointer("/params/protocolVersion").and_then(Value::as_str) != Some("2025-03-26") {
                 return http_response("400 Bad Request", None, "", "");
             }
+            if v.pointer("/params/clientInfo/version").and_then(Value::as_str) != Some(env!("CARGO_PKG_VERSION")) {
+                return http_response("400 Bad Request", None, "", "");
+            }
             if v.pointer("/params/capabilities/roots").is_some() {
                 return http_response("400 Bad Request", None, "", "");
             }

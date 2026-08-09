@@ -78,6 +78,9 @@ fn route_post(body: &str, answer_tx: &Sender<Value>) -> String {
     let id = v.get("id").cloned().unwrap_or(Value::Null);
     match method {
         "initialize" => {
+            if v.pointer("/params/clientInfo/version").and_then(Value::as_str) != Some(env!("CARGO_PKG_VERSION")) {
+                return http_response("400 Bad Request", None, "", "");
+            }
             if v.pointer("/params/capabilities/roots").is_some() {
                 return http_response("400 Bad Request", None, "", "");
             }

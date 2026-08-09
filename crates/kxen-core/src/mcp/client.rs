@@ -190,7 +190,7 @@ impl McpClient {
                 json!({
                     "protocolVersion": proposed_protocol,
                     "capabilities": capabilities,
-                    "clientInfo": { "name": "kxen", "version": "0.1.0" },
+                    "clientInfo": { "name": "kxen", "version": env!("CARGO_PKG_VERSION") },
                 }),
                 std::time::Duration::from_secs(60),
             )

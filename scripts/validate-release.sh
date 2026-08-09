@@ -48,13 +48,25 @@ def canonical_base64(value, label):
         raise SystemExit(f"{label} is not canonical base64")
     return decoded
 
-with open("src-tauri/Cargo.toml", "rb") as handle:
-    cargo_version = tomllib.load(handle)["package"]["version"]
+manifest_versions = {}
+for package_name, path in (
+    ("kxen-core", "crates/kxen-core/Cargo.toml"),
+    ("kxen-cli", "crates/kxen-cli/Cargo.toml"),
+    ("kxen-gui", "src-tauri/Cargo.toml"),
+):
+    with open(path, "rb") as handle:
+        manifest = tomllib.load(handle)
+    if manifest.get("package", {}).get("name") != package_name:
+        raise SystemExit(f"{path} package name does not match {package_name}")
+    manifest_versions[package_name] = manifest["package"]["version"]
 with open("Cargo.lock", "rb") as handle:
     lock = tomllib.load(handle)
-lock_versions = [package["version"] for package in lock["package"] if package["name"] == "kxen-gui"]
-if len(lock_versions) != 1:
-    raise SystemExit(f"expected one kxen-gui package in Cargo.lock, found {len(lock_versions)}")
+lock_versions = {}
+for package_name in manifest_versions:
+    matches = [package["version"] for package in lock["package"] if package["name"] == package_name]
+    if len(matches) != 1:
+        raise SystemExit(f"expected one {package_name} package in Cargo.lock, found {len(matches)}")
+    lock_versions[package_name] = matches[0]
 with open("src-tauri/tauri.conf.json", encoding="utf-8") as handle:
     tauri = json.load(handle)
 if tauri.get("bundle", {}).get("createUpdaterArtifacts") is not True:
@@ -76,15 +88,30 @@ endpoints = updater.get("endpoints", [])
 expected_endpoint = f"https://github.com/{os.environ['KXEN_RELEASE_REPOSITORY']}/releases/latest/download/latest.json"
 if endpoints != [expected_endpoint]:
     raise SystemExit(f"plugins.updater.endpoints must equal [{expected_endpoint!r}]")
-print(cargo_version, tauri["version"], lock_versions[0])
+print(
+    manifest_versions["kxen-core"],
+    manifest_versions["kxen-cli"],
+    manifest_versions["kxen-gui"],
+    tauri["version"],
+    lock_versions["kxen-core"],
+    lock_versions["kxen-cli"],
+    lock_versions["kxen-gui"],
+)
 PY
 } 2>&1)" || {
   printf '%s\n' "$versions"
   exit 1
 }
-IFS=' ' read -r cargo_version tauri_version lock_version <<< "$versions"
+IFS=' ' read -r core_version cli_version gui_version tauri_version core_lock_version cli_lock_version gui_lock_version <<< "$versions"
 
-for pair in "Cargo.toml:$cargo_version" "Cargo.lock:$lock_version" "tauri.conf.json:$tauri_version"; do
+for pair in \
+  "crates/kxen-core/Cargo.toml:$core_version" \
+  "crates/kxen-cli/Cargo.toml:$cli_version" \
+  "src-tauri/Cargo.toml:$gui_version" \
+  "src-tauri/tauri.conf.json:$tauri_version" \
+  "Cargo.lock kxen-core:$core_lock_version" \
+  "Cargo.lock kxen-cli:$cli_lock_version" \
+  "Cargo.lock kxen-gui:$gui_lock_version"; do
   source_name="${pair%%:*}"
   source_version="${pair#*:}"
   if [[ "$source_version" != "$version" ]]; then

@@ -6,6 +6,29 @@
 
 ## [Unreleased]
 
+## [0.1.1]
+
+### Added
+
+- Agent-native Kanban：提供持久化 event log、projection、RPC/topic、前端看板、卡片详情、每卡独立 worktree、列执行器、自主授权策略和网站文档。
+- Dynamic Context Protocol agent 定义：支持内置列 agent 与用户自定义 `permission_profile`，显式约束工具集、模型、prompt 和工作目录。
+- Agent turn、subagent、teammate 和后台 task 的迭代级持久化与恢复；重启后可重建 tool interaction，并把中断或完成事实 durable 回投父 Session。
+- 后台 `exec` 进程 journal 与启动时孤儿回收，workflow 未提供 `run_id` 时自动生成不命中旧缓存的隔离标识。
+
+### Changed
+
+- 前端时间线按 run 聚合迭代消息为视觉回合，并新增 Kanban 导航、策略编辑和状态订阅。
+- Rust 热路径减少重复 `String`、`Vec` 和 payload 拷贝：共享只读文本、tool catalog、配置和 manager 快照，复用缓冲并避免不必要的中间集合。
+- 升级 Rust、Frontend、GitHub Actions 和 Nimbus 文档依赖，并保持三平台 CI、网站构建和 release 资产校验通过。
+
+### Fixed
+
+- Kanban event log 增加跨进程锁、内容锚、闭集校验和 snapshot 加固，修复认领、落地、授权、补发、收养及并发恢复中的重复或遗漏状态。
+- 后台进程采用 persist-before-deliver 顺序，在公开 exit code 前先持久化终态；恢复时识别已完成进程并回收仍存活的孤儿进程。
+- 修复敏感路径在 symlink 替换后的缓存绕过、dev server 非 ASCII 增量输出 panic、同尺寸原子替换导致的配置缓存陈旧，以及 workspace 目录替换复用旧 runtime。
+- 修复 SSE escaped JSON 错误识别、LSP UTF-8 trim 边界、Markdown 注入面、Frontend 异步竞态和通知落盘复用问题。
+- 修复 release validator 的版本盲区，强制 `kxen-core`、`kxen-cli`、`kxen-gui`、Cargo.lock 和 Tauri 配置与 release tag 一致。
+
 ## [0.1.0]
 
 ### Added
@@ -86,6 +109,7 @@
 - 已被 Schedule durable dispatch 替代的 cron_dispatch 模块。
 - 与当前代码和产品文档重复的临时实现计划文档。
 
-[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/StringKe/kxen/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/StringKe/kxen/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/StringKe/kxen/releases/tag/v0.0.1
