@@ -303,16 +303,13 @@ fn workspace_metadata(root: &Path) -> Result<std::fs::Metadata, String> {
 
 #[cfg(unix)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct WorkspaceIdentity {
-    device: u64,
-    inode: u64,
-}
+struct WorkspaceIdentity(u64, u64);
 
 #[cfg(unix)]
 impl From<&std::fs::Metadata> for WorkspaceIdentity {
     fn from(metadata: &std::fs::Metadata) -> Self {
         use std::os::unix::fs::MetadataExt;
-        Self { device: metadata.dev(), inode: metadata.ino() }
+        Self(metadata.dev(), metadata.ino())
     }
 }
 
