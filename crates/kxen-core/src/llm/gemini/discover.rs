@@ -21,7 +21,7 @@ fn project_cache() -> &'static Mutex<HashMap<String, String>> {
 fn cache_key(token: &str) -> String {
     use sha2::Digest;
     let digest = sha2::Sha256::digest(token.as_bytes());
-    digest[..8].iter().map(|byte| format!("{byte:02x}")).collect()
+    crate::core::shared::hex_lower(&digest[..8])
 }
 
 fn cache_get(key: &str) -> Option<String> {

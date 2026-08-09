@@ -42,11 +42,10 @@ pub fn edit_resolved(path: &ResolvedPath, spec: &EditSpec, tracker: &FileTracker
         return Err(FsToolError::ExternallyModified { path: path.as_path().display().to_string() });
     }
     let text = read_capped_resolved(path)?;
-    let before_lines: Vec<String> = text.lines().map(String::from).collect();
-    // 按行记录原行尾：lines() 吞掉 \r，join("\n") 会把 CRLF 文件静默转成 LF
-    let (mut lines, crlf) = split_preserving_crlf(&text);
     let (applied, out) = match spec {
         EditSpec::Anchors { edits } => {
+            // 按行记录原行尾：lines() 吞掉 \r，join("\n") 会把 CRLF 文件静默转成 LF
+            let (mut lines, crlf) = split_preserving_crlf(&text);
             let applied = apply_anchor_edits(&text, &mut lines, edits, path.as_path())?;
             (applied, join_preserving_crlf(&lines, &crlf, text.ends_with('\n')))
         }
@@ -61,11 +60,10 @@ pub fn edit_resolved(path: &ResolvedPath, spec: &EditSpec, tracker: &FileTracker
             }
             // replacen 在原文上进行，未触及区域的行尾原样保留
             let replaced = text.replacen(old_string, new_string, expected);
-            lines = replaced.lines().map(String::from).collect();
             (expected, replaced)
         }
     };
-    let diff = simple_diff(&before_lines, &lines);
+    let diff = simple_diff(&text, &out);
     tracker.snapshots.record_before_resolved(path, Some(text))?;
     path.write_atomic(out.as_bytes())?;
     tracker.mark_resolved(path);
@@ -114,17 +112,8 @@ fn render_read_result(text: &str, offset: Option<usize>, limit: Option<usize>) -
     let limit = limit.unwrap_or(READ_MAX_LINES).clamp(1, READ_MAX_LINES);
     let start_idx = (start - 1).min(total);
     let end_idx = (start_idx + limit).min(total);
-    let display: Vec<String> = all
-        .iter()
-        .map(|line| {
-            if line.chars().count() > READ_MAX_LINE_CHARS {
-                line.chars().take(READ_MAX_LINE_CHARS).collect::<String>() + "…"
-            } else {
-                (*line).to_string()
-            }
-        })
-        .collect();
-    let content = render_anchored_window(&all, &display, start_idx, end_idx);
+    let display = all[start_idx..end_idx].iter().map(|line| display_line(line));
+    let content = render_anchored_window(&all, display, start_idx, end_idx);
     ReadResult { content, total_lines: total, start_line: start, end_line: end_idx, truncated: end_idx < total }
 }
 

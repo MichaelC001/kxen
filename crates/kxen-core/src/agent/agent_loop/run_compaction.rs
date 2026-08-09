@@ -158,7 +158,7 @@ mod tests {
             workdir: Arc::from(Path::new("/tmp")),
             path_grants: Arc::new(Default::default()),
             model: crate::llm::ModelRef::new("p", "m"),
-            store: crate::auth::credential::AuthStore::default(),
+            store: crate::auth::credential::AuthStore::default().into(),
             max_turns: 4,
             mrm: None,
             allowed_tools: None,

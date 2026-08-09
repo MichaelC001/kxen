@@ -40,9 +40,8 @@ pub(crate) fn validate_secure_endpoint(url: &str, allow_loopback_http: bool) -> 
 }
 
 pub(crate) fn is_sensitive_remote_header(name: &str) -> bool {
-    let normalized = name.to_ascii_lowercase();
-    matches!(normalized.as_str(), "authorization" | "proxy-authorization" | "cookie" | "set-cookie" | "apikey")
-        || normalized.split('-').any(|part| matches!(part, "token" | "secret" | "key" | "credential"))
+    ["authorization", "proxy-authorization", "cookie", "set-cookie", "apikey"].iter().any(|sensitive| name.eq_ignore_ascii_case(sensitive))
+        || name.split('-').any(|part| ["token", "secret", "key", "credential"].iter().any(|sensitive| part.eq_ignore_ascii_case(sensitive)))
 }
 
 pub(crate) fn validate_project_stdio(config: &StdioConfig) -> Result<(), String> {

@@ -14,52 +14,43 @@ pub(super) fn event_to_chunks(
     event: kxen_core::core::event::Event,
     subs: &[SubBinding],
     sequences: &mut StreamSequences,
-) -> Vec<StreamChunk> {
+) -> Option<StreamChunk> {
     use kxen_core::core::event::Event;
     match event {
         Event::LlmDelta(payload) if is_global_approval(&payload) => {
-            let Some(binding) = subs.iter().find(|binding| binding.topics.contains("approval.global")) else {
-                return Vec::new();
-            };
+            let binding = subs.iter().find(|binding| binding.topics.contains("approval.global"))?;
             let seq = sequences.next(&binding.stream_id);
-            vec![StreamChunk::new(&binding.stream_id, seq, serde_json::json!({ "topic": "approval.global", "payload": payload }))]
+            Some(StreamChunk::new(&binding.stream_id, seq, serde_json::json!({ "topic": "approval.global", "payload": payload })))
         }
         Event::LlmDelta(payload) => {
             // 连接级判定：本连接的订阅里没有 session:<id> 就一帧都不发
-            if let Some(sid) = payload.get("session_id").and_then(Value::as_str) {
-                let topic = format!("session:{sid}");
-                if !subs.iter().any(|b| b.topics.contains(&topic)) {
-                    return Vec::new();
-                }
+            if let Some(sid) = payload.get("session_id").and_then(Value::as_str)
+                && !subs.iter().any(|binding| binding.topics.iter().any(|topic| topic.strip_prefix("session:") == Some(sid)))
+            {
+                return None;
             }
             // llm.delta 订阅流是唯一消费路径（teammate/其他会话的被动监听也走这里）
-            let Some(binding) = subs.iter().find(|b| b.topics.contains("llm.delta")) else {
-                return Vec::new();
-            };
+            let binding = subs.iter().find(|b| b.topics.contains("llm.delta"))?;
             let seq = sequences.next(&binding.stream_id);
-            vec![StreamChunk::new(&binding.stream_id, seq, serde_json::json!({ "topic": "llm.delta", "payload": payload }))]
+            Some(StreamChunk::new(&binding.stream_id, seq, serde_json::json!({ "topic": "llm.delta", "payload": payload })))
         }
         Event::KanbanUpdate { board_id, workspace } => {
             // 动态 topic（同 session: 臂）：只发订阅了该板的连接。
             // 无会话 ACL：板 metadata 是 workspace 本地信息，与 goal.update 全局同级。
             let topic = format!("kanban:{board_id}");
-            let Some(binding) = subs.iter().find(|b| b.topics.contains(&topic)) else {
-                return Vec::new();
-            };
+            let binding = subs.iter().find(|b| b.topics.contains(&topic))?;
             let seq = sequences.next(&binding.stream_id);
-            vec![StreamChunk::new(
+            Some(StreamChunk::new(
                 &binding.stream_id,
                 seq,
                 serde_json::json!({ "topic": topic, "payload": { "board_id": board_id, "workspace": workspace } }),
-            )]
+            ))
         }
         other => {
             let (topic, payload) = map_event(other);
-            let Some(binding) = subs.iter().find(|b| b.topics.contains(topic)) else {
-                return Vec::new();
-            };
+            let binding = subs.iter().find(|b| b.topics.contains(topic))?;
             let seq = sequences.next(&binding.stream_id);
-            vec![StreamChunk::new(&binding.stream_id, seq, serde_json::json!({ "topic": topic, "payload": payload }))]
+            Some(StreamChunk::new(&binding.stream_id, seq, serde_json::json!({ "topic": topic, "payload": payload })))
         }
     }
 }
@@ -105,15 +96,14 @@ mod tests {
     #[test]
     fn unsubscribed_connection_gets_nothing() {
         let subs = vec![binding(&["llm.delta"])];
-        assert!(event_to_chunks(delta(Some("s1")), &subs, &mut StreamSequences::default()).is_empty());
+        assert!(event_to_chunks(delta(Some("s1")), &subs, &mut StreamSequences::default()).is_none());
     }
 
     /// 订阅了 session:<id> 的连接正常收到（llm.delta 单写）
     #[test]
     fn subscribed_connection_receives() {
         let subs = vec![binding(&["llm.delta", "session:s1"])];
-        let chunks = event_to_chunks(delta(Some("s1")), &subs, &mut StreamSequences::default());
-        assert_eq!(chunks.len(), 1);
+        assert!(event_to_chunks(delta(Some("s1")), &subs, &mut StreamSequences::default()).is_some());
     }
 
     /// 连接级判定：同一事件，两个连接各自按自己的订阅判定；
@@ -123,11 +113,10 @@ mod tests {
         let with = vec![binding(&["llm.delta", "session:s1"])];
         let without = vec![binding(&["llm.delta"])];
         let event = delta(Some("s1"));
-        assert_eq!(event_to_chunks(event.clone(), &with, &mut StreamSequences::default()).len(), 1);
-        assert!(event_to_chunks(event, &without, &mut StreamSequences::default()).is_empty());
+        assert!(event_to_chunks(event.clone(), &with, &mut StreamSequences::default()).is_some());
+        assert!(event_to_chunks(event, &without, &mut StreamSequences::default()).is_none());
         // 普通无 session_id 的全局 delta 仍照常吃 llm.delta
-        let chunks = event_to_chunks(delta(None), &without, &mut StreamSequences::default());
-        assert_eq!(chunks.len(), 1);
+        assert!(event_to_chunks(delta(None), &without, &mut StreamSequences::default()).is_some());
     }
 
     #[test]
@@ -136,22 +125,21 @@ mod tests {
             "kind": "approval", "approval_id": "appr-1", "command": "cmd", "reason": "r",
         }));
         let both = vec![binding(&["approval.global"]), binding(&["llm.delta", "session:s1"])];
-        let chunks = event_to_chunks(event, &both, &mut StreamSequences::default());
-        assert_eq!(chunks.len(), 1);
-        assert_eq!(chunks[0].result["topic"], "approval.global");
+        let chunk = event_to_chunks(event, &both, &mut StreamSequences::default()).unwrap();
+        assert_eq!(chunk.result["topic"], "approval.global");
 
         let session_only = vec![binding(&["llm.delta", "session:s1"])];
         let resolved = kxen_core::core::event::Event::LlmDelta(serde_json::json!({
             "kind": "approval.resolved", "approval_id": "appr-1", "outcome": "timeout",
         }));
-        assert!(event_to_chunks(resolved, &session_only, &mut StreamSequences::default()).is_empty());
+        assert!(event_to_chunks(resolved, &session_only, &mut StreamSequences::default()).is_none());
     }
 
     /// 订了别的会话不等于订了本会话（越权不泄露）
     #[test]
     fn other_session_does_not_leak() {
         let subs = vec![binding(&["llm.delta", "session:s2"])];
-        assert!(event_to_chunks(delta(Some("s1")), &subs, &mut StreamSequences::default()).is_empty());
+        assert!(event_to_chunks(delta(Some("s1")), &subs, &mut StreamSequences::default()).is_none());
     }
 
     /// done 帧照常走 llm.delta 下发（终态判定看 payload.kind，不靠 complete 标记）
@@ -161,10 +149,9 @@ mod tests {
         let event = kxen_core::core::event::Event::LlmDelta(serde_json::json!({
             "kind": "done", "stream_id": "run-t2", "session_id": "s1",
         }));
-        let chunks = event_to_chunks(event, &subs, &mut StreamSequences::default());
-        assert_eq!(chunks.len(), 1);
-        assert_eq!(chunks[0].result["topic"], "llm.delta");
-        assert_eq!(chunks[0].result["payload"]["kind"], "done");
+        let chunk = event_to_chunks(event, &subs, &mut StreamSequences::default()).unwrap();
+        assert_eq!(chunk.result["topic"], "llm.delta");
+        assert_eq!(chunk.result["payload"]["kind"], "done");
     }
 
     /// voice 帧带 session_id 后走同一条 session ACL：未订阅该 session 的连接收不到
@@ -176,18 +163,18 @@ mod tests {
             }))
         };
         let unsubscribed = vec![binding(&["llm.delta"])];
-        assert!(event_to_chunks(voice(), &unsubscribed, &mut StreamSequences::default()).is_empty());
+        assert!(event_to_chunks(voice(), &unsubscribed, &mut StreamSequences::default()).is_none());
         let subscribed = vec![binding(&["llm.delta", "session:s1"])];
-        assert_eq!(event_to_chunks(voice(), &subscribed, &mut StreamSequences::default()).len(), 1);
+        assert!(event_to_chunks(voice(), &subscribed, &mut StreamSequences::default()).is_some());
     }
 
     /// SessionRun 走 session.update topic 且无会话 ACL：只订 topic 的连接就收到（侧栏不逐会话订阅）
     #[test]
     fn session_run_broadcasts_without_acl() {
         let subs = vec![binding(&["session.update"])];
-        let chunks = event_to_chunks(kxen_core::core::event::Event::session_run("s1", true), &subs, &mut StreamSequences::default());
-        assert_eq!(chunks.len(), 1);
-        let payload = &chunks[0].result["payload"];
+        let chunk =
+            event_to_chunks(kxen_core::core::event::Event::session_run("s1", true), &subs, &mut StreamSequences::default()).unwrap();
+        let payload = &chunk.result["payload"];
         assert_eq!(payload["session_id"], "s1");
         assert_eq!(payload["running"], true);
     }
@@ -197,13 +184,12 @@ mod tests {
     fn kanban_update_follows_dynamic_board_topic() {
         let update = || kxen_core::core::event::Event::KanbanUpdate { board_id: "board_1".into(), workspace: "/ws".into() };
         let subscribed = vec![binding(&["kanban:board_1"])];
-        let chunks = event_to_chunks(update(), &subscribed, &mut StreamSequences::default());
-        assert_eq!(chunks.len(), 1);
-        assert_eq!(chunks[0].result["topic"], "kanban:board_1");
-        assert_eq!(chunks[0].result["payload"]["board_id"], "board_1");
-        assert_eq!(chunks[0].result["payload"]["workspace"], "/ws");
+        let chunk = event_to_chunks(update(), &subscribed, &mut StreamSequences::default()).unwrap();
+        assert_eq!(chunk.result["topic"], "kanban:board_1");
+        assert_eq!(chunk.result["payload"]["board_id"], "board_1");
+        assert_eq!(chunk.result["payload"]["workspace"], "/ws");
 
         let unsubscribed = vec![binding(&["kanban:board_2"])];
-        assert!(event_to_chunks(update(), &unsubscribed, &mut StreamSequences::default()).is_empty());
+        assert!(event_to_chunks(update(), &unsubscribed, &mut StreamSequences::default()).is_none());
     }
 }

@@ -1,6 +1,5 @@
 //! 按本地日期和 Provider 持久化 token 趋势。金额只用用户配置的真实单价计算，
 //! 订阅或未知定价保持 UNKNOWN，不能用静态公开价冒充实际账单。
-
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -44,6 +43,8 @@ struct Ledger {
 #[derive(Default)]
 struct LedgerState {
     ledger: Ledger,
+    disk_stamp: Option<crate::core::shared::FileStamp>,
+    initialized: bool,
     pending: Vec<PendingObservation>,
     load_error: Option<String>,
     persist_error: Option<String>,
@@ -129,6 +130,16 @@ fn record_unknown_to(path: &Path, date: &str, provider: &str) -> Result<(), Stri
 }
 
 fn sync_state(path: &Path, state: &mut LedgerState) {
+    if !state.dirty && !state.directory_sync_pending {
+        match ledger_stamp(path) {
+            Ok(stamp) if state.initialized && state.disk_stamp.as_ref() == Some(&stamp) => return,
+            Ok(_) => {}
+            Err(error) => {
+                state.load_error = Some(error);
+                return;
+            }
+        }
+    }
     let _lock = match lock_ledger(path) {
         Ok(lock) => lock,
         Err(error) => {
@@ -155,6 +166,7 @@ fn sync_state(path: &Path, state: &mut LedgerState) {
             return;
         }
     };
+    state.initialized = true;
     state.load_error = None;
     for observation in &state.pending {
         apply_observation(&mut ledger, observation);
@@ -181,6 +193,11 @@ fn sync_state(path: &Path, state: &mut LedgerState) {
     state.pending.clear();
     state.persist_error = None;
     state.dirty = false;
+    state.disk_stamp = ledger_stamp(path).ok();
+}
+
+fn ledger_stamp(path: &Path) -> Result<crate::core::shared::FileStamp, String> {
+    crate::core::shared::file_stamp(path).map_err(|error| format!("inspect {}: {error}", path.display()))
 }
 
 fn unknown_providers(day: &DayUsage) -> Vec<(&str, u64)> {
@@ -198,7 +215,14 @@ fn state_warning_for(state: &LedgerState, date: &str) -> Option<String> {
     if unknown.is_empty() {
         return None;
     }
-    let detail = unknown.into_iter().map(|(provider, calls)| format!("{provider}={calls}")).collect::<Vec<_>>().join(", ");
+    use std::fmt::Write as _;
+    let mut detail = String::new();
+    for (provider, calls) in unknown {
+        if !detail.is_empty() {
+            detail.push_str(", ");
+        }
+        write!(detail, "{provider}={calls}").expect("writing to String cannot fail");
+    }
     Some(format!("usage metering degraded: Provider usage UNKNOWN for unmetered calls ({detail}); token and cost totals are lower bounds"))
 }
 

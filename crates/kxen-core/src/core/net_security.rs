@@ -56,7 +56,7 @@ pub fn sanitize_error_message(message: &str, secrets: &[&str]) -> String {
     if ["authorization", "client_secret", "code_verifier", "access_token", "refresh_token"].iter().any(|name| lower.contains(name)) {
         sanitized = "[REDACTED authenticated error]".into();
     }
-    sanitized.split_whitespace().collect::<Vec<_>>().join(" ")
+    crate::core::shared::normalize_whitespace(&sanitized)
 }
 
 /// `reqwest::Error` may include the full URL, including encoded query secrets.

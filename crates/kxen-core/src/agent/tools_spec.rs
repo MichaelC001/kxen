@@ -8,6 +8,15 @@ use serde_json::json;
 /// team 系 3 个（run.rs 按身份门控：主会话不展示 team，teammate 才见 send_message/team_task）。
 /// 其余（delete/lsp/agent/worktree/skill/knowledge/schedule/browser）走 deferred 经 tool_search 挂载。
 pub fn core_tools() -> Vec<ToolDefinition> {
+    core_tool_catalog().to_vec()
+}
+
+pub fn core_tool_catalog() -> &'static [ToolDefinition] {
+    static TOOLS: std::sync::LazyLock<Vec<ToolDefinition>> = std::sync::LazyLock::new(build_core_tools);
+    &TOOLS
+}
+
+fn build_core_tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition::function(
             "exec",
@@ -245,3 +254,19 @@ pub fn core_tools() -> Vec<ToolDefinition> {
 /// deferred 工具目录：默认不进上下文，经 tool_search 挂载到会话。
 /// 实现移至 tools_deferred.rs（本文件贴近 350 行门禁）；转口保持既有调用路径不变。
 pub use crate::agent::tools_deferred::deferred_tools;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn catalog_clones_share_function_schemas() {
+        let first = super::core_tools();
+        let second = super::core_tools();
+        assert!(std::sync::Arc::ptr_eq(&first[0].function, &second[0].function));
+
+        let first = super::deferred_tools();
+        let second = super::deferred_tools();
+        let left = first.iter().find(|tool| tool.function.name == "lsp").unwrap();
+        let right = second.iter().find(|tool| tool.function.name == "lsp").unwrap();
+        assert!(std::sync::Arc::ptr_eq(&left.function, &right.function));
+    }
+}

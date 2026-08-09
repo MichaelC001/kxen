@@ -36,7 +36,7 @@ impl Drop for Fixture {
     }
 }
 
-fn deps(fallback: &Path, store: Arc<Mutex<AuthStore>>) -> SpawnDeps {
+fn deps(fallback: &Path, store: kxen_core::auth::credential::SharedAuthStore) -> SpawnDeps {
     SpawnDeps {
         registry: Arc::new(kxen_core::tools::task::TaskRegistry::new()),
         fallback_workdir: Arc::from(fallback),
@@ -57,7 +57,7 @@ fn workdir_binds_session_workspace_and_never_drifts_on_switch() {
     let f = fixture("drift");
     // 时刻 1：app 活跃 workspace = A，建会话 sa（session.create 记录 directory = A）
     let sa = kxen_core::core::session::create(&f.sessions, f.ws_a.to_str().unwrap()).unwrap();
-    let store = Arc::new(Mutex::new(AuthStore::default()));
+    let store = Arc::new(Mutex::new(Arc::new(AuthStore::default())));
     let mgr = TeamManager::new(f.base.join("teams"), deps(&f.fallback, store), EventBus::default(), f.sessions.clone(), None);
     assert_eq!(&*mgr.session_workdir(&sa.id).unwrap(), f.ws_a.as_path());
 
@@ -79,12 +79,16 @@ fn workdir_binds_session_workspace_and_never_drifts_on_switch() {
 #[test]
 fn store_handle_is_shared_not_frozen() {
     let f = fixture("store");
-    let store = Arc::new(Mutex::new(AuthStore::default()));
+    let store = Arc::new(Mutex::new(Arc::new(AuthStore::default())));
     let d = deps(&f.fallback, store.clone());
     // deps 建成后 AppState 侧才写入（模拟启动探测/token 刷新晚于 TeamManager 构造）
-    store.lock().expect("store").insert("xai".into(), CredentialKind::Api { key: "k".into(), region: None });
+    Arc::make_mut(&mut store.lock().expect("store")).insert("xai".into(), CredentialKind::Api { key: "k".into(), region: None });
     let snapshot = d.store.lock().expect("store").clone();
     assert!(snapshot.contains_key("xai"), "操作点快照必须看到共享句柄的新值，而非启动时冻结副本");
+    let second = d.store.lock().expect("store").clone();
+    assert!(Arc::ptr_eq(&snapshot, &second), "只读快照不得深拷贝整个凭证表");
+    Arc::make_mut(&mut store.lock().expect("store")).insert("openai".into(), CredentialKind::Api { key: "new".into(), region: None });
+    assert!(!snapshot.contains_key("openai"), "写入必须 copy-on-write，不能改变 in-flight 稳定快照");
 }
 
 #[test]

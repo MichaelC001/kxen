@@ -2,6 +2,7 @@
 
 use super::uri;
 use serde_json::Value;
+use std::fmt::Write as _;
 
 const MAX_LOCATIONS: usize = 50;
 const MAX_SYMBOL_LINES: usize = 100;
@@ -11,7 +12,8 @@ const MAX_HOVER_CHARS: usize = 2000;
 pub fn hover(result: &Value) -> String {
     let mut parts = Vec::new();
     collect_markup(result.get("contents").unwrap_or(&Value::Null), &mut parts);
-    let text = parts.join("\n").trim().to_string();
+    let mut text = parts.join("\n");
+    trim_in_place(&mut text);
     if text.is_empty() {
         return "no hover info".into();
     }
@@ -22,13 +24,13 @@ pub fn hover(result: &Value) -> String {
     text
 }
 
-fn collect_markup(v: &Value, out: &mut Vec<String>) {
+fn collect_markup<'a>(v: &'a Value, out: &mut Vec<&'a str>) {
     match v {
-        Value::String(s) => out.push(s.clone()),
+        Value::String(s) => out.push(s),
         Value::Array(arr) => arr.iter().for_each(|x| collect_markup(x, out)),
         Value::Object(_) => {
             if let Some(s) = v.get("value").and_then(Value::as_str) {
-                out.push(s.to_string());
+                out.push(s);
             }
         }
         _ => {}
@@ -38,19 +40,18 @@ fn collect_markup(v: &Value, out: &mut Vec<String>) {
 /// definition/references result -> `path:line:col` 每行一条（1-based）；空 -> none_msg。
 /// 兼容 Location 与 LocationLink（targetUri/targetRange）。
 pub fn locations(result: &Value, none_msg: &str) -> String {
-    let mut items: Vec<&Value> = Vec::new();
-    match result {
-        Value::Array(arr) => items.extend(arr.iter()),
-        Value::Null => {}
-        single => items.push(single),
-    }
+    let items = match result {
+        Value::Array(items) => items.as_slice(),
+        Value::Null => &[],
+        single => std::slice::from_ref(single),
+    };
     if items.is_empty() {
         return none_msg.into();
     }
     let mut out = String::new();
     for (i, item) in items.iter().enumerate() {
         if i >= MAX_LOCATIONS {
-            out.push_str(&format!("... ({} more)\n", items.len() - MAX_LOCATIONS));
+            writeln!(out, "... ({} more)", items.len() - MAX_LOCATIONS).expect("writing to String cannot fail");
             break;
         }
         let (uri, range) = if item.get("targetUri").is_some() {
@@ -65,9 +66,14 @@ pub fn locations(result: &Value, none_msg: &str) -> String {
             continue;
         };
         let path = uri.and_then(uri::decode).map(|p| p.display().to_string()).unwrap_or_else(|| uri.unwrap_or("?").to_string());
-        out.push_str(&format!("{path}:{}:{}\n", line + 1, col + 1));
+        writeln!(out, "{path}:{}:{}", line + 1, col + 1).expect("writing to String cannot fail");
     }
-    if out.is_empty() { none_msg.into() } else { out.trim_end().to_string() }
+    if out.is_empty() {
+        none_msg.into()
+    } else {
+        trim_end_in_place(&mut out);
+        out
+    }
 }
 
 /// documentSymbol result -> 缩进树 `name (kind) line`（1-based）；空 -> "no symbols"。
@@ -84,7 +90,12 @@ pub fn symbols(result: &Value) -> String {
     if budget == 0 {
         out.push_str("... (truncated)\n");
     }
-    if out.is_empty() { "no symbols".into() } else { out.trim_end().to_string() }
+    if out.is_empty() {
+        "no symbols".into()
+    } else {
+        trim_end_in_place(&mut out);
+        out
+    }
 }
 
 fn render_symbol(sym: &Value, depth: usize, out: &mut String, budget: &mut usize) {
@@ -97,19 +108,36 @@ fn render_symbol(sym: &Value, depth: usize, out: &mut String, budget: &mut usize
     let kind = sym.get("kind").and_then(Value::as_u64).map(kind_str).unwrap_or("?");
     // SymbolInformation 的 range 在 location 下；DocumentSymbol 直接在 range 下
     let range = sym.get("range").or_else(|| sym.get("location").and_then(|l| l.get("range")));
-    let line = range
-        .and_then(|r| r.get("start"))
-        .and_then(|s| s.get("line"))
-        .and_then(Value::as_u64)
-        .map(|l| (l + 1).to_string())
-        .unwrap_or_else(|| "?".into());
-    out.push_str(&format!("{}{name} ({kind}) {line}\n", "  ".repeat(depth)));
+    let line = range.and_then(|r| r.get("start")).and_then(|s| s.get("line")).and_then(Value::as_u64);
+    for _ in 0..depth {
+        out.push_str("  ");
+    }
+    match line {
+        Some(line) => writeln!(out, "{name} ({kind}) {}", line + 1),
+        None => writeln!(out, "{name} ({kind}) ?"),
+    }
+    .expect("writing to String cannot fail");
     *budget -= 1;
     if let Some(children) = sym.get("children").and_then(Value::as_array) {
         for child in children {
             render_symbol(child, depth + 1, out, budget);
         }
     }
+}
+
+fn trim_in_place(text: &mut String) {
+    let start = text.len() - text.trim_start().len();
+    let end = text.trim_end().len();
+    if start >= end {
+        text.clear();
+        return;
+    }
+    text.truncate(end);
+    text.drain(..start);
+}
+
+fn trim_end_in_place(text: &mut String) {
+    text.truncate(text.trim_end().len());
 }
 
 fn kind_str(kind: u64) -> &'static str {

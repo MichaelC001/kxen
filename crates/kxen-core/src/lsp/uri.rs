@@ -1,14 +1,17 @@
 //! file URI 编解码：LSP 规范要求 percent encoding（空格、#、非 ASCII 等）；解码用于 store 键与展示。
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 /// path -> file:// URI。保留 unreserved 与 '/'，其余字节按 UTF-8 %XX 编码。
 pub fn encode(path: &Path) -> String {
-    let mut out = String::from("file://");
-    for &b in path.to_string_lossy().as_bytes() {
+    let path = path.to_string_lossy();
+    let mut out = String::with_capacity("file://".len() + path.len());
+    out.push_str("file://");
+    for &b in path.as_bytes() {
         match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => out.push(b as char),
-            _ => out.push_str(&format!("%{b:02X}")),
+            _ => write!(out, "%{b:02X}").expect("writing to String cannot fail"),
         }
     }
     out

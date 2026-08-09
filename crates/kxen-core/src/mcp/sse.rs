@@ -58,11 +58,14 @@ impl SseParser {
     fn process_line(&mut self, line: Vec<u8>, out: &mut Vec<SseEvent>) -> Result<(), String> {
         let line = String::from_utf8(line).map_err(|error| self.fail_message(format!("MCP SSE invalid UTF-8: {error}")))?;
         if line.is_empty() {
+            self.buf = line.into_bytes();
             self.dispatch(out);
             return Ok(());
         }
         // 注释行（含心跳 ":ping"）按规范忽略
         if line.starts_with(':') {
+            self.buf = line.into_bytes();
+            self.buf.clear();
             return Ok(());
         }
         if let Some(data) = line.strip_prefix("data:") {
@@ -80,6 +83,8 @@ impl SseParser {
             self.event = Some(event.strip_prefix(' ').unwrap_or(event).to_string());
         }
         // id:/retry:/未知字段按规范忽略
+        self.buf = line.into_bytes();
+        self.buf.clear();
         Ok(())
     }
 

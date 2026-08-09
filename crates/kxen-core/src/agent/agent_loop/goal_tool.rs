@@ -43,7 +43,17 @@ pub async fn execute_goal_tool(
     match action {
         "list" => {
             let goals = crate::core::goal::Goal::list_checked(&dir).map_err(|error| error.to_string())?;
-            Ok(if goals.is_empty() { "no goals".into() } else { goals.iter().map(show_goal).collect::<Vec<_>>().join("\n---\n") })
+            if goals.is_empty() {
+                return Ok("no goals".into());
+            }
+            let mut output = String::new();
+            for goal in &goals {
+                if !output.is_empty() {
+                    output.push_str("\n---\n");
+                }
+                output.push_str(&show_goal(goal));
+            }
+            Ok(output)
         }
         "create" => {
             let _lifecycle =

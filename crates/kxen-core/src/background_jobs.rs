@@ -20,7 +20,7 @@ pub fn spawn(state: Arc<AppState>) {
         let state = consolidation_state.clone();
         async move { consolidate_knowledge(state).await }
     }));
-    let kanban_state = state.clone();
+    let kanban_state = state;
     tokio::spawn(run_periodic(KANBAN_INTERVAL, move || {
         let state = kanban_state.clone();
         async move { kxen_core::kanban::tick(&state).await }

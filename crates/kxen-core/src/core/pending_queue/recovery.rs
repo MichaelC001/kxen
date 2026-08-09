@@ -2,7 +2,7 @@ use super::*;
 
 impl PendingQueues {
     pub fn inspect_recovery(&self, id: &str) -> Result<QueueRecoveryReport, String> {
-        crate::core::ids::validate_id(id).map_err(|error| error.to_string())?;
+        crate::core::ids::validate_id(id)?;
         let blocked = crate::core::shared::lock(&self.blocked).get(id).cloned();
         let integrity = inspect_file(&file_path(&self.dir, id));
         let repairable = match (&blocked, &integrity) {
@@ -22,7 +22,7 @@ impl PendingQueues {
     }
 
     pub fn repair_recovery(&self, id: &str) -> Result<QueueRecoveryReport, String> {
-        crate::core::ids::validate_id(id).map_err(|error| error.to_string())?;
+        crate::core::ids::validate_id(id)?;
         let blocked = crate::core::shared::lock(&self.blocked).get(id).cloned();
         let path = file_path(&self.dir, id);
         let integrity = inspect_file(&path);

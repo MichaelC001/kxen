@@ -56,7 +56,7 @@ pub(super) async fn read_loop(
             }
             let Ok(message) = serde_json::from_str::<Value>(&event.data) else { continue };
             if message.get("method").is_some() {
-                if let (Some(id), Some(url)) = (super::super::transport::reverse_request_id(&message), post_url.clone()) {
+                if let (Some(id), Some(url)) = (super::super::transport::reverse_request_id(&message), post_url.as_ref()) {
                     let answer = super::super::transport::answer_server_request(&message, id, &roots);
                     if let Err(error) = post_frame(&client, url, &headers, auth.as_ref(), explicit_auth, &answer).await {
                         tracing::error!(%error, "mcp legacy SSE reverse response failed");

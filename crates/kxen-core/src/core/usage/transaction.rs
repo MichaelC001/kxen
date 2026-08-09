@@ -126,9 +126,7 @@ where
 pub fn reconcile_pending_goal_charges(map: &mut HashMap<String, SessionUsage>) -> Result<Vec<String>, String> {
     let pending = map
         .iter()
-        .flat_map(|(session_id, usage)| {
-            usage.pending_goal_charges.iter().map(|charge| (session_id.clone(), charge.operation_id.clone())).collect::<Vec<_>>()
-        })
+        .flat_map(|(session_id, usage)| usage.pending_goal_charges.iter().map(|charge| (session_id.clone(), charge.operation_id.clone())))
         .collect::<Vec<_>>();
     let mut warnings = Vec::new();
     for (session_id, operation_id) in pending {

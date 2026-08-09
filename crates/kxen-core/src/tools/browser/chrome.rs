@@ -43,10 +43,16 @@ pub fn default_candidates() -> Vec<PathBuf> {
 /// 首个存在的候选；全灭时报安装提示（候选清单随错误带出，方便排查 PATH/自定义安装位）。
 pub fn detect_chrome(candidates: &[PathBuf]) -> Result<PathBuf, String> {
     candidates.iter().find(|p| p.exists()).cloned().ok_or_else(|| {
-        format!(
-            "no Chrome/Chromium/Edge found; install Google Chrome (https://www.google.com/chrome/) or Chromium, checked: {}",
-            candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
-        )
+        use std::fmt::Write as _;
+        let mut message =
+            String::from("no Chrome/Chromium/Edge found; install Google Chrome (https://www.google.com/chrome/) or Chromium, checked: ");
+        for (index, candidate) in candidates.iter().enumerate() {
+            if index > 0 {
+                message.push_str(", ");
+            }
+            write!(message, "{}", candidate.display()).expect("writing to String cannot fail");
+        }
+        message
     })
 }
 
@@ -242,7 +248,7 @@ mod tests {
         let fake = dir.join("chrome-bin");
         std::fs::write(&fake, b"").unwrap();
         let missing = dir.join("nope");
-        let candidates = vec![missing.clone(), fake.clone()];
+        let candidates = vec![missing, fake.clone()];
         assert_eq!(detect_chrome(&candidates).unwrap(), fake);
         let _ = std::fs::remove_dir_all(&dir);
     }

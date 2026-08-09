@@ -19,8 +19,9 @@ pub fn restore_queues(state: Arc<AppState>) {
             kxen_core::agent::background::recover_interrupted_all(&state.pending_messages, &kxen_core::core::paths::sessions_dir());
         if !recovered.is_empty() {
             tracing::info!(recovered = recovered.len(), "interrupted background notifications recovered");
+            let mut known: std::collections::HashSet<String> = ready.iter().cloned().collect();
             for sid in recovered {
-                if !ready.contains(&sid) {
+                if known.insert(sid.clone()) {
                     ready.push(sid);
                 }
             }

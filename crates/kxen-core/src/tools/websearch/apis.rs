@@ -178,6 +178,11 @@ async fn google_cse_call(query: &str, key: &str, cx: &str) -> Result<Vec<SearchH
 /// organic/organic_results/items 三家同构（title/link/snippet），一个解析器通吃。
 fn parse_link_style(body: &str, field: &str, engine: &str) -> Result<Vec<SearchHit>, String> {
     #[derive(serde::Deserialize)]
+    struct Response {
+        #[serde(default, alias = "organic_results", alias = "items")]
+        organic: Vec<R>,
+    }
+    #[derive(serde::Deserialize)]
     struct R {
         #[serde(default)]
         title: String,
@@ -185,10 +190,9 @@ fn parse_link_style(body: &str, field: &str, engine: &str) -> Result<Vec<SearchH
         #[serde(default)]
         snippet: String,
     }
-    let v: serde_json::Value = serde_json::from_str(body).map_err(|e| format!("bad {engine} json: {e}"))?;
-    let rows: Vec<R> =
-        serde_json::from_value(v.get(field).cloned().unwrap_or(serde_json::json!([]))).map_err(|e| format!("bad {engine} json: {e}"))?;
-    Ok(rows.into_iter().take(MAX_RESULTS).map(|r| SearchHit { title: r.title, url: r.link, snippet: r.snippet }).collect())
+    debug_assert!(matches!(field, "organic" | "organic_results" | "items"));
+    let response: Response = serde_json::from_str(body).map_err(|e| format!("bad {engine} json: {e}"))?;
+    Ok(response.organic.into_iter().take(MAX_RESULTS).map(|r| SearchHit { title: r.title, url: r.link, snippet: r.snippet }).collect())
 }
 
 /// firecrawl：POST /v1/search，data 条目（title/url/description）。

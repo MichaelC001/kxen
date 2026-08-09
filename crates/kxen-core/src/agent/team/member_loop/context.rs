@@ -96,11 +96,15 @@ pub(crate) fn teammate_system(state: &Arc<TeamState>, name: &str, role: &str, ap
         "You are in PLAN-ONLY mode: read-only tools. Produce a concrete plan and stop - the lead must approve it before you implement anything."
     };
     // roster 每轮重建：成员状态变化（新 spawn / shutdown / 状态流转）实时反映进 system prompt
-    let roster = lock(&state.members)
-        .iter()
-        .map(|m| format!("- {} (role: {}, model: {}, status: {:?})", m.name, m.role, m.model.model, m.status))
-        .collect::<Vec<_>>()
-        .join("\n");
+    use std::fmt::Write as _;
+    let mut roster = String::new();
+    for member in lock(&state.members).iter() {
+        if !roster.is_empty() {
+            roster.push('\n');
+        }
+        write!(roster, "- {} (role: {}, model: {}, status: {:?})", member.name, member.role, member.model.model, member.status)
+            .expect("writing to String cannot fail");
+    }
     let observer_note = if role == "observer" {
         " You are the OBSERVER: you receive copies of all team traffic. Watch the process and report summaries or issues to the lead."
     } else {
@@ -141,7 +145,7 @@ pub(super) async fn refresh_store_credentials_in(
         crate::core::goal::RuntimeBudget::Stop(_) => return CredentialRefresh::GoalStopped,
     };
     let mut store = lock(&state.deps.store).clone();
-    let refresh = crate::auth::refresh::ensure_fresh(&mut store, &model.provider, model.account.as_deref());
+    let refresh = crate::auth::refresh::ensure_fresh(Arc::make_mut(&mut store), &model.provider, model.account.as_deref());
     let outcome = wait_for_refresh(refresh, cancel, remaining).await;
     if outcome == CredentialRefresh::Finished(RefreshOutcome::Refreshed) {
         write_back_credential(&state.deps.store, &model.provider, model.account.as_deref(), &store);
@@ -179,13 +183,13 @@ where
 }
 
 pub(super) fn write_back_credential(
-    store: &Arc<std::sync::Mutex<crate::auth::credential::AuthStore>>,
+    store: &crate::auth::credential::SharedAuthStore,
     provider: &str,
     account: Option<&str>,
     refreshed: &crate::auth::credential::AuthStore,
 ) {
     let key = account.map(|value| crate::auth::credential::account_id(provider, value)).unwrap_or_else(|| provider.to_string());
     if let Some(credential) = refreshed.get(&key).cloned() {
-        lock(store).insert(key, credential);
+        Arc::make_mut(&mut lock(store)).insert(key, credential);
     }
 }

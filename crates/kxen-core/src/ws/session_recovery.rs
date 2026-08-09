@@ -74,7 +74,7 @@ pub(super) fn restore_bundle(state: &Arc<AppState>, bundle: &std::path::Path) ->
 pub(super) fn rollback_bundle(state: &Arc<AppState>, bundle: &std::path::Path) -> Result<String, String> {
     let sessions_dir = kxen_core::core::paths::sessions_dir();
     let manifest = kxen_core::core::session_recovery::restore_storage_exact(&sessions_dir, state.team.root(), bundle)?;
-    let id = manifest.session_id.clone();
+    let id = manifest.session_id;
     state.team.restore_session(&id)?;
     kxen_core::core::session_recovery::complete_restore(bundle)?;
     state.registry.allow_session(&id);
@@ -86,7 +86,7 @@ fn restore_runtime_and_complete(
     bundle: &std::path::Path,
     manifest: kxen_core::core::session_recovery::RecoveryManifest,
 ) -> Result<String, String> {
-    let id = manifest.session_id.clone();
+    let id = manifest.session_id;
 
     kxen_core::core::schedule::restore_jobs(manifest.schedules)?;
     for goal in &manifest.goals {
@@ -100,7 +100,7 @@ fn restore_runtime_and_complete(
         if let Err(error) = kxen_core::core::usage::persist_committed(&usage) {
             if !error.committed() {
                 match previous {
-                    Some(previous) => _ = usage.insert(id.clone(), previous),
+                    Some(previous) => _ = usage.insert(id, previous),
                     None if inserted => _ = usage.remove(&id),
                     None => {}
                 }

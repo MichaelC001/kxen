@@ -7,6 +7,8 @@
 use super::embedding_cache::EmbeddingCache;
 use crate::auth::credential::{AuthStore, CredentialKind, credential_for};
 use crate::core::config::EmbeddingConfig;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 mod warm;
 pub use warm::EmbeddingRuntime;
@@ -81,15 +83,14 @@ pub fn resolve_endpoint_with(cfg: &EmbeddingConfig, store: &AuthStore) -> Option
 /// 读盘装配：config 只读用户级（~/.config/kxen/config.toml）——与 llm client 读
 /// custom_providers 同路径；召回偏好跟人走，项目级 config 入 git 不放这个。
 pub fn resolve_endpoint() -> Option<Endpoint> {
-    let config_path = crate::core::paths::config_dir().join("config.toml");
-    let cfg = match crate::core::config::Config::load(&config_path, None) {
-        Ok(config) => config.embedding,
+    let config = match crate::core::config_cache::cached_user_config_result() {
+        Ok(config) => config,
         Err(error) => {
-            tracing::error!(%error, path = %config_path.display(), "embedding config unavailable");
+            tracing::error!(%error, "embedding config unavailable");
             return None;
         }
     };
-    if cfg.provider.is_empty() {
+    if config.embedding.provider.is_empty() {
         return None;
     }
     let store = match crate::auth::credential::read_auth_file(&crate::core::paths::auth_file()) {
@@ -99,7 +100,7 @@ pub fn resolve_endpoint() -> Option<Endpoint> {
             return None;
         }
     };
-    resolve_endpoint_with(&cfg, &store)
+    resolve_endpoint_with(&config.embedding, &store)
 }
 
 fn model_or(cfg: &EmbeddingConfig, default: &str) -> String {
@@ -127,7 +128,7 @@ pub fn doc_text(description: &str, content: &str) -> String {
 pub fn content_hash(text: &str) -> String {
     use sha2::Digest;
     let digest = sha2::Sha256::digest(text.as_bytes());
-    digest.iter().map(|b| format!("{b:02x}")).collect()
+    crate::core::shared::hex_lower(&digest)
 }
 
 pub fn cache_path() -> std::path::PathBuf {
@@ -142,6 +143,10 @@ pub fn build_openai_request(model: &str, texts: &[String]) -> serde_json::Value 
 /// OpenAI /embeddings 响应：{"data": [{"embedding": [...]}, ...]}，按 input 序。
 pub fn parse_openai_response(body: &str) -> Option<Vec<Vec<f32>>> {
     let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    parse_openai_value(&v)
+}
+
+pub(crate) fn parse_openai_value(v: &serde_json::Value) -> Option<Vec<Vec<f32>>> {
     let data = v.get("data")?.as_array()?;
     data.iter().map(|d| f32_array(d.get("embedding")?)).collect()
 }
@@ -154,6 +159,10 @@ pub fn build_ollama_request(model: &str, texts: &[String]) -> serde_json::Value 
 /// Ollama /api/embed 响应：{"embeddings": [[...], ...]}
 pub fn parse_ollama_response(body: &str) -> Option<Vec<Vec<f32>>> {
     let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    parse_ollama_value(&v)
+}
+
+pub(crate) fn parse_ollama_value(v: &serde_json::Value) -> Option<Vec<Vec<f32>>> {
     let arr = v.get("embeddings")?.as_array()?;
     arr.iter().map(f32_array).collect()
 }
@@ -165,42 +174,73 @@ fn f32_array(v: &serde_json::Value) -> Option<Vec<f32>> {
 /// 检索侧语义分（同步、零网络）：只读磁盘缓存。返回 None = 本轮无语义（未配置或 query
 /// 向量未缓存）；Vec 内逐条 Option = 该条目是否有缓存向量。未命中的文本触发后台预热。
 pub fn recall(query: &str, docs: &[String]) -> Option<Vec<Option<f64>>> {
-    recall_with_runtime(query, docs, None)
+    resolve_endpoint()?;
+    let hashes: Vec<String> = docs.iter().map(|doc| content_hash(doc)).collect();
+    let (query_present, _, scores) = lookup_cached(&content_hash(query), &hashes)?;
+    query_present.then_some(scores)
 }
 
-pub(crate) fn recall_with_runtime(query: &str, docs: &[String], runtime: Option<&EmbeddingRuntime>) -> Option<Vec<Option<f64>>> {
-    let ep = resolve_endpoint()?;
-    let cache_path = cache_path();
-    let mut cache = match EmbeddingCache::load(&cache_path) {
-        Ok(cache) => cache,
-        Err(error) => {
-            tracing::error!(%error, "embedding cache unavailable; using BM25 only");
-            return None;
-        }
+pub(crate) fn recall_lazy(query: &str, runtime: Option<&EmbeddingRuntime>, docs: impl FnOnce() -> Vec<String>) -> Option<Vec<Option<f64>>> {
+    let ep = match runtime {
+        Some(runtime) => runtime.endpoint.clone()?,
+        None => Arc::new(resolve_endpoint()?),
     };
-    let qvec = cache.get(&content_hash(query)).cloned();
+    let docs = docs();
+    let query_hash = content_hash(query);
+    let hashes: Vec<String> = docs.iter().map(|doc| content_hash(doc)).collect();
+    let (query_present, present, scores) = lookup_cached(&query_hash, &hashes)?;
     let mut missing: Vec<String> = Vec::new();
-    if qvec.is_none() {
+    if !query_present {
         missing.push(query.to_string());
     }
-    let mut out: Vec<Option<f64>> = Vec::with_capacity(docs.len());
-    for d in docs {
-        match cache.get(&content_hash(d)) {
-            Some(v) => out.push(qvec.as_ref().map(|q| super::retrieval::cosine(q, v))),
-            None => {
-                out.push(None);
-                missing.push(d.clone());
-            }
+    for (doc, present) in docs.into_iter().zip(present) {
+        if !present {
+            missing.push(doc);
         }
     }
     if !missing.is_empty()
         && let Some(runtime) = runtime
     {
         // 同文重复（同 slug 变体、query 与条目同文）只预热一次
-        let mut seen = std::collections::HashSet::new();
-        missing.retain(|t| seen.insert(t.clone()));
+        missing.sort_unstable();
+        missing.dedup();
         warm::spawn(ep, missing, runtime.clone());
     }
-    qvec?;
-    Some(out)
+    query_present.then_some(scores)
+}
+
+struct RecallCache {
+    path: PathBuf,
+    stamp: crate::core::shared::FileStamp,
+    cache: EmbeddingCache,
+}
+
+static RECALL_CACHE: Mutex<Option<RecallCache>> = Mutex::new(None);
+
+fn lookup_cached(query_hash: &str, doc_hashes: &[String]) -> Option<(bool, Vec<bool>, Vec<Option<f64>>)> {
+    let path = cache_path();
+    let stamp = match crate::core::shared::file_stamp(&path) {
+        Ok(stamp) => stamp,
+        Err(error) => {
+            tracing::error!(path = %path.display(), %error, "embedding cache unavailable; using BM25 only");
+            return None;
+        }
+    };
+    let mut guard = crate::core::shared::lock(&RECALL_CACHE);
+    let reload = guard.as_ref().is_none_or(|cached| cached.path != path || cached.stamp != stamp);
+    if reload {
+        let cache = match EmbeddingCache::load(&path) {
+            Ok(cache) => cache,
+            Err(error) => {
+                tracing::error!(%error, "embedding cache unavailable; using BM25 only");
+                return None;
+            }
+        };
+        *guard = Some(RecallCache { path, stamp, cache });
+    }
+    let cache = &mut guard.as_mut().expect("embedding cache initialized").cache;
+    let query_present = cache.contains(query_hash);
+    let present: Vec<bool> = doc_hashes.iter().map(|hash| cache.contains(hash)).collect();
+    let scores = cache.cosine_scores(query_hash, doc_hashes).unwrap_or_else(|| vec![None; doc_hashes.len()]);
+    Some((query_present, present, scores))
 }

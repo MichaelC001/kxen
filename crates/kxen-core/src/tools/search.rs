@@ -167,7 +167,7 @@ pub fn complete(query: &str, base: &Path, limit: usize) -> Vec<CompleteEntry> {
         if rel.is_empty() {
             continue;
         }
-        let score = if query.is_empty() { Some(0) } else { fuzzy_score(&query, &rel.to_lowercase()) };
+        let score = if query.is_empty() { Some(0) } else { fuzzy_score(&query, &rel) };
         if let Some(score) = score {
             hits.push((score, CompleteEntry { path: rel, kind: if is_file { "file" } else { "dir" } }));
         }
@@ -186,7 +186,7 @@ fn fuzzy_score(query: &str, candidate: &str) -> Option<i64> {
     let mut qs = query.chars().peekable();
     let mut score = 0i64;
     let mut run = 0i64;
-    for c in candidate.chars() {
+    for c in candidate.chars().flat_map(char::to_lowercase) {
         if qs.peek() == Some(&c) {
             qs.next();
             run += 1;

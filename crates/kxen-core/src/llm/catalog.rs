@@ -5,7 +5,7 @@
 use crate::core::session::now_ms;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 const MODELS_DEV_URL: &str = "https://models.dev/api.json";
 const TTL_MS: u64 = 24 * 3600 * 1000;
@@ -39,7 +39,7 @@ pub struct ProviderCatalog {
     pub source: String, // "models.dev" | "static"
 }
 
-static CACHE: OnceLock<Mutex<Option<Vec<ProviderCatalog>>>> = OnceLock::new();
+static CACHE: OnceLock<Mutex<Option<Arc<Vec<ProviderCatalog>>>>> = OnceLock::new();
 static REFRESHING: OnceLock<Mutex<bool>> = OnceLock::new();
 
 /// 单飞 flag 复位：spawned 任务 panic 时也必须复位，否则后续刷新永久静默跳过。
@@ -62,7 +62,7 @@ fn cache_file() -> std::path::PathBuf {
 }
 
 /// 目录读取：内存 -> 磁盘 -> 静态兜底；磁盘过期/缺失时后台刷新（不阻塞调用方）。
-pub fn catalog() -> Vec<ProviderCatalog> {
+pub fn catalog() -> Arc<Vec<ProviderCatalog>> {
     let cache = CACHE.get_or_init(|| Mutex::new(None));
     if let Some(c) = crate::core::shared::lock(cache).as_ref() {
         return c.clone();
@@ -81,6 +81,7 @@ pub fn catalog() -> Vec<ProviderCatalog> {
         }
         _ => (static_catalog(), true),
     };
+    let out = Arc::new(out);
     *crate::core::shared::lock(cache) = Some(out.clone());
     if stale {
         refresh_async();
@@ -134,7 +135,7 @@ fn refresh_async_impl(flag_cell: &'static OnceLock<Mutex<bool>>) {
                     tracing::warn!(%error, "models.dev cache persistence failed; keeping refreshed in-memory catalog");
                 }
                 let cache = CACHE.get_or_init(|| Mutex::new(None));
-                *crate::core::shared::lock(cache) = Some(c);
+                *crate::core::shared::lock(cache) = Some(Arc::new(c));
                 tracing::info!("models.dev catalog refreshed");
             }
             Err(e) => tracing::warn!(error = %e, "models.dev refresh failed (keep old cache)"),

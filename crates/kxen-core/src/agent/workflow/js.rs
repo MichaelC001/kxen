@@ -94,17 +94,21 @@ const PHASE_JS: &str = r#"const phase = (name) => {
 /// 仅剥行首 `export const meta` 的 `export `。
 /// 不做全局剥 export：其它 export 在函数体内本就是语法错误，剥了等于把模型写错的语法静默合法化。
 pub(crate) fn strip_meta_export(script: &str) -> String {
-    script
-        .lines()
-        .map(|line| {
-            if line.trim_start().starts_with("export const meta") {
-                line.replacen("export const meta", "const meta", 1)
-            } else {
-                line.into()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut output = String::with_capacity(script.len());
+    for (index, line) in script.lines().enumerate() {
+        if index > 0 {
+            output.push('\n');
+        }
+        if line.trim_start().starts_with("export const meta") {
+            let start = line.find("export const meta").expect("trimmed prefix checked");
+            output.push_str(&line[..start]);
+            output.push_str("const meta");
+            output.push_str(&line[start + "export const meta".len()..]);
+        } else {
+            output.push_str(line);
+        }
+    }
+    output
 }
 
 /// 包脚本：meta 捕获闭包 + 局部 phase 与脚本同一 async 作用域；无顶层 return 报错，非字符串走格式化。
@@ -124,28 +128,41 @@ pub(crate) fn envelope(
     phases_total: Option<u32>,
     elapsed: Duration,
 ) -> String {
+    use std::fmt::Write as _;
+
     let agents_total = ok_by_role.values().sum::<u32>() + failures.len() as u32;
     let mut out = format!("\n\n---\n[{wf_name}] {agents_total} agents");
     let mut roles: Vec<_> = ok_by_role.iter().collect();
     roles.sort_by(|(ra, na), (rb, nb)| nb.cmp(na).then(ra.cmp(rb)));
-    let mut detail = roles.iter().map(|(r, n)| format!("{r}:{n}")).collect::<Vec<_>>().join(" ");
+    let mut detail = String::new();
+    for (role, count) in roles {
+        if !detail.is_empty() {
+            detail.push(' ');
+        }
+        write!(detail, "{role}:{count}").expect("writing to String cannot fail");
+    }
     if !failures.is_empty() {
         if !detail.is_empty() {
             detail.push_str(", ");
         }
-        detail.push_str(&format!("{} failed", failures.len()));
+        write!(&mut detail, "{} failed", failures.len()).expect("writing to String cannot fail");
     }
     if !detail.is_empty() {
-        out.push_str(&format!(" ({detail})"));
+        write!(&mut out, " ({detail})").expect("writing to String cannot fail");
     }
     match phases_total {
-        Some(total) => out.push_str(&format!(", phases {phases_done}/{total}")),
-        None => out.push_str(&format!(", phases {phases_done}")),
+        Some(total) => write!(&mut out, ", phases {phases_done}/{total}").expect("writing to String cannot fail"),
+        None => write!(&mut out, ", phases {phases_done}").expect("writing to String cannot fail"),
     }
-    out.push_str(&format!(", {:.1}s", elapsed.as_secs_f64()));
+    write!(&mut out, ", {:.1}s", elapsed.as_secs_f64()).expect("writing to String cannot fail");
     if !failures.is_empty() {
-        let list = failures.iter().map(|(label, err)| format!("{label}: {err}")).collect::<Vec<_>>().join("; ");
-        out.push_str(&format!("\nfailures: {list}"));
+        out.push_str("\nfailures: ");
+        for (index, (label, error)) in failures.iter().enumerate() {
+            if index > 0 {
+                out.push_str("; ");
+            }
+            write!(out, "{label}: {error}").expect("writing to String cannot fail");
+        }
     }
     out
 }

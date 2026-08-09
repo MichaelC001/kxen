@@ -105,7 +105,7 @@ fn apply_refresh_keeps_old_refresh_when_absent() {
         &key,
         RefreshResponse { access_token: "a2".into(), refresh_token: None, expires_in: None },
         "r1",
-        &None,
+        None,
         &crate::core::paths::auth_file(),
     )
     .unwrap();
@@ -180,7 +180,7 @@ fn grant_persistence_failure_returns_false_without_publishing_refresh() {
         key.clone(),
         CredentialKind::Oauth { access: "old-access".into(), refresh: "old-refresh".into(), expires: 1, account_id: None },
     );
-    let shared = std::sync::Arc::new(std::sync::Mutex::new(store.clone()));
+    let shared = std::sync::Arc::new(std::sync::Mutex::new(std::sync::Arc::new(store.clone())));
     crate::auth::shared_store::register_shared_store(&shared);
     let root = std::env::temp_dir().join(format!("kxen-refresh-persist-fail-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();

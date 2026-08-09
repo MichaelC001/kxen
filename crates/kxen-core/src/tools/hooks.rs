@@ -13,13 +13,12 @@ mod process;
 const HOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct HookRunner {
-    hooks: std::sync::RwLock<HashMap<String, Vec<CompiledHook>>>,
+    hooks: std::sync::RwLock<HashMap<String, Vec<std::sync::Arc<CompiledHook>>>>,
     /// workspace 工作目录：hook 的 spawn current_dir 与 safety 评估 cwd 必须同口径，
     /// 否则相对路径 hook 在 "/" 下执行且按 "/" 判定（与 exec 的 cwd 语义一致）。
     workdir: std::path::PathBuf,
 }
 
-#[derive(Clone)]
 struct CompiledHook {
     matcher: Option<regex::Regex>,
     command: String,
@@ -91,7 +90,7 @@ impl HookRunner {
         Ok(())
     }
 
-    fn matching(&self, event: &str, tool: &str) -> Vec<CompiledHook> {
+    fn matching(&self, event: &str, tool: &str) -> Vec<std::sync::Arc<CompiledHook>> {
         crate::core::shared::read(&self.hooks)
             .get(event)
             .map(|defs| defs.iter().filter(|h| h.matcher.as_ref().is_none_or(|m| m.is_match(tool))).cloned().collect())
@@ -137,10 +136,10 @@ impl HookRunner {
     }
 }
 
-fn compile_hooks(config: &Config) -> HashMap<String, Vec<CompiledHook>> {
+fn compile_hooks(config: &Config) -> HashMap<String, Vec<std::sync::Arc<CompiledHook>>> {
     let mut hooks = HashMap::new();
     for (event, defs) in &config.hooks {
-        let compiled: Vec<CompiledHook> = defs
+        let compiled: Vec<std::sync::Arc<CompiledHook>> = defs
             .iter()
             .filter_map(|d: &HookDef| {
                 let matcher = match d.matcher.as_deref() {
@@ -154,7 +153,7 @@ fn compile_hooks(config: &Config) -> HashMap<String, Vec<CompiledHook>> {
                     },
                     None => None,
                 };
-                Some(CompiledHook { matcher, command: d.command.clone() })
+                Some(std::sync::Arc::new(CompiledHook { matcher, command: d.command.clone() }))
             })
             .collect();
         if !compiled.is_empty() {

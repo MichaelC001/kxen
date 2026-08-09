@@ -39,8 +39,9 @@ fn append_message_inner(dir: &Path, message: &Message, idempotent: bool) -> Resu
     }
     // JSONL 是 append 的真实 commit log。已有任一坏行时必须先阻断，不能在 torn stream 后继续写入，
     // 更不能让后续 rewind/fork 把静默过滤后的残缺视图覆盖回去。
-    let existing = messages::load_messages_checked_unlocked(dir, &message.session_id).map_err(CommitFailure::before)?;
-    if idempotent && let Some(existing_message) = existing.iter().find(|item| item.id == message.id) {
+    let existing = messages::scan_messages_checked_unlocked(dir, &message.session_id, idempotent.then_some(message.id.as_str()))
+        .map_err(CommitFailure::before)?;
+    if let Some(existing_message) = existing.matching.as_ref() {
         if serde_json::to_value(existing_message).map_err(|error| CommitFailure::before(std::io::Error::other(error)))?
             != serde_json::to_value(message).map_err(|error| CommitFailure::before(std::io::Error::other(error)))?
         {
@@ -49,12 +50,12 @@ fn append_message_inner(dir: &Path, message: &Message, idempotent: bool) -> Resu
                 format!("message id collision: {}", message.id),
             )));
         }
-        return repair_meta_after_idempotent_append(dir, message, existing.len() as u64).map_err(CommitFailure::after_visible);
+        return repair_meta_after_idempotent_append(dir, message, existing.count).map_err(CommitFailure::after_visible);
     }
     let mut line = serde_json::to_vec(message).map_err(|error| CommitFailure::before(std::io::Error::other(error)))?;
     line.push(b'\n');
     storage::append_synced(&messages_path(dir, &message.session_id), &line)?;
-    update_meta_after_append(dir, message, existing.len() as u64).map_err(CommitFailure::after_visible)
+    update_meta_after_append(dir, message, existing.count).map_err(CommitFailure::after_visible)
 }
 
 fn update_meta_after_append(dir: &Path, message: &Message, previous_message_count: u64) -> Result<Session, CommitFailure> {

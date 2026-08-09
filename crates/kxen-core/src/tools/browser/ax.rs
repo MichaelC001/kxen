@@ -2,6 +2,7 @@
 
 use super::driver::RawAxNode;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 
 /// 与 webfetch 同档的输出上限。
 pub const MAX_SNAPSHOT_CHARS: usize = 50_000;
@@ -88,7 +89,8 @@ pub fn render(nodes: &[RawAxNode], first_ref: u32) -> Snapshot {
         }
     }
     if truncated {
-        out.text.push_str(&format!("...(truncated: {shown} of {total} nodes shown, cap {MAX_SNAPSHOT_CHARS} chars)\n"));
+        writeln!(&mut out.text, "...(truncated: {shown} of {total} nodes shown, cap {MAX_SNAPSHOT_CHARS} chars)")
+            .expect("writing to String cannot fail");
     }
     out
 }
@@ -122,7 +124,7 @@ fn line_for(node: &RawAxNode, next_ref: &mut u32, refs: &mut Vec<RefTarget>) -> 
 
 /// 树是单行格式：名字里的换行/引号压平，防注入额外行伪造结构
 fn escape(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ").replace('"', "'")
+    crate::core::shared::normalize_whitespace(s).replace('"', "'")
 }
 
 #[cfg(test)]

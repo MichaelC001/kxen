@@ -187,7 +187,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
             return;
         }
     };
-    if let Err(terminal) = super::llm_oauth::refresh(&state, &mut store, &model, &cancel, bound_goal_id.as_deref()).await {
+    if let Err(terminal) = super::llm_oauth::refresh(&state, Arc::make_mut(&mut store), &model, &cancel, bound_goal_id.as_deref()).await {
         early.finish(delivery, true, None, terminal);
         return;
     }

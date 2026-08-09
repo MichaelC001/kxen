@@ -77,5 +77,5 @@ pub(crate) fn new_final_text(messages: &[Message], outcome: &super::events::Agen
     if last.role != crate::llm::types::Role::Assistant || !last.tool_calls.is_empty() || last.content.is_empty() {
         return None;
     }
-    outcome.final_text.starts_with(&last.content).then(|| last.content.clone())
+    outcome.final_text.starts_with(last.content.as_str()).then(|| last.content.to_string())
 }

@@ -152,8 +152,10 @@ async fn web_block(url: &str) -> (String, Option<String>) {
 
 /// 公网图片 URL -> ImagePart（content-type 判定，5MB cap）。非图片返回 None（走 web_block 文本通道）。
 pub async fn fetch_image_url(url: &str) -> Option<crate::llm::types::ImagePart> {
-    let looks_image =
-        [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].iter().any(|e| url.to_lowercase().split('?').next().unwrap_or("").ends_with(e));
+    let extension = url.split('?').next().unwrap_or("").rsplit_once('.').map(|(_, extension)| extension);
+    let looks_image = extension.is_some_and(|extension| {
+        ["png", "jpg", "jpeg", "gif", "webp", "bmp"].iter().any(|candidate| extension.eq_ignore_ascii_case(candidate))
+    });
     if !looks_image {
         return None;
     }
@@ -164,7 +166,10 @@ pub async fn fetch_image_url(url: &str) -> Option<crate::llm::types::ImagePart> 
         return None;
     }
     let bytes = crate::net_response::bytes(resp, 5 * 1024 * 1024, "context image").await.ok()?;
-    Some(crate::llm::types::ImagePart { media_type: mime, data: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes) })
+    Some(crate::llm::types::ImagePart {
+        media_type: mime.into(),
+        data: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes).into(),
+    })
 }
 
 #[cfg(test)]

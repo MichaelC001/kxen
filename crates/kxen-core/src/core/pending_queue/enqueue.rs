@@ -62,7 +62,7 @@ impl PendingQueues {
         front: bool,
         commit: impl FnOnce() -> Result<(), String>,
     ) -> Result<usize, String> {
-        crate::core::ids::validate_id(id).map_err(|error| error.to_string())?;
+        crate::core::ids::validate_id(id)?;
         self.ensure_available(id)?;
         if item.id.trim().is_empty() {
             return Err("pending queue delivery id cannot be empty".into());
@@ -90,7 +90,6 @@ impl PendingQueues {
         {
             return Err(format!("duplicate pending queue delivery id: {}", item.id));
         }
-        let original = queue.clone();
         if front {
             queue.queued.push_front(item);
         } else {
@@ -101,21 +100,28 @@ impl PendingQueues {
             let committed = error.committed();
             let message = error.into_message();
             if !committed {
-                *queue = original;
+                if front {
+                    queue.queued.pop_front();
+                } else {
+                    queue.queued.pop_back();
+                }
                 return Err(message);
             }
             return Err(self.block_indeterminate(id, message, queue));
         }
         if let Err(error) = commit() {
-            let committed = queue.clone();
-            *queue = original;
+            let item = if front { queue.queued.pop_front() } else { queue.queued.pop_back() }.expect("just-enqueued delivery");
             return match self.persist_state(id, queue) {
                 Ok(()) => Err(error),
                 Err(rollback) => {
                     let rollback_committed = rollback.committed();
                     let rollback = rollback.into_message();
                     if !rollback_committed {
-                        *queue = committed;
+                        if front {
+                            queue.queued.push_front(item);
+                        } else {
+                            queue.queued.push_back(item);
+                        }
                     }
                     let blocked = self.block_indeterminate(id, format!("rollback after external commit failure: {rollback}"), queue);
                     Err(format!("{error}; {blocked}"))

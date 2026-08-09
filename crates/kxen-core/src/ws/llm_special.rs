@@ -142,7 +142,7 @@ async fn compact_session(
             return (AgentEvent::Error { message: format!("compaction checkpoint save failed: {message}") }, model_used);
         }
     };
-    let mut message = ses::new_message(session_id, ses::Role::Assistant, vec![ses::Part::Text { text: notice }]);
+    let mut message = ses::new_message(session_id, ses::Role::Assistant, vec![ses::Part::Text { text: notice.into() }]);
     message.model = model_used.clone();
     if let Some(delivery_id) = delivery_id {
         message.id = delivery_id.to_string();

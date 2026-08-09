@@ -81,15 +81,16 @@ pub fn repair_message_durability(dir: &Path, message: &super::Message, original:
         )));
     }
     super::transaction::ensure_matching_append_block(&message.session_id, &message.id, &cause).map_err(CommitFailure::after)?;
-    let visible = super::messages::load_messages_checked_unlocked(dir, &message.session_id).map_err(CommitFailure::after)?;
-    let matches = visible.iter().filter(|candidate| candidate.id == message.id).collect::<Vec<_>>();
-    if matches.len() != 1 {
+    let visible =
+        super::messages::scan_messages_checked_unlocked(dir, &message.session_id, Some(&message.id)).map_err(CommitFailure::after)?;
+    if visible.matching_count != 1 {
         return Err(CommitFailure::after(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("message {} is visible {} times after indeterminate append", message.id, matches.len()),
+            format!("message {} is visible {} times after indeterminate append", message.id, visible.matching_count),
         )));
     }
-    if serde_json::to_value(matches[0]).map_err(|error| CommitFailure::after(std::io::Error::other(error)))?
+    if serde_json::to_value(visible.matching.as_ref().expect("one matching message"))
+        .map_err(|error| CommitFailure::after(std::io::Error::other(error)))?
         != serde_json::to_value(message).map_err(|error| CommitFailure::after(std::io::Error::other(error)))?
     {
         return Err(CommitFailure::after(std::io::Error::new(
@@ -99,8 +100,7 @@ pub fn repair_message_durability(dir: &Path, message: &super::Message, original:
     }
     let messages_path = super::messages_path(dir, &message.session_id);
     OpenOptions::new().read(true).write(true).open(&messages_path).and_then(|file| file.sync_all()).map_err(CommitFailure::after)?;
-    let session =
-        super::append::repair_meta_after_idempotent_append(dir, message, visible.len() as u64).map_err(CommitFailure::after_visible)?;
+    let session = super::append::repair_meta_after_idempotent_append(dir, message, visible.count).map_err(CommitFailure::after_visible)?;
     sync_directory(dir).map_err(CommitFailure::after)?;
     super::transaction::clear_matching_append_block(&message.session_id, &message.id, &cause).map_err(CommitFailure::after)?;
     Ok(session)

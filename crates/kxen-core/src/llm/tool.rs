@@ -1,12 +1,13 @@
 //! 工具定义与 tool_call 累积（OpenAI 兼容 tool calling 的分片还原）。
 
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {
     #[serde(rename = "type")]
     pub kind: &'static str,
-    pub function: FunctionSpec,
+    pub function: Arc<FunctionSpec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,7 +19,7 @@ pub struct FunctionSpec {
 
 impl ToolDefinition {
     pub fn function(name: impl Into<String>, description: impl Into<String>, parameters: serde_json::Value) -> Self {
-        Self { kind: "function", function: FunctionSpec { name: name.into(), description: description.into(), parameters } }
+        Self { kind: "function", function: Arc::new(FunctionSpec { name: name.into(), description: description.into(), parameters }) }
     }
 }
 

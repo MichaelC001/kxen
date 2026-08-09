@@ -198,7 +198,7 @@ fn parse_anthropic_answer(body: &str) -> Result<EngineResult, String> {
             hits.push(SearchHit { title: title.to_string(), url: url.to_string(), snippet: String::new() });
         }
     };
-    for block in v.get("content").and_then(|c| c.as_array()).cloned().unwrap_or_default() {
+    for block in v.get("content").and_then(|content| content.as_array()).into_iter().flatten() {
         match block.get("type").and_then(|t| t.as_str()) {
             Some("text") => {
                 if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
@@ -207,14 +207,14 @@ fn parse_anthropic_answer(body: &str) -> Result<EngineResult, String> {
                     }
                     answer.push_str(t);
                 }
-                for c in block.get("citations").and_then(|c| c.as_array()).cloned().unwrap_or_default() {
+                for c in block.get("citations").and_then(|citations| citations.as_array()).into_iter().flatten() {
                     let url = c.get("url").and_then(|u| u.as_str()).unwrap_or("");
                     let title = c.get("title").and_then(|t| t.as_str()).unwrap_or("");
                     push_hit(url, title);
                 }
             }
             Some("web_search_tool_result") => {
-                for r in block.get("content").and_then(|c| c.as_array()).cloned().unwrap_or_default() {
+                for r in block.get("content").and_then(|content| content.as_array()).into_iter().flatten() {
                     if r.get("type").and_then(|t| t.as_str()) == Some("web_search_result") {
                         let url = r.get("url").and_then(|u| u.as_str()).unwrap_or("");
                         let title = r.get("title").and_then(|t| t.as_str()).unwrap_or("");

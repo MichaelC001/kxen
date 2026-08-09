@@ -31,7 +31,7 @@ impl ConfigScope {
                 {
                     use std::os::unix::ffi::OsStrExt;
                     let bytes = root.as_os_str().as_bytes();
-                    format!("project:hex:{}", bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>())
+                    format!("project:hex:{}", crate::core::shared::hex_lower(bytes))
                 }
                 #[cfg(not(unix))]
                 {
@@ -64,24 +64,37 @@ impl ToolPolicy {
 /// 策略表：键 "server"（整台 server 默认）或 "server.tool"（单工具覆盖）。
 #[derive(Debug, Default, Clone)]
 pub struct PolicySet {
-    inner: HashMap<String, ToolPolicy>,
+    defaults: HashMap<String, ToolPolicy>,
+    tools: HashMap<String, HashMap<String, ToolPolicy>>,
 }
 
 impl PolicySet {
     pub fn insert(&mut self, key: &str, policy: ToolPolicy) {
-        self.inner.insert(key.to_string(), policy);
+        if let Some((server, tool)) = key.split_once('.') {
+            self.tools.entry(server.to_string()).or_default().insert(tool.to_string(), policy);
+        } else {
+            self.defaults.insert(key.to_string(), policy);
+        }
     }
 
     /// 匹配顺序 server.tool > server > 默认 Allow。
     /// 默认 Allow 而非 Ask：server 本身来自用户显式配置或已信任项目，
     /// 默认 ask 会给存量调用强塞弹窗。
     pub fn for_tool(&self, server: &str, tool: &str) -> ToolPolicy {
-        self.inner.get(&format!("{server}.{tool}")).copied().or_else(|| self.inner.get(server).copied()).unwrap_or(ToolPolicy::Allow)
+        self.tools
+            .get(server)
+            .and_then(|tools| tools.get(tool))
+            .copied()
+            .or_else(|| self.defaults.get(server).copied())
+            .unwrap_or(ToolPolicy::Allow)
     }
 
     /// 项目覆盖用户：同键以后 extend 进来的为准。
     fn extend(&mut self, other: PolicySet) {
-        self.inner.extend(other.inner);
+        self.defaults.extend(other.defaults);
+        for (server, tools) in other.tools {
+            self.tools.entry(server).or_default().extend(tools);
+        }
     }
 }
 

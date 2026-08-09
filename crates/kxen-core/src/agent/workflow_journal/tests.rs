@@ -1,5 +1,9 @@
 use super::*;
 
+fn test_id(prefix: &str) -> String {
+    format!("{prefix}-{}", uuid::Uuid::new_v4())
+}
+
 fn cleanup(run_id: &str) {
     let _ = std::fs::remove_file(journal_file(run_id));
     let _ = std::fs::remove_file(journal_file(run_id).with_extension("jsonl.lock"));
@@ -7,7 +11,7 @@ fn cleanup(run_id: &str) {
 
 #[test]
 fn record_and_resume_hit() {
-    let run_id = format!("test-hit-{}", std::process::id());
+    let run_id = test_id("test-hit");
     cleanup(&run_id);
     {
         let mut journal = Journal::open(&run_id, "script-v1").unwrap();
@@ -22,7 +26,7 @@ fn record_and_resume_hit() {
 
 #[test]
 fn record_reports_directory_sync_failure_but_visible_entry_resumes() {
-    let run_id = format!("test-dir-sync-{}", std::process::id());
+    let run_id = test_id("test-dir-sync");
     cleanup(&run_id);
     {
         let mut journal = Journal::open(&run_id, "script-v1").unwrap();
@@ -38,7 +42,7 @@ fn record_reports_directory_sync_failure_but_visible_entry_resumes() {
 
 #[test]
 fn script_change_invalidates_cache() {
-    let run_id = format!("test-script-{}", std::process::id());
+    let run_id = test_id("test-script");
     cleanup(&run_id);
     {
         let mut journal = Journal::open(&run_id, "script-v1").unwrap();
@@ -51,7 +55,7 @@ fn script_change_invalidates_cache() {
 
 #[test]
 fn input_change_is_miss() {
-    let run_id = format!("test-input-{}", std::process::id());
+    let run_id = test_id("test-input");
     cleanup(&run_id);
     let mut journal = Journal::open(&run_id, "script-v1").unwrap();
     journal.record("execution", "do A", None, 0, "result A").unwrap();
@@ -62,7 +66,7 @@ fn input_change_is_miss() {
 
 #[test]
 fn repeated_identical_calls_have_distinct_durable_results() {
-    let run_id = format!("test-occurrence-{}", std::process::id());
+    let run_id = test_id("test-occurrence");
     cleanup(&run_id);
     {
         let mut journal = Journal::open(&run_id, "script-v1").unwrap();
@@ -80,7 +84,7 @@ fn repeated_identical_calls_have_distinct_durable_results() {
 
 #[test]
 fn expired_entries_are_purged_on_open() {
-    let run_id = format!("test-ttl-{}", std::process::id());
+    let run_id = test_id("test-ttl");
     let file = journal_file(&run_id);
     cleanup(&run_id);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
@@ -105,7 +109,7 @@ fn expired_entries_are_purged_on_open() {
 
 #[test]
 fn malformed_entry_blocks_resume_and_is_preserved() {
-    let run_id = format!("test-corrupt-{}", std::process::id());
+    let run_id = test_id("test-corrupt");
     let file = journal_file(&run_id);
     cleanup(&run_id);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
@@ -117,7 +121,7 @@ fn malformed_entry_blocks_resume_and_is_preserved() {
 
 #[test]
 fn legacy_input_only_entries_block_instead_of_redispatching() {
-    let run_id = format!("test-legacy-{}", std::process::id());
+    let run_id = test_id("test-legacy");
     let file = journal_file(&run_id);
     cleanup(&run_id);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
@@ -130,7 +134,7 @@ fn legacy_input_only_entries_block_instead_of_redispatching() {
 
 #[test]
 fn active_run_id_rejects_a_second_executor() {
-    let run_id = format!("test-lock-{}", std::process::id());
+    let run_id = test_id("test-lock");
     cleanup(&run_id);
     let first = Journal::open(&run_id, "script-v1").unwrap();
     assert!(Journal::open(&run_id, "script-v1").is_err());
@@ -148,7 +152,7 @@ fn invalid_run_id_is_rejected() {
 
 #[test]
 fn scoped_run_id_isolates_sessions_but_resumes_within_session() {
-    let run_id = format!("test-scoped-{}", std::process::id());
+    let run_id = test_id("test-scoped");
     let file_a = journal_file(&stable_hash(&["sess-a", &run_id]));
     let file_b = journal_file(&stable_hash(&["sess-b", &run_id]));
     let _ = std::fs::remove_file(&file_a);
@@ -174,7 +178,7 @@ fn scoped_run_id_isolates_sessions_but_resumes_within_session() {
 /// 重开必须报 Unknown 且闸门拒绝重派——绝不静默重复 dispatch。
 #[test]
 fn crash_between_dispatch_and_record_reopens_as_unknown_and_blocks_redispatch() {
-    let run_id = format!("test-intent-{}", std::process::id());
+    let run_id = test_id("test-intent");
     cleanup(&run_id);
     {
         let mut journal = Journal::open(&run_id, "script-v1").unwrap();
@@ -194,7 +198,7 @@ fn crash_between_dispatch_and_record_reopens_as_unknown_and_blocks_redispatch() 
 /// intent -> done 转换：begin 后 record 成功，重开即 Done 缓存命中，闸门回缓存不重派。
 #[test]
 fn record_after_begin_turns_intent_into_done() {
-    let run_id = format!("test-intent-done-{}", std::process::id());
+    let run_id = test_id("test-intent-done");
     cleanup(&run_id);
     {
         let mut journal = Journal::open(&run_id, "script-v1").unwrap();
@@ -211,7 +215,7 @@ fn record_after_begin_turns_intent_into_done() {
 /// Miss 放行时 intent 必须先于 dispatch durable：闸门返回后崩溃，重开即 Unknown。
 #[test]
 fn miss_gate_persists_intent_before_returning() {
-    let run_id = format!("test-intent-miss-{}", std::process::id());
+    let run_id = test_id("test-intent-miss");
     cleanup(&run_id);
     {
         let mut journal = Journal::open(&run_id, "script-v1").unwrap();
@@ -225,7 +229,7 @@ fn miss_gate_persists_intent_before_returning() {
 /// 超 TTL 的 intent 与完成记录同口径清理：重开后该步回 Miss 可重新派发。
 #[test]
 fn expired_intent_is_purged_on_open() {
-    let run_id = format!("test-intent-ttl-{}", std::process::id());
+    let run_id = test_id("test-intent-ttl");
     let file = journal_file(&run_id);
     cleanup(&run_id);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();

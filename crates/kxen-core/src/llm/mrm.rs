@@ -13,7 +13,7 @@ use rpm::RpmReservation;
 const GLOBAL_POOL_KEY: &str = "global";
 
 pub struct ModelResourceManager {
-    config: Arc<std::sync::RwLock<Config>>,
+    config: Arc<std::sync::RwLock<Arc<Config>>>,
     circuit_scope: Arc<str>,
     /// 可变运行状态（槽位/RPM/历史/熔断）：热换重建经 reconfigured 沿用同一句柄
     state: Arc<state::Shared>,
@@ -93,7 +93,7 @@ impl Resolved {
 impl ModelResourceManager {
     pub fn new(config: Config) -> Self {
         Self {
-            config: Arc::new(std::sync::RwLock::new(config)),
+            config: Arc::new(std::sync::RwLock::new(Arc::new(config))),
             circuit_scope: Arc::from("process"),
             state: Arc::new(state::Shared::default()),
         }
@@ -102,23 +102,23 @@ impl ModelResourceManager {
     /// 热换重建：配置按新值生效，运行状态沿用同一句柄。
     /// 在飞 request 的槽位仍计入并发上限，熔断计数与 RPM 滑窗不复位。
     pub fn reconfigured(&self, config: Config) -> Self {
-        *crate::core::shared::write(&self.config) = config;
+        *crate::core::shared::write(&self.config) = Arc::new(config);
         self.activate();
         Self { config: Arc::clone(&self.config), circuit_scope: Arc::clone(&self.circuit_scope), state: Arc::clone(&self.state) }
     }
 
     /// Workspace 视图使用独立配置。Circuit 按稳定 Workspace scope 和 custom
     /// endpoint 隔离；并发计数、RPM 与路由历史仍共享同一进程状态。
-    pub fn scoped(&self, scope: impl Into<Arc<str>>, config: Config) -> Self {
+    pub fn scoped(&self, scope: impl Into<Arc<str>>, config: impl Into<Arc<Config>>) -> Self {
         let circuit_scope = scope.into();
-        let next = Self { config: Arc::new(std::sync::RwLock::new(config)), circuit_scope, state: Arc::clone(&self.state) };
+        let next = Self { config: Arc::new(std::sync::RwLock::new(config.into())), circuit_scope, state: Arc::clone(&self.state) };
         next.activate();
         next
     }
 
     /// 两阶段 runtime 更新的无副作用 candidate。只替换配置视图，资源计数和
     /// Circuit 存储继续共享；调用 activate 前不会唤醒 waiter 或归一化 Circuit。
-    pub(crate) fn candidate(&self, config: Config) -> Self {
+    pub(crate) fn candidate(&self, config: Arc<Config>) -> Self {
         Self {
             config: Arc::new(std::sync::RwLock::new(config)),
             circuit_scope: Arc::clone(&self.circuit_scope),
@@ -136,8 +136,8 @@ impl ModelResourceManager {
         self.config_snapshot().custom_providers.get(name).cloned()
     }
 
-    fn config_snapshot(&self) -> Config {
-        crate::core::shared::read(&self.config).clone()
+    fn config_snapshot(&self) -> Arc<Config> {
+        Arc::clone(&crate::core::shared::read(&self.config))
     }
 
     /// 主会话显式模型在占槽前也必须经过预算和熔断，不得绕过角色路由的 admission。

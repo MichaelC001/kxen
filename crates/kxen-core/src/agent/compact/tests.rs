@@ -12,7 +12,7 @@ fn estimate_counts_tool_calls_and_images() {
     let with_tools = vec![Message::assistant_with_tools("t".repeat(4), vec![call])];
     assert_eq!(estimate_tokens(&with_tools), 102, "tool_call name+arguments 必须计入");
 
-    let img = crate::llm::types::ImagePart { media_type: "image/png".into(), data: "a".repeat(4000) };
+    let img = crate::llm::types::ImagePart { media_type: "image/png".into(), data: "a".repeat(4000).into() };
     let with_image = vec![Message::user_with_images("hi", vec![img])];
     assert_eq!(estimate_tokens(&with_image), 1000, "图片必须按固定近似成本计入");
 }

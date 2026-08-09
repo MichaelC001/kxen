@@ -1,8 +1,12 @@
 use super::{McpTool, PromptArgument, PromptInfo, ProtocolTools, REQUEST_TIMEOUT, ResourceInfo};
 use crate::mcp::transport::Transport;
-use serde::Serialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use std::collections::HashSet;
+use std::fmt::Write as _;
+
+#[path = "catalog/pagination.rs"]
+mod pagination;
+pub(super) use pagination::{list_prompts, list_resources};
 
 const MAX_LIST_PAGES: usize = 100;
 const MAX_LIST_ITEMS: usize = 10_000;
@@ -226,7 +230,7 @@ pub(super) fn inject_protocol_tools(
 
         let mut description = format!("Read an MCP resource by URI. {} resources are available", resources.len());
         if resources.len() > RESOURCE_PREVIEW_CAP {
-            description.push_str(&format!("; use {list_name} to discover the complete catalog"));
+            write!(&mut description, "; use {list_name} to discover the complete catalog").expect("writing to String cannot fail");
         }
         description.push_str(":\n");
         for resource in resources.iter().take(RESOURCE_PREVIEW_CAP) {
@@ -303,45 +307,13 @@ fn prompt_get_schema(prompts: &[PromptInfo]) -> Value {
 fn format_resource(resource: &ResourceInfo) -> String {
     let mut line = format!("- {}", resource.uri);
     if !resource.name.is_empty() {
-        line.push_str(&format!(" ({})", resource.name));
+        write!(&mut line, " ({})", resource.name).expect("writing to String cannot fail");
     }
     if !resource.description.is_empty() {
-        line.push_str(&format!(": {}", resource.description));
+        write!(&mut line, ": {}", resource.description).expect("writing to String cannot fail");
     }
     line.push('\n');
     line
-}
-
-pub(super) fn list_resources(resources: &[ResourceInfo], args: &Value) -> Result<String, String> {
-    list_page("resources", resources, args)
-}
-
-pub(super) fn list_prompts(prompts: &[PromptInfo], args: &Value) -> Result<String, String> {
-    list_page("prompts", prompts, args)
-}
-
-fn list_page<T: Serialize>(collection: &str, items: &[T], args: &Value) -> Result<String, String> {
-    let start = match args.get("cursor") {
-        Some(cursor) => cursor.as_str().ok_or("cursor must be a string")?.parse::<usize>().map_err(|_| "invalid cursor")?,
-        None => 0,
-    };
-    let limit = match args.get("limit") {
-        Some(limit) => limit.as_u64().ok_or("limit must be an integer")? as usize,
-        None => LOCAL_PAGE_DEFAULT,
-    };
-    if !(1..=LOCAL_PAGE_MAX).contains(&limit) {
-        return Err(format!("limit must be between 1 and {LOCAL_PAGE_MAX}"));
-    }
-    if start > items.len() {
-        return Err("cursor is outside the catalog".to_string());
-    }
-    let end = start.saturating_add(limit).min(items.len());
-    let mut result = Map::new();
-    result.insert(collection.to_string(), serde_json::to_value(&items[start..end]).map_err(|error| error.to_string())?);
-    if end < items.len() {
-        result.insert("nextCursor".to_string(), Value::String(end.to_string()));
-    }
-    serde_json::to_string(&result).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

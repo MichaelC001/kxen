@@ -204,7 +204,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("kxen-run-compact-{}", std::process::id()));
         let session = session::create(&dir, "/tmp/work").expect("create");
         for index in 0..10 {
-            let message = session::new_message(&session.id, Role::User, vec![Part::Text { text: format!("message-{index}") }]);
+            let message = session::new_message(&session.id, Role::User, vec![Part::Text { text: format!("message-{index}").into() }]);
             session::append_message(&dir, &message).expect("append");
         }
         let raw = session::load_messages(&dir, &session.id);

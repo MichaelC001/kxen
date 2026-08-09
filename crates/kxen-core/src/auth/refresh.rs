@@ -128,22 +128,23 @@ fn recent() -> &'static Mutex<std::collections::HashMap<String, CredentialKind>>
 pub async fn ensure_fresh(store: &mut AuthStore, provider: &str, account: Option<&str>) -> RefreshOutcome {
     let Some(target) = token_endpoint(provider) else { return RefreshOutcome::NotNeeded };
     let key = account.map(|a| account_id(provider, a)).unwrap_or_else(|| provider.to_string());
-    let Some(cred) = store.get(&key).cloned() else { return RefreshOutcome::NotNeeded };
-    let CredentialKind::Oauth { refresh, account_id: acc_id, .. } = &cred else { return RefreshOutcome::NotNeeded };
+    let Some(cred) = store.get(&key) else { return RefreshOutcome::NotNeeded };
+    let CredentialKind::Oauth { refresh, .. } = cred else { return RefreshOutcome::NotNeeded };
     if !cred.is_expired_within(BUFFER_MS) {
         return RefreshOutcome::NotNeeded;
     }
     if refresh.is_empty() {
         return RefreshOutcome::Failed("OAuth credential requires refresh but its refresh token is empty".into());
     }
+    let cred = (*cred).clone();
+    let CredentialKind::Oauth { refresh, account_id: acc_id, .. } = &cred else { unreachable!("credential kind checked above") };
     // 其它 clone 刚刷过：直接采用（旧 refresh 已吊销，再刷必败）
     if adopt_recent(store, &key, None) {
         return RefreshOutcome::Refreshed;
     }
     let _guard = REFRESH_LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
     // 锁内复查：等待期间可能已被另一 run 刷新
-    let current = store.get(&key).cloned();
-    if current.as_ref().is_some_and(|c| !c.is_expired_within(BUFFER_MS)) {
+    if store.get(&key).is_some_and(|credential| !credential.is_expired_within(BUFFER_MS)) {
         return RefreshOutcome::NotNeeded;
     }
     if adopt_recent(store, &key, None) {

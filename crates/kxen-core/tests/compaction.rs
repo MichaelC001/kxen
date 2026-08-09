@@ -24,12 +24,12 @@ fn full_assistant(sid: &str, tag: &str) -> ses::Message {
             Part::ToolCall {
                 name: "exec".into(),
                 input: serde_json::json!(format!("ls {tag}")),
-                output: format!("out-{tag}"),
+                output: format!("out-{tag}").into(),
                 args: Some(serde_json::json!({"command": format!("ls {tag}")})),
                 id: Some(format!("call-{tag}")),
             },
             Part::Image { media_type: "image/png".into(), data: "aGVsbG8=".into() },
-            Part::Text { text: format!("done-{tag}") },
+            Part::Text { text: format!("done-{tag}").into() },
         ],
     )
 }
@@ -45,7 +45,7 @@ fn manual_compact_writes_checkpoint_and_preserves_tail() {
     let s = ses::create(&dir, "/tmp/work").unwrap();
     for i in 0..6 {
         // 蒸馏输入需 >1000 字符，fallback 摘要（首尾各 500）才比原文短
-        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("question-{i}-{}", "x".repeat(300)) }]);
+        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("question-{i}-{}", "x".repeat(300)).into() }]);
         ses::append_message(&dir, &u).unwrap();
         ses::append_message(&dir, &full_assistant(&s.id, &i.to_string())).unwrap();
     }
@@ -89,7 +89,7 @@ fn recompact_folds_prior_summary_and_advances() {
     let model = ModelRef::new("xai", "grok-build-0.1");
     let store = kxen_core::auth::credential::AuthStore::default();
     for i in 0..6 {
-        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("q{i}-{}", "y".repeat(200)) }]);
+        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("q{i}-{}", "y".repeat(200)).into() }]);
         ses::append_message(&dir, &u).unwrap();
     }
     let options = || compact::CompactSessionOptions {
@@ -105,7 +105,7 @@ fn recompact_folds_prior_summary_and_advances() {
         .map(|_| ses::load_compaction(&dir, &s.id).unwrap());
     let c1 = c1.expect("首轮应可压缩");
     for i in 6..10 {
-        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("q{i}-{}", "y".repeat(200)) }]);
+        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("q{i}-{}", "y".repeat(200)).into() }]);
         ses::append_message(&dir, &u).unwrap();
     }
     rt().block_on(compact::compact_session(&dir, &s.id, &model, &store, options()))
@@ -126,7 +126,7 @@ fn rewind_past_checkpoint_restores_full_history() {
     let dir = tmp_dir("rewind");
     let s = ses::create(&dir, "/tmp/work").unwrap();
     for i in 0..6 {
-        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("q{i}-{}", "z".repeat(200)) }]);
+        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("q{i}-{}", "z".repeat(200)).into() }]);
         ses::append_message(&dir, &u).unwrap();
     }
     let model = ModelRef::new("xai", "grok-build-0.1");
@@ -157,11 +157,11 @@ fn reopened_view_stays_below_compact_threshold() {
     // 未知模型 -> 窗口兜底 200k，触发线 160k tokens = 640k 字符
     let model = ModelRef::new("nonexistent", "ghost");
     for i in 0..4 {
-        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("big-{i}-{}", "w".repeat(300_000)) }]);
+        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("big-{i}-{}", "w".repeat(300_000)).into() }]);
         ses::append_message(&dir, &u).unwrap();
     }
     for i in 0..2 {
-        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("small-{i}") }]);
+        let u = ses::new_message(&s.id, Role::User, vec![Part::Text { text: format!("small-{i}").into() }]);
         ses::append_message(&dir, &u).unwrap();
     }
     assert!(compact::needs_compact(&to_llm(&ses::load_history(&dir, &s.id)), &model), "压缩前应触发阈值");

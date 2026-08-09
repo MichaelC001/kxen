@@ -161,13 +161,13 @@ fn iteration_parts(text: String, calls: &[ToolCall], outputs: Vec<String>) -> Ve
     use crate::core::session::Part;
     let mut parts = Vec::with_capacity(calls.len() + 1);
     if !text.is_empty() {
-        parts.push(Part::Text { text });
+        parts.push(Part::Text { text: text.into() });
     }
     for (call, output) in calls.iter().zip(outputs) {
         parts.push(Part::ToolCall {
             name: call.name.clone(),
             input: serde_json::json!(summarize_args(&call.name, &call.arguments)),
-            output,
+            output: output.into(),
             args: Some(serde_json::from_str(&call.arguments).unwrap_or_else(|_| serde_json::json!(call.arguments))),
             id: Some(call.id.clone()),
         });

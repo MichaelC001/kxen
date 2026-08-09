@@ -64,23 +64,30 @@ impl FrameDecoder {
         }
         self.buffer.extend_from_slice(chunk);
         let mut events = Vec::new();
-        while self.buffer.len() >= PRELUDE_BYTES {
-            if be_u32(&self.buffer, 8) != crc32(&self.buffer[..8]) {
+        let mut consumed = 0;
+        while self.buffer.len() - consumed >= PRELUDE_BYTES {
+            let frame = &self.buffer[consumed..];
+            if be_u32(frame, 8) != crc32(&frame[..8]) {
                 return Err("kiro eventstream prelude CRC mismatch".into());
             }
-            let total = be_u32(&self.buffer, 0) as usize;
-            let headers_len = be_u32(&self.buffer, 4) as usize;
+            let total = be_u32(frame, 0) as usize;
+            let headers_len = be_u32(frame, 4) as usize;
             if !(PRELUDE_BYTES + CRC_BYTES..=MAX_MESSAGE_BYTES).contains(&total)
                 || headers_len > MAX_HEADERS_BYTES
                 || headers_len > total - PRELUDE_BYTES - CRC_BYTES
             {
                 return Err("kiro eventstream frame bounds are invalid".into());
             }
-            if self.buffer.len() < total {
+            if frame.len() < total {
                 break;
             }
-            let frame: Vec<u8> = self.buffer.drain(..total).collect();
-            events.push(parse_frame(&frame)?);
+            events.push(parse_frame(&frame[..total])?);
+            consumed += total;
+        }
+        if consumed == self.buffer.len() {
+            self.buffer.clear();
+        } else if consumed > 0 {
+            self.buffer.drain(..consumed);
         }
         Ok(events)
     }
@@ -102,10 +109,10 @@ fn parse_frame(frame: &[u8]) -> Result<Event, String> {
     while cursor.offset < cursor.end {
         let name = cursor.read_name()?;
         let value = cursor.read_value()?;
-        match name.as_str() {
-            ":message-type" => event.message_type = value,
-            ":event-type" => event.event_type = value,
-            ":error-code" => event.error_code = value,
+        match (name, value) {
+            (":message-type", Some(value)) => event.message_type = value.to_owned(),
+            (":event-type", Some(value)) => event.event_type = value.to_owned(),
+            (":error-code", Some(value)) => event.error_code = value.to_owned(),
             _ => {}
         }
     }
@@ -124,8 +131,8 @@ struct Cursor<'a> {
     end: usize,
 }
 
-impl Cursor<'_> {
-    fn take(&mut self, count: usize) -> Result<&[u8], String> {
+impl<'a> Cursor<'a> {
+    fn take(&mut self, count: usize) -> Result<&'a [u8], String> {
         if self.offset + count > self.end {
             return Err("kiro eventstream header exceeds its declared bounds".into());
         }
@@ -134,14 +141,14 @@ impl Cursor<'_> {
         Ok(slice)
     }
 
-    fn read_name(&mut self) -> Result<String, String> {
+    fn read_name(&mut self) -> Result<&'a str, String> {
         let len = usize::from(self.take(1)?[0]);
         let bytes = self.take(len)?;
-        String::from_utf8(bytes.to_vec()).map_err(|_| "kiro eventstream header name is not UTF-8".into())
+        std::str::from_utf8(bytes).map_err(|_| "kiro eventstream header name is not UTF-8".into())
     }
 
-    /// 返回字符串值（type 7）；其余类型按长度跳过并返回空串。
-    fn read_value(&mut self) -> Result<String, String> {
+    /// 返回字符串值（type 7）；其余类型按长度跳过。
+    fn read_value(&mut self) -> Result<Option<&'a str>, String> {
         let kind = self.take(1)?[0];
         let fixed = match kind {
             0 | 1 => 0,          // bool true/false
@@ -155,14 +162,14 @@ impl Cursor<'_> {
         };
         if fixed != usize::MAX {
             self.take(fixed)?;
-            return Ok(String::new());
+            return Ok(None);
         }
         let len = u16::from_be_bytes(self.take(2)?.try_into().expect("u16 slice")) as usize;
         let bytes = self.take(len)?;
         if kind == 7 {
-            String::from_utf8(bytes.to_vec()).map_err(|_| "kiro eventstream header value is not UTF-8".into())
+            std::str::from_utf8(bytes).map(Some).map_err(|_| "kiro eventstream header value is not UTF-8".into())
         } else {
-            Ok(String::new())
+            Ok(None)
         }
     }
 }

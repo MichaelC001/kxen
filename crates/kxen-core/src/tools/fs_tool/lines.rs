@@ -37,16 +37,23 @@ pub(crate) fn join_preserving_crlf(lines: &[String], crlf: &[bool], trailing_new
 }
 
 /// 简单 diff：首个不同行起的 before/after（最多各 5 行）。
-pub(crate) fn simple_diff(before: &[String], after: &[String]) -> String {
+pub(crate) fn simple_diff(before: &str, after: &str) -> String {
     let mut out = String::new();
-    let common = before.iter().zip(after.iter()).take_while(|(a, b)| a == b).count();
-    let before_tail = before.iter().skip(common).take(5);
-    let after_tail = after.iter().skip(common).take(5);
-    for line in before_tail {
-        out.push_str(&format!("- {line}\n"));
+    let mut before = before.lines().peekable();
+    let mut after = after.lines().peekable();
+    while before.peek().copied().zip(after.peek().copied()).is_some_and(|(left, right)| left == right) {
+        before.next();
+        after.next();
     }
-    for line in after_tail {
-        out.push_str(&format!("+ {line}\n"));
+    for line in before.take(5) {
+        out.push_str("- ");
+        out.push_str(line);
+        out.push('\n');
+    }
+    for line in after.take(5) {
+        out.push_str("+ ");
+        out.push_str(line);
+        out.push('\n');
     }
     out
 }

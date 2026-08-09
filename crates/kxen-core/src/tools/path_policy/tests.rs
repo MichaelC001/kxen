@@ -43,3 +43,23 @@ fn picker_grants_file_or_directory_but_never_credentials() {
     std::fs::remove_dir_all(&work).ok();
     std::fs::remove_dir_all(&outside).ok();
 }
+
+#[cfg(unix)]
+#[test]
+fn sensitive_symlink_target_is_resolved_on_every_check() {
+    let base = workspace("sensitive-link");
+    let first = base.join("first");
+    let second = base.join("second");
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    let root = base.join("protected");
+    std::os::unix::fs::symlink(&first, &root).unwrap();
+    let first_candidate = canonicalize_lenient(&first.join("secret")).unwrap();
+    assert!(sensitive_root_matches_in(&first_candidate, std::slice::from_ref(&root)));
+
+    std::fs::remove_file(&root).unwrap();
+    std::os::unix::fs::symlink(&second, &root).unwrap();
+    let second_candidate = canonicalize_lenient(&second.join("secret")).unwrap();
+    assert!(sensitive_root_matches_in(&second_candidate, std::slice::from_ref(&root)));
+    std::fs::remove_dir_all(base).ok();
+}

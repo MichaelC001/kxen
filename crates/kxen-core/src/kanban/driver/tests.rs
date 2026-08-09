@@ -79,7 +79,7 @@ pub(crate) fn deps(workspace: &Path, stream: crate::llm::StreamFn) -> DriverDeps
     DriverDeps {
         registry: Arc::new(crate::tools::task::TaskRegistry::new()),
         workdir: Arc::from(workspace),
-        store: crate::auth::credential::AuthStore::default(),
+        store: Arc::new(crate::auth::credential::AuthStore::default()),
         mrm: Arc::new(crate::llm::mrm::ModelResourceManager::new(config)),
         hooks: None,
         bus: crate::core::event::EventBus::default(),

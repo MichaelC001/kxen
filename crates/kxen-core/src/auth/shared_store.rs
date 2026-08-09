@@ -3,17 +3,19 @@
 //! 各克隆点在下一轮/次 run/次 dispatch 重新克隆时立即拿到新凭证。
 //! 与 RECENT 互补：RECENT 管 in-flight run 间的采用去重，本表管共享位置的即时收敛。
 
-use crate::auth::credential::{AuthStore, CredentialKind};
+use crate::auth::credential::{AuthStore, CredentialKind, SharedAuthStore};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-static SHARED: OnceLock<Mutex<Vec<Weak<Mutex<AuthStore>>>>> = OnceLock::new();
+type SharedStoreWeak = Weak<Mutex<Arc<AuthStore>>>;
 
-fn shared() -> &'static Mutex<Vec<Weak<Mutex<AuthStore>>>> {
+static SHARED: OnceLock<Mutex<Vec<SharedStoreWeak>>> = OnceLock::new();
+
+fn shared() -> &'static Mutex<Vec<SharedStoreWeak>> {
     SHARED.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 /// 登记共享 store（进程启动时一次；Weak 持有，句柄销毁后自动失效不泄漏）。
-pub fn register_shared_store(store: &Arc<Mutex<AuthStore>>) {
+pub fn register_shared_store(store: &SharedAuthStore) {
     crate::core::shared::lock(shared()).push(Arc::downgrade(store));
 }
 
@@ -22,7 +24,7 @@ pub fn propagate(key: &str, cred: &CredentialKind) {
     let mut stores = crate::core::shared::lock(shared());
     stores.retain(|w| w.strong_count() > 0);
     for store in stores.iter().filter_map(Weak::upgrade) {
-        crate::core::shared::lock(&store).insert(key.to_string(), cred.clone());
+        Arc::make_mut(&mut crate::core::shared::lock(&store)).insert(key.to_string(), cred.clone());
     }
 }
 
@@ -32,11 +34,12 @@ mod tests {
 
     #[test]
     fn propagate_writes_registered_stores_only() {
-        let registered = Arc::new(Mutex::new(AuthStore::default()));
-        registered.lock().expect("store").insert("other".into(), CredentialKind::Api { key: "keep".into(), region: None });
+        let registered = Arc::new(Mutex::new(Arc::new(AuthStore::default())));
+        Arc::make_mut(&mut registered.lock().expect("store"))
+            .insert("other".into(), CredentialKind::Api { key: "keep".into(), region: None });
         register_shared_store(&registered);
         // 已销毁的句柄：Weak 失效，回写跳过不炸（同一 propagate 调用内被 retain 清掉）
-        let dead = Arc::new(Mutex::new(AuthStore::default()));
+        let dead = Arc::new(Mutex::new(Arc::new(AuthStore::default())));
         register_shared_store(&dead);
         drop(dead);
 

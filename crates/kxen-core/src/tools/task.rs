@@ -58,6 +58,8 @@ pub struct TaskHandle {
     pub command: SharedStr,
     pub workdir: SharedStr,
     pub output: Arc<Mutex<String>>,
+    /// 输出泵每次 append 后递增，readiness 只扫描新增尾部，不轮询复制整个 64KB buffer。
+    pub output_revision: Arc<std::sync::atomic::AtomicU64>,
     pub truncated: Arc<Mutex<bool>>,
     pub started_at: u64,
     pub pid: Option<u32>,
@@ -193,9 +195,15 @@ impl TaskRegistry {
 
     pub fn list(&self, owner: &TaskOwner) -> Vec<TaskInfo> {
         let now = now_ms();
-        lock(&self.tasks)
-            .values()
-            .filter(|task| task.owner == *owner)
+        // 先复制 Arc 并释放 registry 锁，再逐任务取 output/port 锁，避免锁嵌套阻塞注册和退出 watcher。
+        let tasks = {
+            let registry = lock(&self.tasks);
+            let mut tasks = Vec::with_capacity(registry.len());
+            tasks.extend(registry.values().filter(|task| task.owner == *owner).cloned());
+            tasks
+        };
+        tasks
+            .into_iter()
             .map(|t| TaskInfo {
                 id: t.id.clone(),
                 command: t.command.clone(),
@@ -241,9 +249,7 @@ impl TaskRegistry {
             let mut closed = lock(&self.closed_sessions);
             closed.insert(session_id.to_string());
             let mut tasks = lock(&self.tasks);
-            let ids: Vec<String> =
-                tasks.iter().filter(|(_, task)| task.owner.session_id.as_ref() == session_id).map(|(id, _)| id.clone()).collect();
-            ids.into_iter().filter_map(|id| tasks.remove(&id)).collect::<Vec<_>>()
+            tasks.extract_if(|_, task| task.owner.session_id.as_ref() == session_id).map(|(_, task)| task).collect::<Vec<_>>()
         };
         let count = owned.len();
         futures::future::join_all(owned.into_iter().map(|task| self.terminate(task))).await;

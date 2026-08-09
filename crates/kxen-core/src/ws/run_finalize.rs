@@ -109,7 +109,7 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
     }
 
     // transcript 只含 Reasoning；tool 交互已逐迭代落盘（persist_turn），finalize 只组最终消息。
-    let transcript_parts = kxen_core::core::shared::lock(&transcript).clone();
+    let transcript_parts = std::mem::take(&mut *kxen_core::core::shared::lock(&transcript));
     let parts = terminal::assemble_parts(transcript_parts, outcome.final_text, outcome.aborted, iterations_persisted > 0);
     let mut assistant_msg = ses::new_message(&session_id, ses::Role::Assistant, parts);
     assistant_msg.model = outcome.provider_model.clone();

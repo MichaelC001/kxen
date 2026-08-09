@@ -2,7 +2,6 @@
 
 use crate::core::shared::SharedStr;
 use crate::llm::sse::{Projection, SseFrame};
-use crate::llm::tool::ToolDefinition;
 use crate::llm::types::{Delta, Message};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -34,26 +33,33 @@ struct StreamOptions {
 /// wire 消息：content 无图片纯字符串，有图片走 image_url/text 块数组。
 #[derive(Serialize)]
 struct WireMessage<'a> {
-    role: &'a str,
-    content: serde_json::Value,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    tool_calls: &'a Vec<crate::llm::types::AssistantToolCall>,
+    role: &'static str,
+    content: WireContent<'a>,
+    #[serde(skip_serializing_if = "<[crate::llm::types::AssistantToolCall]>::is_empty")]
+    tool_calls: &'a [crate::llm::types::AssistantToolCall],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<&'a str>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     name: Option<&'a str>,
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
+enum WireContent<'a> {
+    Text(&'a str),
+    Blocks(Vec<serde_json::Value>),
+}
+
 fn wire_message(m: &Message) -> WireMessage<'_> {
     let content = if m.images.is_empty() {
-        serde_json::Value::String(m.content.clone())
+        WireContent::Text(&m.content)
     } else {
         let mut blocks: Vec<serde_json::Value> =
             m.images.iter().map(|img| serde_json::json!({ "type": "image_url", "image_url": { "url": img.data_url() } })).collect();
         if !m.content.is_empty() {
             blocks.push(serde_json::json!({ "type": "text", "text": m.content }));
         }
-        serde_json::Value::Array(blocks)
+        WireContent::Blocks(blocks)
     };
     WireMessage {
         role: match m.role {
@@ -114,33 +120,20 @@ impl XaiProvider {
         messages: &[Message],
         tools: &[crate::llm::tool::ToolDefinition],
     ) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
-        let tools_owned: Option<Vec<ToolDefinition>> = if tools.is_empty() { None } else { Some(tools.to_vec()) };
-        let bearer = self.bearer.clone();
-        let error_bearer = bearer.clone();
-        let model = model.to_string();
-        let messages = messages.to_vec();
-        let http = self.http.clone();
-
-        let self_url = self.url.clone();
-        let extra_headers = self.extra_headers.clone();
-        let start = async move {
-            let tools_opt = tools_owned.as_deref();
-            let wire: Vec<WireMessage> = messages.iter().map(wire_message).collect();
-            let mut request = http.post(self_url.as_ref()).bearer_auth(bearer);
-            for (key, value) in &extra_headers {
-                request = request.header(key, value);
-            }
-            request
-                .json(&ChatRequest {
-                    model: &model,
-                    messages: wire,
-                    stream: true,
-                    stream_options: StreamOptions { include_usage: true },
-                    tools: tools_opt,
-                })
-                .send()
-                .await
-        };
+        let error_bearer = self.bearer.clone();
+        let wire: Vec<WireMessage<'_>> = messages.iter().map(wire_message).collect();
+        let mut request = self.http.post(self.url.as_ref()).bearer_auth(self.bearer.as_ref());
+        for (key, value) in &self.extra_headers {
+            request = request.header(key, value);
+        }
+        let request = request.json(&ChatRequest {
+            model,
+            messages: wire,
+            stream: true,
+            stream_options: StreamOptions { include_usage: true },
+            tools: (!tools.is_empty()).then_some(tools),
+        });
+        let start = async move { request.send().await };
 
         Box::pin(futures::stream::once(start).flat_map(move |result| match result {
             Ok(resp) if resp.status().is_success() => stream_sse(resp),

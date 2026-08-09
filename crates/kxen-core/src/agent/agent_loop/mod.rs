@@ -18,6 +18,7 @@ mod run_setup;
 mod run_stream;
 mod run_terminal;
 mod task_tool;
+mod tool_search;
 mod usage;
 mod websearch_tool;
 

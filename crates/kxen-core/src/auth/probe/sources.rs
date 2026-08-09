@@ -144,16 +144,16 @@ pub(super) fn probe_grok() -> Option<CredentialKind> {
     let file = home()?.join(".grok/auth.json");
     let raw = read_credential_file(&file)?;
     let map: std::collections::HashMap<String, GrokEntry> = serde_json::from_str(&raw).ok()?;
-    let mut best: Option<(String, String, u64)> = None;
+    let mut best: Option<(&str, &str, u64)> = None;
     for entry in map.values() {
-        let Some(key) = entry.key.clone() else { continue };
+        let Some(key) = entry.key.as_deref() else { continue };
         let expires = parse_expires(entry.expires_at.as_ref());
         if best.as_ref().is_none_or(|(_, _, e)| expires > *e) {
-            best = Some((key, entry.refresh_token.clone().unwrap_or_default(), expires));
+            best = Some((key, entry.refresh_token.as_deref().unwrap_or_default(), expires));
         }
     }
     let (key, refresh, expires) = best?;
-    Some(CredentialKind::Oauth { access: key, refresh, expires, account_id: None })
+    Some(CredentialKind::Oauth { access: key.to_string(), refresh: refresh.to_string(), expires, account_id: None })
 }
 
 fn parse_expires(value: Option<&serde_json::Value>) -> u64 {

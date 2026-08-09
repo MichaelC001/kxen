@@ -16,7 +16,7 @@ pub(super) fn fingerprint(config: &StdioConfig, cwd: &str) -> String {
         "env": env,
     });
     let digest = Sha256::digest(serde_json::to_vec(&material).expect("stdio approval fingerprint JSON"));
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    crate::core::shared::hex_lower(&digest)
 }
 
 pub(super) fn visible_env(env: &HashMap<String, String>) -> Value {
@@ -28,7 +28,7 @@ pub(super) fn visible_env(env: &HashMap<String, String>) -> Value {
             let digest = Sha256::digest(value.as_bytes());
             serde_json::json!({
                 "redacted": true,
-                "sha256": digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
+                "sha256": crate::core::shared::hex_lower(&digest),
             })
         } else {
             Value::String(value.clone())

@@ -238,21 +238,20 @@ pub fn drain_due(now: u64) -> Result<Vec<CronJob>, String> {
     ensure_loaded()?;
     let mut jobs = crate::core::shared::lock(&JOBS);
     ensure_store_available()?;
-    let original = jobs.clone();
+    let changed = jobs.iter().any(|job| job.enabled && job.next_fire <= now && job.dispatch_id.is_none());
+    let original = changed.then(|| jobs.clone());
     let mut due = Vec::new();
-    let mut changed = false;
     let mut i = 0;
     while i < jobs.len() {
         if jobs[i].enabled && (jobs[i].next_fire <= now || jobs[i].dispatch_id.is_some()) {
             if jobs[i].dispatch_id.is_none() {
                 jobs[i].dispatch_id = Some(crate::core::ids::new_id("queue"));
-                changed = true;
             }
             due.push(jobs[i].clone());
         }
         i += 1;
     }
-    if changed {
+    if let Some(original) = original {
         commit_mutation(&mut jobs, original)?;
     }
     Ok(due)

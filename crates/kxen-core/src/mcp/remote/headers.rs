@@ -5,10 +5,10 @@ use std::collections::HashMap;
 pub(crate) fn validate_headers(headers: &HashMap<String, String>) -> Result<Vec<(String, String)>, String> {
     let mut output = Vec::new();
     for (name, value) in headers {
-        if matches!(
-            name.to_ascii_lowercase().as_str(),
-            "accept" | "content-type" | "content-length" | "host" | "connection" | "transfer-encoding" | "mcp-session-id"
-        ) {
+        if ["accept", "content-type", "content-length", "host", "connection", "transfer-encoding", "mcp-session-id"]
+            .iter()
+            .any(|reserved| name.eq_ignore_ascii_case(reserved))
+        {
             return Err(format!("reserved MCP transport header cannot be configured: {name}"));
         }
         reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|error| format!("invalid mcp header name {name}: {error}"))?;

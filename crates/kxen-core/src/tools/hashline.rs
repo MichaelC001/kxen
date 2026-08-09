@@ -2,6 +2,7 @@
 //! 单点编辑只使所在 chunk 的锚点失效，其余 chunk 的锚点保持稳定。
 
 use std::collections::hash_map::DefaultHasher;
+use std::fmt::Write as _;
 use std::hash::{Hash, Hasher};
 
 const CHUNK_SIZE: usize = 32;
@@ -33,17 +34,22 @@ fn chunk_fingerprint(lines: &[&str], chunk_idx: usize) -> u64 {
     h.finish()
 }
 
+fn chunk_fingerprints(lines: &[&str]) -> Vec<u64> {
+    lines.chunks(CHUNK_SIZE).map(|chunk| chunk_fingerprint(chunk, 0)).collect()
+}
+
 fn hex4(value: u64) -> String {
     format!("{:04x}", value & 0xFFFF)
 }
 
 pub fn generate_anchors(lines: &[&str]) -> Vec<Anchor> {
+    let fingerprints = chunk_fingerprints(lines);
     lines
         .iter()
         .enumerate()
         .map(|(i, line)| {
             let chunk_idx = i / CHUNK_SIZE;
-            let mixed = line_hash(line) ^ chunk_fingerprint(lines, chunk_idx).rotate_left(17);
+            let mixed = line_hash(line) ^ fingerprints[chunk_idx].rotate_left(17);
             Anchor { line: i + 1, hash: hex4(mixed) }
         })
         .collect()
@@ -52,24 +58,32 @@ pub fn generate_anchors(lines: &[&str]) -> Vec<Anchor> {
 /// read 分页输出：锚点基于 anchor_src 全文计算（与 edit 侧 generate_anchors 一致），
 /// 仅渲染 display 的 [start, end) 窗口（0 基）。anchor_src 与 display 等长；
 /// 分页若按窗口局部算锚点，行号与 chunk 指纹全错位，锚点编辑会全废。
-pub fn render_anchored_window(anchor_src: &[&str], display: &[String], start: usize, end: usize) -> String {
-    let anchors = generate_anchors(anchor_src);
-    (start..end.min(display.len()))
-        .map(|i| format!("{:>5}#{}  {}", anchors[i].line, anchors[i].hash, display[i]))
-        .collect::<Vec<_>>()
-        .join("\n")
+pub fn render_anchored_window(anchor_src: &[&str], display: impl IntoIterator<Item = String>, start: usize, end: usize) -> String {
+    let fingerprints = chunk_fingerprints(anchor_src);
+    let end = end.min(anchor_src.len());
+    let mut out = String::new();
+    for (display_index, (line_index, display)) in (start..end).zip(display).enumerate() {
+        let mixed = line_hash(anchor_src[line_index]) ^ fingerprints[line_index / CHUNK_SIZE].rotate_left(17);
+        if display_index > 0 {
+            out.push('\n');
+        }
+        write!(out, "{:>5}#{:04x}  {display}", line_index + 1, mixed & 0xFFFF).expect("writing to String cannot fail");
+    }
+    out
 }
 
 /// read 输出：锚点前缀行（`  42#a3f9  content`）。
 pub fn render_anchored(content: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
     let anchors = generate_anchors(&lines);
-    lines
-        .iter()
-        .zip(anchors.iter())
-        .map(|(line, anchor)| format!("{:>5}#{}  {}", anchor.line, anchor.hash, line))
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut out = String::new();
+    for (index, (line, anchor)) in lines.iter().zip(&anchors).enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        write!(out, "{:>5}#{}  {}", anchor.line, anchor.hash, line).expect("writing to String cannot fail");
+    }
+    out
 }
 
 #[cfg(test)]

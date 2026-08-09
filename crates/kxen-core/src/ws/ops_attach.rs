@@ -10,8 +10,9 @@ pub(super) fn fs_allow_path(params: &Value, state: &crate::AppState) -> Result<V
     let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
     let canon = std::fs::canonicalize(path).map_err(|e| format!("canonicalize {path}: {e}"))?;
     let runtime = state.runtime_for_session(session_id)?;
-    let grants = HashSet::from([canon.clone()]);
-    let resolved = kxen_core::tools::path_policy::resolve(&canon.to_string_lossy(), runtime.root(), &grants)?.into_path_buf();
+    let grants = HashSet::from([canon]);
+    let granted = grants.iter().next().expect("singleton path grant");
+    let resolved = kxen_core::tools::path_policy::resolve(&granted.to_string_lossy(), runtime.root(), &grants)?.into_path_buf();
     let rel = kxen_core::core::attachment::rel_in_workspace(&resolved, runtime.root());
     state.picked_files.allow(session_id, resolved.clone());
     Ok(json!({ "path": resolved.to_string_lossy(), "rel": rel }))

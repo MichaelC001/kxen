@@ -89,20 +89,17 @@ impl LlmClient {
         tools: &[crate::llm::tool::ToolDefinition],
         store: &crate::auth::credential::AuthStore,
     ) -> Pin<Box<dyn Stream<Item = Delta> + Send>> {
-        let provider = model.provider.clone();
-        let flavor = crate::llm::gemini::Flavor::for_provider(&provider);
-        let cred = crate::auth::credential::credential_for(store, &provider, model.account.as_deref()).cloned();
-        let model_name = model.model.clone();
-        let messages_owned = messages.to_vec();
-        let tools_owned = tools.to_vec();
+        let provider = if model.provider == "google-antigravity" { "google-antigravity" } else { "google-oauth" };
+        let flavor = crate::llm::gemini::Flavor::for_provider(provider);
+        let token =
+            crate::auth::credential::credential_for(store, provider, model.account.as_deref()).map(|cred| cred.bearer().to_string());
+        let mut body = crate::llm::gemini::GeminiProvider::request_template(&model.model, messages, tools);
         let start = async move {
-            let Some(cred) = cred else { return Err(format!("{provider} credential missing (run doctor)")) };
-            let token = cred.bearer().to_string();
+            let Some(token) = token else { return Err(format!("{provider} credential missing (run doctor)")) };
             let http = shared_http();
             let project = crate::llm::gemini::discover_project(&http, crate::llm::gemini::DEFAULT_BASE, &token, flavor).await?;
-            Ok(crate::llm::gemini::GeminiProvider::new(crate::llm::gemini::DEFAULT_BASE.to_string(), token, project)
-                .with_flavor(flavor)
-                .stream_chat_with_tools(&model_name, &messages_owned, &tools_owned))
+            body["project"] = serde_json::Value::String(project);
+            Ok(crate::llm::gemini::GeminiProvider::stream_prebuilt(crate::llm::gemini::DEFAULT_BASE, token, flavor, body))
         };
         Box::pin(futures::stream::once(start).flat_map(|result: Result<Pin<Box<dyn Stream<Item = Delta> + Send>>, String>| match result {
             Ok(stream) => stream,
@@ -310,7 +307,7 @@ mod account_tests;
 
 /// 单行化：换行折成空格，错误串保持一行可落日志/状态栏。
 fn one_line(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+    crate::core::shared::normalize_whitespace(s)
 }
 
 fn truncate(s: &str, max: usize) -> &str {

@@ -104,19 +104,22 @@ pub fn read(path: &Path, tracker: &FileTracker, cwd: &str, offset: Option<usize>
     let start_idx = (start - 1).min(total);
     let end_idx = (start_idx + limit).min(total);
     // 展示行做字符截断，锚点 hash 用原始行：截断后的行也能被锚点编辑命中
-    let display: Vec<String> = all
-        .iter()
-        .map(|l| {
-            if l.chars().count() > READ_MAX_LINE_CHARS {
-                l.chars().take(READ_MAX_LINE_CHARS).collect::<String>() + "…"
-            } else {
-                l.to_string()
-            }
-        })
-        .collect();
-    let content = render_anchored_window(&all, &display, start_idx, end_idx);
+    let display = all[start_idx..end_idx].iter().map(|line| display_line(line));
+    let content = render_anchored_window(&all, display, start_idx, end_idx);
 
     Ok(ReadResult { content, total_lines: total, start_line: start, end_line: end_idx, truncated: end_idx < total })
+}
+
+fn display_line(line: &str) -> String {
+    if line.len() <= READ_MAX_LINE_CHARS {
+        return line.to_string();
+    }
+    let mut chars = line.chars();
+    let mut display: String = chars.by_ref().take(READ_MAX_LINE_CHARS).collect();
+    if chars.next().is_some() {
+        display.push('…');
+    }
+    display
 }
 
 // ---------------- edit ----------------
@@ -149,12 +152,10 @@ pub fn edit(path: &Path, spec: &EditSpec, tracker: &FileTracker, cwd: &str) -> R
         return Err(FsToolError::ExternallyModified { path: path.display().to_string() });
     }
     let text = read_capped(path)?;
-    // 按行记录原行尾：lines() 吞掉 \r，join("\n") 会把 CRLF 文件静默转成 LF
-    let (mut lines, crlf) = split_preserving_crlf(&text);
-
-    let before_lines: Vec<String> = text.lines().map(String::from).collect();
     let (applied, out) = match spec {
         EditSpec::Anchors { edits } => {
+            // 按行记录原行尾：lines() 吞掉 \r，join("\n") 会把 CRLF 文件静默转成 LF
+            let (mut lines, crlf) = split_preserving_crlf(&text);
             let applied = apply_anchor_edits(&text, &mut lines, edits, path)?;
             (applied, join_preserving_crlf(&lines, &crlf, text.ends_with('\n')))
         }
@@ -169,11 +170,10 @@ pub fn edit(path: &Path, spec: &EditSpec, tracker: &FileTracker, cwd: &str) -> R
             }
             // replacen 在原文上进行，未触及区域的行尾原样保留
             let replaced = text.replacen(old_string, new_string, expected);
-            lines = replaced.lines().map(String::from).collect();
             (expected, replaced)
         }
     };
-    let diff = simple_diff(&before_lines, &lines);
+    let diff = simple_diff(&text, &out);
 
     tracker.snapshots.record_before(path)?;
     std::fs::write(path, &out)?;
@@ -231,10 +231,19 @@ fn find_shifted(anchors: &[Anchor], lines: &[&str], line_no: usize, expected_has
 }
 
 fn fresh_around(lines: &[&str], line_no: usize, radius: usize) -> String {
+    use std::fmt::Write as _;
+
     let anchors = generate_anchors(lines);
     let start = line_no.saturating_sub(radius + 1);
     let end = line_no.saturating_add(radius).min(lines.len());
-    (start..end).map(|i| format!("{}#{}  {}", anchors[i].line, anchors[i].hash, lines[i])).collect::<Vec<_>>().join("\n")
+    let mut output = String::new();
+    for index in start..end {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        write!(output, "{}#{}  {}", anchors[index].line, anchors[index].hash, lines[index]).expect("writing to String cannot fail");
+    }
+    output
 }
 
 // ---------------- write / delete ----------------

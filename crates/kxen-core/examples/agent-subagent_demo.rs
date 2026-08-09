@@ -26,7 +26,7 @@ async fn main() {
         workdir: Arc::from(workdir.as_path()),
         path_grants: Arc::new(Default::default()),
         model: ModelRef::new("xai", "grok-build-0.1"),
-        store,
+        store: store.into(),
         max_turns: 8,
         mrm: Some(mrm),
         allowed_tools: None,

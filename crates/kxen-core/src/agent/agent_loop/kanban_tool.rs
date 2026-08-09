@@ -5,6 +5,7 @@
 
 use serde::Deserialize;
 use serde_json::Value;
+use std::fmt::Write as _;
 
 use super::context::AgentContext;
 use crate::core::ids;
@@ -98,13 +99,18 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
             let event = apply(&mut board, KanbanCommand::BoardCreate { title: parsed.title, columns: parsed.columns })?;
             publish(ctx, &board_id);
             let state = board.state();
-            let columns =
-                state.columns.iter().map(|column| format!("{} ({})", column.id, kind_name(column.on_enter.kind))).collect::<Vec<_>>();
+            let mut columns = String::new();
+            for (index, column) in state.columns.iter().enumerate() {
+                if index != 0 {
+                    columns.push_str(", ");
+                }
+                write!(&mut columns, "{} ({})", column.id, kind_name(column.on_enter.kind)).expect("writing to String cannot fail");
+            }
             Ok(format!(
                 "board created: {board_id} ({})\ntitle: {}\ncolumns: {}",
                 landed(&event),
                 state.title.as_deref().unwrap_or_default(),
-                columns.join(", ")
+                columns
             ))
         }
         "kanban_column_add" => {
@@ -222,8 +228,8 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
     }
 }
 
-fn parse_args<T: serde::de::DeserializeOwned>(name: &str, args: &Value) -> Result<T, String> {
-    serde_json::from_value(args.clone()).map_err(|error| format!("invalid arguments for tool {name}: {error}"))
+fn parse_args<'de, T: Deserialize<'de>>(name: &str, args: &'de Value) -> Result<T, String> {
+    T::deserialize(args).map_err(|error| format!("invalid arguments for tool {name}: {error}"))
 }
 
 fn open(workspace: &std::path::Path, board_id: &str) -> Result<Board, String> {
@@ -269,16 +275,24 @@ fn show_board(state: &BoardState) -> String {
     let mut out = format!("board {} {:?} seq={}\n", state.board_id, state.title.as_deref().unwrap_or_default(), state.seq);
     out.push_str("columns:\n");
     for column in &state.columns {
-        let cards: Vec<_> = state.cards.values().filter(|card| card.column_id == column.id).collect();
+        let cards = state.cards.values().filter(|card| card.column_id == column.id);
+        let card_count = cards.clone().count();
         let wip = match column.wip_limit {
-            Some(limit) => format!("{}/{}", cards.len(), limit),
-            None => cards.len().to_string(),
+            Some(limit) => format!("{card_count}/{limit}"),
+            None => card_count.to_string(),
         };
-        out.push_str(&format!("- {} {:?} on_enter={} wip={}\n", column.id, column.title, kind_name(column.on_enter.kind), wip));
+        writeln!(&mut out, "- {} {:?} on_enter={} wip={}", column.id, column.title, kind_name(column.on_enter.kind), wip)
+            .expect("writing to String cannot fail");
         for card in cards {
-            let run = card.current_run.as_deref().map(|run| format!(" run={run}")).unwrap_or_default();
-            let blocked = card.block_reason.as_deref().map(|reason| format!(" blocked: {reason}")).unwrap_or_default();
-            out.push_str(&format!("  * {} {:?} status={}{}{}\n", card.id, card.title, status_name(card.status), run, blocked));
+            write!(&mut out, "  * {} {:?} status={}", card.id, card.title, status_name(card.status))
+                .expect("writing to String cannot fail");
+            if let Some(run) = &card.current_run {
+                write!(&mut out, " run={run}").expect("writing to String cannot fail");
+            }
+            if let Some(reason) = &card.block_reason {
+                write!(&mut out, " blocked: {reason}").expect("writing to String cannot fail");
+            }
+            out.push('\n');
         }
     }
     out.push_str("runs:\n");
@@ -292,27 +306,37 @@ fn show_board(state: &BoardState) -> String {
             Some(Outcome::Timeout) => "timeout",
             None => "open",
         };
-        out.push_str(&format!("- {} card={} column={} attempt={} outcome={}\n", run.id, run.card_id, run.column_id, run.attempt, outcome));
+        writeln!(&mut out, "- {} card={} column={} attempt={} outcome={}", run.id, run.card_id, run.column_id, run.attempt, outcome)
+            .expect("writing to String cannot fail");
     }
     out.push_str("agents:\n");
     if state.agents.is_empty() {
         out.push_str("- none\n");
     }
     for agent in state.agents.values() {
-        out.push_str(&format!("- {} role={} model={} profile={}\n", agent.name, agent.role, agent.model, agent.permission_profile));
+        writeln!(&mut out, "- {} role={} model={} profile={}", agent.name, agent.role, agent.model, agent.permission_profile)
+            .expect("writing to String cannot fail");
     }
     out.push_str("policy:\n");
     match &state.policy {
         None => out.push_str("- none\n"),
-        Some(policy) => out.push_str(&format!(
-            "- allowlist={} used={} max_uses={} expires_at_ms={}\n",
-            policy.spec.allowlist.len(),
-            policy.used,
-            policy.spec.max_uses.map(|max| max.to_string()).unwrap_or_else(|| "none".into()),
-            policy.spec.expires_at_ms.map(|expires| expires.to_string()).unwrap_or_else(|| "none".into()),
-        )),
+        Some(policy) => {
+            write!(&mut out, "- allowlist={} used={} max_uses=", policy.spec.allowlist.len(), policy.used)
+                .expect("writing to String cannot fail");
+            match policy.spec.max_uses {
+                Some(max) => write!(&mut out, "{max}").expect("writing to String cannot fail"),
+                None => out.push_str("none"),
+            }
+            out.push_str(" expires_at_ms=");
+            match policy.spec.expires_at_ms {
+                Some(expires) => write!(&mut out, "{expires}").expect("writing to String cannot fail"),
+                None => out.push_str("none"),
+            }
+            out.push('\n');
+        }
     }
-    out.trim_end().to_string()
+    out.truncate(out.trim_end().len());
+    out
 }
 
 #[cfg(test)]

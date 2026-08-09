@@ -60,9 +60,14 @@ fn strip_html(html: &str) -> String {
     let no_tags = RE_TAG.replace_all(&blocked, " ");
     let mut out = String::with_capacity(no_tags.len().min(MAX_CHARS));
     for line in no_tags.lines() {
-        let trimmed = line.split_whitespace().collect::<Vec<_>>().join(" ");
-        if !trimmed.is_empty() {
-            out.push_str(&trimmed);
+        let start = out.len();
+        for word in line.split_whitespace() {
+            if out.len() > start {
+                out.push(' ');
+            }
+            out.push_str(word);
+        }
+        if out.len() > start {
             out.push('\n');
         }
         if out.len() >= MAX_CHARS {

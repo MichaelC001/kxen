@@ -149,9 +149,10 @@ pub fn to_markdown(definition: &AgentDefinition) -> String {
 /// 写定义文件（原子写）：未来 P2b 的 kanban_agent_create 与测试共用此收口，不经第二路径。
 pub fn save(workspace: &Path, definition: &AgentDefinition) -> Result<(), KanbanError> {
     // 与 parse 同一套校验：写路径不得比读路径宽，否则垃圾定义能落盘但加载即拒
-    parse(&to_markdown(definition))?;
+    let markdown = to_markdown(definition);
+    parse(&markdown)?;
     let path = agents_dir(workspace).join(format!("{}.md", definition.name));
-    storage::write_atomic(&path, to_markdown(definition).as_bytes()).map_err(|failure| KanbanError::Log(failure.to_string()))
+    storage::write_atomic(&path, markdown.as_bytes()).map_err(|failure| KanbanError::Log(failure.to_string()))
 }
 
 pub fn load(workspace: &Path, name: &str) -> Result<AgentDefinition, KanbanError> {

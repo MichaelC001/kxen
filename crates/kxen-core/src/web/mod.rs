@@ -104,7 +104,7 @@ async fn ws_handshake(State(ctx): State<WebContext>, headers: HeaderMap, RawQuer
     if !guard::handshake_allowed(query.as_deref(), origin, host, &ctx.state.ws_token, &ctx.bind_host, &ctx.extra_hosts) {
         return (StatusCode::FORBIDDEN, "ws handshake rejected: bad token, origin or host").into_response();
     }
-    let state = ctx.state.clone();
+    let state = ctx.state;
     ws.on_upgrade(move |socket| drive(socket, state))
 }
 

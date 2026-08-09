@@ -131,7 +131,7 @@ fn policy_spec(max_uses: Option<u32>) -> crate::kanban::model::PolicySpec {
 
 #[test]
 fn policy_events_project_active_policy() {
-    let events = vec![
+    let mut events = vec![
         event(1, EventKind::BoardCreate(BoardCreatePayload { title: "看板".into(), columns: default_template() })),
         event(2, EventKind::PolicySet(PolicySetPayload { policy: policy_spec(Some(3)) })),
         event(3, EventKind::AutoApproved(AutoApprovedPayload { run_id: "r1".into(), command: "cargo test".into() })),
@@ -142,9 +142,8 @@ fn policy_events_project_active_policy() {
     assert_eq!(policy.used, 2);
     assert_eq!(policy.spec.max_uses, Some(3));
     // 重设即重置计数（显式续期语义）
-    let mut renewed = events.clone();
-    renewed.push(event(5, EventKind::PolicySet(PolicySetPayload { policy: policy_spec(None) })));
-    let state = replay("board_t", &renewed).unwrap();
+    events.push(event(5, EventKind::PolicySet(PolicySetPayload { policy: policy_spec(None) })));
+    let state = replay("board_t", &events).unwrap();
     assert_eq!(state.policy.as_ref().unwrap().used, 0);
 }
 

@@ -2,6 +2,7 @@
 //! worktree 放 `<repo>/.kxen/worktrees/<name>`（自动把 .kxen/ 写进 .gitignore），分支 `kxen/<name>`。
 
 use serde_json::Value;
+use std::fmt::Write as _;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -78,15 +79,17 @@ pub async fn remove_with_approval(
 
     if (dirty || delete_branch) && !confirmed {
         let mut command = format!("git worktree remove {name}");
-        let mut reasons: Vec<String> = Vec::new();
+        let mut reason = String::new();
         if dirty {
-            reasons.push(format!("worktree {name} 有 {dirty_count} 个文件未提交改动，删除将丢失"));
+            write!(&mut reason, "worktree {name} 有 {dirty_count} 个文件未提交改动，删除将丢失").expect("writing to String cannot fail");
         }
         if delete_branch {
-            command.push_str(&format!(" && git branch -D kxen/{name}"));
-            reasons.push(format!("删除分支 kxen/{name}（不可恢复）"));
+            write!(&mut command, " && git branch -D kxen/{name}").expect("writing to String cannot fail");
+            if !reason.is_empty() {
+                reason.push('；');
+            }
+            write!(&mut reason, "删除分支 kxen/{name}（不可恢复）").expect("writing to String cannot fail");
         }
-        let reason = reasons.join("；");
         let Some(appr) = approval else {
             return Err(format!("{reason}（当前上下文无审批通道，按拒绝处理）"));
         };
@@ -177,7 +180,15 @@ pub async fn tool_dispatch(repo: &Path, args: &Value, approval: Option<&crate::t
             Ok(if list.is_empty() {
                 "no kxen worktrees".into()
             } else {
-                list.iter().map(|i| format!("{} -> {} ({})", i.name, i.path.display(), i.branch)).collect::<Vec<_>>().join("\n")
+                use std::fmt::Write as _;
+                let mut output = String::new();
+                for item in list {
+                    if !output.is_empty() {
+                        output.push('\n');
+                    }
+                    write!(output, "{} -> {} ({})", item.name, item.path.display(), item.branch).expect("writing to String cannot fail");
+                }
+                output
             })
         }
         "diff" => {

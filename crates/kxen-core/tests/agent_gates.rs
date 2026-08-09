@@ -14,7 +14,7 @@ fn test_ctx() -> AgentContext {
         workdir: Arc::from(Path::new("/tmp")),
         path_grants: Arc::new(Default::default()),
         model: ModelRef::new("p", "m"),
-        store: kxen_core::auth::credential::AuthStore::default(),
+        store: kxen_core::auth::credential::AuthStore::default().into(),
         max_turns: 1,
         mrm: None,
         allowed_tools: None,

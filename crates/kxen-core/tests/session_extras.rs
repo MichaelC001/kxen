@@ -68,7 +68,7 @@ fn subagent_shares_parent_session_extras() {
         workdir: Arc::from(Path::new("/tmp")),
         path_grants: Arc::new(Default::default()),
         model: kxen_core::llm::ModelRef::new("p", "m"),
-        store: kxen_core::auth::credential::AuthStore::default(),
+        store: kxen_core::auth::credential::AuthStore::default().into(),
         max_turns: 1,
         mrm: Some(Arc::new(kxen_core::llm::mrm::ModelResourceManager::new(kxen_core::core::config::Config::default()))),
         allowed_tools: None,

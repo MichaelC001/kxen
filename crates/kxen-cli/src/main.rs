@@ -26,7 +26,7 @@ fn main() -> ExitCode {
     runtime.block_on(run(cli))
 }
 
-async fn run(cli: args::Cli) -> ExitCode {
+async fn run(mut cli: args::Cli) -> ExitCode {
     if !cli.bind.is_loopback() {
         tracing::warn!(bind = %cli.bind, "non-loopback bind exposes the service to the network; the token is the only auth");
     }
@@ -38,8 +38,8 @@ async fn run(cli: args::Cli) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    if let Some(token) = &cli.token {
-        state.ws_token = token.clone();
+    if let Some(token) = cli.token.take() {
+        state.ws_token = token;
     }
     let state = Arc::new(state);
     // 崩溃前排队的消息恢复续跑；teammate -> lead 与 background late 通知的续跑触发（与桌面 setup 等价）
@@ -61,7 +61,8 @@ async fn run(cli: args::Cli) -> ExitCode {
         });
     }
     // 显式端口语义：占用即报错退出（不静默回退随机端口，书签化 URL 不能漂）
-    let handle = match WebServer::start((cli.bind, cli.port), state.clone(), true, cli.allow_hosts.clone()) {
+    let remote_access = !cli.bind.is_loopback() || !cli.allow_hosts.is_empty();
+    let handle = match WebServer::start((cli.bind, cli.port), state.clone(), true, std::mem::take(&mut cli.allow_hosts)) {
         Ok(handle) => handle,
         Err(error) => {
             tracing::error!(%error, bind = %cli.bind, port = cli.port, "web server bind failed (address already in use?)");
@@ -69,7 +70,7 @@ async fn run(cli: args::Cli) -> ExitCode {
         }
     };
     *kxen_core::core::shared::lock(&state.ws_port) = handle.port();
-    print_banner(&cli, handle.port(), &state.ws_token);
+    print_banner(&cli, handle.port(), &state.ws_token, remote_access);
     if tokio::signal::ctrl_c().await.is_ok() {
         tracing::info!("shutdown requested");
     }
@@ -77,7 +78,7 @@ async fn run(cli: args::Cli) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn print_banner(cli: &args::Cli, port: u16, token: &str) {
+fn print_banner(cli: &args::Cli, port: u16, token: &str, remote_access: bool) {
     let bind = cli.bind;
     // IPv6 字面量在 URL host 位置必须带方括号
     let host = if bind.is_ipv6() { format!("[{bind}]") } else { bind.to_string() };
@@ -85,7 +86,7 @@ fn print_banner(cli: &args::Cli, port: u16, token: &str) {
     println!();
     println!("  open in browser (keep this URL secret, it carries the only auth token):");
     println!("  http://{host}:{port}/?token={token}");
-    if !bind.is_loopback() || !cli.allow_hosts.is_empty() {
+    if remote_access {
         println!();
         println!("  remote access: terminate TLS with `tailscale serve` instead of exposing plain HTTP");
     }

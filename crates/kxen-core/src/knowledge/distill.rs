@@ -103,8 +103,8 @@ pub(crate) async fn generate_notes(
     }
     let joined = transcript.join("\n\n");
     // 蒸馏输入截断：长会话只取尾部 12k 字符（最近的纠正/结论密度最高）
-    let tail: String = joined.chars().rev().take(12_000).collect::<Vec<_>>().into_iter().rev().collect();
-    let messages = vec![Message::user(build_prompt(&tail))];
+    let start = joined.char_indices().rev().nth(11_999).map_or(0, |(index, _)| index);
+    let messages = vec![Message::user(build_prompt(&joined[start..]))];
     let output = match crate::llm::managed::collect_text_observed(mrm, model, &messages, store, timeout, None, cancel).await {
         Ok(output) => output,
         Err(error) => {
@@ -117,10 +117,9 @@ pub(crate) async fn generate_notes(
             };
         }
     };
-    let usage = output.usage.clone();
+    let crate::llm::managed::ManagedOutput { text, usage, metering_warning } = output;
     let unmetered_call = usage.is_none();
-    let metering_warning = output.metering_warning;
-    let notes = match parse_output(&output.text) {
+    let notes = match parse_output(&text) {
         Ok(notes) => notes,
         Err(error) => {
             return GeneratedNotes { result: Err(error), usage, unmetered_call, metering_warning, request_started: true };

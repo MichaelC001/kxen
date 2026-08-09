@@ -2,6 +2,7 @@
 //! 保留语义：递归深度 cap 3、$ARGUMENTS 展开、项目覆盖个人同名 first-wins（scan 序保证）。
 
 use crate::knowledge::{self, Entry, Kind, Scope};
+use std::fmt::Write as _;
 use std::path::Path;
 
 pub const SKILL_RECURSION_CAP: u32 = 3;
@@ -54,11 +55,10 @@ pub fn find(workdir: &Path, name: &str) -> Option<Skill> {
 /// $ARGUMENTS / $1..$n / $ARGUMENTS[i] 展开；无占位符时尾部追加。
 pub fn expand_args(content: &str, args: &str, declared: &[String]) -> String {
     let mut out = content.to_string();
-    let raw_args: Vec<&str> = args.split_whitespace().collect();
     if out.contains("$ARGUMENTS") {
         out = out.replace("$ARGUMENTS", args);
     }
-    for (i, arg) in raw_args.iter().enumerate() {
+    for (i, arg) in args.split_whitespace().enumerate() {
         out = out.replace(&format!("${}", i + 1), arg);
         out = out.replace(&format!("$ARGUMENTS[{i}]"), arg);
     }
@@ -66,7 +66,7 @@ pub fn expand_args(content: &str, args: &str, declared: &[String]) -> String {
         && !args.is_empty()
         && !content.contains("$ARGUMENTS")
     {
-        out.push_str(&format!("\nARGUMENTS: {args}"));
+        write!(&mut out, "\nARGUMENTS: {args}").expect("writing to String cannot fail");
     }
     out
 }

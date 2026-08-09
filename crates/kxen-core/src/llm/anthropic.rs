@@ -66,7 +66,7 @@ struct MessagesRequest<'a> {
     model: &'a str,
     max_tokens: u32,
     system: Vec<SystemBlock<'a>>,
-    messages: Vec<ApiMessage<'a>>,
+    messages: Vec<ApiMessage>,
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<ApiTool<'a>>>,
@@ -106,8 +106,8 @@ fn system_blocks_of<'a>(texts: impl Iterator<Item = &'a str>) -> Vec<SystemBlock
 }
 
 #[derive(Serialize)]
-struct ApiMessage<'a> {
-    role: &'a str,
+struct ApiMessage {
+    role: &'static str,
     content: serde_json::Value,
 }
 
@@ -115,17 +115,17 @@ struct ApiMessage<'a> {
 struct ApiTool<'a> {
     name: &'a str,
     description: &'a str,
-    input_schema: serde_json::Value,
+    input_schema: &'a serde_json::Value,
 }
 
 /// wire content：无图片保持纯字符串（OAuth 契约不动）；有图片走块数组。
-fn wire_content(m: &Message) -> serde_json::Value {
+fn wire_content(m: Message) -> serde_json::Value {
     if m.images.is_empty() {
-        return serde_json::Value::String(m.content.clone());
+        return serde_json::Value::String(m.content.to_string());
     }
     let mut blocks: Vec<serde_json::Value> = m
         .images
-        .iter()
+        .into_iter()
         .map(|img| {
             serde_json::json!({
                 "type": "image",
@@ -140,15 +140,15 @@ fn wire_content(m: &Message) -> serde_json::Value {
 }
 
 /// assistant 带 tool_calls -> text + tool_use 块（input 需对象，arguments 是 JSON 字符串）。
-fn assistant_content(m: &Message) -> serde_json::Value {
+fn assistant_content(m: Message) -> serde_json::Value {
     if m.tool_calls.is_empty() {
-        return serde_json::Value::String(m.content.clone());
+        return serde_json::Value::String(m.content.to_string());
     }
     let mut blocks: Vec<serde_json::Value> = Vec::new();
     if !m.content.is_empty() {
         blocks.push(serde_json::json!({ "type": "text", "text": m.content }));
     }
-    for call in &m.tool_calls {
+    for call in m.tool_calls {
         let input = serde_json::from_str::<serde_json::Value>(&call.function.arguments).unwrap_or_else(|_| serde_json::json!({}));
         blocks.push(serde_json::json!({
             "type": "tool_use",
@@ -161,13 +161,13 @@ fn assistant_content(m: &Message) -> serde_json::Value {
 }
 
 /// 消息序列 -> api 消息：连续 tool_result 合并为单条 user（anthropic 规范形态，避免角色连排）。
-fn flush_tool_results<'a>(out: &mut Vec<ApiMessage<'a>>, results: &mut Vec<serde_json::Value>) {
+fn flush_tool_results(out: &mut Vec<ApiMessage>, results: &mut Vec<serde_json::Value>) {
     if !results.is_empty() {
         out.push(ApiMessage { role: "user", content: serde_json::Value::Array(std::mem::take(results)) });
     }
 }
 
-fn api_messages_of(messages: &[Message]) -> Vec<ApiMessage<'_>> {
+fn api_messages_of(messages: impl IntoIterator<Item = Message>) -> Vec<ApiMessage> {
     let mut out: Vec<ApiMessage> = Vec::new();
     let mut tool_results: Vec<serde_json::Value> = Vec::new();
     for m in messages {
@@ -229,50 +229,43 @@ impl AnthropicProvider {
         messages: &[Message],
         tools: &[crate::llm::tool::ToolDefinition],
     ) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
-        let bearer = self.bearer.clone();
-        let error_bearer = bearer.clone();
-        let url = self.url.clone();
+        let error_bearer = self.bearer.clone();
         let auth = self.auth;
         let label = self.label;
-        let model = model.to_string();
-        let messages_owned: Vec<Message> = messages.to_vec();
-        let tools_owned: Vec<crate::llm::tool::ToolDefinition> = tools.to_vec();
-        let http = self.http.clone();
-
-        let start = async move {
-            // OAuth contract: 系统块第一行固定身份行，用户 system 追加在后；api-key/Bearer 直连不注入
-            let mut system: Vec<SystemBlock> = Vec::new();
-            if auth == WireAuth::Oauth {
-                system.push(SystemBlock { kind: "text", text: IDENTITY_LINE, cache_control: None });
-            }
-            system.extend(system_blocks_of(messages_owned.iter().filter(|m| m.role == Role::System).map(|m| m.content.as_str())));
-            let api_messages = api_messages_of(&messages_owned);
-            let tools_api: Option<Vec<ApiTool>> = if tools_owned.is_empty() {
-                None
-            } else {
-                Some(
-                    tools_owned
-                        .iter()
-                        .map(|t| ApiTool {
-                            name: remap_tool_name(&t.function.name),
-                            description: &t.function.description,
-                            input_schema: t.function.parameters.clone(),
-                        })
-                        .collect(),
-                )
-            };
-            let req = MessagesRequest { model: &model, max_tokens: 8192, system, messages: api_messages, stream: true, tools: tools_api };
-            let mut builder = http.post(url.as_ref());
-            builder = match auth {
-                WireAuth::Oauth => builder
-                    .header("authorization", format!("Bearer {bearer}"))
-                    .header("anthropic-beta", OAUTH_BETA)
-                    .header("user-agent", USER_AGENT),
-                WireAuth::ApiKey => builder.header("x-api-key", bearer.as_ref()),
-                WireAuth::Bearer => builder.header("authorization", format!("Bearer {bearer}")),
-            };
-            builder.header("anthropic-version", "2023-06-01").header("content-type", "application/json").json(&req).send().await
+        // OAuth contract: 系统块第一行固定身份行，用户 system 追加在后；api-key/Bearer 直连不注入
+        let mut system: Vec<SystemBlock> = Vec::new();
+        if auth == WireAuth::Oauth {
+            system.push(SystemBlock { kind: "text", text: IDENTITY_LINE, cache_control: None });
+        }
+        system.extend(system_blocks_of(
+            messages.iter().filter(|message| message.role == Role::System).map(|message| message.content.as_str()),
+        ));
+        let api_messages = api_messages_of(messages.iter().filter(|message| message.role != Role::System).cloned());
+        let tools_api: Option<Vec<ApiTool<'_>>> = if tools.is_empty() {
+            None
+        } else {
+            Some(
+                tools
+                    .iter()
+                    .map(|tool| ApiTool {
+                        name: remap_tool_name(&tool.function.name),
+                        description: &tool.function.description,
+                        input_schema: &tool.function.parameters,
+                    })
+                    .collect(),
+            )
         };
+        let req = MessagesRequest { model, max_tokens: 8192, system, messages: api_messages, stream: true, tools: tools_api };
+        let mut request = self.http.post(self.url.as_ref());
+        request = match auth {
+            WireAuth::Oauth => {
+                request.bearer_auth(self.bearer.as_ref()).header("anthropic-beta", OAUTH_BETA).header("user-agent", USER_AGENT)
+            }
+            WireAuth::ApiKey => request.header("x-api-key", self.bearer.as_ref()),
+            WireAuth::Bearer => request.bearer_auth(self.bearer.as_ref()),
+        };
+        let request = request.header("anthropic-version", "2023-06-01").header("content-type", "application/json").json(&req);
+        let start = async move { request.send().await };
 
         Box::pin(futures::stream::once(start).flat_map(move |result| match result {
             Ok(resp) if resp.status().is_success() => super::anthropic_sse::stream_sse(resp),

@@ -60,10 +60,13 @@ struct StreamSequences {
 
 impl StreamSequences {
     fn next(&mut self, stream_id: &str) -> u64 {
-        let seq = self.values.entry(stream_id.to_string()).or_insert(0);
-        let current = *seq;
-        *seq += 1;
-        current
+        if let Some(seq) = self.values.get_mut(stream_id) {
+            let current = *seq;
+            *seq += 1;
+            return current;
+        }
+        self.values.insert(stream_id.to_string(), 1);
+        0
     }
 
     fn remove(&mut self, stream_id: &str) {

@@ -84,7 +84,7 @@ mod tests {
     use super::*;
 
     fn names(tools: Vec<crate::llm::tool::ToolDefinition>) -> Vec<String> {
-        tools.into_iter().map(|tool| tool.function.name).collect()
+        tools.into_iter().map(|tool| tool.function.name.clone()).collect()
     }
 
     #[test]

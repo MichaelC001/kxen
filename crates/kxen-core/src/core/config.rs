@@ -336,7 +336,7 @@ pub fn coding_rules_enabled() -> bool {
 /// 实验能力只读取个人配置，项目配置不能替用户扩大数据外发或宿主机能力面。
 /// gated MCP/browser 工具每次调用都查：走 mtime 缓存，不再逐调用全量读盘解析。
 pub fn experimental_config() -> ExperimentalConfig {
-    super::config_cache::cached_user_config().map(|c| c.experimental).unwrap_or_default()
+    super::config_cache::cached_user_config().map(|c| c.experimental.clone()).unwrap_or_default()
 }
 
 #[cfg(test)]

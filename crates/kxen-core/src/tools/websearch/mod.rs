@@ -121,9 +121,7 @@ pub async fn search(query: &str, store: &AuthStore, runtime: &SearchRuntime<'_>)
     if query.trim().is_empty() {
         return Err("empty query".into());
     }
-    let config_path = crate::core::paths::config_dir().join("config.toml");
-    let cfg = crate::core::config::Config::load(&config_path, None)
-        .map_err(|error| format!("websearch config {}: {error}", config_path.display()))?;
+    let cfg = crate::core::config_cache::cached_user_config_result().map_err(|error| format!("websearch config: {error}"))?;
     let mut errs: Vec<String> = Vec::new();
     for id in engine_chain(&cfg.search.engine) {
         let f = ENGINES.iter().find(|(eid, _)| *eid == id).map(|(_, f)| f).expect("chain id 必在引擎表");
@@ -192,17 +190,14 @@ fn redacted_transport_error(error: reqwest::Error) -> String {
 }
 
 pub fn format_hits(outcome: &SearchOutcome) -> String {
-    let sources = if outcome.hits.is_empty() {
-        String::new()
-    } else {
-        outcome
-            .hits
-            .iter()
-            .enumerate()
-            .map(|(i, h)| format!("{}. {}\n   {}\n   {}", i + 1, h.title, h.url, h.snippet))
-            .collect::<Vec<_>>()
-            .join("\n\n")
-    };
+    use std::fmt::Write as _;
+    let mut sources = String::new();
+    for (index, hit) in outcome.hits.iter().enumerate() {
+        if !sources.is_empty() {
+            sources.push_str("\n\n");
+        }
+        write!(sources, "{}. {}\n   {}\n   {}", index + 1, hit.title, hit.url, hit.snippet).expect("writing to String cannot fail");
+    }
     match &outcome.answer {
         Some(answer) => format!("(via {})\n{answer}\n\nSources:\n{sources}", outcome.engine),
         None if sources.is_empty() => format!("no results (via {})", outcome.engine),

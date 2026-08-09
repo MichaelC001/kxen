@@ -90,16 +90,22 @@ pub(super) fn is_current(active_runs: &ActiveRuns, session_id: &str, token: &kxe
 }
 
 /// interrupt 持久化替代消息并 cancel 当前代，但保留槽到 finalize handoff。
-pub(super) fn interrupt_current<T>(
+pub(super) enum InterruptResult<P, T> {
+    Inactive(P),
+    Interrupted(T),
+}
+
+pub(super) fn interrupt_current<P, T>(
     active_runs: &ActiveRuns,
     session_id: &str,
-    enqueue: impl FnOnce() -> Result<T, String>,
-) -> Result<Option<T>, String> {
+    payload: P,
+    enqueue: impl FnOnce(P) -> Result<T, String>,
+) -> Result<InterruptResult<P, T>, String> {
     let runs = kxen_core::core::shared::lock(active_runs);
-    let Some(cancel) = runs.get(session_id) else { return Ok(None) };
-    let queued = enqueue()?;
+    let Some(cancel) = runs.get(session_id) else { return Ok(InterruptResult::Inactive(payload)) };
+    let queued = enqueue(payload)?;
     cancel.cancel();
-    Ok(Some(queued))
+    Ok(InterruptResult::Interrupted(queued))
 }
 
 /// abort 的 queue clear 与 cancel 共用 active_runs 临界区。
@@ -218,8 +224,8 @@ mod tests {
         let runs = ActiveRuns::default();
         let sessions = std::env::temp_dir().join(format!("kxen-run-handoff-cancel-{}", uuid::Uuid::new_v4()));
         let current = claim_run(&runs, &sessions, "s").unwrap().unwrap();
-        let queued = interrupt_current(&runs, "s", || Ok("queued")).unwrap();
-        assert_eq!(queued, Some("queued"));
+        let queued = interrupt_current(&runs, "s", (), |()| Ok("queued")).unwrap();
+        assert!(matches!(queued, InterruptResult::Interrupted("queued")));
         assert!(current.is_cancelled());
         assert!(is_current(&runs, "s", &current), "interrupt must keep the old generation until finalize");
         assert!(claim_run(&runs, &sessions, "s").unwrap().is_none(), "interrupt must not start a replacement before terminal");

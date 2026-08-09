@@ -1,4 +1,5 @@
 use super::GoalJudge;
+use std::fmt::Write as _;
 
 mod claims;
 
@@ -248,7 +249,7 @@ fn join_semantic_failure(primary: String, observation: Option<String>, settlemen
         [("usage observation", observation), ("usage settlement", settlement), ("UNKNOWN completion recovery", recovery)]
     {
         if let Some(error) = error {
-            message.push_str(&format!("; {context} failed: {error}"));
+            write!(&mut message, "; {context} failed: {error}").expect("writing to String cannot fail");
         }
     }
     message

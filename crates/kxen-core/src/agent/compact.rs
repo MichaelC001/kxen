@@ -2,6 +2,7 @@
 //! 窗口取 catalog 的模型 limit.context（200k 硬编码的唯一替代源），失败兜底 200k。
 
 use crate::llm::{Message, ModelRef};
+use std::fmt::Write as _;
 
 pub const COMPACT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -138,8 +139,8 @@ pub async fn compact_messages<'a>(
     start_barrier: Option<Box<dyn FnMut() -> Result<(), String> + Send + 'a>>,
 ) -> Result<CompactResult, CompactError> {
     let (system, rest) = match messages.first() {
-        Some(m) if m.role == crate::llm::types::Role::System => (vec![m.clone()], &messages[1..]),
-        _ => (vec![], messages),
+        Some(message) if message.role == crate::llm::types::Role::System => (Some(message), &messages[1..]),
+        _ => (None, messages),
     };
     if rest.len() <= keep_recent + 2 {
         return Ok(CompactResult {
@@ -161,12 +162,20 @@ pub async fn compact_messages<'a>(
         split += 1;
     }
     let (old, recent) = rest.split_at(split);
-    let segment: String = old.iter().map(|m| format!("{:?}: {}", m.role, m.content)).collect::<Vec<_>>().join("\n\n");
+    use std::fmt::Write as _;
+    let mut segment = String::new();
+    for message in old {
+        if !segment.is_empty() {
+            segment.push_str("\n\n");
+        }
+        write!(segment, "{:?}: {}", message.role, message.content).expect("writing to String cannot fail");
+    }
     let attempt = summarize(mrm, model, store, &segment, timeout, cancel, start_barrier).await?;
     let distilled = attempt.output.as_ref().map(|output| output.text.trim()).filter(|text| !text.is_empty());
     let used_fallback = distilled.is_none();
     let summary = distilled.map(str::to_string).unwrap_or_else(|| fallback_summary(old));
-    let mut out = system;
+    let mut out = Vec::with_capacity(usize::from(system.is_some()) + 1 + recent.len());
+    out.extend(system.cloned());
     // 摘要角色用 user：system 会让 run loop 的 system_owned 判假吞掉真正系统提示，
     // assistant 会与 recent 首条连排（provider 要求首条非 system 消息必须 user）
     out.push(Message::user(format!("{}\n{summary}", crate::core::session::COMPACT_MARK)));
@@ -192,7 +201,8 @@ fn fallback_summary(old: &[Message]) -> String {
     let mut out = String::from(FALLBACK_MARK);
     out.push('\n');
     for message in old.iter().take(1).chain(old.iter().rev().take(1)) {
-        out.push_str(&format!("{:?}: {}\n", message.role, message.content.chars().take(500).collect::<String>()));
+        writeln!(&mut out, "{:?}: {}", message.role, message.content.chars().take(500).collect::<String>())
+            .expect("writing to String cannot fail");
     }
     out
 }
@@ -215,39 +225,43 @@ pub async fn compact_session(
     let raw_ids = raw.iter().map(|message| message.id.as_str()).collect::<std::collections::HashSet<_>>();
     // 一条 stored 消息可能重建出多条 wire 消息（assistant_with_tools + N tool_result），
     // 全部保留并共享同一 stored id，边界配对才不会在 tool 消息处断链
-    let flattened = view
-        .iter()
-        .flat_map(|stored| flatten_stored(std::slice::from_ref(stored)).into_iter().map(move |message| (message, stored.id.as_str())))
-        .collect::<Vec<_>>();
-    let llm_msgs = flattened.iter().map(|(message, _)| message.clone()).collect::<Vec<_>>();
+    let mut llm_msgs = Vec::new();
+    let mut flattened_ids = Vec::new();
+    for stored in &view {
+        let flattened = flatten_stored(std::slice::from_ref(stored));
+        flattened_ids.extend(std::iter::repeat_n(stored.id.as_str(), flattened.len()));
+        llm_msgs.extend(flattened);
+    }
     let before = estimate_tokens(&llm_msgs);
-    let compacted = compact_messages(mrm, model, store, &llm_msgs, keep_recent, timeout, cancel, start_barrier).await?;
-    let Some(summary) = compacted.summary.clone() else { return Ok(None) };
+    let mut compacted = compact_messages(mrm, model, store, &llm_msgs, keep_recent, timeout, cancel, start_barrier).await?;
+    let Some(summary) = compacted.summary.take() else { return Ok(None) };
     let system_offset = usize::from(llm_msgs.first().is_some_and(|message| message.role == crate::llm::types::Role::System));
-    let upto = flattened
+    let upto = flattened_ids
         .iter()
         .skip(system_offset)
         .take(compacted.compacted_count)
         .rev()
-        .find_map(|(_, id)| raw_ids.contains(id).then(|| (*id).to_string()))
-        .ok_or_else(|| CompactError::Persist {
+        .find_map(|id| raw_ids.contains(id).then(|| (*id).to_string()));
+    let Some(upto) = upto else {
+        return Err(CompactError::Persist {
             message: "compaction boundary does not reference persisted history".into(),
             request_started: compacted.request_started,
-            usage: compacted.usage.clone(),
+            usage: compacted.usage,
             unmetered_call: compacted.unmetered_call,
-            metering_warning: compacted.metering_warning.clone(),
-            model_used: compacted.model_used.clone(),
-        })?;
-    crate::core::session::save_compaction(dir, id, &crate::core::session::Compaction::new(upto, summary)).map_err(|error| {
-        CompactError::Persist {
+            metering_warning: compacted.metering_warning,
+            model_used: compacted.model_used,
+        });
+    };
+    if let Err(error) = crate::core::session::save_compaction(dir, id, &crate::core::session::Compaction::new(upto, summary)) {
+        return Err(CompactError::Persist {
             message: error.to_string(),
             request_started: compacted.request_started,
-            usage: compacted.usage.clone(),
+            usage: compacted.usage,
             unmetered_call: compacted.unmetered_call,
-            metering_warning: compacted.metering_warning.clone(),
-            model_used: compacted.model_used.clone(),
-        }
-    })?;
+            metering_warning: compacted.metering_warning,
+            model_used: compacted.model_used,
+        });
+    }
     Ok(Some(CompactionReport {
         before,
         after: estimate_tokens(&compacted.messages),
@@ -278,8 +292,8 @@ async fn summarize<'a>(
             model_used: None,
         });
     };
-    let tail: String = segment.chars().rev().take(48_000).collect::<Vec<_>>().into_iter().rev().collect();
-    let req = vec![Message::user(format!("{COMPACT_PROMPT}{tail}"))];
+    let tail_start = segment.char_indices().rev().nth(47_999).map_or(0, |(index, _)| index);
+    let req = vec![Message::user(format!("{COMPACT_PROMPT}{}", &segment[tail_start..]))];
     match crate::llm::managed::collect_text_observed_with_policy_and_start(
         mrm,
         model,

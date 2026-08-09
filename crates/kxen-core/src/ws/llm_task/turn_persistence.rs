@@ -119,7 +119,7 @@ mod tests {
     fn turn_persist_failure_is_returned_not_swallowed() {
         let dir = temp_dir("fail");
         let meta = ses::create(&dir, "/tmp/work").unwrap();
-        let (persist, _) = turn_persister(dir.clone(), meta.id.clone(), "run-1-0002".into(), ModelRef::new("p", "m"));
+        let (persist, _) = turn_persister(dir.clone(), meta.id, "run-1-0002".into(), ModelRef::new("p", "m"));
         persist(1, vec![call("read", "a")]).unwrap();
         // 同 id 不同内容：幂等追加按碰撞拒绝，错误必须冒泡给 run loop（fail-closed）
         let error = persist(1, vec![call("read", "different")]).unwrap_err();

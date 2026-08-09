@@ -19,9 +19,10 @@ pub(crate) use store::add_observed;
 pub use store::{add, list, move_entry, remove, set_enabled};
 
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Scope {
     Project,
@@ -45,7 +46,7 @@ impl Scope {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     Rule,
@@ -204,7 +205,7 @@ fn resolve_needs_inner(workdir: &Path, home: &Path, needs: &[String]) -> String 
         // 信任门：needs 正文随加载注入提示词，未信任项目 scope 的依赖条目跳过（personal 不受影响）
         if let Some(e) = entries.iter().find(|e| e.enabled && e.slug == slug && (trusted || e.scope != Scope::Project)) {
             hit += 1;
-            out.push_str(&format!("## [{}] {}\n{}\n\n", e.kind.dir_name(), e.description, e.content.trim()));
+            writeln!(out, "## [{}] {}\n{}\n", e.kind.dir_name(), e.description, e.content.trim()).expect("writing to String cannot fail");
         }
     }
     if hit == 0 {

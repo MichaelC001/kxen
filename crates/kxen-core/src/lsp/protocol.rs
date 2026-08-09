@@ -15,24 +15,40 @@ impl FrameDecoder {
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<String> {
         self.buf.extend_from_slice(bytes);
         let mut out = Vec::new();
-        while let Some(header_end) = find_subslice(&self.buf, b"\r\n\r\n") {
-            let header = String::from_utf8_lossy(&self.buf[..header_end]).to_string();
-            let Some(len) =
-                header.split("\r\n").find_map(|line| line.strip_prefix("Content-Length: ").and_then(|v| v.trim().parse::<usize>().ok()))
-            else {
+        let mut consumed = 0;
+        while let Some(relative_header_end) = find_subslice(&self.buf[consumed..], b"\r\n\r\n") {
+            let header_end = consumed + relative_header_end;
+            let Some(len) = content_length(&self.buf[consumed..header_end]) else {
                 // 无长度头的帧无法恢复同步，丢弃到分隔符为止
-                self.buf.drain(..header_end + 4);
+                consumed = header_end + 4;
                 continue;
             };
             let body_start = header_end + 4;
-            if self.buf.len() < body_start + len {
+            let Some(body_end) = body_start.checked_add(len) else {
+                consumed = body_start;
+                continue;
+            };
+            if self.buf.len() < body_end {
                 break;
             }
-            out.push(String::from_utf8_lossy(&self.buf[body_start..body_start + len]).to_string());
-            self.buf.drain(..body_start + len);
+            out.push(String::from_utf8_lossy(&self.buf[body_start..body_end]).into_owned());
+            consumed = body_end;
+        }
+        if consumed == self.buf.len() {
+            self.buf.clear();
+        } else if consumed > 0 {
+            self.buf.drain(..consumed);
         }
         out
     }
+}
+
+fn content_length(header: &[u8]) -> Option<usize> {
+    header.split(|byte| *byte == b'\n').find_map(|line| {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let value = line.strip_prefix(b"Content-Length:")?;
+        std::str::from_utf8(value).ok()?.trim().parse().ok()
+    })
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -83,5 +99,14 @@ mod tests {
         let half = frame.len() / 2;
         assert!(d.feed(&frame[..half]).is_empty());
         assert_eq!(d.feed(&frame[half..]), vec![body]);
+    }
+
+    #[test]
+    fn malformed_header_recovers_without_shifting_each_complete_frame() {
+        let mut d = FrameDecoder::default();
+        let mut chunk = b"X-Test: no-length\r\n\r\n".to_vec();
+        chunk.extend_from_slice(&encode("first"));
+        chunk.extend_from_slice(&encode("second"));
+        assert_eq!(d.feed(&chunk), vec!["first", "second"]);
     }
 }

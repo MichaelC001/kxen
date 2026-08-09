@@ -122,7 +122,7 @@ pub(super) async fn teammate_loop(
                 history.push(Message::user(first));
             }
         }
-        let mut messages = round_messages(teammate_system(&state, &name, &role, approved), &history);
+        let mut messages = round_messages(teammate_system(&state, &name, &role, approved), &mut history);
         let outcome = run_turn(&mut ctx, &mut messages).await;
         // wake 末轮文本落盘：迭代已 persist_turn，final 缺档会让恢复后的历史丢掉本轮结论
         if let Some(final_text) = crate::agent::agent_loop::new_final_text(&messages, &outcome)

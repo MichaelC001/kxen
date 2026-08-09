@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::io::Write as _;
 
 pub(super) const MAX_HEADER_BYTES: usize = 32 * 1024;
 pub(super) const MAX_HEADER_COUNT: usize = 100;
@@ -72,7 +73,8 @@ fn parse_headers<'a>(lines: impl Iterator<Item = &'a str>) -> Result<Vec<(&'a st
             return Err("invalid proxy header name or value".into());
         }
         let lower = name.to_ascii_lowercase();
-        if !names.insert(lower.clone()) && matches!(lower.as_str(), "host" | "content-length" | "transfer-encoding") {
+        let security_sensitive = matches!(lower.as_str(), "host" | "content-length" | "transfer-encoding");
+        if !names.insert(lower) && security_sensitive {
             return Err(format!("duplicate security-sensitive proxy header: {name}"));
         }
         headers.push((name, value.trim()));
@@ -127,7 +129,8 @@ fn rewrite_forward(method: &str, path: &str, version: &str, headers: &[(&str, &s
     {
         return Err("WebSocket request is missing Connection: Upgrade".into());
     }
-    let mut out = format!("{method} {path} {version}\r\n").into_bytes();
+    let mut out = Vec::with_capacity(headers.iter().map(|(name, value)| name.len() + value.len() + 4).sum::<usize>() + path.len() + 64);
+    write!(&mut out, "{method} {path} {version}\r\n").expect("writing to Vec<u8> cannot fail");
     for (name, value) in headers {
         if name.eq_ignore_ascii_case("host")
             || name.eq_ignore_ascii_case("connection")
@@ -136,11 +139,15 @@ fn rewrite_forward(method: &str, path: &str, version: &str, headers: &[(&str, &s
         {
             continue;
         }
-        out.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
+        write!(&mut out, "{name}: {value}\r\n").expect("writing to Vec<u8> cannot fail");
     }
-    let host = if target.host.contains(':') { format!("[{}]", target.host) } else { target.host.clone() };
     let connection = if upgrade.is_some() { "Upgrade" } else { "close" };
-    out.extend_from_slice(format!("Host: {host}:{}\r\nConnection: {connection}\r\n\r\n", target.port).as_bytes());
+    if target.host.contains(':') {
+        write!(&mut out, "Host: [{}]:{}\r\n", target.host, target.port).expect("writing to Vec<u8> cannot fail");
+    } else {
+        write!(&mut out, "Host: {}:{}\r\n", target.host, target.port).expect("writing to Vec<u8> cannot fail");
+    }
+    write!(&mut out, "Connection: {connection}\r\n\r\n").expect("writing to Vec<u8> cannot fail");
     if out.len() > MAX_HEADER_BYTES {
         return Err("rewritten proxy headers exceed limit".into());
     }

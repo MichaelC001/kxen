@@ -52,6 +52,23 @@ impl EmbeddingCache {
         Some(&entry.v)
     }
 
+    pub fn cosine_scores(&mut self, query_hash: &str, doc_hashes: &[String]) -> Option<Vec<Option<f64>>> {
+        let scores = {
+            let query = &self.map.get(query_hash)?.v;
+            doc_hashes.iter().map(|hash| self.map.get(hash).map(|entry| super::retrieval::cosine(query, &entry.v))).collect()
+        };
+        let now = now_ms();
+        if let Some(entry) = self.map.get_mut(query_hash) {
+            entry.t = now;
+        }
+        for hash in doc_hashes {
+            if let Some(entry) = self.map.get_mut(hash) {
+                entry.t = now;
+            }
+        }
+        Some(scores)
+    }
+
     pub fn insert(&mut self, hash: String, v: Vec<f32>) {
         if !self.map.contains_key(&hash) && self.map.len() >= CACHE_MAX {
             self.evict();
@@ -62,10 +79,13 @@ impl EmbeddingCache {
     /// LRU：一次性删最旧的 1/10（批量删比逐条删摊还成本低，也避免边界抖动）
     fn evict(&mut self) {
         let drop_n = (CACHE_MAX / 10).max(1);
-        let mut by_age: Vec<(u64, String)> = self.map.iter().map(|(k, e)| (e.t, k.clone())).collect();
-        by_age.sort_unstable();
-        for (_, k) in by_age.into_iter().take(drop_n) {
-            self.map.remove(&k);
+        let keys = {
+            let mut by_age: Vec<_> = self.map.iter().map(|(key, entry)| (entry.t, key)).collect();
+            by_age.sort_unstable_by_key(|(age, _)| *age);
+            by_age.into_iter().take(drop_n).map(|(_, key)| key.clone()).collect::<Vec<_>>()
+        };
+        for key in keys {
+            self.map.remove(&key);
         }
     }
 

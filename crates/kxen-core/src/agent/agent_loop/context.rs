@@ -64,7 +64,9 @@ pub struct AgentContext {
     /// denied even when present in this set.
     pub path_grants: Arc<HashSet<PathBuf>>,
     pub model: ModelRef,
-    pub store: crate::auth::credential::AuthStore,
+    /// 运行开始时的凭证快照。子代理只克隆 Arc；仅 OAuth refresh 时通过
+    /// `Arc::make_mut` 分离并更新当前 run 的快照。
+    pub store: Arc<crate::auth::credential::AuthStore>,
     pub max_turns: u32,
     pub mrm: Option<Arc<crate::llm::mrm::ModelResourceManager>>,
     /// 子代理/kanban 列执行的工具白名单（None = 全部常驻工具）。custom DCP agent 的白名单来自

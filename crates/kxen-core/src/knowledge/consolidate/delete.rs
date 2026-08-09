@@ -24,6 +24,7 @@ pub struct DeleteDistillRequest<'a> {
 
 pub async fn run_for_delete(request: DeleteDistillRequest<'_>) -> Result<DeleteDistillResult, String> {
     let DeleteDistillRequest { lease, mrm, model, store, meta, transcript, message_cursor, timeout, goal_id, session_usage } = request;
+    let mut transcript = Some(transcript);
     super::lease::validate(lease, &meta.id)?;
     let root = attempt::root();
     let state_path = state::path();
@@ -73,7 +74,15 @@ pub async fn run_for_delete(request: DeleteDistillRequest<'_>) -> Result<DeleteD
                     next_note: 0,
                 };
                 super::claim_attempt(&root, &current)?;
-                let generated = crate::knowledge::distill::generate_notes(mrm, model, store, transcript.clone(), timeout, None).await;
+                let generated = crate::knowledge::distill::generate_notes(
+                    mrm,
+                    model,
+                    store,
+                    transcript.take().ok_or("deletion distillation transcript was already consumed")?,
+                    timeout,
+                    None,
+                )
+                .await;
                 current.usage = generated.usage;
                 current.unmetered_call = generated.unmetered_call;
                 current.metering_warning = generated.metering_warning;

@@ -1,7 +1,7 @@
 // ---------------- tasks（依赖自动解锁 + 串行 claim） ----------------
 
 use crate::core::shared::lock;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::TeamState;
@@ -9,7 +9,10 @@ use super::inbox::append_inbox;
 use super::types::{TeamTask, TeamTaskStatus};
 
 mod completion;
+mod graph;
 pub(super) use completion::block_member_completing_tasks;
+use graph::validate_new_task;
+pub(super) use graph::validate_task_graph;
 
 pub(super) async fn complete_task(state: &Arc<TeamState>, who: &str, id: u64) -> Result<String, String> {
     completion::complete_task(state, who, id).await
@@ -26,9 +29,7 @@ pub(super) fn create_task(state: &Arc<TeamState>, title: &str, depends_on: Vec<u
         .map_err(|_| "task id space exhausted".to_string())?;
     let task = TeamTask { id, title: title.into(), status: TeamTaskStatus::Pending, assignee: None, depends_on, attempt_id: None };
     transact(state, |tasks| {
-        let mut candidate = tasks.clone();
-        candidate.push(task.clone());
-        validate_task_graph(&candidate)?;
+        validate_new_task(tasks, &task)?;
         for dependency in &task.depends_on {
             let upstream = tasks.iter().find(|existing| existing.id == *dependency).expect("graph validation requires known dependency");
             if matches!(upstream.status, TeamTaskStatus::Failed | TeamTaskStatus::Canceled) {
@@ -40,66 +41,9 @@ pub(super) fn create_task(state: &Arc<TeamState>, title: &str, depends_on: Vec<u
     })
 }
 
-pub(super) fn validate_task_graph(tasks: &[TeamTask]) -> Result<(), String> {
-    let mut by_id = HashMap::with_capacity(tasks.len());
-    for task in tasks {
-        if by_id.insert(task.id, task).is_some() {
-            return Err(format!("duplicate task id: #{}", task.id));
-        }
-        if let Some(assignee) = &task.assignee {
-            crate::core::ids::validate_id(assignee).map_err(|error| format!("task #{} assignee: {error}", task.id))?;
-        }
-        if let Some(attempt_id) = &task.attempt_id {
-            crate::core::ids::validate_id(attempt_id).map_err(|error| format!("task #{} completion attempt: {error}", task.id))?;
-        }
-        if task.status == TeamTaskStatus::InProgress && task.assignee.is_none() {
-            return Err(format!("in-progress task #{} has no assignee", task.id));
-        }
-        if task.status == TeamTaskStatus::Completing && (task.assignee.is_none() || task.attempt_id.is_none()) {
-            return Err(format!("completing task #{} has no assignee or completion attempt", task.id));
-        }
-        let mut dependencies = HashSet::with_capacity(task.depends_on.len());
-        for dependency in &task.depends_on {
-            if *dependency == task.id {
-                return Err(format!("task #{} cannot depend on itself", task.id));
-            }
-            if !dependencies.insert(*dependency) {
-                return Err(format!("task #{} has duplicate dependency #{}", task.id, dependency));
-            }
-        }
-    }
-    for task in tasks {
-        for dependency in &task.depends_on {
-            if !by_id.contains_key(dependency) {
-                return Err(format!("task #{} depends on unknown task #{}", task.id, dependency));
-            }
-        }
-    }
-
-    fn visit(id: u64, by_id: &HashMap<u64, &TeamTask>, colors: &mut HashMap<u64, u8>) -> Result<(), String> {
-        match colors.get(&id).copied().unwrap_or(0) {
-            1 => return Err(format!("task dependency cycle includes #{id}")),
-            2 => return Ok(()),
-            _ => {}
-        }
-        colors.insert(id, 1);
-        for dependency in &by_id[&id].depends_on {
-            visit(*dependency, by_id, colors)?;
-        }
-        colors.insert(id, 2);
-        Ok(())
-    }
-
-    let mut colors = HashMap::with_capacity(tasks.len());
-    for id in by_id.keys().copied() {
-        visit(id, &by_id, &mut colors)?;
-    }
-    Ok(())
-}
-
 pub(super) fn claim_task(state: &Arc<TeamState>, who: &str) -> Result<String, String> {
     transact(state, |tasks| {
-        let done: Vec<u64> = tasks.iter().filter(|task| task.status == TeamTaskStatus::Completed).map(|task| task.id).collect();
+        let done: HashSet<u64> = tasks.iter().filter(|task| task.status == TeamTaskStatus::Completed).map(|task| task.id).collect();
         let Some(task) = tasks.iter_mut().find(|task| {
             task.status == TeamTaskStatus::Pending
                 && task.assignee.is_none()
@@ -120,7 +64,7 @@ pub(super) fn has_claimable(state: &Arc<TeamState>) -> bool {
         return false;
     }
     let tasks = lock(&state.tasks);
-    let done: Vec<u64> = tasks.iter().filter(|t| t.status == TeamTaskStatus::Completed).map(|t| t.id).collect();
+    let done: HashSet<u64> = tasks.iter().filter(|t| t.status == TeamTaskStatus::Completed).map(|t| t.id).collect();
     tasks.iter().any(|t| t.status == TeamTaskStatus::Pending && t.assignee.is_none() && t.depends_on.iter().all(|d| done.contains(d)))
 }
 
@@ -278,14 +222,14 @@ pub(super) fn resolve_blocked_task(state: &Arc<TeamState>, id: u64, resolution: 
 /// 终态级联：依赖 Failed/Canceled 任务的 Pending 下游继承同一终态，不动点迭代到无变化。
 /// 只级联 Pending：InProgress 由执行者自己 fail/complete，不替他收场。
 fn cascade_terminal(tasks: &mut [TeamTask], root: u64, status: TeamTaskStatus) -> Vec<u64> {
-    let mut terminal: Vec<u64> = vec![root];
+    let mut terminal = HashSet::from([root]);
     let mut changed = Vec::new();
     loop {
         let mut progress = false;
         for task in tasks.iter_mut() {
             if task.status == TeamTaskStatus::Pending && task.depends_on.iter().any(|d| terminal.contains(d)) {
                 task.status = status;
-                terminal.push(task.id);
+                terminal.insert(task.id);
                 changed.push(task.id);
                 progress = true;
             }

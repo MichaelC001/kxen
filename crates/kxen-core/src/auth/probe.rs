@@ -65,6 +65,7 @@ fn poisoned(c: &CredentialKind) -> bool {
 /// allow_keychain=false（启动路径）时 Claude 只走文件，不触发 keychain ACL 弹窗；
 /// 用户显式「重新导入」时才放行 keychain（弹窗一次，用户在场）。
 pub fn probe_all(store: &mut AuthStore, allow_keychain: bool) -> Vec<(&'static str, ProbeOutcome, &'static str)> {
+    let approved = crate::auth::consent::approved_sources();
     RULES
         .iter()
         .map(|rule| {
@@ -79,7 +80,7 @@ pub fn probe_all(store: &mut AuthStore, allow_keychain: bool) -> Vec<(&'static s
             // env override（开发期暂存，最高优先；用户显式设置，豁免首读批准门）
             let from_env = rule.env_override.and_then(read_env_override);
             // 首读批准门（设计 4.2）：未批准源不碰官方凭证存储，跳过并在 outcome/日志可见
-            if from_env.is_none() && !crate::auth::consent::is_approved(rule.provider) {
+            if from_env.is_none() && !approved.iter().any(|provider| provider == rule.provider) {
                 tracing::info!(provider = rule.provider, "credential probe skipped: first-read not approved");
                 return (rule.provider, ProbeOutcome::NeedsApproval, rule.display);
             }

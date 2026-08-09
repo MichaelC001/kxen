@@ -23,8 +23,64 @@ fn task_owner(params: &Value) -> Result<Option<kxen_core::tools::task::TaskOwner
     kxen_core::tools::task::TaskOwner::new(session_id, &meta.directory).map(Some)
 }
 
+async fn send_message(mut p: super::session_ops::SendMessageParams, state: &Arc<AppState>) -> Result<Value, String> {
+    if kxen_core::core::shared::lock(&state.active_runs).contains_key(&p.session_id) {
+        let cfg = kxen_core::core::config_cache::cached_user_config_result()?;
+        let policy = if cfg.send_when_running.is_empty() { "queue" } else { cfg.send_when_running.as_str() };
+        if policy != "interrupt" {
+            // enqueue 与 finalize slot release 串行，handoff 或 post-release kick 必能接住消息。
+            let runs = kxen_core::core::shared::lock(&state.active_runs);
+            if runs.contains_key(&p.session_id) {
+                let n = state.pending_messages.enqueue(&p.session_id, p.text, p.context, p.images)?;
+                drop(runs);
+                state.bus.publish(kxen_core::core::event::Event::notify(format!("运行中，消息已排队（第 {n} 条）"), Some(p.session_id)));
+                return Ok(json!({ "queued": true }));
+            }
+        } else {
+            // 旧 token 保留到 Assistant 落盘和 terminal 完成，再由 finalize 原子换代。
+            let super::session_ops::SendMessageParams { session_id, text, context, images } = p;
+            match super::run_slot::interrupt_current(
+                &state.active_runs,
+                &session_id,
+                (text, context, images),
+                |(text, context, images)| state.pending_messages.enqueue_next(&session_id, text, context, images),
+            )? {
+                super::run_slot::InterruptResult::Interrupted(n) => {
+                    state.bus.publish(kxen_core::core::event::Event::notify(
+                        format!("当前运行已中断，新消息已排队（第 {n} 条）"),
+                        Some(session_id),
+                    ));
+                    return Ok(json!({ "queued": true, "interrupted": true }));
+                }
+                super::run_slot::InterruptResult::Inactive((text, context, images)) => {
+                    p = super::session_ops::SendMessageParams { session_id, text, context, images };
+                }
+            }
+        }
+    }
+    let stream_id = super::protocol::stream_id("run");
+    tokio::spawn(run_llm(super::llm_task::RunInput {
+        stream_id,
+        session_id: p.session_id,
+        text: p.text,
+        context: p.context,
+        images: p.images,
+        queue_delivery_id: None,
+        queue_created_at: None,
+        schedule_job_id: None,
+        state: Arc::clone(state),
+    }));
+    Ok(json!({}))
+}
+
 pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>) -> Result<Value, super::protocol::CallError> {
-    super::request_schema::validate_rpc(method, &params)?;
+    let params = match (method, super::request_schema::validate_rpc(method, params)?) {
+        ("send_message", super::request_schema::ValidatedParams::SendMessage(params)) => {
+            return send_message(params, state).await.map_err(super::protocol::CallError::from);
+        }
+        (_, super::request_schema::ValidatedParams::Other(params)) => params,
+        _ => unreachable!("request schema returned parameters for the wrong RPC method"),
+    };
     // 领域分组先走 ops.rs（voice/knowledge/provider/mrm/test_dispatch）
     if let Some(result) = super::ops::try_handle(method, &params, state).await {
         return result.map_err(super::protocol::CallError::from);
@@ -165,57 +221,6 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
             Ok(json!({ "path": path.to_string_lossy() }))
         }
         m if m.starts_with("worktree.") || m.starts_with("diff.") => super::worktree_rpc::try_handle(m, &params, state).await,
-        "send_message" => {
-            let p: super::session_ops::SendMessageParams = serde_json::from_value(params).map_err(|e| e.to_string())?;
-            if kxen_core::core::shared::lock(&state.active_runs).contains_key(&p.session_id) {
-                let config_path = kxen_core::core::paths::config_dir().join("config.toml");
-                let cfg = kxen_core::core::config::Config::load(&config_path, None)
-                    .map_err(|error| format!("config load {}: {error}", config_path.display()))?;
-                let policy = if cfg.send_when_running.is_empty() { "queue" } else { cfg.send_when_running.as_str() };
-                if policy != "interrupt" {
-                    // enqueue 与 finalize slot release 串行，handoff 或 post-release kick 必能接住消息。
-                    {
-                        let runs = kxen_core::core::shared::lock(&state.active_runs);
-                        if runs.contains_key(&p.session_id) {
-                            let n = state.pending_messages.enqueue(&p.session_id, p.text, p.context, p.images)?;
-                            drop(runs);
-                            state.bus.publish(kxen_core::core::event::Event::notify(
-                                format!("运行中，消息已排队（第 {n} 条）"),
-                                Some(p.session_id),
-                            ));
-                            return Ok(json!({ "queued": true }));
-                        }
-                    }
-                } else {
-                    // 旧 token 保留到 Assistant 落盘和 terminal 完成，再由 finalize 原子换代。
-                    let queued_text = p.text.clone();
-                    let queued_context = p.context.clone();
-                    let queued_images = p.images.clone();
-                    if let Some(n) = super::run_slot::interrupt_current(&state.active_runs, &p.session_id, || {
-                        state.pending_messages.enqueue_next(&p.session_id, queued_text, queued_context, queued_images)
-                    })? {
-                        state.bus.publish(kxen_core::core::event::Event::notify(
-                            format!("当前运行已中断，新消息已排队（第 {n} 条）"),
-                            Some(p.session_id),
-                        ));
-                        return Ok(json!({ "queued": true, "interrupted": true }));
-                    }
-                }
-            }
-            let stream_id = super::protocol::stream_id("run");
-            tokio::spawn(run_llm(super::llm_task::RunInput {
-                stream_id,
-                session_id: p.session_id,
-                text: p.text,
-                context: p.context,
-                images: p.images,
-                queue_delivery_id: None,
-                queue_created_at: None,
-                schedule_job_id: None,
-                state: Arc::clone(state),
-            }));
-            Ok(json!({}))
-        }
         "session.abort" => {
             let id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             // abort = 停当前 + 清队列（否则 abort 完队列立刻续跑，等于没停）

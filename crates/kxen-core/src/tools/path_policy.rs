@@ -165,7 +165,7 @@ pub fn resolve(input: &str, workspace: &Path, grants: &HashSet<PathBuf>) -> Resu
         return Err(format!("path denied by {rule_id}: {reason}"));
     }
     let authority_root = if candidate.starts_with(&workspace) {
-        workspace.clone()
+        workspace
     } else {
         grant_root(&candidate, grants)
             .ok_or_else(|| format!("path escapes workspace: {} (workspace: {})", candidate.display(), workspace.display()))?
@@ -271,19 +271,7 @@ fn verify_open_root(root: &Path, authority: &cap_std::fs::Dir) -> Result<(), Str
 }
 
 fn sensitive_reason(candidate: &Path) -> Option<String> {
-    let home = dirs::home_dir()?;
-    let mut roots = vec![
-        crate::core::paths::config_dir(),
-        crate::core::paths::data_dir(),
-        crate::core::paths::cache_dir(),
-        crate::core::paths::auth_file(),
-        crate::mcp::oauth_store::store_path(),
-        home.join("Library/Keychains"),
-    ];
-    for name in [".ssh", ".gnupg", ".aws", ".kube", ".docker", ".codex", ".claude", ".grok", ".kimi-code"] {
-        roots.push(home.join(name));
-    }
-    if roots.iter().any(|root| same_or_descendant(candidate, root)) {
+    if sensitive_root_matches(candidate) {
         return Some(format!("credential or application data is protected: {}", candidate.display()));
     }
 
@@ -291,16 +279,41 @@ fn sensitive_reason(candidate: &Path) -> Option<String> {
     if [".netrc", ".npmrc", ".pypirc", ".git-credentials"].contains(&file_name) {
         return Some(format!("credential file is protected: {}", candidate.display()));
     }
-    let extension = candidate.extension().and_then(|ext| ext.to_str()).unwrap_or_default().to_ascii_lowercase();
-    if ["p8", "p12", "pfx", "keychain", "keychain-db"].contains(&extension.as_str()) {
+    let extension = candidate.extension().and_then(|ext| ext.to_str()).unwrap_or_default();
+    if ["p8", "p12", "pfx", "keychain", "keychain-db"].iter().any(|sensitive| extension.eq_ignore_ascii_case(sensitive)) {
         return Some(format!("private key or keychain file is protected: {}", candidate.display()));
     }
     None
 }
 
-fn same_or_descendant(candidate: &Path, root: &Path) -> bool {
-    let root = canonicalize_lenient(root).unwrap_or_else(|_| root.to_path_buf());
-    candidate == root || candidate.starts_with(root)
+fn build_sensitive_roots() -> Vec<PathBuf> {
+    let mut roots = vec![
+        crate::core::paths::config_dir(),
+        crate::core::paths::data_dir(),
+        crate::core::paths::cache_dir(),
+        crate::core::paths::auth_file(),
+        crate::mcp::oauth_store::store_path(),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        roots.push(home.join("Library/Keychains"));
+        for name in [".ssh", ".gnupg", ".aws", ".kube", ".docker", ".codex", ".claude", ".grok", ".kimi-code"] {
+            roots.push(home.join(name));
+        }
+    }
+    roots
+}
+
+fn sensitive_root_matches(candidate: &Path) -> bool {
+    sensitive_root_matches_in(candidate, &build_sensitive_roots())
+}
+
+fn sensitive_root_matches_in(candidate: &Path, roots: &[PathBuf]) -> bool {
+    // 敏感目录可能在进程运行中创建或被替换为 symlink。每次按当前文件系统解析，
+    // 不能缓存 canonical root，否则旧 target 会让新 target 逃过保护。
+    roots.iter().any(|root| {
+        let root = canonicalize_lenient(root).unwrap_or_else(|_| root.clone());
+        candidate == root || candidate.starts_with(root)
+    })
 }
 
 #[cfg(test)]

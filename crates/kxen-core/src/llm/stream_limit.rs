@@ -32,7 +32,8 @@ impl StreamBudget {
                     .saturating_add(function.and_then(|item| item.arguments.as_ref()).map_or(0, String::len))
             }),
             Delta::ToolCall { name, input } => {
-                name.len().saturating_add(serde_json::to_vec(input).map(|value| value.len()).unwrap_or(self.byte_limit))
+                let mut counter = ByteCounter(0);
+                name.len().saturating_add(serde_json::to_writer(&mut counter, input).map(|()| counter.0).unwrap_or(self.byte_limit))
             }
             Delta::Usage { .. } | Delta::Done => 0,
         };
@@ -40,6 +41,19 @@ impl StreamBudget {
         if self.bytes > self.byte_limit {
             return Err(format!("provider stream exceeded {} byte output limit", self.byte_limit));
         }
+        Ok(())
+    }
+}
+
+struct ByteCounter(usize);
+
+impl std::io::Write for ByteCounter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 = self.0.saturating_add(bytes.len());
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }

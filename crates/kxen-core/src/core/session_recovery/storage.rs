@@ -161,7 +161,7 @@ pub fn purge_storage(
     session_id: &str,
     transaction: &super::DeletionTransaction,
 ) -> Result<(), String> {
-    crate::core::ids::validate_id(session_id).map_err(|error| error.to_string())?;
+    crate::core::ids::validate_id(session_id)?;
     transaction.validate(sessions_dir, session_id)?;
     let mut errors = Vec::new();
     for path in [

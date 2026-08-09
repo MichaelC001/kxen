@@ -2,6 +2,7 @@
 //! 决定持久化在 data_dir/trusted.json；审批走 ApprovalBroker（与 exec Ask 同一通道）。
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub type TrustCallback = std::sync::Arc<dyn Fn(&Path) + Send + Sync>;
 
@@ -42,9 +43,35 @@ pub fn load() -> Result<Vec<String>, String> {
     load_from(&store_file())
 }
 
+struct TrustCache {
+    path: PathBuf,
+    stamp: crate::core::shared::FileStamp,
+    list: Arc<Vec<String>>,
+}
+
+static TRUST_CACHE: std::sync::Mutex<Option<TrustCache>> = std::sync::Mutex::new(None);
+
+fn load_cached() -> Result<Arc<Vec<String>>, String> {
+    load_cached_from(store_file())
+}
+
+fn load_cached_from(path: PathBuf) -> Result<Arc<Vec<String>>, String> {
+    let stamp = crate::core::shared::file_stamp(&path).map_err(|error| format!("inspect {}: {error}", path.display()))?;
+    let mut cache = crate::core::shared::lock(&TRUST_CACHE);
+    if let Some(cached) = cache.as_ref()
+        && cached.path == path
+        && cached.stamp == stamp
+    {
+        return Ok(cached.list.clone());
+    }
+    let list = Arc::new(load_from(&path)?);
+    *cache = Some(TrustCache { path, stamp, list: list.clone() });
+    Ok(list)
+}
+
 pub fn is_trusted(workdir: &Path) -> bool {
     let w = workdir.to_string_lossy();
-    let list = match load() {
+    let list = match load_cached() {
         Ok(list) => list,
         Err(error) => {
             tracing::error!(%error, "workspace trust store unavailable");
@@ -225,6 +252,22 @@ mod tests {
         let other = std::env::temp_dir().join(format!("kxen-trust-wt-other-{}", std::process::id()));
         assert!(!is_trusted(&other), "无关目录不信任");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cached_trust_reload_detects_same_length_atomic_replacement() {
+        let dir = std::env::temp_dir().join(format!("kxen-trust-cache-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("trusted.json");
+        std::fs::write(&path, r#"["aaa"]"#).unwrap();
+        assert_eq!(load_cached_from(path.clone()).unwrap().as_slice(), ["aaa"]);
+
+        let replacement = dir.join("trusted.next");
+        std::fs::write(&replacement, r#"["bbb"]"#).unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        assert_eq!(load_cached_from(path).unwrap().as_slice(), ["bbb"]);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

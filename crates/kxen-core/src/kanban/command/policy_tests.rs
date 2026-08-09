@@ -175,7 +175,7 @@ fn auto_approved_prefix_word_boundary() {
     board.apply(KanbanCommand::AutoApproved { run_id: run_id.clone(), command: "git".into() }).unwrap();
     board.apply(KanbanCommand::AutoApproved { run_id: run_id.clone(), command: "git status".into() }).unwrap();
     // 无词边界：prefix 是更长单词的头部，不得放行
-    let error = reject(&mut board, KanbanCommand::AutoApproved { run_id: run_id.clone(), command: "gitx upload".into() });
+    let error = reject(&mut board, KanbanCommand::AutoApproved { run_id, command: "gitx upload".into() });
     assert!(matches!(error, KanbanError::PolicyDenied(_)), "{error:?}");
     std::fs::remove_dir_all(workspace).ok();
 }
@@ -205,6 +205,6 @@ fn auto_approved_shell_metacharacters_fall_back_to_manual_approval() {
         assert!(matches!(error, KanbanError::PolicyDenied(_)), "必须 PolicyDenied: {bad:?} -> {error:?}");
     }
     // 双横线不在元字符集：普通参数放行
-    board.apply(KanbanCommand::AutoApproved { run_id: run_id.clone(), command: "cargo test -- --exact".into() }).unwrap();
+    board.apply(KanbanCommand::AutoApproved { run_id, command: "cargo test -- --exact".into() }).unwrap();
     std::fs::remove_dir_all(workspace).ok();
 }

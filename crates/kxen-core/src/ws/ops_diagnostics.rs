@@ -1,4 +1,5 @@
 use serde_json::{Value, json};
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use crate::AppState;
@@ -17,7 +18,8 @@ pub(super) async fn export(state: &Arc<AppState>) -> Result<Value, String> {
         format!("# kxen diagnostics\n\n- version: {}\n- at: {:?}\n\n", env!("CARGO_PKG_VERSION"), std::time::SystemTime::now());
     markdown.push_str("## providers\n\n");
     for entry in &report.entries {
-        markdown.push_str(&format!("- {} [{}]: {} ({})\n", entry.display, entry.provider, entry.status, entry.detail));
+        writeln!(&mut markdown, "- {} [{}]: {} ({})", entry.display, entry.provider, entry.status, entry.detail)
+            .expect("writing to String cannot fail");
     }
     markdown.push_str("\n## mcp servers\n\n");
     if !health.mcp_ready {
@@ -26,16 +28,18 @@ pub(super) async fn export(state: &Arc<AppState>) -> Result<Value, String> {
         markdown.push_str("- (none configured)\n");
     }
     for server in &health.mcp {
-        markdown.push_str(&format!("- {} [{}]: {} tools, {} resources\n", server.name, server.status, server.tools, server.resources));
+        writeln!(&mut markdown, "- {} [{}]: {} tools, {} resources", server.name, server.status, server.tools, server.resources)
+            .expect("writing to String cannot fail");
     }
-    markdown.push_str(&format!("\n## lsp (root: {})\n\n", health.lsp_root));
+    write!(&mut markdown, "\n## lsp (root: {})\n\n", health.lsp_root).expect("writing to String cannot fail");
     if health.lsp.is_empty() {
         markdown.push_str("- (no language server started yet)\n");
     }
     for server in &health.lsp {
-        markdown.push_str(&format!("- {}: {}\n", server.language, server.status));
+        writeln!(&mut markdown, "- {}: {}", server.language, server.status).expect("writing to String cannot fail");
     }
-    markdown.push_str(&format!("\n## event bus\n\n- capacity: {}\n- receivers: {}\n", health.bus_capacity, health.bus_receivers));
+    write!(&mut markdown, "\n## event bus\n\n- capacity: {}\n- receivers: {}\n", health.bus_capacity, health.bus_receivers)
+        .expect("writing to String cannot fail");
     markdown.push_str("\n## storage recovery\n\n");
     let sessions_dir = kxen_core::core::paths::sessions_dir();
     let mut recovery_lines = Vec::new();
@@ -57,10 +61,12 @@ pub(super) async fn export(state: &Arc<AppState>) -> Result<Value, String> {
         markdown.push_str(&recovery_lines.join("\n"));
         markdown.push('\n');
     }
-    markdown.push_str(&format!(
+    write!(
+        &mut markdown,
         "\n## mrm ({} dispatches)\n\n```\n{}\n```\n\n## config.toml\n\n```toml\n{config_text}\n```\n",
         health.mrm_dispatches, health.mrm_describe
-    ));
+    )
+    .expect("writing to String cannot fail");
     let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|duration| duration.as_millis()).unwrap_or(0);
     // 落 data_dir 而非 ~/Downloads：跨平台一致，且不依赖桌面目录约定（Windows/Linux 无 Downloads 保证）
     let dir = kxen_core::core::paths::data_dir().join("diagnostics");

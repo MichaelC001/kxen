@@ -138,22 +138,30 @@ fn project(
 
 fn parse_bytes(line: Vec<u8>) -> Option<SseFrame> {
     match String::from_utf8(line) {
-        Ok(line) => parse_line(&line),
+        Ok(line) => parse_line(line),
         Err(error) => Some(SseFrame::Invalid(format!("sse invalid utf-8: {error}"))),
     }
 }
 
-fn parse_line(line: &str) -> Option<SseFrame> {
+fn parse_line(mut line: String) -> Option<SseFrame> {
     if line.is_empty() || line.starts_with(':') {
         return None; // 空行分隔 / 心跳注释
     }
     // SSE 规范：data 值只剥一个前导空格，其余空白属于载荷；多行 data 不聚合（各 provider 单事件单行）
-    let payload = line.strip_prefix("data:")?;
-    let data = payload.strip_prefix(' ').unwrap_or(payload);
-    if data == "[DONE]" { Some(SseFrame::Done) } else { Some(SseFrame::Data(data.to_string())) }
+    if !line.starts_with("data:") {
+        return None;
+    }
+    let payload_start = if line.as_bytes().get(5) == Some(&b' ') { 6 } else { 5 };
+    line.drain(..payload_start);
+    if line == "[DONE]" { Some(SseFrame::Done) } else { Some(SseFrame::Data(line)) }
 }
 
 pub fn payload_error(provider: &str, data: &str) -> Option<String> {
+    // 无反斜杠时，缺少字面量 key 就不可能反序列化出 `error`。含反斜杠则必须解析，
+    // 因为合法 JSON 可用 Unicode escape 编码 key，例如 `\u0065rror`。
+    if !data.contains("\"error\"") && !data.contains('\\') {
+        return None;
+    }
     let value = serde_json::from_str::<serde_json::Value>(data).ok()?;
     let error = value.get("error").or_else(|| value.pointer("/response/error"))?;
     let kind = error.get("type").or_else(|| error.get("code")).and_then(serde_json::Value::as_str);
@@ -226,5 +234,11 @@ mod tests {
         assert!(matches!(frames.as_slice(), [SseFrame::Invalid(error)] if error.contains("exceeded")));
         assert!(parser.pending.is_empty());
         assert!(parser.feed(b"data: ignored\n").is_empty());
+    }
+
+    #[test]
+    fn payload_error_accepts_an_escaped_error_key() {
+        let data = r#"{"\u0065rror":{"type":"rate_limit","message":"slow down"}}"#;
+        assert_eq!(payload_error("test", data).as_deref(), Some("test stream error: rate_limit - slow down"));
     }
 }

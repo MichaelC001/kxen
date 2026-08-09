@@ -44,6 +44,16 @@ pub fn is_approved(source: &str) -> bool {
     }
 }
 
+pub(crate) fn approved_sources() -> Vec<String> {
+    match load_from(&store_file()) {
+        Ok(list) => list,
+        Err(error) => {
+            tracing::error!(%error, "credential consent store unavailable");
+            Vec::new()
+        }
+    }
+}
+
 pub fn approve(source: &str) -> Result<(), String> {
     approve_into(&store_file(), source)
 }

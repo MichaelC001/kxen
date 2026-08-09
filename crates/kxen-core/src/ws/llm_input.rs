@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 pub(super) struct PreparedUser {
-    pub(super) model_text: String,
+    pub(super) model_text: kxen_core::core::shared::SharedText,
     pub(super) images: Vec<kxen_core::llm::types::ImagePart>,
     pub(super) failures: Vec<String>,
     pub(super) message: kxen_core::core::session::Message,
@@ -89,12 +89,15 @@ pub(super) async fn prepare_user(input: PrepareUserInput<'_>) -> Result<Prepared
     let text = expand_command(text, session_path);
     let context_sources = persisted_context_items(&context);
     let (context_block, failures) = assemble_context(context, &mut images, session_path, picked).await;
-    let mut parts = vec![kxen_core::core::session::Part::Text { text: text.clone() }];
+    let text = kxen_core::core::shared::SharedText::from(text);
+    let context_block = kxen_core::core::shared::SharedText::from(context_block);
+    let model_text = if context_block.is_empty() { text.clone() } else { format!("{text}\n{context_block}").into() };
+    let mut parts = vec![kxen_core::core::session::Part::Text { text }];
     if !context_sources.is_empty() {
         parts.push(kxen_core::core::session::Part::ContextSources { items: context_sources });
     }
     if !context_block.is_empty() {
-        parts.push(kxen_core::core::session::Part::Context { text: context_block.clone() });
+        parts.push(kxen_core::core::session::Part::Context { text: context_block });
     }
     for image in &images {
         parts.push(kxen_core::core::session::Part::Image { media_type: image.media_type.clone(), data: image.data.clone() });
@@ -104,7 +107,6 @@ pub(super) async fn prepare_user(input: PrepareUserInput<'_>) -> Result<Prepared
         message.id = delivery_id.to_string();
         message.created_at = created_at;
     }
-    let model_text = if context_block.is_empty() { text } else { format!("{text}\n{context_block}") };
     Ok(PreparedUser { model_text, images, failures, message })
 }
 
@@ -112,12 +114,15 @@ fn replay_persisted_user(message: kxen_core::core::session::Message) -> Result<P
     if message.role != kxen_core::core::session::Role::User {
         return Err(format!("queued delivery id collides with a non-user Session message: {}", message.id));
     }
-    let mut text = Vec::new();
+    let mut text = String::new();
     let mut images = Vec::new();
     for part in &message.parts {
         match part {
             kxen_core::core::session::Part::Text { text: part } | kxen_core::core::session::Part::Context { text: part } => {
-                text.push(part.clone());
+                if !text.is_empty() {
+                    text.push('\n');
+                }
+                text.push_str(part);
             }
             kxen_core::core::session::Part::ContextSources { .. } => {}
             kxen_core::core::session::Part::Image { media_type, data } => {
@@ -129,7 +134,7 @@ fn replay_persisted_user(message: kxen_core::core::session::Message) -> Result<P
     if text.is_empty() {
         return Err(format!("queued user message contains no text: {}", message.id));
     }
-    Ok(PreparedUser { model_text: text.join("\n"), images, failures: Vec::new(), message })
+    Ok(PreparedUser { model_text: text.into(), images, failures: Vec::new(), message })
 }
 
 #[cfg(test)]

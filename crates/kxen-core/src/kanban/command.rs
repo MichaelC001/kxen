@@ -55,12 +55,19 @@ impl Board {
         }
         let kind = self.validate(&command)?;
         let mut event = KanbanEvent { id: ids::new_id("kev"), board_id: self.state.board_id.clone(), seq: 0, created_at: now_ms(), kind };
-        store::append_event(&store::events_path(&self.dir), &mut event)?;
+        let expected_anchor = if self.state.seq == 0 {
+            None
+        } else {
+            Some((self.state.seq, self.state.anchor_event_id.as_deref().expect("non-empty projection has an anchor")))
+        };
+        store::append_event_at(&store::events_path(&self.dir), &mut event, expected_anchor)?;
         // append 指派的 seq 必须紧跟内存投影；否则存在绕过锁的写入者，fail-closed 要求重开而非猜测
         if event.seq != self.state.seq + 1 {
             return Err(KanbanError::Log(format!("event log diverged from projection at seq {}", event.seq)));
         }
         projection::reduce(&mut self.state, &event)?;
+        drop(_file_guard);
+        drop(_guard);
         // 快照是纯缓存：写失败不影响已提交事件，下次启动从事件流重建
         if let Err(error) = store::save_snapshot(&self.dir, &self.state) {
             tracing::warn!(%error, "kanban snapshot cache write failed");

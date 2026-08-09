@@ -90,13 +90,18 @@ pub fn start_mic(locale: &str, capture_cloud: bool) -> Result<MicSession, String
         objc::TapHandler::new(move |buffer: *mut AnyObject, _time: *mut AnyObject| {
             if !buffer.is_null() {
                 objc::append_buffer(unsafe { &*req_ptr }, buffer);
-                let chunk = unsafe { objc::pcm_samples(buffer) };
-                if capture_cloud && !chunk.is_empty() {
-                    super::provider::append_samples(
-                        &mut crate::core::shared::lock(&sink),
-                        &chunk,
-                        callback_limit.load(std::sync::atomic::Ordering::Relaxed),
-                    );
+                if capture_cloud {
+                    unsafe {
+                        objc::with_pcm_samples(buffer, |chunk| {
+                            if !chunk.is_empty() {
+                                super::provider::append_samples(
+                                    &mut crate::core::shared::lock(&sink),
+                                    chunk,
+                                    callback_limit.load(std::sync::atomic::Ordering::Relaxed),
+                                );
+                            }
+                        });
+                    }
                 }
             }
         })

@@ -34,16 +34,16 @@ struct ResponsesTool<'a> {
     kind: &'static str,
     name: &'a str,
     description: &'a str,
-    parameters: serde_json::Value,
+    parameters: &'a serde_json::Value,
 }
 
 /// Responses API wire content：无图片纯字符串；有图片走 input_image/input_text 块。
-fn wire_content(m: &Message) -> serde_json::Value {
+fn wire_content(m: Message) -> serde_json::Value {
     if m.images.is_empty() {
-        return serde_json::Value::String(m.content.clone());
+        return serde_json::Value::String(m.content.to_string());
     }
     let mut blocks: Vec<serde_json::Value> =
-        m.images.iter().map(|img| serde_json::json!({ "type": "input_image", "image_url": img.data_url() })).collect();
+        m.images.into_iter().map(|img| serde_json::json!({ "type": "input_image", "image_url": img.data_url() })).collect();
     if !m.content.is_empty() {
         blocks.push(serde_json::json!({ "type": "input_text", "text": m.content }));
     }
@@ -51,7 +51,7 @@ fn wire_content(m: &Message) -> serde_json::Value {
 }
 
 /// 消息序列 -> Responses input 项：assistant 的 tool_calls 拆 function_call 项，结果走 function_call_output。
-fn input_items(messages: &[Message]) -> Vec<serde_json::Value> {
+fn input_items(messages: impl IntoIterator<Item = Message>) -> Vec<serde_json::Value> {
     let mut out: Vec<serde_json::Value> = Vec::new();
     for m in messages {
         match m.role {
@@ -61,7 +61,7 @@ fn input_items(messages: &[Message]) -> Vec<serde_json::Value> {
                 if !m.content.is_empty() {
                     out.push(serde_json::json!({"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": m.content}]}));
                 }
-                for c in &m.tool_calls {
+                for c in m.tool_calls {
                     out.push(serde_json::json!({
                         "type": "function_call",
                         "call_id": c.id,
@@ -135,37 +135,30 @@ impl OpenAiProvider {
         messages: &[Message],
         tools: &[crate::llm::tool::ToolDefinition],
     ) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
-        let bearer = self.bearer.clone();
-        let error_bearer = bearer.clone();
-        let account_id = self.account_id.clone();
+        let error_bearer = self.bearer.clone();
         let url = if self.subscription { SUBSCRIPTION_URL } else { API_URL };
-        let model = model.to_string();
-        let messages_owned: Vec<Message> = messages.to_vec();
-        let tools_owned: Vec<crate::llm::tool::ToolDefinition> = tools.to_vec();
-        let http = self.http.clone();
-
-        let start = async move {
-            let input = input_items(&messages_owned);
-            let tools_api: Vec<ResponsesTool> = tools_owned
-                .iter()
-                .map(|t| ResponsesTool {
-                    kind: "function",
-                    name: &t.function.name,
-                    description: &t.function.description,
-                    parameters: t.function.parameters.clone(),
-                })
-                .collect();
-            let req = ResponsesRequest { model: &model, input, stream: true, store: false, tools: tools_api };
-            let mut builder = http
-                .post(url)
-                .header("authorization", format!("Bearer {bearer}"))
-                .header("content-type", "application/json")
-                .header("originator", ORIGINATOR);
-            if let Some(account) = account_id {
-                builder = builder.header("chatgpt-account-id", account.as_ref());
-            }
-            builder.json(&req).send().await
-        };
+        let input = input_items(messages.iter().cloned());
+        let tools_api = tools
+            .iter()
+            .map(|tool| ResponsesTool {
+                kind: "function",
+                name: &tool.function.name,
+                description: &tool.function.description,
+                parameters: &tool.function.parameters,
+            })
+            .collect();
+        let req = ResponsesRequest { model, input, stream: true, store: false, tools: tools_api };
+        let mut request = self
+            .http
+            .post(url)
+            .bearer_auth(self.bearer.as_ref())
+            .header("content-type", "application/json")
+            .header("originator", ORIGINATOR);
+        if let Some(account) = &self.account_id {
+            request = request.header("chatgpt-account-id", account.as_ref());
+        }
+        let request = request.json(&req);
+        let start = async move { request.send().await };
 
         Box::pin(futures::stream::once(start).flat_map(move |result| match result {
             Ok(resp) if resp.status().is_success() => stream_sse(resp),
@@ -248,7 +241,7 @@ mod tests {
     #[test]
     fn images_become_input_image_blocks() {
         let m = Message::user_with_images("看图", vec![ImagePart { media_type: "image/png".into(), data: "QUJD".into() }]);
-        let v = super::wire_content(&m);
+        let v = super::wire_content(m);
         let arr = v.as_array().unwrap();
         assert_eq!(arr[0]["type"], "input_image");
         assert_eq!(arr[0]["image_url"], "data:image/png;base64,QUJD");
@@ -261,7 +254,7 @@ mod tests {
             Message::assistant_with_tools("查一下", vec![AssistantToolCall::function("call_1", "exec", "{\"command\":\"ls\"}")]),
             Message::tool_result("call_1", "exec", "file.txt"),
         ];
-        let items = input_items(&msgs);
+        let items = input_items(msgs);
         assert_eq!(items[0]["type"], "message");
         assert_eq!(items[0]["role"], "assistant");
         assert_eq!(items[1]["type"], "function_call");

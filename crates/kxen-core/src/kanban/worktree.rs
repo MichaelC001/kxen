@@ -8,6 +8,7 @@
 //! 目录、保留分支（merge/rebase 回主树是人的事，在看板 review 列完成）。
 //! 隔离是纵深防御不是安全边界（安全边界在 safety_gate）：非 git workspace 优雅降级为 workspace 根。
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use super::command::Board;
@@ -124,7 +125,7 @@ pub async fn detach_if_terminal(workspace: &Path, board_id: &str, card_id: &str,
         Ok(report) => {
             let mut note = format!("worktree 已释放（分支保留），{} 个产物快照到 {}", report.collected.len(), report.files_dir.display());
             if !report.skipped.is_empty() {
-                note.push_str(&format!("；{} 项未抢救（原因见 manifest.json）", report.skipped.len()));
+                write!(&mut note, "；{} 项未抢救（原因见 manifest.json）", report.skipped.len()).expect("writing to String cannot fail");
             }
             note
         }
@@ -155,10 +156,10 @@ async fn snapshot_artifacts(
     let mut skipped: Vec<SkippedEntry> = Vec::new();
     let mut total_bytes: u64 = 0;
     for (code, path) in parse_porcelain_z(&out) {
-        let source = worktree.join(&path);
-        match code.as_str() {
+        let source = worktree.join(path);
+        match code {
             "!!" if path.ends_with('/') => {
-                skipped.push(SkippedEntry { path, reason: "ignored 目录不递归快照".into() });
+                skipped.push(SkippedEntry { path: path.to_string(), reason: "ignored 目录不递归快照".into() });
             }
             _ if path.ends_with('/') => collect_untracked_dir(
                 &source,
@@ -170,7 +171,7 @@ async fn snapshot_artifacts(
                 &mut collected,
                 &mut skipped,
             )?,
-            _ => collect_file(&source, &files_dir, &path, max_file_bytes, max_total_bytes, &mut total_bytes, &mut collected, &mut skipped)?,
+            _ => collect_file(&source, &files_dir, path, max_file_bytes, max_total_bytes, &mut total_bytes, &mut collected, &mut skipped)?,
         }
     }
     std::fs::create_dir_all(&artifact_dir).map_err(|e| format!("create {}: {e}", artifact_dir.display()))?;
@@ -182,7 +183,7 @@ async fn snapshot_artifacts(
 
 /// porcelain -z 输出解析：NUL 分隔、路径不加 C 引号（无反转义问题）；R/C 条目后跟一个源路径段，跳过。
 /// 返回（状态两列, 路径）列表，快照只需要重命名后的新路径。
-fn parse_porcelain_z(output: &str) -> Vec<(String, String)> {
+fn parse_porcelain_z(output: &str) -> Vec<(&str, &str)> {
     let mut entries = Vec::new();
     let mut segments = output.split('\0').filter(|s| !s.is_empty());
     while let Some(segment) = segments.next() {
@@ -190,7 +191,7 @@ fn parse_porcelain_z(output: &str) -> Vec<(String, String)> {
             continue;
         }
         let code = &segment[..2];
-        entries.push((code.to_string(), segment[3..].to_string()));
+        entries.push((code, &segment[3..]));
         if code.contains('R') || code.contains('C') {
             segments.next();
         }

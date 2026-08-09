@@ -38,7 +38,7 @@ fn test_ctx(notify: Option<Arc<NotifyRouter>>) -> AgentContext {
         workdir: Arc::from(Path::new("/tmp")),
         path_grants: Arc::new(Default::default()),
         model: ModelRef::new("xai", "grok"),
-        store: kxen_core::auth::credential::AuthStore::default(),
+        store: kxen_core::auth::credential::AuthStore::default().into(),
         max_turns: 1,
         mrm: Some(Arc::new(ModelResourceManager::new(config))),
         allowed_tools: None,
@@ -252,7 +252,7 @@ fn close_requeues_an_already_persisted_notice_without_id_collision() {
     let mut message = kxen_core::core::session::new_message(
         &session.id,
         kxen_core::core::session::Role::User,
-        vec![kxen_core::core::session::Part::Text { text: claimed.text.clone() }],
+        vec![kxen_core::core::session::Part::Text { text: claimed.text.clone().into() }],
     );
     message.id = claimed.id.clone();
     message.created_at = claimed.created_at;
@@ -297,7 +297,7 @@ fn late_kick_fires_after_enqueue() {
     let mut message = kxen_core::core::session::new_message(
         "s1",
         kxen_core::core::session::Role::User,
-        vec![kxen_core::core::session::Part::Text { text: claimed.text.clone() }],
+        vec![kxen_core::core::session::Part::Text { text: claimed.text.clone().into() }],
     );
     message.id = claimed.id.clone();
     message.created_at = claimed.created_at;

@@ -29,7 +29,7 @@ fn system_blocks_without_boundary_stay_plain() {
 #[test]
 fn assistant_tool_calls_become_tool_use_blocks() {
     let m = Message::assistant_with_tools("看下目录", vec![AssistantToolCall::function("toolu_1", "exec", "{\"command\":\"ls\"}")]);
-    let v = assistant_content(&m);
+    let v = assistant_content(m);
     let arr = v.as_array().unwrap();
     assert_eq!(arr[0]["type"], "text");
     assert_eq!(arr[1]["type"], "tool_use");
@@ -48,7 +48,7 @@ fn consecutive_tool_results_merge_into_one_user() {
         Message::tool_result("toolu_2", "read", "out2"),
         Message::user("继续"),
     ];
-    let api = api_messages_of(&msgs);
+    let api = api_messages_of(msgs);
     assert_eq!(api.len(), 3);
     assert_eq!(api[1].role, "user");
     let blocks = api[1].content.as_array().unwrap();

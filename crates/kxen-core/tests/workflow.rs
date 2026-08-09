@@ -36,7 +36,7 @@ fn test_deps() -> SubagentDeps {
         registry: Arc::new(kxen_core::tools::task::TaskRegistry::new()),
         workdir: Arc::from(std::path::Path::new("/tmp")),
         path_grants: Arc::new(Default::default()),
-        store: kxen_core::auth::credential::AuthStore::default(),
+        store: kxen_core::auth::credential::AuthStore::default().into(),
         mrm: Arc::new(ModelResourceManager::new(config)),
         hooks: None,
         extras: None,

@@ -284,15 +284,15 @@ pub(super) fn record_goal_turn(ctx: &mut AgentContext, acc: &mut UsageAcc, block
     match goal.status {
         crate::core::goal::GoalStatus::BudgetLimited => {
             if let Some(bus) = &ctx.bus {
-                bus.publish(crate::core::event::Event::GoalUpdate { id: goal.id.clone(), status: "budget_limited" });
+                bus.publish(crate::core::event::Event::GoalUpdate { id: goal.id, status: "budget_limited" });
             }
             Some(format!("goal 预算耗尽（BudgetLimited），停止执行——{BUDGET_LIMITED_RECOVERY}"))
         }
         crate::core::goal::GoalStatus::Blocked => {
             if let Some(bus) = &ctx.bus {
-                bus.publish(crate::core::event::Event::GoalUpdate { id: goal.id.clone(), status: "blocked" });
+                bus.publish(crate::core::event::Event::GoalUpdate { id: goal.id, status: "blocked" });
             }
-            let reason = goal.block_reason.clone().unwrap_or_default();
+            let reason = goal.block_reason.unwrap_or_default();
             Some(format!("goal 连续阻塞已标记 Blocked：{reason}"))
         }
         // 暂停/取消的在飞 run 停出（P2-1）：goal_tool 暂停走本路径在轮末停出；

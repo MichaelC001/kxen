@@ -34,7 +34,7 @@ pub fn run() {
         // close_to_tray 标志由 tray 菜单项与 CloseRequested 拦截共享（config 初值，菜单翻转即生效）
         let close_to_tray = Arc::new(AtomicBool::new(config.tray.close_to_tray));
         let close_to_tray_window = close_to_tray.clone();
-        let config_setup = config.clone();
+        let config_setup = config;
         let app = tauri::Builder::default()
             .plugin(tauri_plugin_notification::init())
             .plugin(tauri_plugin_dialog::init())
@@ -123,11 +123,11 @@ pub fn run() {
                 match tray::setup(
                     app.handle(),
                     state.clone(),
-                    web_handle_setup.clone(),
+                    web_handle_setup,
                     bind.to_string(),
                     web_enabled,
                     tray::DefaultOpen::parse(&config_setup.tray.default_open),
-                    close_to_tray.clone(),
+                    close_to_tray,
                 ) {
                     Ok(guard) => {
                         app.manage(guard);
@@ -144,8 +144,11 @@ pub fn run() {
                     let state = state.clone();
                     kxen_core::notify_sink::spawn_with(state.clone(), move |event| {
                         if let kxen_core::core::event::Event::LlmDelta(payload) = event {
-                            let fg = kxen_core::core::shared::read(&state.foreground_session).clone();
-                            if os_notify::should_notify_done(payload, &fg) {
+                            let should_notify = {
+                                let foreground = kxen_core::core::shared::read(&state.foreground_session);
+                                os_notify::should_notify_done(payload, &foreground)
+                            };
+                            if should_notify {
                                 let sid = payload.get("session_id").and_then(|s| s.as_str()).unwrap_or("");
                                 let title = kxen_core::core::session::load_meta(&kxen_core::core::paths::sessions_dir(), sid)
                                     .map(|m| m.title)
@@ -172,7 +175,7 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     let baseline = kxen_core::core::shared::lock(&state.auth_store).clone();
                     let probed = tokio::task::spawn_blocking(move || {
-                        let mut store = baseline.clone();
+                        let mut store = (*baseline).clone();
                         let outcomes = kxen_core::auth::probe_all(&mut store, false);
                         (baseline, store, outcomes)
                     })
@@ -186,7 +189,7 @@ pub fn run() {
                             kxen_core::auth::probe::merge_probe_delta(&baseline, &store, disk);
                             Ok(())
                         }) {
-                            Ok(persisted) => *current = persisted,
+                            Ok(persisted) => *current = std::sync::Arc::new(persisted),
                             Err(error) => tracing::error!(%error, "credential probe persistence failed"),
                         }
                     }

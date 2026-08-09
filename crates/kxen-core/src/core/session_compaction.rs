@@ -71,18 +71,17 @@ pub fn load_history_checked(dir: &Path, id: &str) -> std::io::Result<Vec<Message
     Ok(history_view(id, messages, compaction))
 }
 
-fn history_view(id: &str, messages: Vec<Message>, compaction: Option<Compaction>) -> Vec<Message> {
+fn history_view(id: &str, mut messages: Vec<Message>, compaction: Option<Compaction>) -> Vec<Message> {
     let Some(compaction) = compaction else {
         return messages;
     };
     let Some(pos) = messages.iter().position(|m| m.id == compaction.upto_message_id) else {
         return messages;
     };
-    let mut view = Vec::with_capacity(messages.len() - pos);
+    let mut view = messages.split_off(pos + 1);
     // 摘要角色用 user：system 会让 run loop 的 system_owned 判假吞掉真正系统提示，
     // assistant 会与 recent 首条连排（provider 要求首条非 system 消息必须 user）
-    view.push(new_message(id, Role::User, vec![Part::Text { text: format!("{COMPACT_MARK}\n{}", compaction.summary) }]));
-    view.extend(messages[pos + 1..].iter().cloned());
+    view.insert(0, new_message(id, Role::User, vec![Part::Text { text: format!("{COMPACT_MARK}\n{}", compaction.summary).into() }]));
     view
 }
 

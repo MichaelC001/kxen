@@ -19,8 +19,9 @@ pub use task_recovery::recover_interrupted_tasks;
 /// 返回值为两边实际投递到的 session id 去重合并（调用方合并续跑清单与启动日志用）。
 pub fn recover_interrupted_all(pending: &crate::core::pending_queue::PendingQueues, sessions_dir: &Path) -> Vec<String> {
     let mut delivered = recover_interrupted(pending, sessions_dir);
+    let mut seen: std::collections::HashSet<String> = delivered.iter().cloned().collect();
     for sid in recover_interrupted_tasks(pending, sessions_dir) {
-        if !delivered.contains(&sid) {
+        if seen.insert(sid.clone()) {
             delivered.push(sid);
         }
     }

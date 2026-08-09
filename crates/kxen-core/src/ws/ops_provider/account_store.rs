@@ -2,20 +2,23 @@
 
 use serde_json::{Value, json};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 #[cfg(test)]
 use super::transaction::transact_custom_provider;
 use super::transaction::transact_custom_provider_with_runtime;
 use kxen_core::auth::credential::{AuthStore, CredentialKind};
 
+type SharedStoreMutex = Mutex<Arc<AuthStore>>;
+
 fn commit_auth_transaction(
-    store: &Mutex<AuthStore>,
+    store: &SharedStoreMutex,
     transaction: impl FnOnce() -> Result<kxen_core::auth::credential::AuthUpdate, String>,
-) -> Result<AuthStore, String> {
+) -> Result<Arc<AuthStore>, String> {
     let mut memory = store.lock().map_err(|error| error.to_string())?;
     let (persisted, warning) = transaction()?.into_snapshot_and_warning();
-    *memory = persisted.clone();
+    let persisted = Arc::new(persisted);
+    *memory = Arc::clone(&persisted);
     match warning {
         Some(error) => Err(error),
         None => Ok(persisted),
@@ -23,19 +26,20 @@ fn commit_auth_transaction(
 }
 
 fn commit_custom_transaction(
-    store: &Mutex<AuthStore>,
+    store: &SharedStoreMutex,
     transaction: impl FnOnce() -> Result<(AuthStore, Option<String>), String>,
-) -> Result<AuthStore, String> {
+) -> Result<Arc<AuthStore>, String> {
     let mut memory = store.lock().map_err(|error| error.to_string())?;
     let (persisted, warning) = transaction()?;
-    *memory = persisted.clone();
+    let persisted = Arc::new(persisted);
+    *memory = Arc::clone(&persisted);
     match warning {
         Some(error) => Err(error),
         None => Ok(persisted),
     }
 }
 
-pub(super) fn accounts(store: &Mutex<AuthStore>, config_path: &Path) -> Result<Value, String> {
+pub(super) fn accounts(store: &SharedStoreMutex, config_path: &Path) -> Result<Value, String> {
     let store = store.lock().map_err(|error| error.to_string())?.clone();
     let mut out: Vec<Value> = kxen_core::providers::all()
         .iter()
@@ -75,7 +79,7 @@ pub(super) fn accounts(store: &Mutex<AuthStore>, config_path: &Path) -> Result<V
     Ok(json!(out))
 }
 
-pub(super) fn import_account(params: &Value, store: &Mutex<AuthStore>, auth_path: &Path) -> Result<Value, String> {
+pub(super) fn import_account(params: &Value, store: &SharedStoreMutex, auth_path: &Path) -> Result<Value, String> {
     let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
     let account = params.get("account").and_then(Value::as_str).ok_or("missing account")?;
     kxen_core::auth::credential::validate_named_account(account)?;
@@ -109,7 +113,7 @@ pub(super) fn import_account(params: &Value, store: &Mutex<AuthStore>, auth_path
     Ok(json!({ "id": key }))
 }
 
-pub(super) fn remove_account(params: &Value, store: &Mutex<AuthStore>, auth_path: &Path) -> Result<Value, String> {
+pub(super) fn remove_account(params: &Value, store: &SharedStoreMutex, auth_path: &Path) -> Result<Value, String> {
     let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
     let account = params.get("account").and_then(Value::as_str).ok_or("missing account")?;
     kxen_core::auth::credential::validate_named_account(account)?;
@@ -123,7 +127,7 @@ pub(super) fn remove_account(params: &Value, store: &Mutex<AuthStore>, auth_path
     Ok(json!({ "removed": key }))
 }
 
-pub(super) fn update_region(params: &Value, store: &Mutex<AuthStore>, auth_path: &Path) -> Result<Value, String> {
+pub(super) fn update_region(params: &Value, store: &SharedStoreMutex, auth_path: &Path) -> Result<Value, String> {
     let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
     let account = params.get("account").and_then(Value::as_str).ok_or("missing account")?;
     kxen_core::auth::credential::validate_account_selector(account)?;
@@ -137,7 +141,7 @@ pub(super) fn update_region(params: &Value, store: &Mutex<AuthStore>, auth_path:
 
 pub(super) fn add_custom_with_runtime(
     params: &Value,
-    store: &Mutex<AuthStore>,
+    store: &SharedStoreMutex,
     config_path: &Path,
     auth_path: &Path,
     runtimes: &kxen_core::workspace_runtime::WorkspaceRuntimeRegistry,
@@ -191,7 +195,7 @@ pub(super) fn add_custom_with_runtime(
 
 pub(super) fn remove_custom_with_runtime(
     params: &Value,
-    store: &Mutex<AuthStore>,
+    store: &SharedStoreMutex,
     config_path: &Path,
     auth_path: &Path,
     runtimes: &kxen_core::workspace_runtime::WorkspaceRuntimeRegistry,
@@ -223,23 +227,23 @@ pub(super) fn remove_custom_with_runtime(
 }
 
 #[cfg(test)]
-pub(super) fn add_custom(params: &Value, store: &Mutex<AuthStore>, config_path: &Path, auth_path: &Path) -> Result<Value, String> {
+pub(super) fn add_custom(params: &Value, store: &SharedStoreMutex, config_path: &Path, auth_path: &Path) -> Result<Value, String> {
     let runtimes = kxen_core::workspace_runtime::WorkspaceRuntimeRegistry::with_user_config(config_path.to_path_buf())?;
     add_custom_with_runtime(params, store, config_path, auth_path, &runtimes)
 }
 
 #[cfg(test)]
-pub(super) fn remove_custom(params: &Value, store: &Mutex<AuthStore>, config_path: &Path, auth_path: &Path) -> Result<Value, String> {
+pub(super) fn remove_custom(params: &Value, store: &SharedStoreMutex, config_path: &Path, auth_path: &Path) -> Result<Value, String> {
     let runtimes = kxen_core::workspace_runtime::WorkspaceRuntimeRegistry::with_user_config(config_path.to_path_buf())?;
     remove_custom_with_runtime(params, store, config_path, auth_path, &runtimes)
 }
 
 pub(super) fn commit_reprobe(
-    store: &Mutex<AuthStore>,
+    store: &SharedStoreMutex,
     auth_path: &Path,
     baseline: &AuthStore,
     probed: &AuthStore,
-) -> Result<AuthStore, String> {
+) -> Result<Arc<AuthStore>, String> {
     commit_auth_transaction(store, || {
         kxen_core::auth::credential::update_auth_file_committed(auth_path, |disk| {
             kxen_core::auth::probe::merge_probe_delta(baseline, probed, disk);

@@ -61,8 +61,8 @@ pub(super) async fn handle(method: &str, params: &Value, state: &Arc<AppState>) 
             }
             let model = params.get("model").and_then(Value::as_str);
             let store = state.auth_store.lock().map_err(|error| error.to_string())?.clone();
-            let store = match params.get("access").and_then(Value::as_str) {
-                Some(access) => kxen_core::llm::verify::store_with_temp_cred(
+            let temporary = params.get("access").and_then(Value::as_str).map(|access| {
+                kxen_core::llm::verify::store_with_temp_cred(
                     &store,
                     provider,
                     account.unwrap_or("default"),
@@ -71,16 +71,16 @@ pub(super) async fn handle(method: &str, params: &Value, state: &Arc<AppState>) 
                     params.get("refresh").and_then(Value::as_str).unwrap_or(""),
                     params.get("expires").and_then(Value::as_u64).unwrap_or(0),
                     params.get("region").and_then(Value::as_str),
-                ),
-                None => store,
-            };
+                )
+            });
+            let store = temporary.as_ref().unwrap_or(&store);
             let mrm = state.active_runtime()?.mrm();
             let usage_reporter = kxen_core::agent::agent_loop::UsageReporter::new_unscoped(
                 "system_provider_verify",
                 state.session_tokens.clone(),
                 state.bus.clone(),
             );
-            serde_json::to_value(kxen_core::llm::verify::verify_provider(&mrm, &store, provider, account, model, &usage_reporter).await)
+            serde_json::to_value(kxen_core::llm::verify::verify_provider(&mrm, store, provider, account, model, &usage_reporter).await)
                 .map_err(|error| error.to_string())
         }
         "provider.models" => {
@@ -94,7 +94,7 @@ pub(super) async fn handle(method: &str, params: &Value, state: &Arc<AppState>) 
             let out = kxen_core::llm::models::fetch_models(&mrm, &store, provider, account, 15).await;
             Ok(json!({ "models": out.models, "source": out.source, "detail": out.detail }))
         }
-        "models.catalog" => serde_json::to_value(kxen_core::llm::catalog::catalog()).map_err(|error| error.to_string()),
+        "models.catalog" => serde_json::to_value(&*kxen_core::llm::catalog::catalog()).map_err(|error| error.to_string()),
         "provider.accounts" => account_store::accounts(&state.auth_store, &kxen_core::core::paths::config_dir().join("config.toml")),
         "provider.import_account" => account_store::import_account(params, &state.auth_store, &kxen_core::core::paths::auth_file()),
         "provider.remove_account" => account_store::remove_account(params, &state.auth_store, &kxen_core::core::paths::auth_file()),
@@ -125,7 +125,7 @@ pub(super) async fn handle(method: &str, params: &Value, state: &Arc<AppState>) 
                 })
                 .map_err(|error| error.to_string())?;
                 let (persisted, warning) = update.into_snapshot_and_warning();
-                *auth_store.lock().map_err(|error| error.to_string())? = persisted;
+                *auth_store.lock().map_err(|error| error.to_string())? = Arc::new(persisted);
                 match warning {
                     Some(error) => Err(error),
                     None => Ok(()),
@@ -168,7 +168,7 @@ async fn reprobe(state: &Arc<AppState>) -> Result<Value, String> {
     kxen_core::auth::consent::ensure_consents(&state.approvals, &state.bus).await?;
     let baseline = state.auth_store.lock().map_err(|error| error.to_string())?.clone();
     let (baseline, probed, outcomes) = tokio::task::spawn_blocking(move || {
-        let mut probed = baseline.clone();
+        let mut probed = (*baseline).clone();
         let outcomes = kxen_core::auth::probe_all(&mut probed, true);
         (baseline, probed, outcomes)
     })

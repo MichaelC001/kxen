@@ -167,7 +167,7 @@ fn live(g: &crate::core::goal::Goal) -> bool {
 /// 绑定判定：会话目录落在 worktree 树下（含根部）即算绑定；
 /// 用 "path/" 做段边界，防 `exp` 误吞同前缀的 `exp2`。
 fn bound_to(dir: &str, tree_path: &str) -> bool {
-    dir == tree_path || dir.starts_with(&format!("{tree_path}/"))
+    dir == tree_path || dir.strip_prefix(tree_path).is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 fn dirty_count(path: &str) -> Option<usize> {

@@ -19,7 +19,7 @@ fn session_usage_report(tokens: kxen_core::core::usage::SessionUsage, completene
 pub(super) async fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Result<Value, String> {
     let items = kxen_core::core::shared::lock(&state.statusline_items).clone();
     let active_workspace = kxen_core::core::shared::read(&state.active_workspace).clone();
-    let workdir = statusline_workdir(&kxen_core::core::paths::sessions_dir(), session_id, &active_workspace)?;
+    let (workdir, session_override) = statusline_session(&kxen_core::core::paths::sessions_dir(), session_id, &active_workspace)?;
 
     // git 分支（5s 缓存）
     let git_branch = {
@@ -54,7 +54,11 @@ pub(super) async fn statusline_report(session_id: &str, state: &Arc<AppState>) -
     let tokens = kxen_core::core::shared::lock(&state.session_tokens).get(session_id).cloned().unwrap_or_default();
     let usage_report = session_usage_report(tokens.clone(), kxen_core::core::usage::completeness(tokens.unmetered_calls));
     let last_input = kxen_core::core::shared::lock(&state.session_last_input).get(session_id).copied().unwrap_or(0);
-    let model = super::session_ops::effective_session_model(if session_id.is_empty() { None } else { Some(session_id) }, state).await?;
+    let model = super::session_ops::effective_session_model_from_override(
+        if session_id.is_empty() { None } else { Some(session_id) },
+        session_override,
+        state,
+    )?;
     // ctx 占用近似：最近一次 run 的 input / 模型上下文窗（catalog 实测值，非 200k 硬编码）
     let window = kxen_core::agent::compact::context_window(&model) as f64;
     let ctx_pct = ((last_input as f64 / window) * 100.0).min(100.0) as u32;
@@ -71,16 +75,25 @@ pub(super) async fn statusline_report(session_id: &str, state: &Arc<AppState>) -
     }))
 }
 
+#[cfg(test)]
 fn statusline_workdir(
     sessions_dir: &std::path::Path,
     session_id: &str,
     active_workspace: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
+    statusline_session(sessions_dir, session_id, active_workspace).map(|(workdir, _)| workdir)
+}
+
+fn statusline_session(
+    sessions_dir: &std::path::Path,
+    session_id: &str,
+    active_workspace: &std::path::Path,
+) -> Result<(std::path::PathBuf, Option<kxen_core::llm::ModelRef>), String> {
     if session_id.is_empty() {
-        return Ok(active_workspace.to_path_buf());
+        return Ok((active_workspace.to_path_buf(), None));
     }
     kxen_core::core::session::load_meta(sessions_dir, session_id)
-        .map(|meta| std::path::PathBuf::from(meta.directory))
+        .map(|meta| (std::path::PathBuf::from(meta.directory), meta.model))
         .map_err(|error| format!("statusline session {session_id} unavailable: {error}"))
 }
 

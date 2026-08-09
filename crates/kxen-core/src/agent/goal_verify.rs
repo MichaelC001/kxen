@@ -3,6 +3,7 @@
 //! 评审调用失败/输出不可解析按「本次 complete 拒绝」处理（可重试），不降级为弱校验静默放行。
 
 use crate::llm::{Message, ModelRef};
+use std::fmt::Write as _;
 
 const EVIDENCE_CAP: usize = 8000;
 pub const JUDGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -100,8 +101,14 @@ pub async fn score_completion(request: CompletionRequest<'_>) -> CompletionAttem
             metering_warning: None,
         };
     }
-    let evidence_capped: String = evidence.chars().take(EVIDENCE_CAP).collect();
-    let numbered = items.iter().enumerate().map(|(i, c)| format!("{}. {}", i + 1, c)).collect::<Vec<_>>().join("\n");
+    let evidence_capped = evidence.char_indices().nth(EVIDENCE_CAP).map_or(evidence, |(end, _)| &evidence[..end]);
+    let mut numbered = String::new();
+    for (index, criterion) in items.iter().enumerate() {
+        if !numbered.is_empty() {
+            numbered.push('\n');
+        }
+        write!(numbered, "{}. {criterion}", index + 1).expect("writing to String cannot fail");
+    }
     let messages = vec![
         Message::system(
             "You are a strict completion verifier for a coding agent's goal. \
@@ -129,6 +136,7 @@ pub async fn score_completion(request: CompletionRequest<'_>) -> CompletionAttem
     .await
     {
         Ok(output) => {
+            let unmetered_call = output.usage.is_none();
             let result = parse_scores(&output.text, &items)
                 .ok_or_else(|| "completion verification returned unparseable scores".to_string())
                 .and_then(|scores| {
@@ -141,8 +149,8 @@ pub async fn score_completion(request: CompletionRequest<'_>) -> CompletionAttem
             CompletionAttempt {
                 result,
                 request_started: true,
-                usage: output.usage.clone(),
-                unmetered_call: output.usage.is_none(),
+                usage: output.usage,
+                unmetered_call,
                 metering_warning: output.metering_warning,
             }
         }

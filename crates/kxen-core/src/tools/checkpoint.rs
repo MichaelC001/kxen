@@ -12,7 +12,7 @@ fn repo_dir(workdir: &Path) -> PathBuf {
     // sha256 取代 DefaultHasher：后者输出跨 Rust 版本不受保证，工具链升级会让存量检查点变孤儿。
     let path = workdir.canonicalize().unwrap_or_else(|_| workdir.to_path_buf());
     let digest = sha2::Sha256::digest(path.to_string_lossy().as_bytes());
-    let hex = digest.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let hex = crate::core::shared::hex_lower(&digest);
     crate::core::paths::data_dir().join("shadow").join(format!("{hex}.git"))
 }
 
@@ -127,10 +127,11 @@ fn find(workdir: &Path, label: &str) -> Result<Option<String>, String> {
     }
     // %x00 与 -z 各发一个 NUL：记录间是双 NUL，先滤空再两两成对
     let text = String::from_utf8_lossy(&out.stdout);
-    let parts: Vec<&str> = text.split('\0').filter(|s| !s.is_empty()).collect();
-    for rec in parts.chunks(2) {
-        if rec.len() == 2 && rec[1].trim() == label {
-            return Ok(Some(rec[0].trim().to_string()));
+    let mut parts = text.split('\0').filter(|part| !part.is_empty());
+    while let Some(hash) = parts.next() {
+        let Some(message) = parts.next() else { break };
+        if message.trim() == label {
+            return Ok(Some(hash.trim().to_string()));
         }
     }
     Ok(None)

@@ -77,6 +77,7 @@ async fn spawn_task_inner(
     let mut child = cmd.spawn().map_err(|e| ExecError::Spawn(format!("{bin}: {e}")))?;
 
     let output = Arc::new(Mutex::new(String::new()));
+    let output_revision = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let truncated = Arc::new(Mutex::new(false));
     let exit_code = Arc::new(Mutex::new(None));
     let pid = child.id();
@@ -91,6 +92,7 @@ async fn spawn_task_inner(
         command: SharedStr::from(display_command),
         workdir: SharedStr::from(workdir),
         output: output.clone(),
+        output_revision: output_revision.clone(),
         truncated: truncated.clone(),
         started_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
         pid,
@@ -119,7 +121,7 @@ async fn spawn_task_inner(
 
     // 输出泵（合并 stdout/stderr 按到达顺序）
     if let Some(mut out) = stdout {
-        let (output, truncated) = (output.clone(), truncated.clone());
+        let (output, truncated, revision) = (output.clone(), truncated.clone(), output_revision.clone());
         tokio::spawn(async move {
             let mut buf = [0u8; 8192];
             while let Ok(n) = out.read(&mut buf).await {
@@ -127,11 +129,12 @@ async fn spawn_task_inner(
                     break;
                 }
                 append_capped(&output, &truncated, &String::from_utf8_lossy(&buf[..n]), OUTPUT_CAP);
+                revision.fetch_add(1, std::sync::atomic::Ordering::Release);
             }
         });
     }
     if let Some(mut err) = stderr {
-        let (output, truncated) = (output.clone(), truncated.clone());
+        let (output, truncated, revision) = (output.clone(), truncated.clone(), output_revision.clone());
         tokio::spawn(async move {
             let mut buf = [0u8; 8192];
             while let Ok(n) = err.read(&mut buf).await {
@@ -139,6 +142,7 @@ async fn spawn_task_inner(
                     break;
                 }
                 append_capped(&output, &truncated, &String::from_utf8_lossy(&buf[..n]), OUTPUT_CAP);
+                revision.fetch_add(1, std::sync::atomic::Ordering::Release);
             }
         });
     }

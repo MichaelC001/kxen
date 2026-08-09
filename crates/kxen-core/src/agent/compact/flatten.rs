@@ -22,15 +22,15 @@ pub fn flatten_stored(view: &[StoredMessage]) -> Vec<Message> {
 
 fn flatten_one(stored: &StoredMessage) -> Vec<Message> {
     // Text/Context 口径不变：回放给模型，其余 part（Reasoning/Approval/Image）不回放。
-    let text: String = stored
-        .parts
-        .iter()
-        .filter_map(|p| match p {
-            Part::Text { text } | Part::Context { text } => Some(text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut text = String::new();
+    for part in &stored.parts {
+        if let Part::Text { text: part } | Part::Context { text: part } = part {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(part);
+        }
+    }
     if stored.role != StoredRole::Assistant {
         if text.is_empty() {
             return Vec::new();
@@ -41,15 +41,13 @@ fn flatten_one(stored: &StoredMessage) -> Vec<Message> {
             StoredRole::Assistant => unreachable!(),
         }];
     }
-    let tool_calls: Vec<(usize, &str, &serde_json::Value, &str)> = stored
+    let tool_calls: Vec<(usize, &str, &serde_json::Value, &crate::core::shared::SharedText)> = stored
         .parts
         .iter()
         .enumerate()
         .filter_map(|(index, part)| match part {
             // 存量消息可能无 args 字段：退回 input（摘要 JSON），wire 合法但参数有损，属存量上限
-            Part::ToolCall { name, input, output, args, .. } => {
-                Some((index, name.as_str(), args.as_ref().unwrap_or(input), output.as_str()))
-            }
+            Part::ToolCall { name, input, output, args, .. } => Some((index, name.as_str(), args.as_ref().unwrap_or(input), output)),
             _ => None,
         })
         .collect();
@@ -70,7 +68,7 @@ fn flatten_one(stored: &StoredMessage) -> Vec<Message> {
     out.extend(
         tool_calls
             .iter()
-            .map(|(index, name, _, output)| Message::tool_result(synthesized_call_id(&stored.id, *index), *name, (*output).to_string())),
+            .map(|(index, name, _, output)| Message::tool_result(synthesized_call_id(&stored.id, *index), *name, (*output).clone())),
     );
     out
 }

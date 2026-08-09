@@ -210,11 +210,10 @@ impl AgentRegistry {
         crate::core::shared::lock(&self.sessions).remove(session_id);
         crate::core::shared::lock(&self.restored).remove(session_id);
         let mut cancels = crate::core::shared::lock(&self.cancels);
-        let keys: Vec<(String, String)> = cancels.keys().filter(|(sid, _)| sid == session_id).cloned().collect();
-        for key in keys {
-            if let Some(token) = cancels.remove(&key) {
-                token.cancel();
-            }
+        let tokens: Vec<_> = cancels.extract_if(|(sid, _), _| sid == session_id).map(|(_, token)| token).collect();
+        drop(cancels);
+        for token in tokens {
+            token.cancel();
         }
     }
 }
@@ -287,7 +286,7 @@ mod tests {
         reg.register("s1", "w-1", AgentKind::Teammate, &model);
         reg.push_transcript("s1", "w-1", serde_json::json!({ "kind": "text", "text": "persisted" }));
         let reg2 = AgentRegistry::default();
-        reg2.set_team_root(root.clone());
+        reg2.set_team_root(root);
         let name = reg2.register_unique("s1", "w", AgentKind::Teammate, &model);
         assert_eq!(name, "w-1");
         let t = reg2.transcript("s1", "w-1");

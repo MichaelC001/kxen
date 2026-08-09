@@ -69,7 +69,7 @@ pub fn statuses(config: &crate::core::config::Config, store: &AuthStore) -> Vec<
         let id = format!("custom:{name}");
         let has_key = configured(store, &id);
         out.push(EngineStatus {
-            id: id.clone(),
+            id,
             label: format!("{name} 转写（自定义）"),
             status: if has_key { "ready" } else { "unconfigured" }.into(),
             detail: if has_key { crate::core::net_security::safe_endpoint_label(&def.base_url) } else { "未配置 API key".into() },
@@ -237,11 +237,12 @@ pub fn start_recording() -> Result<RecordSession, String> {
     let sample_limit = Arc::new(std::sync::atomic::AtomicUsize::new(MAX_PCM_SAMPLES));
     let callback_limit = sample_limit.clone();
     let (engine, rate, tap) = super::objc::start_mic_capture(move |_input| {
-        super::objc::TapHandler::new(move |buffer, _time| {
-            let chunk = unsafe { super::objc::pcm_samples(buffer) };
-            if !chunk.is_empty() {
-                append_samples(&mut crate::core::shared::lock(&sink), &chunk, callback_limit.load(std::sync::atomic::Ordering::Relaxed));
-            }
+        super::objc::TapHandler::new(move |buffer, _time| unsafe {
+            super::objc::with_pcm_samples(buffer, |chunk| {
+                if !chunk.is_empty() {
+                    append_samples(&mut crate::core::shared::lock(&sink), chunk, callback_limit.load(std::sync::atomic::Ordering::Relaxed));
+                }
+            });
         })
     })?;
     sample_limit.store(self::sample_limit(rate as u32), std::sync::atomic::Ordering::Relaxed);
@@ -302,7 +303,7 @@ fn write_wav(path: &std::path::Path, samples: &[f32], sample_rate: u32) -> std::
     }
     let data_len =
         u32::try_from(samples.len() * 2).map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "WAV payload too large"))?;
-    let mut f = std::fs::File::create(path)?;
+    let mut f = std::io::BufWriter::new(std::fs::File::create(path)?);
     f.write_all(b"RIFF")?;
     f.write_all(&(36 + data_len).to_le_bytes())?;
     f.write_all(b"WAVEfmt ")?;
@@ -319,6 +320,7 @@ fn write_wav(path: &std::path::Path, samples: &[f32], sample_rate: u32) -> std::
         let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
         f.write_all(&v.to_le_bytes())?;
     }
+    f.flush()?;
     Ok(())
 }
 

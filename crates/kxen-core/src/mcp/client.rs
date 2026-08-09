@@ -74,7 +74,7 @@ pub struct McpClient {
     transport: Arc<dyn Transport>,
     /// 注入的协议桥工具名；call 据此路由到 resources/prompts 方法而非 tools/call。
     protocol_tools: ProtocolTools,
-    pub tools: Vec<McpTool>,
+    pub tools: Vec<Arc<McpTool>>,
     pub resources: Vec<ResourceInfo>,
     pub prompts: Vec<PromptInfo>,
 }
@@ -245,7 +245,7 @@ impl McpClient {
         }
         let protocol_tools = catalog::inject_protocol_tools(server, &mut tools, &resources, &prompts);
         cleanup.disarm();
-        Ok(Self { transport, protocol_tools, tools, resources, prompts })
+        Ok(Self { transport, protocol_tools, tools: tools.into_iter().map(Arc::new).collect(), resources, prompts })
     }
 
     pub fn transport_kind(&self) -> &'static str {

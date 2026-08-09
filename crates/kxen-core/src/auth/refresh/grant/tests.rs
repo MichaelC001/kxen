@@ -11,7 +11,7 @@ fn empty_access_is_rejected_before_persisting() {
         &key,
         super::super::RefreshResponse { access_token: "  ".into(), refresh_token: None, expires_in: Some(u64::MAX) },
         "r1",
-        &None,
+        None,
         &path,
     )
     .expect_err("empty access token must fail closed");
@@ -26,7 +26,7 @@ fn post_commit_sync_failure_publishes_visible_refresh_and_reports_indeterminate(
     let path = std::env::temp_dir().join(format!("kxen-refresh-indeterminate-{}.json", uuid::Uuid::new_v4()));
     let old = CredentialKind::Oauth { access: "old-access".into(), refresh: "old-refresh".into(), expires: 1, account_id: None };
     let mut store = AuthStore::from([(key.clone(), old.clone())]);
-    let shared = std::sync::Arc::new(std::sync::Mutex::new(AuthStore::from([(key.clone(), old)])));
+    let shared = std::sync::Arc::new(std::sync::Mutex::new(std::sync::Arc::new(AuthStore::from([(key.clone(), old)]))));
     crate::auth::shared_store::register_shared_store(&shared);
     crate::auth::credential::write_auth_file(&path, &store).unwrap();
     crate::auth::credential::fail_next_auth_dir_sync();
@@ -40,7 +40,7 @@ fn post_commit_sync_failure_publishes_visible_refresh_and_reports_indeterminate(
             expires_in: Some(3600),
         },
         "old-refresh",
-        &None,
+        None,
         &path,
     )
     .expect_err("post-commit directory sync failure must be reported as indeterminate");

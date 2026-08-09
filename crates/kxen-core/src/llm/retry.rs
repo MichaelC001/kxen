@@ -29,9 +29,10 @@ pub fn backoff_ms(attempt: usize) -> u64 {
 /// 账号池轮换：同 provider 下一个账号名（"default"=裸 provider 账号；无备选返回 None）。
 pub fn next_account(store: &AuthStore, provider: &str, current: Option<&str>) -> Option<String> {
     let effective = current.unwrap_or("default");
+    let prefix = format!("{provider}:");
     crate::auth::credential::accounts_of(store, provider)
         .into_iter()
-        .map(|k| k.strip_prefix(&format!("{provider}:")).map(String::from).unwrap_or_else(|| "default".into()))
+        .map(|key| key.strip_prefix(&prefix).map(String::from).unwrap_or_else(|| "default".into()))
         .find(|name| name != effective)
 }
 

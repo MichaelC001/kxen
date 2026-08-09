@@ -78,6 +78,21 @@ impl GeminiProvider {
         self
     }
 
+    pub(crate) fn request_template(model: &str, messages: &[Message], tools: &[ToolDefinition]) -> serde_json::Value {
+        wire::build_request(model, "", messages, tools)
+    }
+
+    /// discover_project 跨 await 时，调用方可预先把消息和工具编码成 owned body，
+    /// 避免为延长借用生命周期而深克隆整段 conversation。
+    pub(crate) fn stream_prebuilt(
+        base: &str,
+        bearer: String,
+        flavor: Flavor,
+        body: serde_json::Value,
+    ) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
+        Self::new(base.to_string(), bearer, String::new()).with_flavor(flavor).stream_body(body)
+    }
+
     /// 流式调用：返回 Delta 的异步流（'static，不借 provider）。
     pub fn stream_chat_with_tools(
         &self,
@@ -85,20 +100,15 @@ impl GeminiProvider {
         messages: &[Message],
         tools: &[ToolDefinition],
     ) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
-        let bearer = self.bearer.clone();
-        let error_bearer = bearer.clone();
-        let url = format!("{}/v1internal:streamGenerateContent?alt=sse", self.base);
-        let model = model.to_string();
-        let project = self.project.clone();
-        let messages = messages.to_vec();
-        let tools = tools.to_vec();
-        let http = self.http.clone();
-        let flavor = self.flavor;
+        let body = wire::build_request(model, &self.project, messages, tools);
+        self.stream_body(body)
+    }
 
-        let start = async move {
-            let body = wire::build_request(&model, &project, &messages, &tools);
-            gemini_headers(http.post(url), bearer.as_ref(), flavor).json(&body).send().await
-        };
+    fn stream_body(&self, body: serde_json::Value) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
+        let error_bearer = self.bearer.clone();
+        let url = format!("{}/v1internal:streamGenerateContent?alt=sse", self.base);
+        let request = gemini_headers(self.http.post(url), self.bearer.as_ref(), self.flavor).json(&body);
+        let start = async move { request.send().await };
 
         Box::pin(futures::stream::once(start).flat_map(move |result| match result {
             Ok(resp) if resp.status().is_success() => sse::stream_sse(resp),

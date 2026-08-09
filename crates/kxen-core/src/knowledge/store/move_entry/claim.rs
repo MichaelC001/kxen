@@ -30,7 +30,7 @@ pub(super) struct MoveClaim {
 pub(super) fn claim_path(root: &Path, workspace: &Path, scope: Scope, to: Scope, entry_slug: &str) -> PathBuf {
     let key = format!("{}\0{}\0{}\0{entry_slug}", workspace.display(), scope.as_str(), to.as_str());
     let digest = sha2::Sha256::digest(key.as_bytes());
-    let hex = digest.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let hex = crate::core::shared::hex_lower(&digest);
     root.join(format!("{hex}.json"))
 }
 

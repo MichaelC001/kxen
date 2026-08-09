@@ -182,21 +182,21 @@ pub fn stop_mic_engine(engine: &AnyObject) {
     }
 }
 
-/// 读取 PCM 帧数据（float32 交错首通道）-> 采样副本。
+/// 在 PCM 帧数据（float32 交错首通道）的有效期内执行回调。
 ///
 /// # Safety
 /// `buffer` 必须是 AVAudioPCMBuffer 有效指针（tap 回调送达的对象）。
-pub unsafe fn pcm_samples(buffer: *mut AnyObject) -> Vec<f32> {
+pub unsafe fn with_pcm_samples(buffer: *mut AnyObject, consume: impl FnOnce(&[f32])) {
     if buffer.is_null() {
-        return Vec::new();
+        return;
     }
     unsafe {
         let len: u32 = msg_send![buffer, frameLength];
         let channels: *mut *mut f32 = msg_send![buffer, floatChannelData];
         if channels.is_null() || (*channels).is_null() {
-            return Vec::new();
+            return;
         }
-        std::slice::from_raw_parts(*channels, len as usize).to_vec()
+        consume(std::slice::from_raw_parts(*channels, len as usize));
     }
 }
 

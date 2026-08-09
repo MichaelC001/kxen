@@ -23,7 +23,7 @@ pub fn render_card_context(events: &[KanbanEvent], card_id: &str) -> Option<Stri
     let mut created: Option<(&str, &str)> = None;
     let mut moves: Vec<String> = Vec::new();
     let mut comments: Vec<String> = Vec::new();
-    let mut runs: Vec<(String, String)> = Vec::new();
+    let mut runs: Vec<(&str, String)> = Vec::new();
     // run_id -> (outcome, ended_at)：只按 key 查询不参与迭代，HashMap 序不确定不影响输出
     let mut outcomes: HashMap<&str, (Outcome, u64)> = HashMap::new();
     for event in events {
@@ -39,7 +39,7 @@ pub fn render_card_context(events: &[KanbanEvent], card_id: &str) -> Option<Stri
             }
             EventKind::RunStarted(payload) if payload.card_id == card_id => {
                 runs.push((
-                    payload.run_id.clone(),
+                    payload.run_id.as_str(),
                     format!("- {} column={} attempt={} started={}", payload.run_id, payload.column_id, payload.attempt, event.created_at),
                 ));
             }
@@ -64,12 +64,13 @@ pub fn render_card_context(events: &[KanbanEvent], card_id: &str) -> Option<Stri
     }
     if !runs.is_empty() {
         out.push_str("\n## Column runs\n");
-        let lines = runs.into_iter().map(|(run_id, line)| match outcomes.get(run_id.as_str()) {
-            Some((outcome, ended)) => format!("{line} outcome={} ended={ended}", outcome_name(*outcome)),
-            None => format!("{line} outcome=open"),
-        });
-        out.push_str(&lines.collect::<Vec<_>>().join("\n"));
-        out.push('\n');
+        for (run_id, line) in runs {
+            match outcomes.get(run_id) {
+                Some((outcome, ended)) => writeln!(out, "{line} outcome={} ended={ended}", outcome_name(*outcome)),
+                None => writeln!(out, "{line} outcome=open"),
+            }
+            .expect("writing to String cannot fail");
+        }
     }
     if !comments.is_empty() {
         out.push_str("\n## Comments\n");

@@ -128,9 +128,9 @@ mod tests {
                 let content_length = header
                     .lines()
                     .find_map(|line| {
-                        line.to_ascii_lowercase().starts_with("content-length:").then(|| line["content-length:".len()..].trim().to_string())
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length").then(|| value.trim().parse::<usize>().ok()).flatten()
                     })
-                    .and_then(|value| value.parse::<usize>().ok())
                     .unwrap_or(0);
                 while buffer.len() < header_end + content_length {
                     let n = stream.read(&mut chunk).unwrap_or(0);

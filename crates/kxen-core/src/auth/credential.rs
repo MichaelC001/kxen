@@ -4,7 +4,7 @@ use crate::core::shared::now_ms;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -70,6 +70,10 @@ pub struct Credential {
 }
 
 pub type AuthStore = HashMap<String, CredentialKind>;
+/// Read-mostly credential storage. Readers clone the inner `Arc`; mutations use
+/// copy-on-write so in-flight requests retain a stable snapshot without cloning
+/// every credential at each dispatch boundary.
+pub type SharedAuthStore = Arc<Mutex<Arc<AuthStore>>>;
 
 #[derive(Debug)]
 pub enum AuthUpdate {
@@ -182,7 +186,7 @@ pub fn credential_for<'a>(store: &'a AuthStore, provider: &str, account: Option<
     if let Some(c) = store.get(provider) {
         return Some(c);
     }
-    accounts_of(store, provider).first().and_then(|k| store.get(k))
+    first_named_account(store, provider).map(|(_, credential)| credential)
 }
 
 /// account=None 且默认凭证不存在时，返回 client 实际会采用的首个命名账号。
@@ -192,8 +196,17 @@ pub fn effective_account_name(store: &AuthStore, provider: &str, account: Option
         Some("default") => None,
         Some(account) => Some(account.to_string()),
         None if store.contains_key(provider) => None,
-        None => accounts_of(store, provider).into_iter().next().and_then(|key| key.strip_prefix(&format!("{provider}:")).map(String::from)),
+        None => first_named_account(store, provider).map(|(key, _)| key[provider.len() + 1..].to_string()),
     }
+}
+
+fn first_named_account<'a>(store: &'a AuthStore, provider: &str) -> Option<(&'a str, &'a CredentialKind)> {
+    let prefix = format!("{provider}:");
+    store
+        .iter()
+        .filter(|(key, _)| key.starts_with(&prefix))
+        .min_by(|(left, _), (right, _)| left.cmp(right))
+        .map(|(key, credential)| (key.as_str(), credential))
 }
 
 pub fn read_auth_file(path: &Path) -> crate::core::Result<AuthStore> {

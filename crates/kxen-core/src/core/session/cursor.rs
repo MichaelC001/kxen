@@ -10,7 +10,7 @@ pub fn message_cursor(messages: &[Message]) -> std::io::Result<String> {
         hasher.update((bytes.len() as u64).to_le_bytes());
         hasher.update(bytes);
     }
-    let hex = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let hex = crate::core::shared::hex_lower(&hasher.finalize());
     Ok(format!("sha256:{hex}"))
 }
 

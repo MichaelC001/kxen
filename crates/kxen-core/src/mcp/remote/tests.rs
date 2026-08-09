@@ -1,5 +1,6 @@
 use super::*;
 use crate::mcp::oauth_store::{PersistFailure, RefreshFailure};
+use std::fmt::Write as _;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[test]
@@ -153,7 +154,7 @@ async fn sse_mismatched_responses_are_not_accumulated_without_bound() {
         let _ = read_request(&mut stream).await;
         let mut body = String::new();
         for id in 10_000..10_000 + MAX_RESPONSE_MESSAGES + 1 {
-            body.push_str(&format!("data: {{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":null}}\n\n"));
+            writeln!(body, "data: {{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":null}}\n").unwrap();
         }
         let headers =
             format!("HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len());

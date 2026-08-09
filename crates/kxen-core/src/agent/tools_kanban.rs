@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn definitions_cover_the_full_p2b_surface() {
-        let names: Vec<_> = kanban_tools().into_iter().map(|tool| tool.function.name).collect();
+        let names: Vec<_> = kanban_tools().into_iter().map(|tool| tool.function.name.clone()).collect();
         assert_eq!(
             names,
             [
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn policy_commands_are_never_exposed_as_tools() {
         // 防回归：PolicySet/AutoApproved 是 human-only 命令，模型工具目录永不得出现授权面
-        let names: Vec<_> = kanban_tools().into_iter().map(|tool| tool.function.name).collect();
+        let names: Vec<_> = kanban_tools().into_iter().map(|tool| tool.function.name.clone()).collect();
         assert!(!names.iter().any(|name| name.contains("policy") || name.contains("approve")), "授权命令不得进模型工具目录: {names:?}");
     }
 }

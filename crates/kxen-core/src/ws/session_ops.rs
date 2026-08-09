@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub(super) struct SendMessageParams {
     pub session_id: String,
     #[serde(default)]
@@ -211,6 +211,14 @@ fn session_model_override_at(sessions_dir: &std::path::Path, session_id: Option<
 /// 指定 session 时 metadata 是路由契约，不得在缺失或损坏时静默退回全局模型。
 pub(crate) async fn effective_session_model(session_id: Option<&str>, state: &crate::AppState) -> Result<kxen_core::llm::ModelRef, String> {
     let session_override = session_model_override_at(&kxen_core::core::paths::sessions_dir(), session_id)?;
+    effective_session_model_from_override(session_id, session_override, state)
+}
+
+pub(crate) fn effective_session_model_from_override(
+    session_id: Option<&str>,
+    session_override: Option<kxen_core::llm::ModelRef>,
+    state: &crate::AppState,
+) -> Result<kxen_core::llm::ModelRef, String> {
     let mrm = match session_id {
         Some(session_id) => state.runtime_for_session(session_id)?.mrm(),
         None => state.active_runtime()?.mrm(),

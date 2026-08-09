@@ -102,7 +102,7 @@ impl TeamManager {
             Some(text) => {
                 let config: Value = serde_json::from_str(&text).map_err(|error| format!("parse {}: {error}", config_path.display()))?;
                 match config.get("members") {
-                    Some(members) => serde_json::from_value(members.clone())
+                    Some(members) => serde::Deserialize::deserialize(members)
                         .map_err(|error| format!("parse {} members: {error}", config_path.display()))?,
                     None => Vec::new(),
                 }

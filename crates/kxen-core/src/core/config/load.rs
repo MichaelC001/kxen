@@ -7,13 +7,14 @@ impl Config {
         let mut sources = Vec::new();
         let sources_to_load = std::iter::once((user.to_path_buf(), false)).chain(project.map(|path| (path.to_path_buf(), true)));
         for (path, is_project) in sources_to_load {
-            match std::fs::symlink_metadata(&path) {
-                Ok(_) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(crate::core::Error::Custom(format!("config inspect {}: {error}", path.display()))),
-            }
-            let text = std::fs::read_to_string(&path)
-                .map_err(|error| crate::core::Error::Custom(format!("config read {}: {error}", path.display())))?;
+            let text = match std::fs::read_to_string(&path) {
+                Ok(text) => text,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => match std::fs::symlink_metadata(&path) {
+                    Err(link_error) if link_error.kind() == std::io::ErrorKind::NotFound => continue,
+                    _ => return Err(crate::core::Error::Custom(format!("config read {}: {error}", path.display()))),
+                },
+                Err(error) => return Err(crate::core::Error::Custom(format!("config read {}: {error}", path.display()))),
+            };
             let parsed: toml::Value =
                 toml::from_str(&text).map_err(|error| crate::core::Error::Custom(format!("config parse {}: {error}", path.display())))?;
             if is_project {
@@ -49,7 +50,14 @@ impl Config {
     }
 
     fn from_merged(merged: toml::Value, sources: &[std::path::PathBuf]) -> crate::core::Result<Self> {
-        let source = sources.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(" + ");
+        use std::fmt::Write as _;
+        let mut source = String::new();
+        for path in sources {
+            if !source.is_empty() {
+                source.push_str(" + ");
+            }
+            write!(source, "{}", path.display()).expect("writing to String cannot fail");
+        }
         let mut config: Config = merged.try_into().map_err(|error| {
             crate::core::Error::Custom(format!("config deserialize {}: {error}", if source.is_empty() { "defaults" } else { &source }))
         })?;

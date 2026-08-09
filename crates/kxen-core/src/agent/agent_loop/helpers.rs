@@ -72,9 +72,11 @@ pub fn deferred_visible(
 ) -> Vec<crate::llm::tool::ToolDefinition> {
     let Some(extras) = extras else { return Vec::new() };
     let enabled = crate::core::shared::lock(&extras.extra_tools);
-    crate::agent::tools_spec::deferred_tools()
-        .into_iter()
+    crate::agent::tools_deferred::deferred_tool_catalog()
+        .iter()
+        .filter(|tool| crate::agent::tools_deferred::deferred_tool_enabled(tool))
         .filter(|t| enabled.contains(&t.function.name) && allowed.is_none_or(|a| a.contains(&t.function.name)))
+        .cloned()
         .collect()
 }
 
@@ -148,12 +150,13 @@ mod tests {
         extras.extra_tools.lock().expect("tools").insert("lsp".to_string());
         extras.extra_tools.lock().expect("tools").insert("schedule".to_string());
         // 无白名单（full）：挂载的全部可见
-        let names: Vec<_> = deferred_visible(Some(&extras), None).into_iter().map(|t| t.function.name).collect();
+        let names: Vec<_> = deferred_visible(Some(&extras), None).into_iter().map(|t| t.function.name.clone()).collect();
         assert_eq!(names, ["lsp", "schedule"]);
         // readonly 白名单（read/glob/grep）：共享 extras 里挂载的 deferred 一个都不可见
         assert!(deferred_visible(Some(&extras), Some(&allowlist(&["read", "glob", "grep"]))).is_empty());
         // 白名单显式含 lsp：只放白名单内的
-        let names: Vec<_> = deferred_visible(Some(&extras), Some(&allowlist(&["lsp"]))).into_iter().map(|t| t.function.name).collect();
+        let names: Vec<_> =
+            deferred_visible(Some(&extras), Some(&allowlist(&["lsp"]))).into_iter().map(|t| t.function.name.clone()).collect();
         assert_eq!(names, ["lsp"]);
         // 无 extras（子代理无 session 上下文）：空
         assert!(deferred_visible(None, None).is_empty());

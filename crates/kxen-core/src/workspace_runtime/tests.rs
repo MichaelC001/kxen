@@ -26,6 +26,30 @@ fn registry_reuses_only_the_same_canonical_workspace() {
     std::fs::remove_dir_all(b).ok();
 }
 
+#[cfg(unix)]
+#[test]
+fn registry_revalidates_a_cached_workspace_after_symlink_replacement() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!("kxen-runtime-swap-{}", uuid::Uuid::new_v4()));
+    let workspace = root.join("workspace");
+    let moved_workspace = root.join("moved-workspace");
+    let replacement = root.join("replacement");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(&replacement).unwrap();
+    let registry = WorkspaceRuntimeRegistry::default();
+    let original = registry.runtime(&workspace).unwrap();
+
+    std::fs::rename(&workspace, &moved_workspace).unwrap();
+    symlink(&replacement, &workspace).unwrap();
+    let replaced = registry.runtime(&workspace).unwrap();
+
+    assert!(!Arc::ptr_eq(&original, &replaced));
+    assert_eq!(replaced.root(), replacement.canonicalize().unwrap());
+    assert_eq!(registry.len(), 2);
+    std::fs::remove_dir_all(root).ok();
+}
+
 #[test]
 fn missing_workspace_is_rejected() {
     let registry = WorkspaceRuntimeRegistry::default();
@@ -46,11 +70,9 @@ fn config_transaction_blocks_new_runtime_until_committed_config_is_visible() {
 
     let (started_tx, started_rx) = std::sync::mpsc::channel();
     let (result_tx, result_rx) = std::sync::mpsc::channel();
-    let registry_for_thread = registry.clone();
-    let workspace_for_thread = workspace.clone();
     let thread = std::thread::spawn(move || {
         started_tx.send(()).unwrap();
-        result_tx.send(registry_for_thread.runtime(&workspace_for_thread)).unwrap();
+        result_tx.send(registry.runtime(&workspace)).unwrap();
     });
     started_rx.recv().unwrap();
     assert!(result_rx.recv_timeout(std::time::Duration::from_millis(50)).is_err());

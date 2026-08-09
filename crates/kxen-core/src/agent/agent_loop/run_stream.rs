@@ -5,6 +5,7 @@ use crate::llm::Delta;
 use crate::llm::tool::ToolCallAccumulator;
 use futures::{Stream, StreamExt};
 use std::pin::Pin;
+use std::sync::Arc;
 
 use super::context::AgentContext;
 use super::events::AgentEvent;
@@ -117,7 +118,7 @@ pub(super) async fn consume_stream(
                 // retry.rs 语义不动（401/403 仍不可重试），自愈在本层一次性闸门内完成
                 if crate::auth::refresh::should_auth_retry(&e, produced || consumption.attempt_usage_reported, *auth_refreshed) {
                     *auth_refreshed = true;
-                    match super::oauth_refresh::force(&mut ctx.store, &ctx.model, ctx.cancel.as_ref()).await {
+                    match super::oauth_refresh::force(Arc::make_mut(&mut ctx.store), &ctx.model, ctx.cancel.as_ref()).await {
                         Ok(crate::auth::refresh::RefreshOutcome::Refreshed) => {
                             consumption.retry_after_refresh = true;
                             consumption.failed = Some(e);

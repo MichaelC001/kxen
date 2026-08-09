@@ -2,7 +2,9 @@
 //! + references/history/未激活 rules 一行索引 + skills 清单。command 不进 system prompt（slash 菜单 + 展开注入）。
 
 use super::{Entry, Kind, scan};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex};
 
 const NOTE_BODY_CAP: usize = 500;
 const SKILL_DESC_CAP: usize = 250;
@@ -34,22 +36,23 @@ pub(crate) fn render_with_runtime(
         // 信任门：未信任项目的知识只索引不注入（注入即提示词面，.agents 是项目提供的可执行面）
         let gated = e.scope == super::Scope::Project && !trusted;
         if gated {
-            index.push_str(&format!("- {} — {}（未信任项目，信任后注入）\n", rel_label(workdir, e), e.description));
+            writeln!(index, "- {} — {}（未信任项目，信任后注入）", rel_label(workdir, e), e.description)
+                .expect("writing to String cannot fail");
             continue;
         }
         // index.md 是所在层目录的人工策展入口（渐进披露）：全文进索引段，正文即按需读取地图，
         // 先于 kind 匹配——rules/index.md 这类路径按目录推断会是 Rule，但语义仍是入口而非规则
         if Path::new(&e.path).file_name().is_some_and(|n| n == "index.md") {
-            curated.push_str(&format!("\n#### {}\n{}\n", rel_label(workdir, e), e.content.trim()));
+            writeln!(curated, "\n#### {}\n{}", rel_label(workdir, e), e.content.trim()).expect("writing to String cannot fail");
             continue;
         }
         match e.kind {
             Kind::Rule => {
                 let globbed = !e.globs.is_empty() && globs_hit(&e.globs, &involved_rel);
                 if e.always_apply || e.is_agents_md || e.globs.is_empty() || globbed {
-                    rules.push_str(&format!("\n#### {}\n{}\n", rel_label(workdir, e), e.content.trim()));
+                    writeln!(rules, "\n#### {}\n{}", rel_label(workdir, e), e.content.trim()).expect("writing to String cannot fail");
                 } else {
-                    index.push_str(&format!("- {} — {}\n", rel_label(workdir, e), e.description));
+                    writeln!(index, "- {} — {}", rel_label(workdir, e), e.description).expect("writing to String cannot fail");
                 }
             }
             Kind::Note | Kind::Memory => {
@@ -57,13 +60,13 @@ pub(crate) fn render_with_runtime(
             }
             Kind::Skill => {
                 let desc: String = e.description.chars().take(SKILL_DESC_CAP).collect();
-                skills.push_str(&format!("\n- {}: {}", e.slug, desc));
+                write!(skills, "\n- {}: {}", e.slug, desc).expect("writing to String cannot fail");
                 if let Some(w) = &e.when_to_use {
-                    skills.push_str(&format!(" (use when: {w})"));
+                    write!(skills, " (use when: {w})").expect("writing to String cannot fail");
                 }
             }
             Kind::Reference | Kind::History | Kind::Command => {
-                index.push_str(&format!("- {} — {}\n", rel_label(workdir, e), e.description));
+                writeln!(index, "- {} — {}", rel_label(workdir, e), e.description).expect("writing to String cannot fail");
             }
         }
     }
@@ -75,7 +78,7 @@ pub(crate) fn render_with_runtime(
     for e in &scored {
         let body: String = e.content.chars().take(NOTE_BODY_CAP).collect();
         let sub = e.note_type.as_deref().unwrap_or("note");
-        notes.push_str(&format!("\n#### [{}] {} ({})\n{}\n", sub, e.description, e.scope.as_str(), body));
+        writeln!(notes, "\n#### [{}] {} ({})\n{}", sub, e.description, e.scope.as_str(), body).expect("writing to String cannot fail");
     }
 
     let mut out = String::from("\n\n## Knowledge (.agents/ project + ~/.agents/ personal)\n");
@@ -103,13 +106,26 @@ fn rel_label(workdir: &Path, e: &Entry) -> String {
 }
 
 fn globs_hit(patterns: &[String], involved_rel: &[String]) -> bool {
+    static CACHE: LazyLock<Mutex<std::collections::HashMap<Vec<String>, Arc<globset::GlobSet>>>> =
+        LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+    if let Some(set) = crate::core::shared::lock(&CACHE).get(patterns).cloned() {
+        return involved_rel.iter().any(|file| set.is_match(file));
+    }
     let mut builder = globset::GlobSetBuilder::new();
     for p in patterns {
         if let Ok(g) = globset::Glob::new(p) {
             builder.add(g);
         }
     }
-    builder.build().ok().is_some_and(|set| involved_rel.iter().any(|f| set.is_match(f)))
+    let Ok(set) = builder.build() else { return false };
+    let set = Arc::new(set);
+    let matched = involved_rel.iter().any(|file| set.is_match(file));
+    let mut cache = crate::core::shared::lock(&CACHE);
+    if cache.len() >= 256 {
+        cache.clear();
+    }
+    cache.insert(patterns.to_vec(), set);
+    matched
 }
 
 /// 多层就近：involved 文件向上目录链（到 workdir 止）里的 AGENTS.md，越近越优先。

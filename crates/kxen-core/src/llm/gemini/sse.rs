@@ -74,27 +74,31 @@ fn deltas_of(data: &str, out: &mut VecDeque<Delta>) -> bool {
     };
     // 心跳帧没有 response/candidates，跳过
     let Some(response) = envelope.response else { return false };
-    for part in response.candidates.iter().filter_map(|c| c.content.as_ref()).flat_map(|c| c.parts.iter()) {
-        if let Some(call) = &part.function_call {
-            out.push_back(Delta::ToolCall { name: call.name.clone(), input: call.args.clone().unwrap_or_else(|| json!({})) });
-        } else if let Some(text) = &part.text {
-            if text.is_empty() {
-                continue;
-            }
-            if part.thought == Some(true) {
-                out.push_back(Delta::Reasoning(text.clone()));
-            } else {
-                out.push_back(Delta::Text(text.clone()));
+    let mut finished = false;
+    for candidate in response.candidates {
+        finished |= candidate.finish_reason.is_some();
+        let Some(content) = candidate.content else { continue };
+        for part in content.parts {
+            if let Some(call) = part.function_call {
+                out.push_back(Delta::ToolCall { name: call.name, input: call.args.unwrap_or_else(|| json!({})) });
+            } else if let Some(text) = part.text {
+                if text.is_empty() {
+                    continue;
+                }
+                if part.thought == Some(true) {
+                    out.push_back(Delta::Reasoning(text));
+                } else {
+                    out.push_back(Delta::Text(text));
+                }
             }
         }
     }
-    if let Some(usage) = &response.usage_metadata
+    if let Some(usage) = response.usage_metadata
         && let Some(input) = usage.prompt_token_count
     {
         let output = usage.candidates_token_count.unwrap_or(0) + usage.thoughts_token_count.unwrap_or(0);
         out.push_back(Delta::Usage { input, output });
     }
-    let finished = response.candidates.iter().any(|c| c.finish_reason.is_some());
     if finished {
         out.push_back(Delta::Done);
     }

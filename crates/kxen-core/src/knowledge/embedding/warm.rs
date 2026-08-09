@@ -12,6 +12,7 @@ static WARMING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone)]
 pub struct EmbeddingRuntime {
+    pub endpoint: Option<Arc<Endpoint>>,
     pub mrm: Arc<crate::llm::mrm::ModelResourceManager>,
     pub cancel: Option<crate::agent::cancel::CancelToken>,
     pub goal_id: Option<String>,
@@ -20,7 +21,7 @@ pub struct EmbeddingRuntime {
     pub usage_reporter: Option<UsageReporter>,
 }
 
-pub(super) fn spawn(ep: Endpoint, texts: Vec<String>, runtime: EmbeddingRuntime) {
+pub(super) fn spawn(ep: Arc<Endpoint>, texts: Vec<String>, runtime: EmbeddingRuntime) {
     let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
     if WARMING.swap(true, Ordering::SeqCst) {
         return;
@@ -125,10 +126,11 @@ async fn fetch_managed(ep: &Endpoint, texts: &[String], runtime: &EmbeddingRunti
             return Err(format!("embedding request timed out after {}s", timeout.as_secs_f64()));
         }
     };
-    let usage = parse_usage(&body, ep.protocol);
+    let parsed = serde_json::from_str::<serde_json::Value>(&body).ok();
+    let usage = parsed.as_ref().and_then(|value| parse_usage_value(value, ep.protocol));
     let vectors = match ep.protocol {
-        Protocol::OpenAi => super::parse_openai_response(&body),
-        Protocol::Ollama => super::parse_ollama_response(&body),
+        Protocol::OpenAi => parsed.as_ref().and_then(super::parse_openai_value),
+        Protocol::Ollama => parsed.as_ref().and_then(super::parse_ollama_value),
     };
     let Some(vectors) = vectors else {
         runtime.mrm.record_call_outcome(ep.provider, Some(&slot), crate::llm::mrm::CallOutcome::Failure).await;
@@ -181,8 +183,13 @@ fn request_timeout(runtime: &EmbeddingRuntime) -> Result<std::time::Duration, St
     }
 }
 
+#[cfg(test)]
 fn parse_usage(body: &str, protocol: Protocol) -> Option<TokenUsage> {
     let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    parse_usage_value(&value, protocol)
+}
+
+fn parse_usage_value(value: &serde_json::Value, protocol: Protocol) -> Option<TokenUsage> {
     match protocol {
         Protocol::OpenAi => {
             let usage = value.get("usage")?;

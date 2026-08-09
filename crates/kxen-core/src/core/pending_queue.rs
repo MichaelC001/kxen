@@ -122,7 +122,7 @@ impl PendingQueues {
 
     /// claim 队首并持久化为 in_flight。已有 in_flight 时返回同一条，供崩溃恢复重放。
     pub fn claim(&self, id: &str) -> Result<Option<QueuedMessage>, String> {
-        crate::core::ids::validate_id(id).map_err(|error| error.to_string())?;
+        crate::core::ids::validate_id(id)?;
         self.ensure_available(id)?;
         let mut map = crate::core::shared::lock(&self.map);
         let Some(queue) = map.get_mut(id) else { return Ok(None) };
@@ -133,26 +133,25 @@ impl PendingQueues {
         if let Some(item) = queue.queued.front() {
             ensure_schedule_delivery_admitted(item)?;
         }
-        let original = queue.clone();
         queue.in_flight = queue.queued.pop_front();
-        let item = queue.in_flight.clone();
-        if item.is_some()
+        if queue.in_flight.is_some()
             && let Err(error) = self.persist_state(id, queue)
         {
             let committed = error.committed();
             let message = error.into_message();
             if !committed {
-                *queue = original;
+                let item = queue.in_flight.take().expect("claimed delivery");
+                queue.queued.push_front(item);
                 return Err(message);
             }
             return Err(self.block_indeterminate(id, message, queue));
         }
-        Ok(item)
+        Ok(queue.in_flight.clone())
     }
 
     /// delivery 对应的用户消息已幂等落盘后确认消费，只有这里会删除 in_flight。
     pub fn acknowledge(&self, id: &str, delivery_id: &str) -> Result<bool, String> {
-        crate::core::ids::validate_id(id).map_err(|error| error.to_string())?;
+        crate::core::ids::validate_id(id)?;
         self.ensure_available(id)?;
         let mut map = crate::core::shared::lock(&self.map);
         let Some(queue) = map.get_mut(id) else { return Ok(false) };
@@ -174,7 +173,7 @@ impl PendingQueues {
 
     /// run 被中断时把 in_flight 放回队首，保留 FIFO 顺序。
     pub fn release(&self, id: &str, delivery_id: &str) -> Result<bool, String> {
-        crate::core::ids::validate_id(id).map_err(|error| error.to_string())?;
+        crate::core::ids::validate_id(id)?;
         self.ensure_available(id)?;
         let mut map = crate::core::shared::lock(&self.map);
         let Some(queue) = map.get_mut(id) else { return Ok(false) };
@@ -198,7 +197,7 @@ impl PendingQueues {
 
     /// 清空该 session 队列（abort/delete 用），返回清掉条数。
     pub fn clear(&self, id: &str) -> Result<usize, String> {
-        crate::core::ids::validate_id(id).map_err(|error| error.to_string())?;
+        crate::core::ids::validate_id(id)?;
         self.ensure_available(id)?;
         let mut map = crate::core::shared::lock(&self.map);
         let previous = map.remove(id);
@@ -219,7 +218,7 @@ impl PendingQueues {
 
     /// 用户清空“等待中”列表时保留正在消费的 delivery；abort/delete 仍使用 clear 清全部。
     pub fn clear_queued(&self, id: &str) -> Result<usize, String> {
-        crate::core::ids::validate_id(id).map_err(|error| error.to_string())?;
+        crate::core::ids::validate_id(id)?;
         self.ensure_available(id)?;
         let mut map = crate::core::shared::lock(&self.map);
         let Some(queue) = map.get_mut(id) else { return Ok(0) };

@@ -5,6 +5,7 @@ use super::knowledge_tool::execute_knowledge_tool;
 use super::task_tool::execute_task_tool;
 use crate::tools::exec::{ExecOutcome, ExecParams, exec};
 use crate::tools::fs_tool::{EditSpec, delete_resolved, edit_resolved, read_resolved, write_resolved};
+use serde::Deserialize as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 /// Ask 档审批通道（broker+bus 齐备才为 Some；hooks 与 exec 共用）。
@@ -105,7 +106,10 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
             let path = resolve_authorized_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, ctx)?;
             let spec = match args.get("mode").and_then(Value::as_str) {
                 Some("anchors") => EditSpec::Anchors {
-                    edits: serde_json::from_value(args.get("edits").cloned().unwrap_or(json!([]))).map_err(|e| e.to_string())?,
+                    edits: match args.get("edits") {
+                        Some(edits) => Vec::deserialize(edits).map_err(|error| error.to_string())?,
+                        None => Vec::new(),
+                    },
                 },
                 _ => EditSpec::Match {
                     old_string: args.get("old_string").and_then(Value::as_str).ok_or("missing old_string")?.to_string(),
@@ -131,11 +135,15 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
             delete_resolved(&path, &ctx.tracker, cwd).map(|_| "moved to Trash".to_string()).map_err(|e| e.to_string())
         }
         "lsp" => {
-            let mut safe_args = args.clone();
-            if let Some(path) = args.get("path").and_then(Value::as_str) {
+            let mut safe_args;
+            let safe_args = if let Some(path) = args.get("path").and_then(Value::as_str) {
+                safe_args = args.clone();
                 safe_args["path"] = json!(resolve_path(path, ctx)?.to_string_lossy());
-            }
-            crate::lsp::lsp_tool(ctx.lsp.as_ref(), &safe_args, &ctx.workdir, ctx.tracker.files()).await
+                &safe_args
+            } else {
+                args
+            };
+            crate::lsp::lsp_tool(ctx.lsp.as_ref(), safe_args, &ctx.workdir, ctx.tracker.files()).await
         }
         "knowledge" => execute_knowledge_tool(args, ctx).await,
         "schedule" => match args.get("action").and_then(Value::as_str).ok_or("missing action")? {
@@ -199,29 +207,7 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
                 })
                 .map_err(|e| e.to_string())
         }
-        "tool_search" => {
-            let query = args.get("query").and_then(Value::as_str).ok_or("missing query")?.to_lowercase();
-            let Some(extras) = &ctx.extras else {
-                return Err("tool_search unavailable in this context".into());
-            };
-            let matches: Vec<_> = crate::agent::tools_spec::deferred_tools()
-                .into_iter()
-                .filter(|t| {
-                    let hay = format!("{} {}", t.function.name, t.function.description).to_lowercase();
-                    query.split_whitespace().any(|w| hay.contains(w))
-                })
-                .collect();
-            if matches.is_empty() {
-                return Ok("no deferred tools match the query".into());
-            }
-            let mut enabled = crate::core::shared::lock(&extras.extra_tools);
-            let mut names = Vec::with_capacity(matches.len());
-            for tool in &matches {
-                enabled.insert(tool.function.name.clone());
-                names.push(tool.function.name.clone());
-            }
-            Ok(format!("mounted for this session: {}\n{}", names.join(", "), serde_json::to_string_pretty(&matches).unwrap_or_default()))
-        }
+        "tool_search" => super::tool_search::mount(args, ctx),
         "todo" => {
             let Some(extras) = &ctx.extras else {
                 return Err("todo unavailable in this context".into());

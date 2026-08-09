@@ -22,7 +22,7 @@ fn parse_results(html: &str) -> Vec<SearchHit> {
         std::sync::LazyLock::new(|| regex::Regex::new(r#"(?s)<a[^>]*class="result__snippet"[^>]*>(.*?)</a>"#).unwrap());
     static RE_TAG: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"<[^>]+>").unwrap());
 
-    let clean = |s: &str| RE_TAG.replace_all(s, "").split_whitespace().collect::<Vec<_>>().join(" ");
+    let clean = |s: &str| crate::core::shared::normalize_whitespace(&RE_TAG.replace_all(s, ""));
     let snippets: Vec<String> = RE_SNIPPET.captures_iter(html).map(|c| clean(&c[1])).collect();
     RE_LINK
         .captures_iter(html)

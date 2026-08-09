@@ -9,7 +9,7 @@ fn setup() {
 }
 
 fn role_fixture(tag: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("kxen-role-{tag}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("kxen-role-{tag}-{}", uuid::Uuid::new_v4()));
     let agents = dir.join(".agents/agents");
     std::fs::create_dir_all(&agents).unwrap();
     std::fs::write(agents.join("sentry.md"), "---\npermission: readonly\nmax_turns: 3\n---\nWatch the perimeter and report anomalies.\n")
@@ -120,7 +120,7 @@ async fn dispatch_rechecks_circuit_before_next_child_request() {
         registry: Arc::new(crate::tools::task::TaskRegistry::new()),
         workdir: Arc::from(Path::new("/tmp")),
         path_grants: Arc::new(Default::default()),
-        store: crate::auth::credential::AuthStore::default(),
+        store: crate::auth::credential::AuthStore::default().into(),
         mrm: Arc::new(ModelResourceManager::new(config)),
         hooks: None,
         extras: None,
@@ -162,7 +162,7 @@ async fn dispatch_persists_run_log_and_transcript_when_session_scoped() {
         registry: Arc::new(crate::tools::task::TaskRegistry::new()),
         workdir: Arc::from(Path::new("/tmp")),
         path_grants: Arc::new(Default::default()),
-        store: crate::auth::credential::AuthStore::default(),
+        store: crate::auth::credential::AuthStore::default().into(),
         mrm: Arc::new(ModelResourceManager::new(config)),
         hooks: None,
         extras: None,

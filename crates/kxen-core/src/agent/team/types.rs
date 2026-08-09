@@ -6,6 +6,7 @@ use crate::llm::ModelRef;
 use crate::llm::mrm::ModelResourceManager;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Notify;
@@ -121,7 +122,7 @@ pub struct SpawnDeps {
     /// App 启动 workspace 快照。Team member 的实际 workdir 只从 session metadata 解析。
     pub fallback_workdir: Arc<Path>,
     /// 共享句柄而非冻结副本：凭证探测/token 刷新晚于 TeamManager 构造，操作点 lock 取实时快照
-    pub store: Arc<std::sync::Mutex<crate::auth::credential::AuthStore>>,
+    pub store: crate::auth::credential::SharedAuthStore,
     pub mrm: std::sync::Arc<std::sync::RwLock<std::sync::Arc<ModelResourceManager>>>,
     pub runtimes: Arc<crate::workspace_runtime::WorkspaceRuntimeRegistry>,
     pub extras: Arc<crate::agent::agent_loop::SessionExtrasRegistry>,
@@ -136,7 +137,7 @@ pub(crate) fn test_deps() -> SpawnDeps {
     SpawnDeps {
         registry: Arc::new(crate::tools::task::TaskRegistry::new()),
         fallback_workdir: Arc::from(Path::new("/tmp")),
-        store: Arc::new(std::sync::Mutex::new(crate::auth::credential::AuthStore::default())),
+        store: Arc::new(std::sync::Mutex::new(Arc::new(crate::auth::credential::AuthStore::default()))),
         mrm: Arc::new(std::sync::RwLock::new(Arc::new(ModelResourceManager::new(crate::core::config::Config::default())))),
         runtimes: Arc::new(crate::workspace_runtime::WorkspaceRuntimeRegistry::default()),
         extras: Arc::new(crate::agent::agent_loop::SessionExtrasRegistry::default()),
@@ -226,21 +227,20 @@ pub(crate) fn render_list(state: &TeamState) -> String {
     let tasks = crate::core::shared::lock(&state.tasks);
     let mut out = String::from("teammates:");
     for m in members.iter() {
-        out.push_str(&format!("\n- {} ({}, model {}) [{:?}]", m.name, m.role, m.model.model, m.status));
+        write!(&mut out, "\n- {} ({}, model {}) [{:?}]", m.name, m.role, m.model.model, m.status).expect("writing to String cannot fail");
     }
     if members.is_empty() {
         out.push_str(" (none)");
     }
     out.push_str("\ntasks:");
     for t in tasks.iter() {
-        out.push_str(&format!(
-            "\n- #{} {} [{:?}]{}{}",
-            t.id,
-            t.title,
-            t.status,
-            t.assignee.as_deref().map(|a| format!(" -> {a}")).unwrap_or_default(),
-            if t.depends_on.is_empty() { String::new() } else { format!(" (deps: {:?})", t.depends_on) }
-        ));
+        write!(&mut out, "\n- #{} {} [{:?}]", t.id, t.title, t.status).expect("writing to String cannot fail");
+        if let Some(assignee) = &t.assignee {
+            write!(&mut out, " -> {assignee}").expect("writing to String cannot fail");
+        }
+        if !t.depends_on.is_empty() {
+            write!(&mut out, " (deps: {:?})", t.depends_on).expect("writing to String cannot fail");
+        }
     }
     if tasks.is_empty() {
         out.push_str(" (none)");

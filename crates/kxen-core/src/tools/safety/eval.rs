@@ -1,8 +1,5 @@
 //! 命令评估与路径守卫实现。
 
-use regex::Regex;
-use std::sync::LazyLock;
-
 mod parse;
 
 use super::rules::{
@@ -12,11 +9,15 @@ use super::rules::{
 
 /// 主入口：评估一条 shell 命令文本。cwd 用于相对路径解析。
 pub fn evaluate_shell_command(command: &str, cwd: &str) -> Verdict {
+    evaluate_with_context(command, &PathContext::new(cwd))
+}
+
+fn evaluate_with_context(command: &str, paths: &PathContext) -> Verdict {
     let mut recoverable_seen = false;
     let mut ask_seen: Option<Verdict> = None;
     let mut check = |cmd: &str| {
         for tokens in parse::segments(cmd) {
-            match eval_segment(&tokens, cwd) {
+            match eval_segment(&tokens, paths) {
                 v @ Verdict::Deny { .. } => return Some(v),
                 v @ Verdict::Ask { .. } => {
                     if ask_seen.is_none() {
@@ -33,7 +34,7 @@ pub fn evaluate_shell_command(command: &str, cwd: &str) -> Verdict {
         return v;
     }
     // 命令替换（反引号 / $()）内嵌命令同样评估（绕过通道）
-    for sub in expand_substitutions(command) {
+    for sub in parse::expand_substitutions(command) {
         if let Some(v) = check(&sub) {
             return v;
         }
@@ -44,40 +45,7 @@ pub fn evaluate_shell_command(command: &str, cwd: &str) -> Verdict {
     if recoverable_seen { Verdict::Recoverable } else { Verdict::Allow }
 }
 
-/// 命令替换展开：反引号与 $() 内嵌的命令同样要进评估（`rm -rf $(cat f)` 类绕过）。
-/// $() 用平衡括号扫描：非嵌套正则只捕到第一个 )，嵌套内层命令会整个漏掉；
-/// 每个捕获内容再递归展开一次，内层替换里的命令也进评估。
-fn expand_substitutions(command: &str) -> Vec<String> {
-    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`([^`]+)`").unwrap());
-    let mut out: Vec<String> = RE.captures_iter(command).filter_map(|c| c.get(1).map(|m| m.as_str().to_string())).collect();
-    let bytes = command.as_bytes();
-    let mut i = 0;
-    while i + 1 < bytes.len() {
-        if bytes[i] == b'$' && bytes[i + 1] == b'(' {
-            let mut depth = 1usize;
-            let mut j = i + 2;
-            while j < bytes.len() && depth > 0 {
-                match bytes[j] {
-                    b'(' => depth += 1,
-                    b')' => depth -= 1,
-                    _ => {}
-                }
-                j += 1;
-            }
-            if depth == 0 {
-                out.push(command[i + 2..j - 1].to_string());
-            }
-            i = j;
-        } else {
-            i += 1;
-        }
-    }
-    let inner: Vec<String> = out.iter().filter(|s| s.contains("$(") || s.contains('`')).flat_map(|s| expand_substitutions(s)).collect();
-    out.extend(inner);
-    out
-}
-
-fn eval_segment(tokens: &[String], cwd: &str) -> Verdict {
+fn eval_segment(tokens: &[String], paths: &PathContext) -> Verdict {
     let seg = tokens.join(" ");
     let cmd_idx = parse::command_index(tokens);
     let cmd_token = tokens.get(cmd_idx).map(String::as_str).unwrap_or("");
@@ -94,7 +62,7 @@ fn eval_segment(tokens: &[String], cwd: &str) -> Verdict {
             if command_is_dynamic(script) {
                 return deny_permanent("嵌套 shell 的脚本来自动态值，无法排除不可恢复删除");
             }
-            let verdict = evaluate_shell_command(script, cwd);
+            let verdict = evaluate_with_context(script, paths);
             if !matches!(verdict, Verdict::Allow) {
                 return verdict;
             }
@@ -107,7 +75,7 @@ fn eval_segment(tokens: &[String], cwd: &str) -> Verdict {
         if script.is_empty() || command_is_dynamic(&script) {
             return deny_permanent("eval 脚本无法静态解析，无法排除不可恢复删除");
         }
-        let verdict = evaluate_shell_command(&script, cwd);
+        let verdict = evaluate_with_context(&script, paths);
         if !matches!(verdict, Verdict::Allow) {
             return verdict;
         }
@@ -125,13 +93,13 @@ fn eval_segment(tokens: &[String], cwd: &str) -> Verdict {
         && let Some(exec_idx) = tokens.iter().position(|token| matches!(token.as_str(), "-exec" | "-execdir" | "-ok" | "-okdir"))
     {
         let nested = tokens.get(exec_idx + 1..).unwrap_or_default().join(" ");
-        let verdict = evaluate_shell_command(&nested, cwd);
+        let verdict = evaluate_with_context(&nested, paths);
         if matches!(verdict, Verdict::Recoverable) {
             for target in tokens.iter().skip(cmd_idx + 1).take_while(|target| !target.starts_with('-')) {
                 if VAR_PATTERN.is_match(target) {
                     return deny("F5", format!("删除目标含未求值变量 {target}，无法静态判定"), Some("使用 delete tool 并明确目标路径"));
                 }
-                if let Some(blocked) = protected_path_verdict("trash", target, cwd, true) {
+                if let Some(blocked) = protected_path_verdict("trash", target, paths, true) {
                     return blocked;
                 }
             }
@@ -143,7 +111,7 @@ fn eval_segment(tokens: &[String], cwd: &str) -> Verdict {
     if cmd == "xargs" {
         let nested_idx = parse::xargs_command_index(tokens, cmd_idx);
         if nested_idx < tokens.len() {
-            let verdict = evaluate_shell_command(&tokens[nested_idx..].join(" "), cwd);
+            let verdict = evaluate_with_context(&tokens[nested_idx..].join(" "), paths);
             if !matches!(verdict, Verdict::Allow) {
                 return verdict;
             }
@@ -168,7 +136,7 @@ fn eval_segment(tokens: &[String], cwd: &str) -> Verdict {
     if let Some((_, why)) = GIT_DESTROY.iter().find(|(re, _)| re.is_match(&seg)) {
         return deny("F3", *why, Some("删除单个分支用 git branch -d"));
     }
-    let delete_verdict = eval_delete_segment(tokens, &seg, cwd);
+    let delete_verdict = eval_delete_segment(tokens, &seg, paths);
     if !matches!(delete_verdict, Verdict::Allow) {
         return delete_verdict;
     }
@@ -187,7 +155,7 @@ fn deny_permanent(reason: impl Into<std::borrow::Cow<'static, str>>) -> Verdict 
     deny("F5", reason, Some("使用 delete tool 将目标移入系统废纸篓"))
 }
 
-fn eval_delete_segment(tokens: &[String], seg: &str, cwd: &str) -> Verdict {
+fn eval_delete_segment(tokens: &[String], seg: &str, paths: &PathContext) -> Verdict {
     let cmd_idx = parse::command_index(tokens);
     let cmd = tokens.get(cmd_idx).map(|value| parse::command_name(value)).unwrap_or("");
     let is_delete = cmd == "trash" || (cmd == "find" && seg.contains(" -exec trash"));
@@ -199,9 +167,9 @@ fn eval_delete_segment(tokens: &[String], seg: &str, cwd: &str) -> Verdict {
     // trash 命令按可恢复降档（删除进回收站）：只拦 .git 与系统路径
     let recoverable = cmd == "trash";
 
-    let targets: Vec<&str> = tokens.iter().skip(cmd_idx + 1).filter(|t| !t.starts_with('-')).map(String::as_str).collect();
+    let mut targets = tokens.iter().skip(cmd_idx + 1).filter(|target| !target.starts_with('-')).map(String::as_str).peekable();
 
-    if targets.is_empty() && is_delete && (seg.contains("-r") || seg.contains("-f")) {
+    if targets.peek().is_none() && is_delete && (seg.contains("-r") || seg.contains("-f")) {
         return deny("F5", "递归/强制删除缺少可静态确定的目标路径", Some("明确写出完整目标路径后再执行"));
     }
 
@@ -209,7 +177,7 @@ fn eval_delete_segment(tokens: &[String], seg: &str, cwd: &str) -> Verdict {
         if VAR_PATTERN.is_match(target) {
             return deny("F5", format!("删除/移动目标含未求值变量 {target}，无法静态判定"), Some("先 echo 展开确认实际路径"));
         }
-        if let Some(verdict) = protected_path_verdict(cmd, target, cwd, recoverable) {
+        if let Some(verdict) = protected_path_verdict(cmd, target, paths, recoverable) {
             return verdict;
         }
     }
@@ -220,8 +188,8 @@ fn eval_delete_segment(tokens: &[String], seg: &str, cwd: &str) -> Verdict {
     Verdict::Allow
 }
 
-fn protected_path_verdict(cmd: &str, target: &str, cwd: &str, recoverable: bool) -> Option<Verdict> {
-    let hit = classify_path(target, cwd)?;
+fn protected_path_verdict(cmd: &str, target: &str, paths: &PathContext, recoverable: bool) -> Option<Verdict> {
+    let hit = classify_path(target, paths)?;
     if recoverable && hit.family == Family::Home {
         return None;
     }
@@ -246,10 +214,10 @@ struct PathHit {
     guard: std::borrow::Cow<'static, str>,
 }
 
-fn classify_path(target: &str, cwd: &str) -> Option<PathHit> {
-    let norm = normalize_path(target, cwd);
+fn classify_path(target: &str, paths: &PathContext) -> Option<PathHit> {
+    let norm = normalize_path(target, paths);
 
-    if EXEMPT_PREFIXES.iter().any(|p| norm == *p || norm.starts_with(&format!("{p}/"))) {
+    if EXEMPT_PREFIXES.iter().any(|prefix| same_or_descendant(&norm, prefix)) {
         return None;
     }
     if GIT_SEGMENT.is_match(&norm) {
@@ -262,53 +230,64 @@ fn classify_path(target: &str, cwd: &str) -> Option<PathHit> {
             }
             continue;
         }
-        if norm == *guard || norm.starts_with(&format!("{guard}/")) || guard.starts_with(&format!("{norm}/")) {
+        if same_or_descendant(&norm, guard) || same_or_descendant(guard, &norm) {
             return Some(PathHit { family: Family::System, guard: (*guard).into() });
         }
     }
-    let home = dirs::home_dir()?;
-    let home_str = home.to_string_lossy();
+    let home_str = paths.home.as_deref()?;
     if norm == home_str {
         return Some(PathHit { family: Family::Home, guard: home_str.to_string().into() });
     }
+    let relative = norm.strip_prefix(home_str).and_then(|path| path.strip_prefix('/'))?;
     for dot in home_credential_dot() {
-        let guard = format!("{home_str}/{dot}");
-        if norm == guard || norm.starts_with(&format!("{guard}/")) {
-            return Some(PathHit { family: Family::Credential, guard: guard.into() });
+        if same_or_descendant(relative, dot) {
+            return Some(PathHit { family: Family::Credential, guard: format!("{home_str}/{dot}").into() });
         }
     }
     for top in home_top() {
-        let guard = format!("{home_str}/{top}");
-        if norm == guard {
-            return Some(PathHit { family: Family::Home, guard: guard.into() });
+        if relative == *top {
+            return Some(PathHit { family: Family::Home, guard: format!("{home_str}/{top}").into() });
         }
     }
     for rc in [".zshrc", ".bashrc", ".bash_profile", ".zprofile", ".profile"] {
-        let guard = format!("{home_str}/{rc}");
-        if norm == guard {
-            return Some(PathHit { family: Family::Home, guard: guard.into() });
+        if relative == rc {
+            return Some(PathHit { family: Family::Home, guard: format!("{home_str}/{rc}").into() });
         }
     }
     // .config：拦整体删除，内容放行
-    let guard = format!("{home_str}/.config");
-    if norm == guard {
-        return Some(PathHit { family: Family::Home, guard: guard.into() });
+    if relative == ".config" {
+        return Some(PathHit { family: Family::Home, guard: format!("{home_str}/.config").into() });
     }
     None
 }
 
-fn normalize_path(target: &str, cwd: &str) -> String {
-    let home = dirs::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
-    // macOS /var、/tmp 是 /private/* 软链：cwd 先 canonicalize，否则临时区被误判为系统区
-    let cwd_canon = std::fs::canonicalize(cwd).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| cwd.to_string());
+fn same_or_descendant(path: &str, root: &str) -> bool {
+    path == root || path.strip_prefix(root).is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+struct PathContext {
+    cwd_canon: String,
+    home: Option<String>,
+}
+
+impl PathContext {
+    fn new(cwd: &str) -> Self {
+        // macOS /var、/tmp 是 /private/* 软链：cwd 先 canonicalize，否则临时区被误判为系统区
+        let cwd_canon = std::fs::canonicalize(cwd).map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|_| cwd.to_string());
+        let home = dirs::home_dir().map(|path| path.to_string_lossy().into_owned());
+        Self { cwd_canon, home }
+    }
+}
+
+fn normalize_path(target: &str, paths: &PathContext) -> String {
     let mut s = if target == "~" {
-        home.clone()
+        paths.home.clone().unwrap_or_default()
     } else if let Some(rest) = target.strip_prefix("~/") {
-        format!("{home}/{rest}")
+        format!("{}/{rest}", paths.home.as_deref().unwrap_or_default())
     } else if target.starts_with('/') {
         std::fs::canonicalize(target).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| target.to_string())
     } else {
-        format!("{cwd_canon}/{target}")
+        format!("{}/{target}", paths.cwd_canon)
     };
     // 解析 . 与 .. 与多余斜杠
     let mut parts: Vec<&str> = Vec::new();
@@ -327,7 +306,7 @@ fn normalize_path(target: &str, cwd: &str) -> String {
 
 /// 路径守卫（write/edit/delete 的最终防线）。
 pub fn guard_path(target: &str, cwd: &str) -> Verdict {
-    match classify_path(target, cwd) {
+    match classify_path(target, &PathContext::new(cwd)) {
         None => Verdict::Allow,
         Some(hit) => {
             let rule = match hit.family {

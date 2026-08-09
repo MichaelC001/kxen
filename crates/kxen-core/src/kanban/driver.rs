@@ -20,8 +20,10 @@ use crate::agent::subagent::SubagentDeps;
 use crate::core::session as ses;
 use crate::llm::{Message, ModelRef};
 
+mod helpers;
+pub use helpers::{parse_verdict, turns_path};
+
 use super::context::{base_context, resolve_model};
-use super::error::KanbanError;
 use super::events::{EventKind, KanbanCommand, Outcome};
 use super::land::{comment as land_comment, land_finished, land_timeout, publish_update, run_line};
 use super::model::OnEnterKind;
@@ -39,7 +41,7 @@ const VERDICT_PROTOCOL: &str = "\n\nYou are executing one kanban column run. End
 pub struct DriverDeps {
     pub registry: Arc<crate::tools::task::TaskRegistry>,
     pub workdir: Arc<Path>,
-    pub store: crate::auth::credential::AuthStore,
+    pub store: Arc<crate::auth::credential::AuthStore>,
     pub mrm: Arc<crate::llm::mrm::ModelResourceManager>,
     pub hooks: Option<Arc<crate::tools::hooks::HookRunner>>,
     pub bus: crate::core::event::EventBus,
@@ -91,24 +93,6 @@ struct StepOutput {
     verdict: Option<Outcome>,
 }
 
-pub fn turns_path(workspace: &Path, board_id: &str, run_id: &str) -> Result<PathBuf, KanbanError> {
-    Ok(store::board_dir(workspace, board_id)?.join("runs").join(format!("{run_id}.turns.jsonl")))
-}
-
-/// 从末轮文本解析显式 verdict：自尾向前取第一条声明（模型可能在前文引用 verdict 字样，以最后声明为准）。
-pub fn parse_verdict(final_text: &str) -> Option<Outcome> {
-    for line in final_text.lines().rev() {
-        let line = line.trim();
-        if line.eq_ignore_ascii_case("verdict: success") {
-            return Some(Outcome::Success);
-        }
-        if line.eq_ignore_ascii_case("verdict: failure") {
-            return Some(Outcome::Failure);
-        }
-    }
-    None
-}
-
 /// 单次列执行：claim（或收养已有 claim）-> DCP 渲染 -> 执行 -> outcome 落地。
 /// adopt = Some(run_id)：run 已被外部 Command claim（显式重试），driver 只执行与落地，不二次 claim。
 pub async fn execute(
@@ -118,7 +102,7 @@ pub async fn execute(
     deps: &DriverDeps,
     adopt: Option<String>,
 ) -> Result<RunLanding, ExecuteFailure> {
-    let (run_id, column) = match adopt {
+    let (run_id, on_enter_kind, agent_name, timeout_ms) = match adopt {
         Some(run_id) => {
             let board = Board::open(workspace, board_id).map_err(|e| fail(e.to_string()))?;
             let run = board
@@ -127,18 +111,22 @@ pub async fn execute(
                 .get(&run_id)
                 .filter(|run| run.outcome.is_none())
                 .ok_or_else(|| fail_at(&run_id, "adopted run is not open"))?;
-            let column = board.state().column(&run.column_id).cloned().ok_or_else(|| fail_at(&run_id, "run column missing"))?;
-            (run_id, column)
+            let column = board.state().column(&run.column_id).ok_or_else(|| fail_at(&run_id, "run column missing"))?;
+            let agent = column.on_enter.agent.clone().ok_or_else(|| fail_at(&run_id, "column has no agent reference"))?;
+            (run_id, column.on_enter.kind, agent, column.timeout_ms.unwrap_or(DEFAULT_RUN_TIMEOUT_MS))
         }
         None => {
             let mut board = Board::open(workspace, board_id).map_err(|e| fail(e.to_string()))?;
             let card = board.state().cards.get(card_id).ok_or_else(|| fail(format!("card not found: {card_id}")))?;
-            let column = board.state().column(&card.column_id).cloned().ok_or_else(|| fail("card column missing"))?;
+            let column = board.state().column(&card.column_id).ok_or_else(|| fail("card column missing"))?;
+            let on_enter_kind = column.on_enter.kind;
+            let agent = column.on_enter.agent.clone().ok_or_else(|| fail("column has no agent reference"))?;
+            let timeout_ms = column.timeout_ms.unwrap_or(DEFAULT_RUN_TIMEOUT_MS);
             // 两阶段之 claim：run_started 先 durable，之后的所有失败都必须落到 outcome 事件
             let event = board.apply(KanbanCommand::RunStarted { card_id: card_id.to_string() }).map_err(|e| fail(e.to_string()))?;
             publish_update(&deps.bus, workspace, board_id);
             let EventKind::RunStarted(payload) = event.kind else { return Err(fail("run_started apply returned unexpected event")) };
-            (payload.run_id, column)
+            (payload.run_id, on_enter_kind, agent, timeout_ms)
         }
     };
     let events =
@@ -146,9 +134,7 @@ pub async fn execute(
             .map_err(|e| fail_at(&run_id, e.to_string()))?;
     // 渲染素材 = 含本次 run_started 的全量事件切片（attempt N 是上下文的一部分；同切片渲染确定）
     let prompt = render::render_card_context(&events, card_id).ok_or_else(|| fail_at(&run_id, "card vanished after claim"))?;
-    let agent_name = column.on_enter.agent.clone().ok_or_else(|| fail_at(&run_id, "column has no agent reference"))?;
     let turns = turns_path(workspace, board_id, &run_id).map_err(|e| fail_at(&run_id, e.to_string()))?;
-    let timeout_ms = column.timeout_ms.unwrap_or(DEFAULT_RUN_TIMEOUT_MS);
     let cancel = CancelToken::new();
     // 自主授权句柄无条件挂载：无 policy 时 AutoApproved 守卫拒绝、自然回落逐次审批（fail-closed 零特判）
     let auto = Arc::new(BoardAutoApprove {
@@ -163,11 +149,11 @@ pub async fn execute(
         // git 错误 = 确定性环境错误，走既有 Config 裁定（落 run_finished(Failure)）
         let workdir = workdir.map_err(StepFailure::Config)?;
         let scope = RunScope { workspace, board_id, run_id: &run_id, turns: &turns, auto: &auto, workdir };
-        match column.on_enter.kind {
+        match on_enter_kind {
             OnEnterKind::AgentRun => run_agent(&scope, &agent_name, prompt, deps, cancel.clone()).await,
             OnEnterKind::Workflow => run_workflow(&scope, &agent_name, prompt, deps, cancel.clone()).await,
             // claim 守卫已拒绝不可执行列；此处是 adopt 路径的类型层兜底
-            _ => Err(StepFailure::Config(format!("column kind {:?} is not executable", column.on_enter.kind))),
+            _ => Err(StepFailure::Config(format!("column kind {on_enter_kind:?} is not executable"))),
         }
     };
     let step = match tokio::time::timeout(Duration::from_millis(timeout_ms), body).await {
@@ -235,6 +221,7 @@ async fn run_agent(
     let model = resolve_model(&definition, deps).await.map_err(StepFailure::Config)?;
     let allowed = agents::resolve_allowed_tools(&definition).map_err(|e| StepFailure::Config(e.to_string()))?;
     let persist_failed = Arc::new(AtomicBool::new(false));
+    let prompt = crate::core::shared::SharedText::from(prompt);
     // brief 先于任何 LLM 请求落盘：任务输入无记录则崩溃后无法审计（与 subagent 落 u 行同语义）
     run_line(
         turns,
@@ -284,7 +271,7 @@ async fn run_agent(
             board_id,
             format!("{run_id}:final"),
             ses::Role::Assistant,
-            vec![ses::Part::Text { text: final_text }],
+            vec![ses::Part::Text { text: final_text.into() }],
             Some(ctx.model.clone()),
             &persist_failed,
         )
@@ -306,7 +293,7 @@ async fn run_workflow(
         agents::load(workspace, agent_name).map_err(|e| StepFailure::Config(format!("workflow definition {agent_name}: {e}")))?.prompt;
     let persist_failed = Arc::new(AtomicBool::new(false));
     // 卡片上下文落盘审计：workflow 不消费 LLM prompt，但触发输入必须可回放
-    run_line(turns, board_id, format!("{run_id}:u"), ses::Role::User, vec![ses::Part::Text { text: prompt }], None, &persist_failed)
+    run_line(turns, board_id, format!("{run_id}:u"), ses::Role::User, vec![ses::Part::Text { text: prompt.into() }], None, &persist_failed)
         .map_err(StepFailure::Unknown)?;
     let sub = SubagentDeps {
         registry: deps.registry.clone(),
@@ -334,8 +321,16 @@ async fn run_workflow(
     // run_id = board:card:column:attempt（P1 派生）：同 run_id 重跑命中 journal 缓存不重复付费；
     // open_scoped 内部先哈希，run_id 含冒号不影响 journal 文件命名
     let text = crate::agent::workflow::run_tool(&script, sub, &ctx, Some(run_id)).await.map_err(StepFailure::Config)?;
-    run_line(turns, board_id, format!("{run_id}:final"), ses::Role::Assistant, vec![ses::Part::Text { text }], None, &persist_failed)
-        .map_err(StepFailure::Unknown)?;
+    run_line(
+        turns,
+        board_id,
+        format!("{run_id}:final"),
+        ses::Role::Assistant,
+        vec![ses::Part::Text { text: text.into() }],
+        None,
+        &persist_failed,
+    )
+    .map_err(StepFailure::Unknown)?;
     Ok(StepOutput { verdict: Some(Outcome::Success) })
 }
 

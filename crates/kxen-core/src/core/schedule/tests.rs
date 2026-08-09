@@ -72,7 +72,7 @@ fn pending_queue_cannot_claim_before_schedule_ack() {
     let session = crate::core::session::create(&dir, "/tmp").unwrap();
     let job = add("*/1 * * * *", "ping", &session.id, true).unwrap();
     let claimed = drain_due(job.next_fire + 1).unwrap().into_iter().find(|candidate| candidate.id == job.id).unwrap();
-    let dispatch_id = claimed.dispatch_id.clone().unwrap();
+    let dispatch_id = claimed.dispatch_id.unwrap();
     let queue = crate::core::pending_queue::PendingQueues::new(dir.clone());
     queue
         .enqueue_existing(

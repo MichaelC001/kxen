@@ -1,6 +1,8 @@
 use super::{Goal, GoalError, GoalStatus, evidence_sufficient, now_ms};
 use serde::{Deserialize, Serialize};
-use sha2::Digest;
+
+#[path = "completion/identity.rs"]
+mod identity;
 
 const INTERRUPTED_REASON: &str =
     "completion verification result is UNKNOWN after an interrupted paid judge call; use adjust to acknowledge it before retrying";
@@ -72,10 +74,7 @@ pub enum CompletionAdmission {
 
 impl Goal {
     pub fn completion_identity(&self, evidence: &str) -> CompletionIdentity {
-        CompletionIdentity {
-            contract_sha256: hash_contract(self),
-            evidence_sha256: sha2::Sha256::digest(evidence.as_bytes()).iter().map(|b| format!("{b:02x}")).collect(),
-        }
+        CompletionIdentity { contract_sha256: identity::contract(self), evidence_sha256: identity::evidence(evidence) }
     }
 
     pub fn admit_completion(&mut self, evidence: &str) -> Result<CompletionAdmission, GoalError> {
@@ -193,13 +192,20 @@ impl Goal {
                 if scores.is_empty() {
                     return Err(GoalError::CompletionRejected("completion verifier returned no criterion scores".into()));
                 }
-                let failed = scores.iter().filter(|score| !score.pass).collect::<Vec<_>>();
-                if !failed.is_empty() {
-                    let detail =
-                        failed.iter().map(|score| format!("- {}: {}", score.criterion, score.reason)).collect::<Vec<_>>().join("\n");
+                use std::fmt::Write as _;
+                let mut detail = String::new();
+                let mut failed = 0usize;
+                for score in scores.iter().filter(|score| !score.pass) {
+                    if failed > 0 {
+                        detail.push('\n');
+                    }
+                    write!(detail, "- {}: {}", score.criterion, score.reason).expect("writing to String cannot fail");
+                    failed += 1;
+                }
+                if failed > 0 {
                     return Err(GoalError::CompletionRejected(format!(
                         "{} criterion/criteria unmet:\n{detail}\nProvide corrected evidence, then use adjust before retrying.",
-                        failed.len()
+                        failed
                     )));
                 }
             }
@@ -314,26 +320,6 @@ pub fn completion_lock(id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
     static LOCKS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>> =
         std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
     crate::core::shared::lock(&LOCKS).entry(id.to_string()).or_default().clone()
-}
-
-fn hash_contract(goal: &Goal) -> String {
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(b"kxen-goal-completion-contract-v1\0");
-    hash_part(&mut hasher, Some(&goal.contract.objective));
-    hash_part(&mut hasher, Some(&goal.contract.completion_criteria));
-    hash_part(&mut hasher, goal.contract.constraints.as_deref());
-    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
-}
-
-fn hash_part(hasher: &mut sha2::Sha256, value: Option<&str>) {
-    match value {
-        Some(value) => {
-            hasher.update([1]);
-            hasher.update((value.len() as u64).to_be_bytes());
-            hasher.update(value.as_bytes());
-        }
-        None => hasher.update([0]),
-    }
 }
 
 fn save_repaired(goal: &Goal, dir: &std::path::Path) -> Result<(), GoalError> {

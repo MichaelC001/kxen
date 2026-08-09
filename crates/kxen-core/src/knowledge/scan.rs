@@ -16,8 +16,9 @@ pub fn scan(workdir: &Path) -> Vec<Entry> {
 /// home 抽参：测试用假 home，避免扫真实 ~/.agents。
 pub(super) fn scan_with_home(workdir: &Path, home: &Path) -> Vec<Entry> {
     let mut unique = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for entry in scan_all_with_home(workdir, home) {
-        if !unique.iter().any(|current: &Entry| current.kind == entry.kind && current.slug == entry.slug) {
+        if seen.insert((entry.kind, entry.slug.clone())) {
             unique.push(entry);
         }
     }

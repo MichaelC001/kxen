@@ -5,6 +5,7 @@ use crate::agent::activity::AgentKind;
 use crate::agent::agent_loop::{AgentContext, run_turn};
 use crate::llm::Message;
 use crate::llm::mrm::ModelResourceManager;
+use std::fmt::Write as _;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -14,7 +15,7 @@ pub struct SubagentDeps {
     pub registry: Arc<crate::tools::task::TaskRegistry>,
     pub workdir: Arc<Path>,
     pub path_grants: Arc<std::collections::HashSet<std::path::PathBuf>>,
-    pub store: crate::auth::credential::AuthStore,
+    pub store: Arc<crate::auth::credential::AuthStore>,
     pub mrm: Arc<ModelResourceManager>,
     pub hooks: Option<Arc<crate::tools::hooks::HookRunner>>,
     /// 父 session 的 extras（None = 无 session 上下文，dispatch 给临时实例）
@@ -84,9 +85,10 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
     // 派发只选择模型；每次实际请求由 child context 重新做 admission、RPM 和并发占槽。
     let resolved = deps.mrm.resolve(role, &deps.store).await.ok_or_else(|| format!("no available model for role {role}"))?;
 
-    let model = match resolved.account.clone() {
-        Some(acc) => crate::llm::ModelRef::with_account(resolved.provider.clone(), resolved.model.clone(), acc),
-        None => crate::llm::ModelRef::new(resolved.provider.clone(), resolved.model.clone()),
+    let degraded_from = resolved.degraded_from;
+    let model = match resolved.account {
+        Some(account) => crate::llm::ModelRef::with_account(resolved.provider, resolved.model, account),
+        None => crate::llm::ModelRef::new(resolved.provider, resolved.model),
     };
     let allowed: Vec<String> = agent.permission.allowed_tools().iter().map(|name| name.to_string()).collect();
     let session_id = deps.session_id.clone().unwrap_or_else(|| "default".into());
@@ -111,8 +113,9 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
     // turn 级持久化（P1）：per-run JSONL（布局见 activity_disk），name 每 run 唯一即确定性 id。
     // 无 session 上下文（session_id=None，如 ping 派发）或未注入 agents_root 时保持纯内存。
     // subagent 一次性不续跑：落盘是恢复真源（registry 转录重建）与审计，崩溃窗口语义同主会话。
-    let run_log = deps.session_id.as_ref().and_then(|_| deps.agents.run_log_path(&session_id, &name));
-    let persist_turn: Option<crate::agent::agent_loop::PersistTurn> = run_log.clone().map(|path| {
+    let run_log = deps.session_id.as_ref().and_then(|_| deps.agents.run_log_path(&session_id, &name)).map(Arc::<Path>::from);
+    let persist_turn: Option<crate::agent::agent_loop::PersistTurn> = run_log.as_ref().map(|path| {
+        let path = path.clone();
         let session_id = session_id.clone();
         let member = name.clone();
         let model = model.clone();
@@ -181,19 +184,19 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         },
     };
 
-    let degraded_note = resolved.degraded_from.as_ref().map(|from| {
-        format!(
-            "degraded: role '{from}' primary binding unavailable (rate limit or capacity); ran on {}/{}",
-            resolved.provider, resolved.model
-        )
+    let degraded_note = degraded_from.as_ref().map(|from| {
+        format!("degraded: role '{from}' primary binding unavailable (rate limit or capacity); ran on {}/{}", model.provider, model.model)
     });
     let mut system_prompt = crate::agent::prompt::subagent_prompt(&agent.name, &agent.prompt, crate::core::config::coding_rules_enabled());
     // 子代理自知降级：产出质量受换型影响时应在最终报告里声明
     if let Some(note) = &degraded_note {
-        system_prompt.push_str(&format!(
+        write!(
+            &mut system_prompt,
             "\n\n<scheduling>{note}. Flag this downgrade in your final report if it affects result quality.</scheduling>"
-        ));
+        )
+        .expect("writing to String cannot fail");
     }
+    let prompt = crate::core::shared::SharedText::from(prompt);
     // 先落盘后注入：brief 无记录则重启后的可检查记录缺少任务输入
     if let Some(path) = &run_log {
         run_line(
@@ -220,7 +223,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
             &session_id,
             format!("{name}:final"),
             crate::core::session::Role::Assistant,
-            vec![crate::core::session::Part::Text { text: final_text }],
+            vec![crate::core::session::Part::Text { text: final_text.into() }],
             Some(model.clone()),
         )
         .map_err(|error| format!("run log persist failed: {error}"))?;
@@ -230,7 +233,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         &name,
         if outcome.aborted { crate::agent::activity::ActivityStatus::Shutdown } else { crate::agent::activity::ActivityStatus::Done },
     );
-    Ok(DispatchResult { name, degraded_note, answer: outcome.final_text, model: child.model, degraded_from: resolved.degraded_from })
+    Ok(DispatchResult { name, degraded_note, answer: outcome.final_text, model: child.model, degraded_from })
 }
 
 /// per-run JSONL 追加一行（session Message 形态，与主会话/成员历史同基建）；

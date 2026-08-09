@@ -103,7 +103,7 @@ pub fn setup(
         state,
         web,
         bind_host,
-        close_to_tray: close_to_tray.clone(),
+        close_to_tray,
         default_open: Arc::new(Mutex::new(default_open)),
         items: Items { open_browser, copy_url, web_access, default_window, default_browser, close_item },
     });
@@ -124,7 +124,7 @@ pub fn setup(
             }
         })
     };
-    let shared_menu = shared.clone();
+    let shared_menu = shared;
     let tray = builder.on_menu_event(move |app, event| handle_menu_event(app, &shared_menu, event.id().as_ref())).build(app)?;
     Ok(TrayGuard { _tray: tray })
 }

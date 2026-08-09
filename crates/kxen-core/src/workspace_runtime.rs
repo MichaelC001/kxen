@@ -13,6 +13,8 @@ pub use config_update::RuntimeConfigUpdate;
 
 pub struct WorkspaceRuntime {
     root: Arc<Path>,
+    #[cfg(unix)]
+    root_identity: WorkspaceIdentity,
     user_config: Arc<Path>,
     config_update_gate: Arc<ConfigUpdateGate>,
     mrm: std::sync::RwLock<Arc<crate::llm::mrm::ModelResourceManager>>,
@@ -31,7 +33,9 @@ impl WorkspaceRuntime {
         mcp_approval: Option<(Arc<crate::agent::approval::ApprovalBroker>, crate::core::event::EventBus)>,
         base_mrm: &std::sync::RwLock<Arc<crate::llm::mrm::ModelResourceManager>>,
     ) -> Result<Arc<Self>, String> {
-        let config = workspace_config_from(&root, &user_config, crate::core::trust::is_trusted(&root))?;
+        #[cfg(unix)]
+        let root_identity = workspace_identity(&root)?;
+        let config = Arc::new(workspace_config_from(&root, &user_config, crate::core::trust::is_trusted(&root))?);
         let mrm = Arc::new(crate::core::shared::read(base_mrm).scoped(workspace_scope(&root), config.clone()));
         let mcp = match mcp_approval {
             Some((broker, bus)) => crate::mcp::McpManager::new_with_execution_approval(broker, bus),
@@ -43,6 +47,8 @@ impl WorkspaceRuntime {
             mrm: std::sync::RwLock::new(mrm),
             mcp,
             root: Arc::from(root),
+            #[cfg(unix)]
+            root_identity,
             user_config,
             config_update_gate,
             mcp_loaded: AtomicBool::new(false),
@@ -114,7 +120,7 @@ impl WorkspaceRuntime {
 
     fn reload_config(&self) -> Result<(), String> {
         let _permit = self.config_update_gate.read();
-        let config = workspace_config_from(&self.root, &self.user_config, crate::core::trust::is_trusted(&self.root))?;
+        let config = Arc::new(workspace_config_from(&self.root, &self.user_config, crate::core::trust::is_trusted(&self.root))?);
         let current = self.mrm();
         let next_mrm = Arc::new(current.candidate(config.clone()));
         let next_hooks = Arc::new(crate::tools::hooks::HookRunner::from_config(&config, &self.root));
@@ -181,7 +187,24 @@ impl WorkspaceRuntimeRegistry {
 
     pub fn runtime(&self, root: &Path) -> Result<Arc<WorkspaceRuntime>, String> {
         let _permit = self.config_update_gate.read();
+        let metadata = workspace_metadata(root)?;
+        #[cfg(unix)]
+        if let Some(runtime) = crate::core::shared::lock(&self.runtimes).get(root).cloned()
+            && runtime.root_identity == WorkspaceIdentity::from(&metadata)
+        {
+            // 已规范化的调用是常态；设备与 inode 未变时可安全避开重复 canonicalize。
+            return Ok(runtime);
+        }
         let root = normalize(root)?;
+        #[cfg(unix)]
+        let identity = WorkspaceIdentity::from(&workspace_metadata(&root)?);
+        #[cfg(unix)]
+        if let Some(runtime) = crate::core::shared::lock(&self.runtimes).get(&root).cloned()
+            && runtime.root_identity == identity
+        {
+            return Ok(runtime);
+        }
+        #[cfg(not(unix))]
         if let Some(runtime) = crate::core::shared::lock(&self.runtimes).get(&root).cloned() {
             return Ok(runtime);
         }
@@ -193,6 +216,13 @@ impl WorkspaceRuntimeRegistry {
             &self.base_mrm,
         )?;
         let mut runtimes = crate::core::shared::lock(&self.runtimes);
+        #[cfg(unix)]
+        if let Some(existing) = runtimes.get(&root)
+            && existing.root_identity == runtime.root_identity
+        {
+            return Ok(existing.clone());
+        }
+        #[cfg(not(unix))]
         if let Some(existing) = runtimes.get(&root) {
             return Ok(existing.clone());
         }
@@ -221,7 +251,12 @@ impl WorkspaceRuntimeRegistry {
     }
 
     pub async fn reload_mcp_all(&self) -> Result<(), String> {
-        let runtimes: Vec<_> = crate::core::shared::lock(&self.runtimes).values().cloned().collect();
+        let runtimes = {
+            let registry = crate::core::shared::lock(&self.runtimes);
+            let mut runtimes = Vec::with_capacity(registry.len());
+            runtimes.extend(registry.values().cloned());
+            runtimes
+        };
         let errors: Vec<_> =
             futures::future::join_all(runtimes.into_iter().map(|runtime| async move {
                 runtime.reload_mcp().await.err().map(|error| format!("{}: {error}", runtime.root().display()))
@@ -252,10 +287,35 @@ impl WorkspaceRuntimeRegistry {
 }
 
 fn normalize(root: &Path) -> Result<PathBuf, String> {
-    if !root.is_dir() {
+    std::fs::canonicalize(root).map_err(|e| format!("workspace canonicalize {}: {e}", root.display()))
+}
+
+fn workspace_metadata(root: &Path) -> Result<std::fs::Metadata, String> {
+    let metadata = std::fs::metadata(root).map_err(|_| format!("workspace directory not found: {}", root.display()))?;
+    if !metadata.is_dir() {
         return Err(format!("workspace directory not found: {}", root.display()));
     }
-    std::fs::canonicalize(root).map_err(|e| format!("workspace canonicalize {}: {e}", root.display()))
+    Ok(metadata)
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WorkspaceIdentity {
+    device: u64,
+    inode: u64,
+}
+
+#[cfg(unix)]
+impl From<&std::fs::Metadata> for WorkspaceIdentity {
+    fn from(metadata: &std::fs::Metadata) -> Self {
+        use std::os::unix::fs::MetadataExt;
+        Self { device: metadata.dev(), inode: metadata.ino() }
+    }
+}
+
+#[cfg(unix)]
+fn workspace_identity(root: &Path) -> Result<WorkspaceIdentity, String> {
+    workspace_metadata(root).map(|metadata| WorkspaceIdentity::from(&metadata))
 }
 
 fn workspace_scope(root: &Path) -> Arc<str> {

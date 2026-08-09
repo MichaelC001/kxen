@@ -21,8 +21,8 @@ pub(super) fn build_request(model: &str, messages: &[Message], tools: &[ToolDefi
         turns.push(user_turn(model, "", None));
     }
     normalize_empty_content(&mut turns);
-    let current = turns.pop().expect("turns non-empty");
-    let mut current_input = current["userInputMessage"].clone();
+    let mut current = turns.pop().expect("turns non-empty");
+    let mut current_input = std::mem::take(&mut current["userInputMessage"]);
     if !tools.is_empty() {
         let specs: Vec<Value> = tools.iter().map(tool_spec).collect();
         current_input["userInputMessageContext"]["tools"] = json!(specs);
@@ -178,15 +178,21 @@ fn append_text(target: &mut Value, extra: &str) {
 
 /// OpenAI 形态 tool 定义 -> Kiro toolSpecification（inputSchema.json 为 JSON Schema 对象）。
 fn tool_spec(tool: &ToolDefinition) -> Value {
-    let mut schema = tool.function.parameters.clone();
-    if !schema.is_object() {
-        schema = json!({});
-    }
-    schema["type"] = json!("object");
+    let schema = if tool.function.parameters.get("type").and_then(Value::as_str) == Some("object") {
+        std::borrow::Cow::Borrowed(&tool.function.parameters)
+    } else {
+        let mut schema = if tool.function.parameters.is_object() { tool.function.parameters.clone() } else { json!({}) };
+        schema["type"] = json!("object");
+        std::borrow::Cow::Owned(schema)
+    };
     json!({
         "toolSpecification": {
             "name": tool.function.name,
-            "description": if tool.function.description.is_empty() { format!("Tool: {}", tool.function.name) } else { tool.function.description.clone() },
+            "description": if tool.function.description.is_empty() {
+                std::borrow::Cow::Owned(format!("Tool: {}", tool.function.name))
+            } else {
+                std::borrow::Cow::Borrowed(tool.function.description.as_str())
+            },
             "inputSchema": { "json": schema },
         }
     })

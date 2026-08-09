@@ -21,19 +21,25 @@ use self::client::{McpClient, McpTool};
 use self::config::{PolicySet, ServerConfig, StdioConfig, ToolPolicy};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 /// MCP 工具输出上限（字符）：单条 tool result 不许吃爆 context。
 const OUTPUT_CAP: usize = 50_000;
 
 /// 输出截断：按 chars 计数防切半 UTF-8；超了加 truncated 标记让模型知道没看全。
-fn cap_output(s: &str) -> String {
+fn cap_output(mut s: String) -> String {
+    if s.len() <= OUTPUT_CAP {
+        return s;
+    }
     let total = s.chars().count();
     if total <= OUTPUT_CAP {
-        return s.to_string();
+        return s;
     }
-    let kept: String = s.chars().take(OUTPUT_CAP).collect();
-    format!("{kept}\n... (truncated, {total} chars total)")
+    let truncate_at = s.char_indices().nth(OUTPUT_CAP).map(|(index, _)| index).unwrap_or(s.len());
+    s.truncate(truncate_at);
+    write!(s, "\n... (truncated, {total} chars total)").expect("writing to String cannot fail");
+    s
 }
 
 /// SSRF 守卫开关：生产一律 Enforced；Bypassed 仅供集成测试——mock server 监听 127.0.0.1，
@@ -62,7 +68,7 @@ pub struct ServerStatus {
 }
 
 struct Entry {
-    config: ServerConfig,
+    config: Arc<ServerConfig>,
     client: Option<Arc<McpClient>>,
     /// 配置/手动重启代次。异步 connect 只能回写发起时的同一代 Entry。
     generation: u64,
@@ -77,7 +83,7 @@ pub struct McpManager {
     /// per-tool 策略表：随 reload 整批更换（读多写少，Mutex 足够）
     policies: Mutex<PolicySet>,
     /// workspace roots 仅供 local stdio roots/list；remote transport 必须收到空清单。
-    roots: Mutex<Vec<String>>,
+    roots: Mutex<Arc<Vec<String>>>,
     /// reload 串行化：快速连续 switch 若交错 drain/start，被挤掉的 client 无人 shutdown 会泄漏
     reload_lock: tokio::sync::Mutex<()>,
     /// reload/restart/lazy connect 对同一 server 串行，不同 server 仍可独立推进。
@@ -105,7 +111,7 @@ impl McpManager {
         Arc::new(Self {
             servers: Mutex::new(HashMap::new()),
             policies: Mutex::new(PolicySet::default()),
-            roots: Mutex::new(Vec::new()),
+            roots: Mutex::new(Arc::new(Vec::new())),
             reload_lock: tokio::sync::Mutex::new(()),
             lifecycle: Mutex::new(HashMap::new()),
             next_generation: std::sync::atomic::AtomicU64::new(1),
@@ -168,10 +174,13 @@ impl McpManager {
     /// 第二段 finish_auth 由调用方 spawn（等待上限 CALLBACK_TIMEOUT，不能堵 RPC）。
     pub async fn begin_auth(&self, server: &str) -> Result<oauth_flow::LoginSession, String> {
         let config = crate::core::shared::lock(&self.servers).get(server).map(|e| e.config.clone());
-        let Some(ServerConfig::Remote(rc)) = config else {
+        let Some(config) = config else {
             return Err(format!("mcp server 不是 remote 或不存在: {server}"));
         };
-        oauth_flow::prepare_login(&rc, remote::Guard::Enforced).await
+        let ServerConfig::Remote(rc) = config.as_ref() else {
+            return Err(format!("mcp server 不是 remote 或不存在: {server}"));
+        };
+        oauth_flow::prepare_login(rc, remote::Guard::Enforced).await
     }
 
     /// 交互授权第二段：等回调换 token 落盘；成功后调用方负责 restart 重连生效。
@@ -203,8 +212,12 @@ impl McpManager {
             .collect()
     }
 
-    pub fn all_tools(&self) -> Vec<McpTool> {
-        crate::core::shared::lock(&self.servers).values().filter_map(|e| e.client.as_ref().map(|c| c.tools.clone())).flatten().collect()
+    pub fn all_tools(&self) -> Vec<Arc<McpTool>> {
+        crate::core::shared::lock(&self.servers)
+            .values()
+            .filter_map(|entry| entry.client.as_ref())
+            .flat_map(|client| client.tools.iter().map(Arc::clone))
+            .collect()
     }
 
     pub fn policy_for(&self, server: &str, tool: &str) -> ToolPolicy {
@@ -217,7 +230,7 @@ impl McpManager {
     pub async fn call(&self, server: &str, tool: &str, args: &Value) -> Result<String, String> {
         let (client, generation) = self.client_or_restart(server).await?;
         match client.call(tool, args).await {
-            Ok(out) => Ok(cap_output(&out)),
+            Ok(out) => Ok(cap_output(out)),
             Err(error) => {
                 let auth_required = oauth::is_auth_required(&error);
                 let transport_failure = client::transport_failure_detail(&error);
@@ -250,8 +263,9 @@ impl McpManager {
         approval: Option<&crate::tools::exec::ApprovalCtx<'_>>,
     ) -> Result<String, String> {
         let (server, tool) = tools::split_prefixed(prefixed).ok_or_else(|| format!("invalid mcp tool name: {prefixed}"))?;
-        let remote =
-            crate::core::shared::lock(&self.servers).get(server).is_some_and(|entry| matches!(&entry.config, ServerConfig::Remote(_)));
+        let remote = crate::core::shared::lock(&self.servers)
+            .get(server)
+            .is_some_and(|entry| matches!(entry.config.as_ref(), ServerConfig::Remote(_)));
         if remote && !crate::core::config::experimental_config().remote_mcp {
             return Err(format!("remote MCP tool {prefixed} is experimental and disabled; enable it explicitly in Settings > Advanced"));
         }

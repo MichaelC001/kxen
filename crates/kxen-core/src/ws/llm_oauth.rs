@@ -52,6 +52,6 @@ fn write_back(state: &Arc<AppState>, store: &AuthStore, model: &ModelRef) {
         .map(|account| kxen_core::auth::credential::account_id(&model.provider, account))
         .unwrap_or_else(|| model.provider.clone());
     if let Some(credential) = store.get(&key).cloned() {
-        kxen_core::core::shared::lock(&state.auth_store).insert(key, credential);
+        Arc::make_mut(&mut kxen_core::core::shared::lock(&state.auth_store)).insert(key, credential);
     }
 }

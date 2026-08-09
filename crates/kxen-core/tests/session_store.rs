@@ -112,7 +112,7 @@ fn concurrent_appends_stay_intact() {
         let sid = s.id.clone();
         handles.push(std::thread::spawn(move || {
             for i in 0..25 {
-                let m = ses::new_message(&sid, Role::Assistant, vec![Part::Text { text: format!("t{t}-{i}") }]);
+                let m = ses::new_message(&sid, Role::Assistant, vec![Part::Text { text: format!("t{t}-{i}").into() }]);
                 ses::append_message(&dir, &m).unwrap();
             }
         }));
@@ -163,7 +163,7 @@ fn tool_call_stores_exact_args_and_full_output() {
         vec![Part::ToolCall {
             name: "write".into(),
             input: serde_json::json!("/tmp/a.txt"),
-            output: full_output.clone(),
+            output: full_output.into(),
             args: Some(serde_json::json!({"path": "/tmp/a.txt", "content": "hello"})),
             id: None,
         }],
@@ -212,7 +212,7 @@ fn idempotent_append_replays_same_delivery_once() {
     ses::append_message_idempotent(&dir, &message).unwrap();
     assert_eq!(ses::load_messages(&dir, &session.id).iter().filter(|item| item.id == message.id).count(), 1);
 
-    let mut collision = message.clone();
+    let mut collision = message;
     collision.parts = vec![Part::Text { text: "different".into() }];
     assert_eq!(ses::append_message_idempotent(&dir, &collision).unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
     std::fs::remove_dir_all(dir).ok();

@@ -90,8 +90,7 @@ async fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<V
         "agent.test_dispatch" => test_dispatch(state, params).await,
         "schedule.list" => Ok(serde_json::to_value(kxen_core::core::schedule::list()?).map_err(|e| e.to_string())?),
         "usage.overview" => {
-            let tokens = kxen_core::core::shared::lock(&state.session_tokens).clone();
-            let totals = usage_totals(&tokens);
+            let totals = usage_totals(&kxen_core::core::shared::lock(&state.session_tokens));
             let history = {
                 let mrm = kxen_core::core::shared::read(&state.mrm).clone();
                 mrm.history().await
@@ -174,7 +173,7 @@ async fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<V
             let key = params.get("key").and_then(Value::as_str).ok_or("missing key")?;
             let mut store = state.auth_store.lock().map_err(|e| e.to_string())?;
             let path = kxen_core::core::paths::auth_file();
-            kxen_core::voice::provider::set_key(&mut store, provider, key, &path)?;
+            kxen_core::voice::provider::set_key(Arc::make_mut(&mut store), provider, key, &path)?;
             Ok(json!({ "provider": provider, "configured": true }))
         }
         "voice.set_engine" => {

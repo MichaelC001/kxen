@@ -14,6 +14,7 @@ use crate::agent::agent_loop::{AgentContext, AgentEvent};
 use crate::agent::subagent::{SubagentDeps, dispatch};
 use rquickjs::prelude::{Async, Func};
 use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Promise, Value};
+use std::fmt::Write as _;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
@@ -112,9 +113,11 @@ pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_
     // 自动 run_id 随结果回传：该行进 session 持久化，中断后模型凭历史里的 id 显式续跑；
     // 显式传入的 id 已在 tool_call 参数历史中，不重复标注
     if auto_generated && let Ok(text) = &mut out {
-        text.push_str(&format!(
+        write!(
+            text,
             "\n[workflow run_id: {run_id} - if this run is interrupted, re-invoke with run_id \"{run_id}\" to resume completed dispatches from cache]"
-        ));
+        )
+        .expect("writing to String cannot fail");
     }
     out
 }

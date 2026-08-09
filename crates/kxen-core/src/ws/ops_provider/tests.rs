@@ -4,7 +4,7 @@ use kxen_core::auth::credential::CredentialKind;
 
 #[test]
 fn auth_commit_holds_memory_lock_until_snapshot_is_published() {
-    let store = std::sync::Arc::new(Mutex::new(AuthStore::new()));
+    let store = std::sync::Arc::new(Mutex::new(std::sync::Arc::new(AuthStore::new())));
     let entered = std::sync::Arc::new(std::sync::Barrier::new(2));
     let release = std::sync::Arc::new(std::sync::Barrier::new(2));
     let worker_store = store.clone();
@@ -30,14 +30,14 @@ fn auth_commit_holds_memory_lock_until_snapshot_is_published() {
 
 #[test]
 fn custom_postcommit_warning_publishes_memory_before_rpc_error() {
-    let store = Mutex::new(AuthStore::new());
+    let store = Mutex::new(std::sync::Arc::new(AuthStore::new()));
     let mut persisted = AuthStore::new();
     persisted.insert("custom:lab".into(), CredentialKind::Api { key: "visible".into(), region: None });
 
     let error = commit_custom_transaction(&store, || Ok((persisted.clone(), Some("indeterminate".into())))).unwrap_err();
 
     assert_eq!(error, "indeterminate");
-    assert_eq!(*store.lock().unwrap(), persisted);
+    assert_eq!(**store.lock().unwrap(), persisted);
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn account_crud_keeps_disk_memory_and_listing_consistent() {
     let root = std::env::temp_dir().join(format!("kxen-provider-account-store-{}", uuid::Uuid::new_v4()));
     let config_path = root.join("config.toml");
     let auth_path = root.join("auth.json");
-    let store = Mutex::new(AuthStore::new());
+    let store = Mutex::new(std::sync::Arc::new(AuthStore::new()));
 
     let imported = import_account(
         &json!({ "provider": "kimi", "account": "work", "kind": "api", "access": "secret", "region": "intl" }),
@@ -134,7 +134,7 @@ fn account_crud_keeps_disk_memory_and_listing_consistent() {
 fn account_postcommit_warning_publishes_disk_snapshot_to_memory() {
     let root = std::env::temp_dir().join(format!("kxen-provider-account-postcommit-{}", uuid::Uuid::new_v4()));
     let auth_path = root.join("auth.json");
-    let store = Mutex::new(AuthStore::new());
+    let store = Mutex::new(std::sync::Arc::new(AuthStore::new()));
     kxen_core::auth::credential::write_auth_file(&auth_path, &AuthStore::new()).unwrap();
     kxen_core::auth::credential::fail_next_auth_dir_sync();
 
@@ -162,14 +162,14 @@ fn reprobe_commit_merges_delta_before_publishing_memory_snapshot() {
     let mut concurrent = AuthStore::new();
     concurrent.insert("anthropic".into(), CredentialKind::Api { key: "concurrent".into(), region: None });
     kxen_core::auth::credential::write_auth_file(&auth_path, &concurrent).unwrap();
-    let memory = Mutex::new(baseline.clone());
+    let memory = Mutex::new(std::sync::Arc::new(baseline.clone()));
 
     let persisted = commit_reprobe(&memory, &auth_path, &baseline, &probed).expect("merge reprobe");
 
     assert_eq!(persisted["xai"].bearer(), "probed");
     assert_eq!(persisted["anthropic"].bearer(), "concurrent");
     assert_eq!(*memory.lock().unwrap(), persisted);
-    assert_eq!(kxen_core::auth::credential::read_auth_file(&auth_path).unwrap(), persisted);
+    assert_eq!(kxen_core::auth::credential::read_auth_file(&auth_path).unwrap(), *persisted);
     std::fs::remove_dir_all(root).ok();
 }
 

@@ -176,7 +176,7 @@ mod tests {
         let sessions = dir.join("sessions");
         let delivery = claim_inbox_entries(&state.dir, "lead").unwrap();
         let entry = &delivery.entries[0];
-        let part = crate::core::session::Part::Text { text: format!("[teammate {}] {}", entry.from, entry.text) };
+        let part = crate::core::session::Part::Text { text: format!("[teammate {}] {}", entry.from, entry.text).into() };
         let mut message = crate::core::session::new_message("s1", crate::core::session::Role::User, vec![part]);
         message.id = entry.transcript_id.clone();
         message.created_at = entry.at;

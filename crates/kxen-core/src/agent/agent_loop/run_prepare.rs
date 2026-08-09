@@ -1,6 +1,7 @@
 use super::context::AgentContext;
 use super::usage::{GoalWallCache, goal_provider_timeout, goal_wall_over, wait_for_goal_deadline};
 use crate::llm::Message;
+use std::sync::Arc;
 
 pub(super) fn tools(ctx: &AgentContext, base: &[crate::llm::tool::ToolDefinition]) -> Vec<crate::llm::tool::ToolDefinition> {
     let mut tools = base.to_vec();
@@ -59,7 +60,7 @@ pub(super) async fn refresh_oauth(ctx: &mut AgentContext, wall_cache: &mut GoalW
         Ok(remaining) => remaining,
         Err(_) => return Gate::GoalStopped,
     };
-    let refresh = super::oauth_refresh::ensure(&mut ctx.store, &ctx.model, ctx.cancel.as_ref());
+    let refresh = super::oauth_refresh::ensure(Arc::make_mut(&mut ctx.store), &ctx.model, ctx.cancel.as_ref());
     let outcome = match &ctx.cancel {
         Some(cancel) => tokio::select! {
             result = refresh => Some(result),

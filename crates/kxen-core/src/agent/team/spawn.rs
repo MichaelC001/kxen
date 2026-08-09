@@ -152,7 +152,7 @@ impl TeamManager {
                 member.status = MemberStatus::Working;
                 member.approved = approve;
                 member.pending_verdict = None;
-                member.applied_verdict_id = Some(verdict.delivery_id.clone());
+                member.applied_verdict_id = Some(verdict.delivery_id);
                 super::types::commit_members(state, &mut members, original)?;
                 true
             }

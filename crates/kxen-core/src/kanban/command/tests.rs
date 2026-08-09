@@ -137,10 +137,7 @@ fn illegal_moves_fail_closed() {
     board.apply(KanbanCommand::RunFinished { run_id: started.run_id.clone(), outcome: Outcome::Success }).unwrap();
     board.apply(KanbanCommand::CardMove { card_id: card_id.clone(), outcome: Outcome::Success }).unwrap();
     assert_eq!(card(&board, &card_id).column_id, "done");
-    assert!(matches!(
-        reject(&mut board, KanbanCommand::CardMove { card_id: card_id.clone(), outcome: Outcome::Success }),
-        KanbanError::NoTransition { .. }
-    ));
+    assert!(matches!(reject(&mut board, KanbanCommand::CardMove { card_id, outcome: Outcome::Success }), KanbanError::NoTransition { .. }));
     std::fs::remove_dir_all(workspace).ok();
 }
 
@@ -212,7 +209,7 @@ fn illegal_run_commands_fail_closed() {
 
     // 已关闭的 run 不可二次 finish
     board.apply(KanbanCommand::CardMove { card_id: card_id.clone(), outcome: Outcome::Success }).unwrap();
-    let run = board.apply(KanbanCommand::RunStarted { card_id: card_id.clone() }).unwrap();
+    let run = board.apply(KanbanCommand::RunStarted { card_id }).unwrap();
     let EventKind::RunStarted(started) = &run.kind else { panic!("expected run_started") };
     board.apply(KanbanCommand::RunFinished { run_id: started.run_id.clone(), outcome: Outcome::Success }).unwrap();
     assert!(matches!(

@@ -4,6 +4,7 @@
 
 use super::{Entry, Scope};
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
 const NOTE_TOP_K: usize = 8;
 
@@ -169,11 +170,11 @@ fn parse_date_days(s: &str) -> Option<i64> {
 
 /// 冲突降权：返回应乘 CONFLICT_PENALTY 的下标。两两 O(n^2)，n 是记忆条目数（几十到几百），可接受。
 /// "内容不同"按原文精确不等判定——完全相同是重复不是冲突（同 slug 去重在 select 里做）。
-pub fn conflict_losers(token_sets: &[HashSet<String>], dates: &[String], contents: &[String]) -> Vec<usize> {
+pub fn conflict_losers<T: Eq + Hash, D: AsRef<str>, C: AsRef<str>>(token_sets: &[HashSet<T>], dates: &[D], contents: &[C]) -> Vec<usize> {
     let mut losers = Vec::new();
     for i in 0..token_sets.len() {
         for j in (i + 1)..token_sets.len() {
-            if contents[i] == contents[j] {
+            if contents[i].as_ref() == contents[j].as_ref() {
                 continue;
             }
             let inter = token_sets[i].intersection(&token_sets[j]).count();
@@ -185,7 +186,7 @@ pub fn conflict_losers(token_sets: &[HashSet<String>], dates: &[String], content
                 continue;
             }
             // 同主题修订：date 新者胜；date 相等（同日改写）保序稳定，罚后出现的
-            losers.push(if dates[i].as_str() >= dates[j].as_str() { j } else { i });
+            losers.push(if dates[i].as_ref() >= dates[j].as_ref() { j } else { i });
         }
     }
     losers
@@ -210,24 +211,35 @@ pub(crate) fn select_notes_with_runtime<'a>(
     }
     let query = involved_rel.join(" ");
     let query_terms = tokenize(&query);
-    let bm25_docs: Vec<Vec<String>> = notes.iter().map(|e| tokenize(&format!("{} {}", e.description, e.content))).collect();
+    let bm25_docs: Vec<Vec<String>> = notes
+        .iter()
+        .map(|entry| {
+            let mut terms = tokenize(&entry.description);
+            terms.extend(tokenize(&entry.content));
+            terms
+        })
+        .collect();
     let bm25 = normalize(&bm25_scores(&query_terms, &bm25_docs));
-    let sem_docs: Vec<String> = notes.iter().map(|e| super::embedding::doc_text(&e.description, &e.content)).collect();
-    let semantic = super::embedding::recall_with_runtime(&query, &sem_docs, runtime).map(|v| {
-        let present: Vec<f64> = v.iter().flatten().copied().collect();
-        let norm = normalize(&present);
-        let mut it = norm.into_iter();
-        v.iter().map(|x| if x.is_some() { it.next() } else { None }).collect::<Vec<_>>()
+    let mut semantic = super::embedding::recall_lazy(&query, runtime, || {
+        notes.iter().map(|entry| super::embedding::doc_text(&entry.description, &entry.content)).collect()
     });
+    if let Some(scores) = &mut semantic {
+        let hi = scores.iter().flatten().copied().fold(0.0f64, f64::max);
+        if hi > 0.0 {
+            scores.iter_mut().flatten().for_each(|score| *score = score.max(0.0) / hi);
+        } else {
+            scores.iter_mut().flatten().for_each(|score| *score = 0.0);
+        }
+    }
     let today = super::today();
     let mut scored: Vec<(f64, &Entry)> = notes
         .iter()
         .enumerate()
         .map(|(i, e)| (fuse(bm25[i], semantic.as_ref().and_then(|v| v[i]), e.scope, &e.date, &today), *e))
         .collect();
-    let token_sets: Vec<HashSet<String>> = bm25_docs.iter().map(|d| d.iter().cloned().collect()).collect();
-    let dates: Vec<String> = scored.iter().map(|(_, e)| e.date.clone()).collect();
-    let contents: Vec<String> = scored.iter().map(|(_, e)| e.content.clone()).collect();
+    let token_sets: Vec<HashSet<&str>> = bm25_docs.iter().map(|doc| doc.iter().map(String::as_str).collect()).collect();
+    let dates: Vec<&str> = scored.iter().map(|(_, entry)| entry.date.as_str()).collect();
+    let contents: Vec<&str> = scored.iter().map(|(_, entry)| entry.content.as_str()).collect();
     for i in conflict_losers(&token_sets, &dates, &contents) {
         scored[i].0 *= CONFLICT_PENALTY;
     }
@@ -235,7 +247,7 @@ pub(crate) fn select_notes_with_runtime<'a>(
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal).then_with(|| b.1.date.cmp(&a.1.date)));
     // 同 slug 变体只留一条：scan 的去重键是 (kind, slug)，Note 与 Memory 同 slug 会并存
     let mut seen = HashSet::new();
-    scored.retain(|(_, e)| seen.insert(e.slug.clone()));
+    scored.retain(|(_, entry)| seen.insert(entry.slug.as_str()));
     scored.truncate(NOTE_TOP_K);
     scored.into_iter().map(|(_, e)| e).collect()
 }

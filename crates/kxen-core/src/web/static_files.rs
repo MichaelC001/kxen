@@ -50,7 +50,7 @@ fn respond(path: &str, file: rust_embed::EmbeddedFile) -> Response {
     if path.starts_with("assets/") && !path.ends_with("index.html") {
         builder = builder.header(header::CACHE_CONTROL, "public, max-age=31536000, immutable");
     }
-    builder.body(Body::from(file.data.into_owned())).unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+    builder.body(Body::from(file.data)).unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
 #[cfg(test)]

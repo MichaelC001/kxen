@@ -24,13 +24,13 @@ pub struct RecoveryReport {
 }
 
 pub fn inspect_storage(dir: &Path, id: &str) -> Result<RecoveryReport, String> {
-    crate::core::ids::validate_id(id).map_err(|error| error.to_string())?;
+    crate::core::ids::validate_id(id)?;
     let _transaction = acquire_transaction(id);
     inspect_unlocked(dir, id, None)
 }
 
 pub fn repair_storage(dir: &Path, id: &str) -> Result<RecoveryReport, String> {
-    crate::core::ids::validate_id(id).map_err(|error| error.to_string())?;
+    crate::core::ids::validate_id(id)?;
     if crate::core::session_recovery::is_tombstoned(dir, id)? {
         return Err(format!("session deletion in progress: {id}"));
     }
@@ -102,26 +102,26 @@ fn inspect_jsonl(id: &str, bytes: &[u8]) -> MessageIntegrity {
         return MessageIntegrity::Healthy { records: 0 };
     }
     let terminated = bytes.ends_with(b"\n");
-    let mut records = bytes.split(|byte| *byte == b'\n').collect::<Vec<_>>();
-    if terminated {
-        records.pop();
-    }
-    let prefix_len = records.len().saturating_sub(usize::from(!terminated));
     let mut ids = HashSet::new();
-    for (index, line) in records.iter().take(prefix_len).enumerate() {
-        if let Err(error) = validate_line(id, line, &mut ids) {
-            return MessageIntegrity::Corrupt { line: index + 1, error };
-        }
-    }
-    if terminated {
-        for (index, line) in records.iter().enumerate().skip(prefix_len) {
+    let last_newline = bytes.iter().rposition(|byte| *byte == b'\n');
+    let (complete, has_complete) = match (terminated, last_newline) {
+        (true, _) => (&bytes[..bytes.len() - 1], true),
+        (false, Some(index)) => (&bytes[..index], true),
+        (false, None) => (&bytes[..0], false),
+    };
+    let mut prefix_len = 0;
+    if has_complete {
+        for (index, line) in complete.split(|byte| *byte == b'\n').enumerate() {
+            prefix_len = index + 1;
             if let Err(error) = validate_line(id, line, &mut ids) {
                 return MessageIntegrity::Corrupt { line: index + 1, error };
             }
         }
-        return MessageIntegrity::Healthy { records: records.len() };
     }
-    let final_line = records.last().copied().unwrap_or_default();
+    if terminated {
+        return MessageIntegrity::Healthy { records: prefix_len };
+    }
+    let final_line = last_newline.map_or(bytes, |index| &bytes[index + 1..]);
     let mut final_ids = ids;
     let preserve = validate_line(id, final_line, &mut final_ids).is_ok();
     MessageIntegrity::RepairableTail { records: prefix_len, preserve_final_record: preserve }
@@ -132,9 +132,10 @@ fn validate_line(id: &str, line: &[u8], ids: &mut HashSet<String>) -> Result<(),
     if message.session_id != id {
         return Err(format!("message {} belongs to session {}", message.id, message.session_id));
     }
-    if !ids.insert(message.id.clone()) {
+    if ids.contains(&message.id) {
         return Err(format!("duplicate message id: {}", message.id));
     }
+    ids.insert(message.id);
     Ok(())
 }
 

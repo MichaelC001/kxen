@@ -2,6 +2,7 @@ use kxen_core::auth::credential::AuthStore;
 use kxen_core::auth::probe::RULES;
 use kxen_core::core::paths;
 use serde::Serialize;
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use crate::AppState;
@@ -122,7 +123,7 @@ pub async fn reply_with_report(
     let store = kxen_core::core::shared::lock(&state.auth_store).clone();
     let mut report = doctor_report(&store);
     report.system = Some(system_health(state).await?);
-    let mut msg = ses::new_message(session_id, ses::Role::Assistant, vec![ses::Part::Text { text: format_markdown(&report) }]);
+    let mut msg = ses::new_message(session_id, ses::Role::Assistant, vec![ses::Part::Text { text: format_markdown(&report).into() }]);
     if let Some(message_id) = message_id {
         msg.id = message_id.to_string();
     }
@@ -143,7 +144,7 @@ pub fn format_markdown(report: &DoctorReport) -> String {
             "expired" => "已过期（下次调用自动刷新）",
             _ => "未配置",
         };
-        out.push_str(&format!("| {} | {} |\n", e.display, status));
+        writeln!(&mut out, "| {} | {} |", e.display, status).expect("writing to String cannot fail");
     }
     let Some(s) = &report.system else { return out };
     out.push_str("\n### MCP Servers\n\n");
@@ -160,24 +161,27 @@ pub fn format_markdown(report: &DoctorReport) -> String {
                 "needs_auth" => "待授权",
                 other => other,
             };
-            out.push_str(&format!("| {} | {} | {} | {} | {} |\n", m.name, status, m.transport, m.tools, m.resources));
+            writeln!(&mut out, "| {} | {} | {} | {} | {} |", m.name, status, m.transport, m.tools, m.resources)
+                .expect("writing to String cannot fail");
         }
     }
-    out.push_str(&format!("\n### LSP\n\n- root：`{}`\n", s.lsp_root));
+    write!(&mut out, "\n### LSP\n\n- root：`{}`\n", s.lsp_root).expect("writing to String cannot fail");
     if s.lsp.is_empty() {
         out.push_str("- 无已触发实例（懒启动：未触发 = 状态未知）\n");
     } else {
         out.push_str("\n| 语言 | 状态 |\n| --- | --- |\n");
         for l in &s.lsp {
             let status = if l.status == "running" { "运行中" } else { l.status.as_str() };
-            out.push_str(&format!("| {} | {} |\n", l.language, status));
+            writeln!(&mut out, "| {} | {} |", l.language, status).expect("writing to String cannot fail");
         }
     }
     // describe 是多行文本（每 provider 一行配额），代码块保住换行
-    out.push_str(&format!("\n### MRM\n\n```\n{}\n```\n\n- 累计派发：{}\n", s.mrm_describe, s.mrm_dispatches));
+    write!(&mut out, "\n### MRM\n\n```\n{}\n```\n\n- 累计派发：{}\n", s.mrm_describe, s.mrm_dispatches)
+        .expect("writing to String cannot fail");
     // 0 订阅 = 事件全在丢（event.rs 判定的异常态），报告必须显性标出
     let bus_note = if s.bus_receivers == 0 { "（异常：无订阅者，事件全在丢）" } else { "" };
-    out.push_str(&format!("\n### Event Bus\n\n- 容量：{}\n- 活跃订阅：{}{}\n", s.bus_capacity, s.bus_receivers, bus_note));
+    write!(&mut out, "\n### Event Bus\n\n- 容量：{}\n- 活跃订阅：{}{}\n", s.bus_capacity, s.bus_receivers, bus_note)
+        .expect("writing to String cannot fail");
     out
 }
 

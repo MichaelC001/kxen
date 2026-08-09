@@ -29,18 +29,18 @@ pub(super) fn prepare_new_attempt(
         .rev()
         .take(20)
         .rev()
-        .map(|message| {
-            message
-                .parts
-                .iter()
-                .filter_map(|part| match part {
-                    crate::core::session::Part::Text { text } | crate::core::session::Part::Context { text } => Some(text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
+        .filter_map(|message| {
+            let mut text = String::new();
+            for part in message.parts {
+                if let crate::core::session::Part::Text { text: part } | crate::core::session::Part::Context { text: part } = part {
+                    if !text.is_empty() {
+                        text.push('\n');
+                    }
+                    text.push_str(&part);
+                }
+            }
+            (!text.is_empty()).then_some(text)
         })
-        .filter(|text| !text.is_empty())
         .collect::<Vec<_>>();
     if transcript.len() < 2 {
         return Ok(None);

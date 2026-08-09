@@ -91,7 +91,7 @@ fn model_parts(m: &Message) -> Vec<Value> {
 
 /// tool 结果 -> functionResponse：content 本身是 JSON 时按结构回传，纯文本按字符串包 {"result": ...}。
 fn tool_result_part(m: &Message) -> Value {
-    let result = serde_json::from_str::<Value>(&m.content).unwrap_or_else(|_| Value::String(m.content.clone()));
+    let result = serde_json::from_str::<Value>(&m.content).unwrap_or_else(|_| Value::String(m.content.to_string()));
     json!({ "functionResponse": { "name": m.name, "id": m.tool_call_id, "response": { "result": result } } })
 }
 
@@ -117,9 +117,22 @@ fn sanitize_schema(value: &mut Value) {
     }
 }
 
+fn schema_needs_sanitize(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => FORBIDDEN_SCHEMA_KEYS.iter().any(|key| map.contains_key(*key)) || map.values().any(schema_needs_sanitize),
+        Value::Array(items) => items.iter().any(schema_needs_sanitize),
+        _ => false,
+    }
+}
+
 fn tool_declaration(tool: &ToolDefinition) -> Value {
-    let mut parameters = tool.function.parameters.clone();
-    sanitize_schema(&mut parameters);
+    let parameters = if schema_needs_sanitize(&tool.function.parameters) {
+        let mut parameters = tool.function.parameters.clone();
+        sanitize_schema(&mut parameters);
+        std::borrow::Cow::Owned(parameters)
+    } else {
+        std::borrow::Cow::Borrowed(&tool.function.parameters)
+    };
     json!({ "name": tool.function.name, "description": tool.function.description, "parameters": parameters })
 }
 

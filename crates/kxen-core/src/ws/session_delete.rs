@@ -42,20 +42,22 @@ pub(super) async fn delete(params: &Value, state: &Arc<AppState>) -> Result<Valu
             kxen_core::core::session::message_cursor(&messages).map_err(|error| format!("session message cursor unavailable: {error}"))?;
         let transcript: Vec<String> = messages
             .into_iter()
-            .map(|message| {
-                message
-                    .parts
-                    .iter()
-                    .filter_map(|part| match part {
-                        kxen_core::core::session::Part::Text { text } | kxen_core::core::session::Part::Context { text } => {
-                            Some(text.as_str())
+            .filter_map(|message| {
+                let mut text = String::new();
+                for part in message.parts {
+                    if let kxen_core::core::session::Part::Text { text: part } | kxen_core::core::session::Part::Context { text: part } =
+                        part
+                    {
+                        if text.is_empty() {
+                            text = part.to_string();
+                        } else {
+                            text.push('\n');
+                            text.push_str(&part);
                         }
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
+                    }
+                }
+                (!text.is_empty()).then_some(text)
             })
-            .filter(|text| !text.is_empty())
             .collect();
         let store = kxen_core::core::shared::lock(&state.auth_store).clone();
         let mrm = state.workspace_runtimes.runtime(std::path::Path::new(&meta.directory))?.mrm();

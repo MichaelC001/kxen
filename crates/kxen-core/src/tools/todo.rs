@@ -46,11 +46,21 @@ impl TodoStore {
     }
 
     pub fn render(&self) -> String {
-        let items = self.list();
+        use std::fmt::Write as _;
+
+        let items = crate::core::shared::lock(&self.items);
         if items.is_empty() {
             return "todo list is empty".into();
         }
-        items.iter().map(|i| format!("{} #{} {}", if i.done { "[x]" } else { "[ ]" }, i.id, i.content)).collect::<Vec<_>>().join("\n")
+        let mut output = String::new();
+        for item in items.iter() {
+            if !output.is_empty() {
+                output.push('\n');
+            }
+            write!(output, "{} #{} {}", if item.done { "[x]" } else { "[ ]" }, item.id, item.content)
+                .expect("writing to String cannot fail");
+        }
+        output
     }
 }
 

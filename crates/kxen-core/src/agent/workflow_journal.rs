@@ -35,7 +35,7 @@ fn stable_hash(segments: &[&str]) -> String {
         h.update(seg.as_bytes());
         h.update([0u8]);
     }
-    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    crate::core::shared::hex_lower(&h.finalize())
 }
 
 pub struct Journal {

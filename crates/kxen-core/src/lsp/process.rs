@@ -158,8 +158,8 @@ impl LspClient {
             "textDocument": { "uri": uri::encode(path) },
             "position": { "line": line.saturating_sub(1), "character": character.saturating_sub(1) },
         });
-        if let (Some(obj), Some(extra)) = (params.as_object_mut(), extra.as_object()) {
-            obj.extend(extra.clone());
+        if let (Some(obj), Value::Object(extra)) = (params.as_object_mut(), extra) {
+            obj.extend(extra);
         }
         let resp = self.request(method, params).await?;
         take_result(method, resp)
@@ -197,9 +197,9 @@ impl LspClient {
 }
 
 /// response 帧取 result；server 报错帧 -> Err。
-fn take_result(method: &str, resp: Value) -> Result<Value, String> {
+fn take_result(method: &str, mut resp: Value) -> Result<Value, String> {
     if let Some(err) = resp.get("error") {
         return Err(format!("{method} failed: {err}"));
     }
-    Ok(resp.get("result").cloned().unwrap_or(Value::Null))
+    Ok(resp.as_object_mut().and_then(|object| object.remove("result")).unwrap_or(Value::Null))
 }

@@ -33,11 +33,11 @@ fn recovery_manifest_captures_blocked_knowledge_usage_before_cleanup() {
     std::fs::write(
         attempt_root.join(format!("{}.json", session.id)),
         serde_json::to_vec_pretty(&json!({
-            "session_id": session.id.clone(),
+            "session_id": session.id,
             "updated_at": session.updated_at,
             "message_revision": 0,
             "message_cursor": "sha256:delete-test",
-            "workdir": workspace.clone(),
+            "workdir": workspace,
             "operation_id": operation_id,
             "notes": null,
             "next_note": 0

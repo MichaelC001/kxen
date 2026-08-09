@@ -150,7 +150,7 @@ fn persist_notice(dir: &Path, session_id: &str, notice: &RoutedNotice) -> Result
     let mut message = crate::core::session::new_message(
         session_id,
         crate::core::session::Role::User,
-        vec![crate::core::session::Part::Text { text: notice.text.clone() }],
+        vec![crate::core::session::Part::Text { text: notice.text.clone().into() }],
     );
     message.id = notice.id.clone();
     message.created_at = notice.created_at;

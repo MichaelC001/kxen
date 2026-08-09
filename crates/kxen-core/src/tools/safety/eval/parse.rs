@@ -1,5 +1,47 @@
 //! Shell 语法的最小词法层：只服务安全判定，不尝试执行或完整复刻 shell parser。
 
+use regex::Regex;
+use std::sync::LazyLock;
+
+/// 命令替换展开：反引号与 $() 内嵌的命令同样要进评估（`rm -rf $(cat f)` 类绕过）。
+/// $() 用平衡括号扫描：非嵌套正则只捕到第一个 )，嵌套内层命令会整个漏掉；
+/// 每个捕获内容再递归展开一次，内层替换里的命令也进评估。
+pub(super) fn expand_substitutions(command: &str) -> Vec<String> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`([^`]+)`").unwrap());
+    let mut out: Vec<String> =
+        RE.captures_iter(command).filter_map(|capture| capture.get(1).map(|value| value.as_str().to_string())).collect();
+    let bytes = command.as_bytes();
+    let mut index = 0;
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'$' && bytes[index + 1] == b'(' {
+            let mut depth = 1usize;
+            let mut end = index + 2;
+            while end < bytes.len() && depth > 0 {
+                match bytes[end] {
+                    b'(' => depth += 1,
+                    b')' => depth -= 1,
+                    _ => {}
+                }
+                end += 1;
+            }
+            if depth == 0 {
+                out.push(command[index + 2..end - 1].to_string());
+            }
+            index = end;
+        } else {
+            index += 1;
+        }
+    }
+    let initial_len = out.len();
+    for index in 0..initial_len {
+        if out[index].contains("$(") || out[index].contains('`') {
+            let inner = expand_substitutions(&out[index]);
+            out.extend(inner);
+        }
+    }
+    out
+}
+
 /// 在引号外按 shell 控制操作符切段，并保留引号内脚本文本为单个 token。
 pub(super) fn segments(command: &str) -> Vec<Vec<String>> {
     let mut out = Vec::new();

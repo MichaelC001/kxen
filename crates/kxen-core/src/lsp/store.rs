@@ -4,6 +4,7 @@
 use super::uri;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -66,15 +67,25 @@ impl Store {
         let mut out = String::new();
         for (path, entry) in entries {
             for d in &entry.diags {
-                out.push_str(&format!("[{}] {}:{}:{} {} ({})\n", d.severity, path.display(), d.line, d.col, d.message, entry.source));
+                writeln!(out, "[{}] {}:{}:{} {} ({})", d.severity, path.display(), d.line, d.col, d.message, entry.source)
+                    .expect("writing to String cannot fail");
             }
         }
-        if out.is_empty() { "no diagnostics".into() } else { out.trim_end().to_string() }
+        if out.is_empty() {
+            "no diagnostics".into()
+        } else {
+            trim_end_in_place(&mut out);
+            out
+        }
     }
 
     pub fn has_entry(&self, path: &Path) -> bool {
         crate::core::shared::lock(&self.by_path).contains_key(path)
     }
+}
+
+fn trim_end_in_place(text: &mut String) {
+    text.truncate(text.trim_end().len());
 }
 
 fn parse_diagnostic(v: &Value) -> Option<Diagnostic> {

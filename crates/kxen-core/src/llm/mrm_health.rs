@@ -216,7 +216,7 @@ impl Health {
                     && (elapsed < cooldown || state.is_some_and(|value| value.half_open_probe.is_some()));
                 let (usage_complete, estimated_cost_usd) = usage_health(&usage, &limit, usage_storage_complete);
                 HealthReport {
-                    provider: provider.clone(),
+                    provider,
                     consecutive_failures: state.map(|value| value.consecutive_failures).unwrap_or(0),
                     circuit_open: open,
                     cooldown_remaining_seconds: if open { cooldown.saturating_sub(elapsed) } else { 0 },

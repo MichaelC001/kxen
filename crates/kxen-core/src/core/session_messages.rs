@@ -1,4 +1,178 @@
 use super::*;
+use serde::Deserialize;
+use serde_json::value::RawValue;
+use std::io::BufRead;
+
+#[derive(Deserialize)]
+struct CheckedMessage<'a> {
+    #[serde(borrow)]
+    id: std::borrow::Cow<'a, str>,
+    #[serde(rename = "session_id", borrow)]
+    _session_id: std::borrow::Cow<'a, str>,
+    #[serde(rename = "role")]
+    _role: Role,
+    #[serde(rename = "parts", borrow)]
+    parts: Vec<CheckedPart<'a>>,
+    #[serde(default, rename = "model", borrow)]
+    model: Option<CheckedModel<'a>>,
+    #[serde(rename = "created_at")]
+    _created_at: u64,
+}
+
+#[derive(Deserialize)]
+struct CheckedModel<'a> {
+    #[serde(rename = "provider", borrow)]
+    provider: &'a RawValue,
+    #[serde(rename = "model", borrow)]
+    model: &'a RawValue,
+    #[serde(default, rename = "account", borrow)]
+    account: Option<&'a RawValue>,
+}
+
+impl CheckedModel<'_> {
+    fn valid(&self) -> bool {
+        raw_string(self.provider) && raw_string(self.model) && self.account.is_none_or(raw_string)
+    }
+}
+
+#[derive(Deserialize)]
+struct CheckedPart<'a> {
+    #[serde(rename = "type", borrow)]
+    kind: std::borrow::Cow<'a, str>,
+    #[serde(default, borrow)]
+    text: Option<&'a RawValue>,
+    #[serde(default, borrow)]
+    items: Option<Vec<CheckedContextItem<'a>>>,
+    #[serde(default, borrow)]
+    name: Option<&'a RawValue>,
+    #[serde(default, borrow)]
+    input: Option<&'a RawValue>,
+    #[serde(default, borrow)]
+    output: Option<&'a RawValue>,
+    #[serde(default, rename = "args", borrow)]
+    _args: Option<&'a RawValue>,
+    #[serde(default, borrow)]
+    id: Option<&'a RawValue>,
+    #[serde(default, borrow)]
+    media_type: Option<&'a RawValue>,
+    #[serde(default, borrow)]
+    data: Option<&'a RawValue>,
+    #[serde(default, borrow)]
+    command: Option<&'a RawValue>,
+    #[serde(default, borrow)]
+    reason: Option<&'a RawValue>,
+    #[serde(default, borrow)]
+    decision: Option<&'a RawValue>,
+}
+
+impl CheckedPart<'_> {
+    fn valid(&self) -> bool {
+        match self.kind.as_ref() {
+            "text" | "context" | "reasoning" => self.text.is_some_and(raw_string),
+            "context_sources" => self.items.as_ref().is_some_and(|items| items.iter().all(CheckedContextItem::valid)),
+            "tool_call" => {
+                self.name.is_some_and(raw_string)
+                    && self.input.is_some()
+                    && self.output.is_some_and(raw_string)
+                    && self.id.is_none_or(raw_string)
+            }
+            "image" => self.media_type.is_some_and(raw_string) && self.data.is_some_and(raw_string),
+            "approval" => {
+                self.command.is_some_and(raw_string) && self.reason.is_some_and(raw_string) && self.decision.is_some_and(raw_string)
+            }
+            _ => false,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct CheckedContextItem<'a> {
+    #[serde(rename = "type", borrow)]
+    kind: std::borrow::Cow<'a, str>,
+    #[serde(default, borrow)]
+    path: Option<&'a RawValue>,
+    #[serde(default, borrow)]
+    url: Option<&'a RawValue>,
+    #[serde(default, borrow)]
+    text: Option<&'a RawValue>,
+}
+
+impl CheckedContextItem<'_> {
+    fn valid(&self) -> bool {
+        match self.kind.as_ref() {
+            "file" | "dir" => self.path.is_some_and(raw_string),
+            "web" | "docs" => self.url.is_some_and(raw_string),
+            "note" => self.text.is_some_and(raw_string),
+            _ => false,
+        }
+    }
+}
+
+fn raw_string(value: &RawValue) -> bool {
+    value.get().as_bytes().first() == Some(&b'"')
+}
+pub(super) struct MessageScan {
+    pub(super) count: u64,
+    pub(super) matching: Option<Message>,
+    pub(super) matching_count: usize,
+}
+
+pub(super) fn scan_messages_checked_unlocked(dir: &Path, id: &str, target_id: Option<&str>) -> std::io::Result<MessageScan> {
+    scan_message_file(&messages_path(dir, id), target_id)
+}
+
+pub(super) fn scan_message_file(path: &Path, target_id: Option<&str>) -> std::io::Result<MessageScan> {
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(MessageScan { count: 0, matching: None, matching_count: 0 });
+        }
+        Err(error) => return Err(error),
+    };
+    let mut reader = std::io::BufReader::new(file);
+    let mut buffer = Vec::new();
+    let mut scan = MessageScan { count: 0, matching: None, matching_count: 0 };
+    loop {
+        buffer.clear();
+        if reader.read_until(b'\n', &mut buffer)? == 0 {
+            return Ok(scan);
+        }
+        scan.count = scan.count.saturating_add(1);
+        if buffer.last() != Some(&b'\n') {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("unterminated JSONL record in {} line {}", path.display(), scan.count),
+            ));
+        }
+        buffer.pop();
+        if buffer.last() == Some(&b'\r') {
+            buffer.pop();
+        }
+        let checked: CheckedMessage<'_> = serde_json::from_slice(&buffer).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("parse {} line {}: {error}", path.display(), scan.count))
+        })?;
+        if checked.parts.iter().any(|part| !part.valid()) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("parse {} line {}: message part is missing required fields", path.display(), scan.count),
+            ));
+        }
+        if checked.model.as_ref().is_some_and(|model| !model.valid()) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("parse {} line {}: model is missing required fields", path.display(), scan.count),
+            ));
+        }
+        if target_id == Some(checked.id.as_ref()) {
+            scan.matching_count += 1;
+            if scan.matching.is_none() {
+                scan.matching = Some(serde_json::from_slice(&buffer).map_err(|error| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, format!("parse {} line {}: {error}", path.display(), scan.count))
+                })?);
+            }
+        }
+    }
+}
 
 /// 展示与诊断读取：保留可解析消息，同时明确记录坏行。
 pub fn load_messages(dir: &Path, id: &str) -> Vec<Message> {

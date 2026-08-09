@@ -185,16 +185,17 @@ impl StdioTransport {
         let child_pid = process_group.pid;
         tokio::spawn(async move {
             let mut reader = BufReader::new(stdout);
+            let mut line = Vec::new();
             let mut protocol_failure = None;
             loop {
-                let line = match line::next(&mut reader).await {
-                    Ok(Some(line)) => line,
-                    Ok(None) => break,
+                match line::next(&mut reader, &mut line).await {
+                    Ok(true) => {}
+                    Ok(false) => break,
                     Err(error) => {
                         protocol_failure = Some(error);
                         break;
                     }
-                };
+                }
                 let Ok(v) = serde_json::from_slice::<Value>(&line) else { continue };
                 if v.get("method").is_some() {
                     // server 反向请求（method+id 同帧）：答 roots/list，其余 -32601
@@ -265,7 +266,8 @@ impl StdioTransport {
             return Err("mcp stdio transport is closed".into());
         }
         let frame = serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
-        let line = format!("{}\n", serde_json::to_string(&frame).map_err(|e| e.to_string())?);
+        let mut line = serde_json::to_string(&frame).map_err(|e| e.to_string())?;
+        line.push('\n');
         self.stdin.lock().await.write_all(line.as_bytes()).await.map_err(|e| {
             self.closed.store(true, Ordering::Release);
             format!("mcp write: {e}")
@@ -286,7 +288,8 @@ impl StdioTransport {
             return Err("mcp stdio transport is closed".into());
         }
         let frame = serde_json::json!({ "jsonrpc": "2.0", "method": method, "params": params });
-        let line = format!("{}\n", serde_json::to_string(&frame).map_err(|e| e.to_string())?);
+        let mut line = serde_json::to_string(&frame).map_err(|e| e.to_string())?;
+        line.push('\n');
         self.stdin.lock().await.write_all(line.as_bytes()).await.map_err(|e| format!("mcp write: {e}"))
     }
 }

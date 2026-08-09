@@ -1,5 +1,6 @@
 //! 会话导出：markdown 渲染与落盘。
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::core::session::{Part, Role, load_messages_checked, load_meta, now_ms};
@@ -24,20 +25,20 @@ pub fn export_markdown(dir: &Path, id: &str) -> std::io::Result<String> {
                 }
                 Part::ToolCall { name, input, output, .. } => {
                     let summary: String = output.chars().take(120).collect();
-                    body.push_str(&format!("\n> tool `{name}`: {input} -> {summary}\n"));
+                    write!(&mut body, "\n> tool `{name}`: {input} -> {summary}\n").expect("writing to String cannot fail");
                 }
                 Part::Image { media_type, data } => {
                     // 不嵌 base64（数 MB 文本的 markdown 不可读）：占位注明类型与解码后近似大小
-                    body.push_str(&format!("[图片 {media_type}，约 {} KB]\n", data.len() * 3 / 4 / 1024));
+                    writeln!(&mut body, "[图片 {media_type}，约 {} KB]", data.len() * 3 / 4 / 1024).expect("writing to String cannot fail");
                 }
                 Part::Approval { command, decision, .. } => {
-                    body.push_str(&format!("\n> 审批 {decision}: {command}\n"));
+                    write!(&mut body, "\n> 审批 {decision}: {command}\n").expect("writing to String cannot fail");
                 }
                 Part::Reasoning { .. } | Part::Context { .. } | Part::ContextSources { .. } => {}
             }
         }
         if !body.trim().is_empty() {
-            out.push_str(&format!("\n## {role}\n\n{body}\n"));
+            write!(&mut out, "\n## {role}\n\n{body}\n").expect("writing to String cannot fail");
         }
     }
     Ok(out)

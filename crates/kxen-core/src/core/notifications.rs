@@ -49,8 +49,7 @@ fn load_from(path: &Path) -> Result<VecDeque<Notice>, String> {
 }
 
 fn persist_to(path: &Path, buf: &VecDeque<Notice>) -> Result<(), String> {
-    let notes: Vec<Notice> = buf.iter().cloned().collect();
-    let json = serde_json::to_string_pretty(&notes).map_err(|error| error.to_string())?;
+    let json = serde_json::to_string_pretty(buf).map_err(|error| error.to_string())?;
     let tmp = path.with_extension("json.tmp");
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| format!("create {}: {error}", parent.display()))?;

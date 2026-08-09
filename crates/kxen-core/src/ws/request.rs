@@ -18,7 +18,7 @@ pub(super) enum SystemAction {
 type RequestResult<T> = Result<T, Box<Response>>;
 
 pub(super) fn parse(text: &str) -> RequestResult<Request> {
-    let value: Value = serde_json::from_str(text).map_err(|error| {
+    let mut value: Value = serde_json::from_str(text).map_err(|error| {
         Box::new(Response::err_with_data(Value::Null, PARSE_ERROR, "parse error", json!({ "detail": error.to_string() })))
     })?;
     let object = value.as_object().ok_or_else(|| {
@@ -30,23 +30,31 @@ pub(super) fn parse(text: &str) -> RequestResult<Request> {
         ))
     })?;
     let id = valid_id(object)?;
-    let version = parse_version(object, &id)?;
-    let method = match object.get("method") {
-        Some(Value::String(method)) if !method.is_empty() => method.clone(),
-        value => return Err(field_error(id, INVALID_REQUEST, "method", "non-empty string", value)),
+    let version = parse_version(object, id)?;
+    match object.get("method") {
+        Some(Value::String(method)) if !method.is_empty() => {}
+        value => return Err(field_error(id.clone(), INVALID_REQUEST, "method", "non-empty string", value)),
+    }
+    match object.get("params") {
+        None | Some(Value::Null | Value::Object(_)) => {}
+        value => return Err(field_error(id.clone(), INVALID_PARAMS, "params", "object", value)),
+    }
+    let options = parse_options(object, id)?;
+    let object = value.as_object_mut().expect("request object checked above");
+    let id = object.remove("id").expect("request id checked above");
+    let Value::String(method) = object.remove("method").expect("request method checked above") else {
+        unreachable!("request method checked above")
     };
-    let params = match object.get("params") {
+    let params = match object.remove("params") {
         None | Some(Value::Null) => json!({}),
-        Some(value @ Value::Object(_)) => value.clone(),
-        value => return Err(field_error(id, INVALID_PARAMS, "params", "object", value)),
+        Some(params) => params,
     };
-    let options = parse_options(object, &id)?;
     Ok(Request { id, method, params, options, version })
 }
 
-fn valid_id(object: &Map<String, Value>) -> RequestResult<Value> {
+fn valid_id(object: &Map<String, Value>) -> RequestResult<&Value> {
     match object.get("id") {
-        Some(value @ (Value::String(_) | Value::Number(_) | Value::Null)) => Ok(value.clone()),
+        Some(value @ (Value::String(_) | Value::Number(_) | Value::Null)) => Ok(value),
         value => Err(field_error(Value::Null, INVALID_REQUEST, "id", "string, number, or null", value)),
     }
 }

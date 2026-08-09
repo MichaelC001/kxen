@@ -6,6 +6,19 @@ use crate::llm::tool::ToolDefinition;
 use serde_json::json;
 
 pub fn deferred_tools() -> Vec<ToolDefinition> {
+    deferred_tool_catalog().iter().filter(|tool| deferred_tool_enabled(tool)).cloned().collect()
+}
+
+pub fn deferred_tool_catalog() -> &'static [ToolDefinition] {
+    static TOOLS: std::sync::LazyLock<Vec<ToolDefinition>> = std::sync::LazyLock::new(build_deferred_tools);
+    &TOOLS
+}
+
+pub fn deferred_tool_enabled(tool: &ToolDefinition) -> bool {
+    tool.function.name != "browser" || crate::core::config::experimental_config().browser_automation
+}
+
+fn build_deferred_tools() -> Vec<ToolDefinition> {
     let mut tools = vec![
         ToolDefinition::function(
             "delete",
@@ -118,8 +131,5 @@ pub fn deferred_tools() -> Vec<ToolDefinition> {
     ];
     // kanban_* 工具面（P2b）同目录挂载：tool_search 发现、身份白名单过滤随之自动生效
     tools.extend(crate::agent::tools_kanban::kanban_tools());
-    if !crate::core::config::experimental_config().browser_automation {
-        tools.retain(|tool| tool.function.name != "browser");
-    }
     tools
 }

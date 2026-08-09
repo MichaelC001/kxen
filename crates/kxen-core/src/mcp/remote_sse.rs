@@ -131,7 +131,7 @@ impl SseTransport {
     /// POST 一帧到 endpoint；2xx（规范为 202）即视为送达，响应经 SSE 流回来。
     /// 401/403：与 streamable http 同一自愈链（refresh -> 重试一次 -> 拒则 AUTH_REQUIRED）。
     async fn post(&self, frame: Value) -> Result<(), String> {
-        post_frame(&self.client, self.post_url.clone(), &self.headers, self.auth.as_ref(), self.explicit_auth, &frame).await
+        post_frame(&self.client, &self.post_url, &self.headers, self.auth.as_ref(), self.explicit_auth, &frame).await
     }
 
     async fn request_inner(&self, method: &str, params: Value, timeout: std::time::Duration) -> Result<Value, String> {
@@ -202,13 +202,13 @@ fn decorate_request(
 
 async fn post_frame(
     client: &reqwest::Client,
-    url: reqwest::Url,
+    url: &reqwest::Url,
     headers: &[(String, String)],
     auth: Option<&Arc<BearerAuth>>,
     explicit_auth: bool,
     frame: &Value,
 ) -> Result<(), String> {
-    let status = send_frame(client, url.clone(), headers, auth, frame).await?;
+    let status = send_frame(client, url, headers, auth, frame).await?;
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         if explicit_auth {
             return Err(format!("mcp sse post http {status}: configured Authorization header rejected"));
@@ -234,12 +234,14 @@ async fn post_frame(
 
 async fn send_frame(
     client: &reqwest::Client,
-    url: reqwest::Url,
+    url: &reqwest::Url,
     headers: &[(String, String)],
     auth: Option<&Arc<BearerAuth>>,
     frame: &Value,
 ) -> Result<reqwest::StatusCode, String> {
-    let send = decorate_request(client.post(url), headers, auth).json(frame).send();
+    // reqwest owns the request URL, so this cheap structural clone is required
+    // at the API boundary and avoids reparsing `url.as_str()`.
+    let send = decorate_request(client.post(url.clone()), headers, auth).json(frame).send();
     tokio::time::timeout(POST_TIMEOUT, send)
         .await
         .map_err(|_| "mcp sse post timed out".to_string())?

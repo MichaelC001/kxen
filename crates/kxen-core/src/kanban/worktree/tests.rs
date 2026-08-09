@@ -155,12 +155,7 @@ fn parse_porcelain_z_classifies_three_entry_kinds() {
     let entries = parse_porcelain_z("?? new.txt\0 M src/a.rs\0!! debug.log\0R  new name.txt\0old name.txt\0");
     assert_eq!(
         entries,
-        vec![
-            ("??".to_string(), "new.txt".to_string()),
-            (" M".to_string(), "src/a.rs".to_string()),
-            ("!!".to_string(), "debug.log".to_string()),
-            ("R ".to_string(), "new name.txt".to_string()),
-        ],
+        vec![("??", "new.txt"), (" M", "src/a.rs"), ("!!", "debug.log"), ("R ", "new name.txt"),],
         "?? / 已跟踪改动 / !! 三类行 + 重命名取新路径跳过源段"
     );
     assert!(parse_porcelain_z("").is_empty());

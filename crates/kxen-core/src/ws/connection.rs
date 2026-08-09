@@ -118,15 +118,15 @@ where
             },
             event = bus.recv() => {
                 use tokio::sync::broadcast::error::RecvError;
-                let chunks = match event {
+                let chunk = match event {
                     Ok(event) => super::stream::event_to_chunks(event, &subscriptions, &mut sequences),
-                    Err(RecvError::Lagged(dropped)) => vec![super::resync_chunk(dropped, &mut sequences)],
+                    Err(RecvError::Lagged(dropped)) => Some(super::resync_chunk(dropped, &mut sequences)),
                     Err(RecvError::Closed) => break,
                 };
-                for chunk in chunks {
-                    if send_json(&outbound, &chunk).await.is_err() {
-                        break 'connection;
-                    }
+                if let Some(chunk) = chunk
+                    && send_json(&outbound, &chunk).await.is_err()
+                {
+                    break 'connection;
                 }
             }
         }
@@ -140,7 +140,11 @@ fn route_frame(text: &str, subscriptions: &mut Vec<SubBinding>, sequences: &mut 
         Ok(request) => request,
         Err(response) => return FrameOutcome::Reply(*response),
     };
-    let stream_ids = subscriptions.iter().map(|binding| binding.stream_id.clone()).collect::<Vec<_>>();
+    let stream_ids = if request.method == super::protocol::M_UNSUBSCRIBE {
+        subscriptions.iter().map(|binding| binding.stream_id.clone()).collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let action = match super::request::validate_system(&request, &stream_ids) {
         Ok(action) => action,
         Err(response) => return FrameOutcome::Reply(*response),

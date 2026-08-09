@@ -26,7 +26,7 @@ async fn run_with_endpoints(
     let registration = aws_sso::decode_registration(acc_id)?;
     let http = refresh_http()?;
     match refresh_once(&http, token_url, &registration, refresh).await {
-        Ok(parsed) => apply_refresh_to(store, key, parsed, refresh, &Some(acc_id.clone()), auth_file)
+        Ok(parsed) => apply_refresh_to(store, key, parsed, refresh, Some(acc_id), auth_file)
             .map_err(|error| format!("kiro refreshed credential could not be persisted: {error}")),
         Err(first) => {
             // 客户端对过期/失效：重注册后重试一次（仍失败才报错，旧凭证不动）。
@@ -37,7 +37,7 @@ async fn run_with_endpoints(
                 .await
                 .map_err(|second| format!("{first}; 重注册后重试仍失败: {second}"))?;
             let new_acc_id = Some(aws_sso::encode_registration(&new_registration));
-            apply_refresh_to(store, key, parsed, refresh, &new_acc_id, auth_file)
+            apply_refresh_to(store, key, parsed, refresh, new_acc_id.as_deref(), auth_file)
                 .map_err(|error| format!("kiro refreshed credential could not be persisted: {error}"))
         }
     }

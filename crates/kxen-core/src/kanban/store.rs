@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::core::ids;
 use crate::core::session::storage;
+use serde::{Deserialize, Serialize};
 
 use super::error::KanbanError;
 use super::events::KanbanEvent;
@@ -102,6 +103,22 @@ pub fn append_event(path: &Path, event: &mut KanbanEvent) -> Result<(), KanbanEr
     storage::append_synced(path, &line).map_err(|failure| log_error(failure.to_string()))
 }
 
+/// Board::apply 已在跨进程锁内核对投影锚，新增事件可直接按尾锚追加。
+/// 锚漂移时拒绝，让调用方重载投影后重试，不能用过期状态指派 seq。
+pub(super) fn append_event_at(path: &Path, event: &mut KanbanEvent, expected_anchor: Option<(u64, &str)>) -> Result<(), KanbanError> {
+    let actual = last_event_anchor(path)?;
+    if actual.as_ref().map(|(seq, id)| (*seq, id.as_str())) != expected_anchor {
+        return Err(log_error("event log changed after projection validation"));
+    }
+    event.seq = expected_anchor.map_or(1, |(seq, _)| seq.saturating_add(1));
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(log_error)?;
+    }
+    let mut line = serde_json::to_vec(&event).map_err(log_error)?;
+    line.push(b'\n');
+    storage::append_synced(path, &line).map_err(|failure| log_error(failure.to_string()))
+}
+
 /// apply 的锁内漂移预检：只读事件流尾部取最后一条的 (seq, id) 内容锚，全量 load_events 是 O(历史)，
 /// 每次 apply 不可接受。id 必须同取：锁外写入者等长重写（seq 不变、内容不同）时纯 seq 比对会
 /// 漏检，错投影继续 validate 会把错状态洗白进快照。窗口可能从行中切开，含不了完整尾行时成倍
@@ -151,8 +168,25 @@ pub fn load_state(workspace: &Path, board_id: &str) -> Result<BoardState, Kanban
 
 /// 按目录加载（apply 锁内补折用）：与 load_state 同一实现，不绕开锚点校验。
 pub fn load_state_from_dir(dir: &Path, board_id: &str) -> Result<BoardState, KanbanError> {
+    let snapshot_bytes = std::fs::read(snapshot_path(dir)).ok();
+    let mut stored = snapshot_bytes
+        .as_deref()
+        .and_then(|bytes| serde_json::from_slice::<StoredSnapshot>(bytes).ok())
+        .filter(|snapshot| snapshot.version == 1);
+    let stamp_matches = stored.as_ref().is_some_and(|snapshot| {
+        snapshot.state.board_id == board_id
+            && snapshot
+                .event_log
+                .as_ref()
+                .is_some_and(|stamp| current_event_log_stamp(&events_path(dir)).is_ok_and(|current| current == *stamp))
+    });
+    if stamp_matches {
+        return Ok(stored.take().expect("matching stored snapshot").state);
+    }
     let events = load_events(&events_path(dir))?;
-    let snapshot = std::fs::read(snapshot_path(dir)).ok().and_then(|bytes| serde_json::from_slice::<BoardState>(&bytes).ok());
+    let snapshot = stored
+        .map(|stored| stored.state)
+        .or_else(|| snapshot_bytes.as_deref().and_then(|bytes| serde_json::from_slice::<BoardState>(bytes).ok()));
     match snapshot {
         // 内容锚：seq>0 时快照折到的尾事件必须就是事件流同位置那条，否则事件流被外部重写
         // （同长度不同内容），锚点通过但状态错误。旧格式快照无 anchor 字段，首载全量 replay
@@ -173,8 +207,56 @@ pub fn load_state_from_dir(dir: &Path, board_id: &str) -> Result<BoardState, Kan
 
 /// 刷新快照缓存：原子写（tmp + rename），失败不影响已提交事件（下次启动从事件流重建）。
 pub fn save_snapshot(board_dir: &Path, state: &BoardState) -> Result<(), KanbanError> {
-    let bytes = serde_json::to_vec(state).map_err(log_error)?;
+    let path = events_path(board_dir);
+    let anchor = last_event_anchor(&path)?;
+    let state_anchor = state.anchor_event_id.as_deref().map(|id| (state.seq, id));
+    let event_log =
+        if anchor.as_ref().map(|(seq, id)| (*seq, id.as_str())) == state_anchor { Some(current_event_log_stamp(&path)?) } else { None };
+    let bytes = serde_json::to_vec(&StoredSnapshotRef { version: 1, state, event_log }).map_err(log_error)?;
     storage::write_atomic(&snapshot_path(board_dir), &bytes).map_err(|failure| log_error(failure.to_string()))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct EventLogStamp {
+    exists: bool,
+    len: u64,
+    modified_nanos: Option<u128>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    unix_identity: Option<[i128; 4]>,
+}
+
+#[derive(Deserialize)]
+struct StoredSnapshot {
+    version: u8,
+    state: BoardState,
+    event_log: Option<EventLogStamp>,
+}
+
+#[derive(Serialize)]
+struct StoredSnapshotRef<'a> {
+    version: u8,
+    state: &'a BoardState,
+    event_log: Option<EventLogStamp>,
+}
+
+fn current_event_log_stamp(path: &Path) -> Result<EventLogStamp, KanbanError> {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(EventLogStamp { exists: false, len: 0, modified_nanos: None, unix_identity: None });
+        }
+        Err(error) => return Err(log_error(error)),
+    };
+    let modified_nanos =
+        metadata.modified().ok().and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok()).map(|age| age.as_nanos());
+    #[cfg(unix)]
+    let unix_identity = {
+        use std::os::unix::fs::MetadataExt;
+        Some([i128::from(metadata.dev()), i128::from(metadata.ino()), i128::from(metadata.ctime()), i128::from(metadata.ctime_nsec())])
+    };
+    #[cfg(not(unix))]
+    let unix_identity = None;
+    Ok(EventLogStamp { exists: true, len: metadata.len(), modified_nanos, unix_identity })
 }
 
 #[cfg(test)]

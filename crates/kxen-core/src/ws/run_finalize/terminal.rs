@@ -86,7 +86,7 @@ pub(super) fn early_message(session_id: &str, model: Option<&kxen_core::llm::Mod
         AgentEvent::Aborted => "(已中断)".to_string(),
         _ => "(run 在启动前结束)".to_string(),
     };
-    let mut message = session::new_message(session_id, Role::Assistant, vec![Part::Text { text }]);
+    let mut message = session::new_message(session_id, Role::Assistant, vec![Part::Text { text: text.into() }]);
     message.model = model.cloned();
     message
 }
@@ -122,7 +122,7 @@ fn terminal_message(terminal: &AgentEvent) -> &str {
 pub(super) fn assemble_parts(transcript: Vec<Part>, final_text: String, aborted: bool, iterations_persisted: bool) -> Vec<Part> {
     let mut parts = transcript;
     if !final_text.is_empty() {
-        parts.push(Part::Text { text: final_text });
+        parts.push(Part::Text { text: final_text.into() });
     }
     if aborted {
         parts.push(Part::Text { text: "(已中断)".into() });

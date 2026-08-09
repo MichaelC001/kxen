@@ -129,7 +129,7 @@ impl Projection {
     /// toolUseEvent payload 可为单对象或数组；缺 toolUseId 时按序生成（同 9router）。
     fn collect_tool_use(&mut self, event: &Event, out: &mut VecDeque<Delta>) -> bool {
         let Some(payload) = event.payload.as_ref() else { return true };
-        let values: Vec<&Value> = if let Some(array) = payload.as_array() { array.iter().collect() } else { vec![payload] };
+        let values = payload.as_array().map(Vec::as_slice).unwrap_or_else(|| std::slice::from_ref(payload));
         for value in values {
             let Some(name) = value.get("name").and_then(Value::as_str).filter(|n| !n.trim().is_empty()) else {
                 out.push_back(Delta::Error("kiro toolUseEvent is missing a tool name".into()));

@@ -1,4 +1,5 @@
 use super::*;
+use std::fmt::Write as _;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -234,7 +235,7 @@ fn header_count_limit_rejects_the_101st_header() {
     let build = |extra: usize| {
         let mut request = String::from("GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n");
         for index in 0..extra {
-            request.push_str(&format!("X-Fill-{index}: v\r\n"));
+            write!(request, "X-Fill-{index}: v\r\n").unwrap();
         }
         request.push_str("\r\n");
         request.into_bytes()

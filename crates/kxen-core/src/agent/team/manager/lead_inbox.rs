@@ -15,7 +15,7 @@ impl TeamManager {
         let mut delivered = Vec::with_capacity(delivery.entries.len());
         let mut failures = Vec::new();
         for entry in &delivery.entries {
-            let part = crate::core::session::Part::Text { text: format!("[teammate {}] {}", entry.from, entry.text) };
+            let part = crate::core::session::Part::Text { text: format!("[teammate {}] {}", entry.from, entry.text).into() };
             let mut message = crate::core::session::new_message(session_id, crate::core::session::Role::User, vec![part]);
             message.id = entry.transcript_id.clone();
             message.created_at = entry.at;

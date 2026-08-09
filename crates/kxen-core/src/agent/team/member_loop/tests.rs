@@ -58,8 +58,8 @@ fn member_context_uses_each_session_workspace_mrm() {
 #[test]
 fn write_back_credential_updates_shared_store() {
     use crate::auth::credential::CredentialKind;
-    let shared = Arc::new(std::sync::Mutex::new(crate::auth::credential::AuthStore::default()));
-    lock(&shared)
+    let shared = Arc::new(std::sync::Mutex::new(Arc::new(crate::auth::credential::AuthStore::default())));
+    Arc::make_mut(&mut lock(&shared))
         .insert("anthropic".into(), CredentialKind::Oauth { access: "old".into(), refresh: "r1".into(), expires: 1, account_id: None });
     let mut refreshed = crate::auth::credential::AuthStore::default();
     refreshed.insert(
@@ -83,7 +83,7 @@ fn write_back_credential_updates_shared_store() {
 async fn refresh_store_credentials_noop_preserves_store() {
     use crate::auth::credential::CredentialKind;
     let (state, dir) = state("refresh-noop");
-    lock(&state.deps.store).insert(
+    Arc::make_mut(&mut lock(&state.deps.store)).insert(
         "anthropic".into(),
         CredentialKind::Oauth { access: "a".into(), refresh: "r".into(), expires: now_ms() + 3_600_000, account_id: None },
     );
@@ -94,7 +94,7 @@ async fn refresh_store_credentials_noop_preserves_store() {
     );
     let cred = lock(&state.deps.store).get("anthropic").cloned().unwrap();
     assert!(matches!(cred, CredentialKind::Oauth { ref access, .. } if access == "a"), "未过期必须原样保留");
-    lock(&state.deps.store)
+    Arc::make_mut(&mut lock(&state.deps.store))
         .insert("openai".into(), CredentialKind::Oauth { access: "a2".into(), refresh: String::new(), expires: 1, account_id: None });
     assert!(matches!(
         refresh_store_credentials(&state, &ModelRef::new("openai", "m"), &cancel).await,
@@ -157,7 +157,7 @@ async fn expired_goal_stops_before_member_refresh_network_call() {
     goal.session_id = Some("s1".into());
     goal.activate().unwrap();
     goal.save(&goals).unwrap();
-    lock(&state.deps.store).insert(
+    Arc::make_mut(&mut lock(&state.deps.store)).insert(
         "anthropic".into(),
         CredentialKind::Oauth { access: "expired".into(), refresh: "would-hit-network".into(), expires: 1, account_id: None },
     );
@@ -219,7 +219,7 @@ fn member_persist_turn_writes_iteration_to_history_log() {
     // 从盘重建 wire 合法（assistant_with_tools + 配对 tool_result）
     let rebuilt = crate::agent::compact::flatten_stored(&stored);
     assert_eq!(rebuilt.len(), 2);
-    assert_eq!(rebuilt[1].tool_call_id, rebuilt[0].tool_calls.first().map(|c| c.id.clone()));
+    assert_eq!(rebuilt[1].tool_call_id.as_deref(), rebuilt[0].tool_calls.first().map(|call| call.id.as_str()));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

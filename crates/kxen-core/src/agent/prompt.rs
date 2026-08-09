@@ -93,7 +93,11 @@ pub(crate) async fn system_prompt_with_embedding(context: SystemPromptContext<'_
 }
 
 pub(crate) fn embedding_runtime(ctx: &crate::agent::agent_loop::AgentContext) -> Option<crate::knowledge::embedding::EmbeddingRuntime> {
+    let endpoint = crate::core::config_cache::cached_user_config()
+        .and_then(|config| crate::knowledge::embedding::resolve_endpoint_with(&config.embedding, &ctx.store))
+        .map(std::sync::Arc::new);
     Some(crate::knowledge::embedding::EmbeddingRuntime {
+        endpoint,
         mrm: ctx.mrm.clone()?,
         cancel: ctx.cancel.clone(),
         goal_id: ctx.bound_goal_id.clone(),
@@ -122,7 +126,7 @@ fn goal_block(session_id: Option<&str>, bound_goal_id: Option<&str>, binding_fro
         out,
         "<active_goal id=\"{}\" status=\"{}\">\nObjective: {}\nCompletion criteria: {}\n",
         goal.id,
-        format!("{:?}", goal.status).to_lowercase(),
+        goal.status.as_str(),
         goal.contract.objective,
         goal.contract.completion_criteria
     );

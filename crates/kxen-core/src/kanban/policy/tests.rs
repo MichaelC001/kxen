@@ -146,6 +146,6 @@ fn auto_approved_rejects_closed_run_via_guard() {
     drop(board);
     let bus = crate::core::event::EventBus::new(8);
     let error = handle(&workspace, &run_id, bus).try_auto_allow("echo hi").unwrap_err();
-    assert!(error.contains(&KanbanError::RunNotOpen(run_id.clone()).to_string()), "{error}");
+    assert!(error.contains(&KanbanError::RunNotOpen(run_id).to_string()), "{error}");
     std::fs::remove_dir_all(workspace).ok();
 }

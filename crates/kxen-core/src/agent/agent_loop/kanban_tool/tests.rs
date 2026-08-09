@@ -16,7 +16,7 @@ fn ctx(workspace: &Path) -> AgentContext {
         workdir: Arc::from(workspace),
         path_grants: Arc::new(Default::default()),
         model: crate::llm::ModelRef::new("p", "m"),
-        store: crate::auth::credential::AuthStore::default(),
+        store: crate::auth::credential::AuthStore::default().into(),
         max_turns: 4,
         mrm: None,
         allowed_tools: None,
@@ -309,7 +309,7 @@ fn board_show_renders_policy_state() {
 
 #[test]
 fn kanban_tools_are_deferred_discoverable_and_identity_filtered() {
-    let names: Vec<String> = crate::agent::tools_spec::deferred_tools().into_iter().map(|tool| tool.function.name).collect();
+    let names: Vec<String> = crate::agent::tools_spec::deferred_tools().into_iter().map(|tool| tool.function.name.clone()).collect();
     for tool in crate::agent::tools_kanban::kanban_tools() {
         assert!(names.contains(&tool.function.name), "deferred 目录缺 {}", tool.function.name);
     }
@@ -318,14 +318,15 @@ fn kanban_tools_are_deferred_discoverable_and_identity_filtered() {
     let matches: Vec<_> = crate::agent::tools_spec::deferred_tools()
         .into_iter()
         .filter(|tool| format!("{} {}", tool.function.name, tool.function.description).to_lowercase().contains(query))
-        .map(|tool| tool.function.name)
+        .map(|tool| tool.function.name.clone())
         .collect();
     assert_eq!(matches.len(), 8, "tool_search 必须能检索到全部 kanban 工具: {matches:?}");
     // 身份白名单（helpers.deferred_visible = 挂载集 ∩ 白名单）：主 Agent 无白名单全可见，
     // readonly 受限身份即使同 session 已挂载也不可见
     let extras = crate::agent::agent_loop::SessionExtras::default();
     extras.extra_tools.lock().expect("tools").insert("kanban_board_show".to_string());
-    let visible: Vec<_> = super::super::helpers::deferred_visible(Some(&extras), None).into_iter().map(|tool| tool.function.name).collect();
+    let visible: Vec<_> =
+        super::super::helpers::deferred_visible(Some(&extras), None).into_iter().map(|tool| tool.function.name.clone()).collect();
     assert_eq!(visible, ["kanban_board_show"]);
     let readonly: Vec<String> = ["read", "glob", "grep"].iter().map(|name| name.to_string()).collect();
     assert!(super::super::helpers::deferred_visible(Some(&extras), Some(&readonly)).is_empty());

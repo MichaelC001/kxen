@@ -5,6 +5,7 @@ use crate::agent::cancel::CancelToken;
 use crate::core::shared::lock;
 use crate::llm::Message;
 use serde_json::json;
+use std::fmt::Write as _;
 use std::sync::Arc;
 use tokio::sync::Notify;
 
@@ -74,7 +75,10 @@ pub(super) async fn idle_wait(
 /// brief = None（历史已从盘重建且 prompt 非新指令）：只拼并入项，brief 不重复注入；
 /// 全空返回空串（调用方跳过注入，恢复注记驱动本轮）。
 pub(super) fn first_prompt(state: &Arc<TeamState>, name: &str, brief: Option<&str>) -> Result<(String, Option<InboxDelivery>), String> {
-    let mut sections: Vec<String> = brief.map(str::to_string).into_iter().collect();
+    let mut sections = Vec::with_capacity(3);
+    if let Some(brief) = brief {
+        sections.push(brief.to_string());
+    }
     let delivery = claim_inbox_entries(&state.dir, name)?;
     let inbox = delivery.messages();
     if !inbox.is_empty() {
@@ -94,17 +98,20 @@ pub(super) fn first_prompt(state: &Arc<TeamState>, name: &str, brief: Option<&st
 }
 
 /// 每轮 messages 装配：新鲜 system（roster 实时重建，不随历史冻结）+ 跨 wake 历史
-pub(super) fn round_messages(system: String, history: &[Message]) -> Vec<Message> {
+pub(super) fn round_messages(system: String, history: &mut Vec<Message>) -> Vec<Message> {
     let mut v = Vec::with_capacity(history.len() + 1);
     v.push(Message::system(system));
-    v.extend(history.iter().cloned());
+    v.append(history);
     v
 }
 
 /// 收回 run_turn 就地累积的历史：剥掉本轮注入的 system（下一轮用新鲜 roster 重建）
-pub(super) fn strip_system(messages: Vec<Message>) -> Vec<Message> {
+pub(super) fn strip_system(mut messages: Vec<Message>) -> Vec<Message> {
     match messages.first() {
-        Some(m) if m.role == crate::llm::types::Role::System => messages.into_iter().skip(1).collect(),
+        Some(m) if m.role == crate::llm::types::Role::System => {
+            messages.remove(0);
+            messages
+        }
         _ => messages,
     }
 }
@@ -125,7 +132,8 @@ fn join_capped(lines: impl IntoIterator<Item = String>) -> String {
         out.push_str(&line);
     }
     if omitted > 0 {
-        out.push_str(&format!("\n...[inbox truncated: {omitted} message(s) omitted over {MERGED_INBOX_CAP} chars]"));
+        write!(&mut out, "\n...[inbox truncated: {omitted} message(s) omitted over {MERGED_INBOX_CAP} chars]")
+            .expect("writing to String cannot fail");
     }
     out
 }
@@ -140,11 +148,11 @@ pub(super) fn inbox_text(inbox: &[(String, String)]) -> String {
 /// user/lead 来信跳过：send() 已即时落转录（[from] 格式），wake 再登一遍会同信双行；
 /// 只影响展示侧，LLM 历史（inbox_text）仍收全量来信。
 pub(super) fn push_inbox_transcript(state: &Arc<TeamState>, name: &str, inbox: &[(String, String)]) {
-    let fresh: Vec<&(String, String)> = inbox.iter().filter(|(from, _)| from != "user" && from != "lead").collect();
-    if fresh.is_empty() {
+    let mut fresh = inbox.iter().filter(|(from, _)| from != "user" && from != "lead").peekable();
+    if fresh.peek().is_none() {
         return;
     }
-    let text = join_capped(fresh.iter().map(|(from, t)| format!("[inbox {from}] {t}")));
+    let text = join_capped(fresh.map(|(from, text)| format!("[inbox {from}] {text}")));
     let payload = json!({ "kind": "text", "text": text, "agent": name, "session_id": state.session_id });
     state.deps.agents.push_transcript(&state.session_id, name, payload.clone());
     state.bus.publish(crate::core::event::Event::LlmDelta(payload));
@@ -172,7 +180,7 @@ mod tests {
     #[test]
     fn history_survives_across_wakes() {
         let mut history: Vec<Message> = vec![Message::user("brief: build X")];
-        let round1 = round_messages("sys-v1".into(), &history);
+        let round1 = round_messages("sys-v1".into(), &mut history);
         assert_eq!(round1.len(), 2);
         // 模拟 run_turn 就地累积（assistant 工具调用 + 工具结果 + 末轮文本）
         let mut after1 = round1;
@@ -182,7 +190,7 @@ mod tests {
         history = strip_system(after1);
         assert!(history[0].role != crate::llm::types::Role::System, "system 必须剥掉，否则下轮双 system");
         history.push(Message::user(inbox_text(&[("lead".into(), "continue".into())])));
-        let round2 = round_messages("sys-v2".into(), &history);
+        let round2 = round_messages("sys-v2".into(), &mut history);
         assert_eq!(round2[0].content, "sys-v2", "system 每轮换新（roster 实时）");
         assert!(round2.iter().any(|m| m.content == "brief: build X"), "首条 brief 必须保留");
         assert!(round2.iter().any(|m| m.content == "file content"), "前轮工具结果必须保留");

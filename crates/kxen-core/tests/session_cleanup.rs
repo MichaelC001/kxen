@@ -69,7 +69,7 @@ fn team_deps(fallback: &Path) -> SpawnDeps {
     SpawnDeps {
         registry: Arc::new(kxen_core::tools::task::TaskRegistry::new()),
         fallback_workdir: Arc::from(fallback),
-        store: Arc::new(Mutex::new(kxen_core::auth::credential::AuthStore::default())),
+        store: Arc::new(Mutex::new(Arc::new(kxen_core::auth::credential::AuthStore::default()))),
         mrm: Arc::new(std::sync::RwLock::new(Arc::new(kxen_core::llm::mrm::ModelResourceManager::new(
             kxen_core::core::config::Config::default(),
         )))),
@@ -117,7 +117,7 @@ fn fork_regenerates_message_ids_keeping_order_and_time() {
     let mut source_ids = Vec::new();
     for i in 0..3 {
         let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
-        let m = ses::new_message(&s.id, role, vec![Part::Text { text: format!("m{i}") }]);
+        let m = ses::new_message(&s.id, role, vec![Part::Text { text: format!("m{i}").into() }]);
         source_ids.push(m.id.clone());
         ses::append_message(&dir, &m).unwrap();
     }

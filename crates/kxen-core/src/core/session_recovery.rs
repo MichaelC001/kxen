@@ -74,7 +74,7 @@ pub struct DeletionGuard {
 }
 
 pub fn begin_deletion(sessions_dir: &Path, session_id: &str) -> Result<DeletionGuard, String> {
-    crate::core::ids::validate_id(session_id).map_err(|error| error.to_string())?;
+    crate::core::ids::validate_id(session_id)?;
     std::fs::create_dir_all(recovery_root(sessions_dir)).map_err(|error| error.to_string())?;
     let key = tombstone_path(sessions_dir, session_id);
     {
@@ -132,12 +132,12 @@ fn remove_tombstone_path(path: &Path) -> Result<(), String> {
 }
 
 pub fn clear_tombstone(sessions_dir: &Path, session_id: &str) -> Result<(), String> {
-    crate::core::ids::validate_id(session_id).map_err(|error| error.to_string())?;
+    crate::core::ids::validate_id(session_id)?;
     remove_tombstone_path(&tombstone_path(sessions_dir, session_id))
 }
 
 pub fn is_tombstoned(sessions_dir: &Path, session_id: &str) -> Result<bool, String> {
-    crate::core::ids::validate_id(session_id).map_err(|error| error.to_string())?;
+    crate::core::ids::validate_id(session_id)?;
     match std::fs::symlink_metadata(tombstone_path(sessions_dir, session_id)) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
@@ -158,7 +158,7 @@ pub struct DeletionTransaction {
 }
 
 pub fn lock_deletion_transaction(sessions_dir: &Path, session_id: &str) -> Result<DeletionTransaction, String> {
-    crate::core::ids::validate_id(session_id).map_err(|error| error.to_string())?;
+    crate::core::ids::validate_id(session_id)?;
     if !is_tombstoned(sessions_dir, session_id)? {
         return Err(format!("session deletion tombstone missing: {session_id}"));
     }
@@ -212,7 +212,7 @@ pub fn stage(
     manifest: &RecoveryManifest,
     transaction: &DeletionTransaction,
 ) -> Result<PathBuf, String> {
-    crate::core::ids::validate_id(&manifest.session_id).map_err(|e| e.to_string())?;
+    crate::core::ids::validate_id(&manifest.session_id)?;
     transaction.validate(sessions_dir, &manifest.session_id)?;
     if manifest.version != VERSION {
         return Err(format!("unsupported recovery version: {}", manifest.version));
@@ -293,7 +293,7 @@ pub fn discover(sessions_dir: &Path) -> Result<Vec<PathBuf>, String> {
 pub fn read_manifest(bundle: &Path) -> Result<RecoveryManifest, String> {
     let text = std::fs::read_to_string(bundle.join("manifest.json")).map_err(|e| e.to_string())?;
     let manifest: RecoveryManifest = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    crate::core::ids::validate_id(&manifest.session_id).map_err(|e| e.to_string())?;
+    crate::core::ids::validate_id(&manifest.session_id)?;
     if manifest.version != VERSION {
         return Err(format!("unsupported recovery version: {}", manifest.version));
     }

@@ -119,7 +119,7 @@ fn subagent_transcript_write_through_and_lazy_restore_after_restart() {
     let half = reg3.register_unique("s1", "exec", AgentKind::Subagent, &model);
     reg3.push_transcript("s1", &half, serde_json::json!({ "kind": "text", "text": "half" }));
     let reg4 = AgentRegistry::default();
-    reg4.set_agents_root(sessions_root.clone());
+    reg4.set_agents_root(sessions_root);
     let list = reg4.list("s1");
     let restored = list.iter().find(|a| a.name == half).unwrap();
     assert!(matches!(restored.status, ActivityStatus::Shutdown), "无 done 事件 = 进程中断");

@@ -18,7 +18,7 @@ pub struct AppState {
     /// 单实例文件锁：所有 data_dir JSON store 的进程内事务假设由此提升为跨进程安全。
     _instance_lock: std::fs::File,
     /// 共享句柄（Arc 内层不变）：TeamManager SpawnDeps 持同一把锁，凭证探测/刷新后操作点可见
-    pub auth_store: Arc<Mutex<kxen_core::auth::credential::AuthStore>>,
+    pub auth_store: kxen_core::auth::credential::SharedAuthStore,
     /// ws 服务端口（serve 成功后由 bin 写回，ws_port command 用）
     pub ws_port: Mutex<u16>,
     /// ws 握手 token（启动时随机生成，ws_port command 一并发给前端）
@@ -76,9 +76,9 @@ impl AppState {
         crate::ws::recover_custom_provider_transaction(&config_path, &path)?;
         // 共享句柄：与 TeamManager SpawnDeps 同一把锁，后台探测写入的凭证两边即时可见；
         // 登记回写后 run 内刷新（ctx.store 是克隆快照）也即时收敛到各克隆点（auth::shared_store）
-        let store = Arc::new(Mutex::new(
+        let store = Arc::new(Mutex::new(Arc::new(
             kxen_core::auth::credential::read_auth_file(&path).map_err(|error| format!("auth store load failed: {error}"))?,
-        ));
+        )));
         kxen_core::auth::shared_store::register_shared_store(&store);
         let config = load_app_config(&config_path)?;
         let statusline_items = config.statusline.items.clone();

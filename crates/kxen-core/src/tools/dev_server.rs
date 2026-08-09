@@ -72,17 +72,14 @@ async fn await_ready(
         Ok(Ready::Ready(url)) => Ok(url),
         Ok(Ready::Exited(code)) => {
             // 进程就绪前退出：必须报错带退出信息，不得伪装成「成功但 url 为 None」
-            let tail = lock(&task.output).clone();
-            Err(ExecError::Spawn(format!(
-                "dev server exited before ready (exit code {code}). tail:\n{}",
-                crate::tools::task::tail_of(&tail, 800)
-            )))
+            let tail = crate::tools::task::tail_of(&lock(&task.output), 800);
+            Err(ExecError::Spawn(format!("dev server exited before ready (exit code {code}). tail:\n{tail}")))
         }
         Err(_) => {
             // readiness 超时：进程必须跟着死（复用进程组 SIGTERM->SIGKILL），不留孤儿
             registry.kill_if_current(&task.id, task.generation).await;
-            let tail = lock(&task.output).clone();
-            Err(ExecError::Spawn(format!("dev server not ready within {timeout}ms. tail:\n{}", crate::tools::task::tail_of(&tail, 800))))
+            let tail = crate::tools::task::tail_of(&lock(&task.output), 800);
+            Err(ExecError::Spawn(format!("dev server not ready within {timeout}ms. tail:\n{tail}")))
         }
     }
 }
@@ -94,8 +91,15 @@ enum Ready {
 }
 
 async fn wait_ready(task: Arc<crate::tools::task::TaskHandle>, pattern: Option<String>, port: Option<u16>) -> Ready {
-    let patterns: Vec<String> =
-        pattern.map(|p| vec![p.to_lowercase()]).unwrap_or_else(|| READY_DEFAULT_PATTERNS.iter().map(|s| s.to_string()).collect());
+    let pattern = pattern.map(|pattern| pattern.to_lowercase());
+    let overlap = pattern
+        .as_ref()
+        .map(String::len)
+        .or_else(|| READY_DEFAULT_PATTERNS.iter().map(|pattern| pattern.len()).max())
+        .unwrap_or(0)
+        .saturating_sub(1);
+    let mut scanned_len = 0;
+    let mut scanned_revision = 0;
 
     loop {
         // 进程提前退出 -> 失败
@@ -103,10 +107,24 @@ async fn wait_ready(task: Arc<crate::tools::task::TaskHandle>, pattern: Option<S
             return Ready::Exited(code);
         }
         // pattern 匹配
-        {
+        let revision = task.output_revision.load(std::sync::atomic::Ordering::Acquire);
+        if revision != scanned_revision {
             let output = lock(&task.output);
-            let lower = output.to_lowercase();
-            if patterns.iter().any(|p| lower.contains(p)) {
+            // cap 截头后没有保留绝对输出偏移，必须重扫当前窗口，否则新 chunk 前半段
+            // 可能落在旧 len 之前而漏掉。未截断时只扫增量，并向前对齐 UTF-8 边界。
+            let truncated = *lock(&task.truncated);
+            let start = if truncated || output.len() < scanned_len {
+                0
+            } else {
+                output.floor_char_boundary(scanned_len.saturating_sub(overlap).min(output.len()))
+            };
+            let lower = output[start..].to_lowercase();
+            scanned_len = output.len();
+            scanned_revision = revision;
+            let matched = pattern
+                .as_ref()
+                .map_or_else(|| READY_DEFAULT_PATTERNS.iter().any(|pattern| lower.contains(pattern)), |pattern| lower.contains(pattern));
+            if matched {
                 let port_found = match port {
                     Some(p) => Some(p),
                     None => {
@@ -233,6 +251,20 @@ mod tests {
         let owner = owner();
         let started = dev_server(params, &registry, &owner).await.expect("就绪但无 url 属正常成功");
         assert!(started.url.is_none());
+        registry.kill(&owner, &started.task_id).await;
+    }
+
+    #[tokio::test]
+    async fn readiness_scan_handles_utf8_at_the_incremental_boundary() {
+        let registry = Arc::new(TaskRegistry::new());
+        let params = DevServerParams {
+            command: "printf '界界界界'; sleep 0.3; echo ready; sleep 30".into(),
+            workdir: std::env::temp_dir().to_string_lossy().into_owned(),
+            ready: Some(ReadySpec { pattern: Some("ready".into()), port: None, timeout_ms: Some(5_000) }),
+            shell: Some(default_shell()),
+        };
+        let owner = owner();
+        let started = dev_server(params, &registry, &owner).await.expect("UTF-8 output before the readiness marker must not panic");
         registry.kill(&owner, &started.task_id).await;
     }
 }

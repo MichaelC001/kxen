@@ -14,7 +14,7 @@ const SNAPSHOT_READ_CAP: u64 = 1024 * 1024;
 #[derive(Debug, Clone, Default)]
 pub struct SnapshotStore {
     /// path -> 首次修改前的原文（None = 当时不存在 = agent 新建）
-    originals: Arc<Mutex<HashMap<PathBuf, SnapshotBaseline>>>,
+    originals: Arc<Mutex<HashMap<PathBuf, Arc<SnapshotBaseline>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -37,14 +37,14 @@ impl SnapshotStore {
     pub fn record_before(&self, path: &Path) -> std::io::Result<()> {
         let mut map = crate::core::shared::lock(&self.originals);
         if !map.contains_key(path) {
-            map.insert(path.to_path_buf(), SnapshotBaseline { content: read_optional(path)?, authority: None });
+            map.insert(path.to_path_buf(), Arc::new(SnapshotBaseline { content: read_optional(path)?, authority: None }));
         }
         Ok(())
     }
 
     pub fn record_before_resolved(&self, path: &crate::tools::path_policy::ResolvedPath, content: Option<String>) -> std::io::Result<()> {
         let mut map = crate::core::shared::lock(&self.originals);
-        map.entry(path.as_path().to_path_buf()).or_insert_with(|| SnapshotBaseline { content, authority: Some(path.clone()) });
+        map.entry(path.as_path().to_path_buf()).or_insert_with(|| Arc::new(SnapshotBaseline { content, authority: Some(path.clone()) }));
         Ok(())
     }
 

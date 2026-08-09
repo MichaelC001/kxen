@@ -64,12 +64,12 @@ pub struct Session {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Part {
     Text {
-        text: String,
+        text: crate::core::shared::SharedText,
     },
     /// 模型可见但 UI 隐藏的上下文（@chip 文件内容 / 知识沉淀注记）。
     /// 历史回放给模型时带上，时间线渲染时跳过。
     Context {
-        text: String,
+        text: crate::core::shared::SharedText,
     },
     /// 用户选择的可逆 @ 引用描述。Web/Docs URL 落盘前已移除凭证型 URL 成分；
     /// Context 仍保存当次展开快照，回放模型不重新读取这里的来源。
@@ -81,7 +81,7 @@ pub enum Part {
         /// 一行摘要（UI 头行）；精确参数在 args
         input: serde_json::Value,
         /// 完整结果（全量内联不截断；工具自身已有输出上限，10k 转录截断已移除）
-        output: String,
+        output: crate::core::shared::SharedText,
         /// 精确调用参数；存量 JSONL 无此字段，serde 缺省兼容
         #[serde(default, skip_serializing_if = "Option::is_none")]
         args: Option<serde_json::Value>,
@@ -95,8 +95,8 @@ pub enum Part {
     },
     /// base64 内联 JSONL：会话目录自包含，fork/导出/rewind/删除零额外文件管理
     Image {
-        media_type: String,
-        data: String,
+        media_type: crate::core::shared::SharedText,
+        data: crate::core::shared::SharedText,
     },
     /// 审批决定落盘（allow/deny/timeout/cancel）：刷新/重载后时间线仍有审批痕迹（灰色已决历史卡）。
     /// 不回放给模型（flatten_stored 跳过）；落盘角色固定 Assistant——

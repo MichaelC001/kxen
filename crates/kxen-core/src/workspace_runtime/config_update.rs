@@ -102,7 +102,7 @@ impl WorkspaceRuntimeRegistry {
         let base_config = crate::core::config::Config::load_with_user_document(document, &self.user_config, None)
             .map_err(|error| format!("global config candidate: {error}"))?;
         let old_base = crate::core::shared::read(&self.base_mrm).clone();
-        let next_base = Arc::new(old_base.candidate(base_config));
+        let next_base = Arc::new(old_base.candidate(Arc::new(base_config)));
 
         let (expected_generation, mut runtimes) = {
             let cached = crate::core::shared::lock(&self.runtimes);
@@ -114,8 +114,10 @@ impl WorkspaceRuntimeRegistry {
         let mut workspaces = Vec::with_capacity(runtimes.len());
         for runtime in runtimes {
             let project = crate::core::trust::is_trusted(runtime.root()).then(|| runtime.root().join(".kxen/config.toml"));
-            let config = crate::core::config::Config::load_with_user_document(document, &self.user_config, project.as_deref())
-                .map_err(|error| format!("workspace config candidate {}: {error}", runtime.root().display()))?;
+            let config = Arc::new(
+                crate::core::config::Config::load_with_user_document(document, &self.user_config, project.as_deref())
+                    .map_err(|error| format!("workspace config candidate {}: {error}", runtime.root().display()))?,
+            );
             let old_mrm = runtime.mrm();
             let old_hooks = runtime.hooks();
             workspaces.push(WorkspaceChange {

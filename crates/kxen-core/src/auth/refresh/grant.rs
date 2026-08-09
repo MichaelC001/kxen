@@ -65,7 +65,7 @@ pub(super) async fn run_grant_to(
     let parsed = crate::net_response::json::<RefreshResponse>(response, crate::net_response::JSON_BODY_LIMIT, "OAuth refresh response")
         .await
         .map_err(|error| format!("OAuth refresh response was invalid: {error}"))?;
-    apply_refresh_to(store, key, parsed, refresh, acc_id, auth_file).map_err(|error| {
+    apply_refresh_to(store, key, parsed, refresh, acc_id.as_deref(), auth_file).map_err(|error| {
         tracing::error!(%error, "oauth credential persistence failed");
         format!("OAuth refreshed credential could not be persisted: {error}")
     })?;
@@ -77,7 +77,7 @@ pub(super) async fn run_copilot_exchange(store: &mut AuthStore, key: &str, githu
     let (jwt, expires_at) = crate::auth::oauth_login::copilot_exchange_token(github_token).await?;
     let now_secs = crate::core::shared::now_ms() / 1000;
     let parsed = RefreshResponse { access_token: jwt, refresh_token: None, expires_in: Some(expires_at.saturating_sub(now_secs)) };
-    apply_refresh_to(store, key, parsed, github_token, &None, &crate::core::paths::auth_file()).map_err(|error| {
+    apply_refresh_to(store, key, parsed, github_token, None, &crate::core::paths::auth_file()).map_err(|error| {
         tracing::error!(%error, "copilot credential persistence failed");
         format!("Copilot refreshed credential could not be persisted: {error}")
     })
@@ -90,7 +90,7 @@ pub(super) fn apply_refresh_to(
     key: &str,
     parsed: RefreshResponse,
     old_refresh: &str,
-    acc_id: &Option<String>,
+    acc_id: Option<&str>,
     auth_file: &std::path::Path,
 ) -> crate::core::Result<()> {
     if parsed.access_token.trim().is_empty() {
@@ -102,24 +102,24 @@ pub(super) fn apply_refresh_to(
         access: parsed.access_token,
         refresh,
         expires: crate::core::shared::now_ms().saturating_add(expires_in_ms),
-        account_id: acc_id.clone(),
+        account_id: acc_id.map(str::to_string),
     };
     match crate::auth::credential::write_auth_entry_committed(auth_file, key, Some(&new_cred)) {
         Ok(()) => {}
         Err(failure) if failure.committed() => {
-            publish_refresh(store, key, &new_cred);
+            publish_refresh(store, key, new_cred);
             return Err(crate::core::Error::Custom(failure.to_string()));
         }
         Err(failure) => return Err(crate::core::Error::Custom(failure.to_string())),
     }
-    publish_refresh(store, key, &new_cred);
+    publish_refresh(store, key, new_cred);
     Ok(())
 }
 
-fn publish_refresh(store: &mut AuthStore, key: &str, credential: &CredentialKind) {
+fn publish_refresh(store: &mut AuthStore, key: &str, credential: CredentialKind) {
     crate::core::shared::lock(super::recent()).insert(key.to_string(), credential.clone());
-    store.insert(key.to_string(), credential.clone());
-    crate::auth::shared_store::propagate(key, credential);
+    crate::auth::shared_store::propagate(key, &credential);
+    store.insert(key.to_string(), credential);
 }
 
 #[cfg(test)]

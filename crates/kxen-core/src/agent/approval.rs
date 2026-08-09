@@ -188,8 +188,7 @@ impl ApprovalBroker {
     pub fn cancel_session(&self, session_id: &str) -> usize {
         let entries: Vec<(String, PendingEntry)> = {
             let mut map = crate::core::shared::lock(&self.pending);
-            let ids: Vec<String> = map.iter().filter(|(_, e)| e.session_id == session_id).map(|(id, _)| id.clone()).collect();
-            ids.into_iter().filter_map(|id| map.remove(&id).map(|e| (id, e))).collect()
+            map.extract_if(|_, entry| entry.session_id == session_id).collect()
         };
         for (id, e) in &entries {
             self.publish_resolved(id, session_id, "cancelled");

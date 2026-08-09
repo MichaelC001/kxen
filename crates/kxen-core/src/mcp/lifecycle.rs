@@ -36,10 +36,16 @@ impl McpManager {
     async fn reload_inner(&self, configs: Vec<ServerConfig>, policies: PolicySet, roots: Vec<String>, guard: super::remote::Guard) {
         let _reload = self.reload_lock.lock().await;
         *crate::core::shared::lock(&self.policies) = policies;
+        let roots = Arc::new(roots);
         *crate::core::shared::lock(&self.roots) = roots.clone();
 
         let desired: HashSet<String> = configs.iter().map(|config| config.name().to_string()).collect();
-        let existing: Vec<String> = crate::core::shared::lock(&self.servers).keys().cloned().collect();
+        let existing = {
+            let servers = crate::core::shared::lock(&self.servers);
+            let mut names = Vec::with_capacity(servers.len());
+            names.extend(servers.keys().cloned());
+            names
+        };
         futures::future::join_all(existing.into_iter().filter(|name| !desired.contains(name)).map(|name| async move {
             let lock = self.server_lock(&name);
             let _server = lock.lock().await;
@@ -54,6 +60,7 @@ impl McpManager {
         futures::future::join_all(configs.into_iter().map(|config| {
             let roots = &roots;
             async move {
+                let config = Arc::new(config);
                 let name = config.name().to_string();
                 let lock = self.server_lock(&name);
                 let _server = lock.lock().await;
@@ -119,15 +126,17 @@ impl McpManager {
     pub(super) async fn client_or_restart(&self, server: &str) -> Result<(Arc<McpClient>, u64), String> {
         let lock = self.server_lock(server);
         let _server = lock.lock().await;
-        let entry = crate::core::shared::lock(&self.servers)
-            .get(server)
-            .map(|entry| (entry.config.clone(), entry.client.clone(), entry.generation));
-        let Some((config, client, generation)) = entry else {
+        let entry = crate::core::shared::lock(&self.servers).get(server).map(|entry| (entry.client.clone(), entry.generation));
+        let Some((client, generation)) = entry else {
             return Err(format!("mcp server not found: {server}"));
         };
         if let Some(client) = client {
             return Ok((client, generation));
         }
+        let config = crate::core::shared::lock(&self.servers)
+            .get(server)
+            .map(|entry| entry.config.clone())
+            .ok_or_else(|| format!("mcp server not found: {server}"))?;
         let roots = crate::core::shared::lock(&self.roots).clone();
         self.connect_and_install(server, &config, &roots, generation, super::remote::Guard::Enforced)
             .await

@@ -1,12 +1,15 @@
-//! 用户 config.toml 的 mtime 键控缓存。
+//! 用户 config.toml 的文件身份键控缓存。
 
 use super::config::Config;
 use std::path::Path;
+use std::sync::Arc;
 
-/// mtime 键控的 Config 缓存：热路径（prompt 组装 / custom provider 路由）每次全量
+type CacheEntry = (std::path::PathBuf, crate::core::shared::FileStamp, Arc<Config>);
+
+/// 文件身份键控的 Config 缓存：热路径（prompt 组装 / custom provider 路由）每次全量
 /// 读盘解析太贵。所有写入口（set_role/set_limits/...）都是 tmp+rename 覆盖同一文件，
-/// mtime 变化即失效（含 MRM 热换路径），无需配置变更广播。解析失败不缓存（坏配置不静默）。
-pub(crate) struct ConfigCache(std::sync::Mutex<Option<(std::path::PathBuf, Option<std::time::SystemTime>, Config)>>);
+/// stamp 包含 Unix 文件身份，同长度原子替换也会失效。解析失败不缓存（坏配置不静默）。
+pub(crate) struct ConfigCache(std::sync::Mutex<Option<CacheEntry>>);
 
 static CACHE: ConfigCache = ConfigCache::new();
 
@@ -15,7 +18,7 @@ impl ConfigCache {
         Self(std::sync::Mutex::new(None))
     }
 
-    pub fn get(&self, path: &Path) -> Option<Config> {
+    pub fn get(&self, path: &Path) -> Option<Arc<Config>> {
         match self.get_result(path) {
             Ok(config) => Some(config),
             Err(error) => {
@@ -29,37 +32,39 @@ impl ConfigCache {
         }
     }
 
-    pub fn get_result(&self, path: &Path) -> Result<Config, String> {
-        let mtime = config_mtime(path)?;
+    pub fn get_result(&self, path: &Path) -> Result<Arc<Config>, String> {
+        let stamp = config_stamp(path)?;
         let mut guard = crate::core::shared::lock(&self.0);
-        if let Some((p, cached_mtime, cfg)) = guard.as_ref()
+        if let Some((p, cached_stamp, cfg)) = guard.as_ref()
             && p == path
-            && *cached_mtime == mtime
+            && *cached_stamp == stamp
         {
             return Ok(cfg.clone());
         }
-        let cfg = Config::load(path, None).map_err(|error| error.to_string())?;
-        *guard = Some((path.to_path_buf(), mtime, cfg.clone()));
+        let cfg = Arc::new(Config::load(path, None).map_err(|error| error.to_string())?);
+        *guard = Some((path.to_path_buf(), stamp, cfg.clone()));
         Ok(cfg)
     }
 }
 
-fn config_mtime(path: &Path) -> Result<Option<std::time::SystemTime>, String> {
-    match std::fs::symlink_metadata(path) {
-        Ok(_) => std::fs::metadata(path)
-            .and_then(|metadata| metadata.modified())
-            .map(Some)
-            .map_err(|error| format!("inspect config {}: {error}", path.display())),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(format!("inspect config {}: {error}", path.display())),
+fn config_stamp(path: &Path) -> Result<crate::core::shared::FileStamp, String> {
+    let stamp = crate::core::shared::file_stamp(path).map_err(|error| format!("inspect config {}: {error}", path.display()))?;
+    if stamp.exists() {
+        Ok(stamp)
+    } else {
+        match std::fs::symlink_metadata(path) {
+            Err(link_error) if link_error.kind() == std::io::ErrorKind::NotFound => Ok(stamp),
+            Ok(_) => Err(format!("inspect config {}: target not found", path.display())),
+            Err(link_error) => Err(format!("inspect config {}: {link_error}", path.display())),
+        }
     }
 }
 
-pub(crate) fn cached_user_config() -> Option<Config> {
+pub(crate) fn cached_user_config() -> Option<Arc<Config>> {
     CACHE.get(&super::paths::config_dir().join("config.toml"))
 }
 
-pub(crate) fn cached_user_config_result() -> Result<Config, String> {
+pub(crate) fn cached_user_config_result() -> Result<Arc<Config>, String> {
     CACHE.get_result(&super::paths::config_dir().join("config.toml"))
 }
 
@@ -89,6 +94,25 @@ mod tests {
         std::fs::write(&path, "[coding_rules]\nenabled = true\n").expect("repair config");
         assert_eq!(cache.get(&path).map(|c| c.coding_rules.enabled), Some(true), "坏配置不得污染后续 cache");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_invalidates_on_same_length_atomic_replacement() {
+        let dir = std::env::temp_dir().join(format!("kxen-cfg-cache-replace-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("config.toml");
+        let replacement = dir.join("replacement.toml");
+        std::fs::write(&path, "[embedding]\nprovider = 'openai'\n").expect("write v1");
+        let cache = ConfigCache::new();
+        assert_eq!(cache.get_result(&path).unwrap().embedding.provider, "openai");
+
+        std::fs::write(&replacement, "[embedding]\nprovider = 'ollama'\n").expect("write v2");
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), std::fs::metadata(&replacement).unwrap().len());
+        std::fs::rename(replacement, &path).expect("atomic replace");
+
+        assert_eq!(cache.get_result(&path).unwrap().embedding.provider, "ollama");
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[cfg(unix)]
