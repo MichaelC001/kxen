@@ -187,10 +187,13 @@ impl WorkspaceRuntimeRegistry {
 
     pub fn runtime(&self, root: &Path) -> Result<Arc<WorkspaceRuntime>, String> {
         let _permit = self.config_update_gate.read();
-        let metadata = workspace_metadata(root)?;
+        #[cfg(unix)]
+        let identity = WorkspaceIdentity::from(&workspace_metadata(root)?);
+        #[cfg(not(unix))]
+        workspace_metadata(root)?;
         #[cfg(unix)]
         if let Some(runtime) = crate::core::shared::lock(&self.runtimes).get(root).cloned()
-            && runtime.root_identity == WorkspaceIdentity::from(&metadata)
+            && runtime.root_identity == identity
         {
             // 已规范化的调用是常态；设备与 inode 未变时可安全避开重复 canonicalize。
             return Ok(runtime);
