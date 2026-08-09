@@ -82,7 +82,8 @@ impl AppState {
         kxen_core::auth::shared_store::register_shared_store(&store);
         let config = load_app_config(&config_path)?;
         let statusline_items = config.statusline.items.clone();
-        let registry = std::sync::Arc::new(kxen_core::tools::task::TaskRegistry::new());
+        // 任务日志（DCP）落盘根目录与 pending queue 同一 sessions 根：崩溃恢复按 session 归目录扫描
+        let registry = std::sync::Arc::new(kxen_core::tools::task::TaskRegistry::with_sessions_dir(kxen_core::core::paths::sessions_dir()));
         let extras = std::sync::Arc::new(kxen_core::agent::agent_loop::SessionExtrasRegistry::default());
         let mrm = std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(kxen_core::llm::mrm::ModelResourceManager::new(config))));
         let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));

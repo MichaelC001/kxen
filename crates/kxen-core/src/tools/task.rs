@@ -2,6 +2,7 @@
 
 use crate::core::shared::{SharedStr, lock, now_ms};
 use crate::tools::shell::ShellKind;
+use crate::tools::task_journal::{self, TaskLine};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -41,6 +42,11 @@ impl TaskOwner {
         }
         let workspace = crate::tools::path_policy::canonicalize_lenient(workspace.as_ref())?;
         Ok(Self { session_id: SharedStr::from(session_id), workspace })
+    }
+
+    /// 任务日志落盘按 owner session 归目录（tools/task_journal.rs 的 scope 过滤入口）。
+    pub fn session_id(&self) -> &str {
+        &self.session_id
     }
 }
 
@@ -85,6 +91,8 @@ pub struct TaskRegistry {
     next_generation: AtomicU64,
     /// restart/kill/watchdog 按 task id 串行。Weak 避免已淘汰 id 在锁表永久驻留。
     operation_locks: Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>,
+    /// 任务日志根目录（<sessions_dir>/<session_id>/tasks.jsonl）；None = 不落盘（测试/未接线）。
+    sessions_dir: Option<PathBuf>,
 }
 
 impl Default for TaskRegistry {
@@ -94,6 +102,7 @@ impl Default for TaskRegistry {
             closed_sessions: Mutex::new(HashSet::new()),
             next_generation: AtomicU64::new(0),
             operation_locks: Mutex::new(HashMap::new()),
+            sessions_dir: None,
         }
     }
 }
@@ -119,6 +128,15 @@ impl TaskHandle {
 impl TaskRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 生产接线：任务日志（DCP）落盘根目录。日志写口收在 spawn/terminate 内部，调用方无感。
+    pub fn with_sessions_dir(sessions_dir: PathBuf) -> Self {
+        Self { sessions_dir: Some(sessions_dir), ..Self::default() }
+    }
+
+    pub(crate) fn sessions_dir(&self) -> Option<&Path> {
+        self.sessions_dir.as_deref()
     }
 
     pub(crate) fn allocate_generation(&self) -> Result<u64, String> {
@@ -212,7 +230,7 @@ impl TaskRegistry {
         let serial = self.operation_lock(id);
         let _guard = serial.lock().await;
         let Some(task) = self.get(owner, id) else { return false };
-        Self::terminate(task).await;
+        self.terminate(task).await;
         true
     }
 
@@ -228,7 +246,7 @@ impl TaskRegistry {
             ids.into_iter().filter_map(|id| tasks.remove(&id)).collect::<Vec<_>>()
         };
         let count = owned.len();
-        futures::future::join_all(owned.into_iter().map(Self::terminate)).await;
+        futures::future::join_all(owned.into_iter().map(|task| self.terminate(task))).await;
         count
     }
 
@@ -244,12 +262,22 @@ impl TaskRegistry {
             tasks.get(id).filter(|task| task.generation == generation).cloned()
         };
         let Some(task) = task else { return false };
-        Self::terminate(task).await;
+        self.terminate(task).await;
         true
     }
 
-    /// 已完成鉴权/CAS 的具体 handle 终止。只操作捕获的 pid，不再按 id 二次解析。
-    pub(crate) async fn terminate(task: Arc<TaskHandle>) {
+    /// 已完成鉴权/CAS 的具体 handle 终止（落 killed 终态行）。只操作捕获的 pid，不再按 id 二次解析。
+    pub(crate) async fn terminate(&self, task: Arc<TaskHandle>) {
+        self.terminate_impl(task, true).await;
+    }
+
+    /// 不落日志的终止：仅 spawn 注册失败的回收路径——该任务从未落 start 行，
+    /// 且同 id 可能另有在役 generation，不能留下会把它误判成已收口的终态行。
+    pub(crate) async fn terminate_unjournaled(&self, task: Arc<TaskHandle>) {
+        self.terminate_impl(task, false).await;
+    }
+
+    async fn terminate_impl(&self, task: Arc<TaskHandle>, journal: bool) {
         // 只给仍在运行的任务终止：已自行退出的保持 Exited/Failed 原判定，也不发任何信号。
         // stderr 一律丢弃：信号即发即弃没人读 stderr，而 waiter 回收与发信号天然有竞态窗口，
         // 窗口内 kill 必打 "No such process"——检查缩窗、丢弃收尾，两类噪音一起灭
@@ -258,6 +286,10 @@ impl TaskRegistry {
         };
         if lock(&task.exit_code).is_none() {
             task.killed.store(true, Ordering::Relaxed);
+            if journal {
+                // 主动 kill 的终态行：恢复侧凭「最后一行」认定任务已收口，不再补投中断通知
+                task_journal::append(self.sessions_dir(), task.owner.session_id(), &TaskLine::killed(&task.id));
+            }
             if let Some(pid) = task.pid {
                 let pid = pid.to_string();
                 let alive = || kill_quiet(&["-0", &pid]);

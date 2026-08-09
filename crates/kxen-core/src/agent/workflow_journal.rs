@@ -22,6 +22,12 @@ fn journal_file(run_id: &str) -> PathBuf {
     crate::core::paths::data_dir().join("workflow-journals").join(format!("{run_id}.jsonl"))
 }
 
+/// 测试断言/清理用：open_scoped 的 session 派生命名空间对应的 journal 文件路径。
+#[cfg(test)]
+pub(crate) fn scoped_journal_file(session_id: Option<&str>, run_id: &str) -> PathBuf {
+    journal_file(&stable_hash(&[session_id.unwrap_or("no-session"), run_id]))
+}
+
 /// 多段稳定哈希：段间写 0 分隔符（hex 输出无 0 字节，拼接防 ("ab","c") 与 ("a","bc") 撞车）。
 fn stable_hash(segments: &[&str]) -> String {
     let mut h = sha2::Sha256::new();

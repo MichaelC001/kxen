@@ -15,6 +15,7 @@ pub mod search;
 pub mod shell;
 pub mod snapshot;
 pub mod task;
+pub(crate) mod task_journal;
 pub mod todo;
 pub mod webfetch;
 pub mod websearch;

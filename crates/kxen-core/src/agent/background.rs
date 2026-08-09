@@ -9,8 +9,23 @@ use std::sync::Arc;
 mod recovery;
 #[path = "background/router.rs"]
 mod router;
+#[path = "background/task_recovery.rs"]
+mod task_recovery;
 pub use recovery::recover_interrupted;
 pub use router::{LateDelivery, NotifyPath, NotifyRouter, RoutedNotice, deliver_late, drain_to_session, drain_to_session_in};
+pub use task_recovery::recover_interrupted_tasks;
+
+/// 启动恢复聚合入口：子代理中断补投 + exec/task 后台进程中断补投，pending.rs 单点调用。
+/// 返回值为两边实际投递到的 session id 去重合并（调用方合并续跑清单与启动日志用）。
+pub fn recover_interrupted_all(pending: &crate::core::pending_queue::PendingQueues, sessions_dir: &Path) -> Vec<String> {
+    let mut delivered = recover_interrupted(pending, sessions_dir);
+    for sid in recover_interrupted_tasks(pending, sessions_dir) {
+        if !delivered.contains(&sid) {
+            delivered.push(sid);
+        }
+    }
+    delivered
+}
 
 /// run 结束后通知的去向闭包（late 投递 / 续跑触发共用的形态）。
 pub(crate) type SharedCallback = Arc<dyn Fn(String) + Send + Sync>;

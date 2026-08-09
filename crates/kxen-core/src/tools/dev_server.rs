@@ -169,7 +169,7 @@ pub async fn restart_task(id: &str, owner: &TaskOwner, registry: &Arc<TaskRegist
     let expected_generation = task.generation;
     let (command, workdir) = (task.command.clone(), task.workdir.clone());
     let meta = lock(&task.restart).clone();
-    TaskRegistry::terminate(task.clone()).await;
+    registry.terminate(task.clone()).await;
     let shell = meta.as_ref().map(|m| m.shell).unwrap_or_else(default_shell);
     // 优先用启动时配置的 port；没有配置才沿用上次解析出的（exec 背景任务无 meta 的情形）
     let port = meta.as_ref().and_then(|m| m.port).or(*lock(&task.port));

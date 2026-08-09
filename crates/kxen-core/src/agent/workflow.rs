@@ -45,15 +45,20 @@ struct WfStats {
 
 /// workflow 工具入口：QuickJS 在专属线程 + current_thread runtime 跑（rquickjs !Send 全隔离），
 /// 本任务侧只做 phase 转发 / 结果等待 / 超时取消（全部 Send）。
-/// run_id 给了就开 journal resume：同 run_id 重跑时已完成 agent 派发直接回缓存（崩溃/取消可续）；
-/// dispatch 前落 durable intent，dispatch 与 record 之间崩溃的步重跑时报 Unknown（fail closed），
-/// 不静默重复派发——显式重跑途径是换新 run_id。
+/// journal 始终开启：run_id 缺省时自动生成并随结果文本返回，崩溃/中断后凭该 id 显式重跑，
+/// 已完成 agent 派发直接回缓存（不重复付费）；dispatch 前落 durable intent，dispatch 与 record
+/// 之间崩溃的步重跑时报 Unknown（fail closed），不静默重复派发——显式重跑途径是换新 run_id。
+/// 语义安全：自动 id 每次随机，新执行不命中任何旧缓存，只有调用方显式复用 id 才触发 resume，
+/// 「同 run_id 命中缓存」的既有语义不变。
 /// run_id 经宿主按 session 派生后才进 journal（open_scoped）：模型参数不能直接命中其它会话的旧 journal。
 pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_id: Option<&str>) -> Result<String, String> {
-    let journal = match run_id {
-        Some(id) => Some(crate::agent::workflow_journal::Journal::open_scoped(ctx.session_id.as_deref(), id, script)?),
-        None => None,
+    // run_id 缺省自动生成：Workflow kind 不落转录（activity_disk 有意），没有 journal 的 run
+    // 一旦进程崩溃完全无痕迹，重跑全量重复付费；auto_generated 标记结果文本是否回传 id。
+    let (run_id, auto_generated) = match run_id {
+        Some(id) => (id.to_string(), false),
+        None => (crate::core::ids::new_id("wf"), true),
     };
+    let journal = Some(crate::agent::workflow_journal::Journal::open_scoped(ctx.session_id.as_deref(), &run_id, script)?);
     let (phase_tx, mut phase_rx) = mpsc::unbounded_channel::<PhaseMsg>();
     let (result_tx, result_rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
     let cancel = Arc::new(AtomicBool::new(false));
@@ -94,7 +99,7 @@ pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_
         }
     };
 
-    let out = match tokio::time::timeout(Duration::from_millis(WORKFLOW_TIMEOUT_MS), body).await {
+    let mut out = match tokio::time::timeout(Duration::from_millis(WORKFLOW_TIMEOUT_MS), body).await {
         Ok(result) => result,
         Err(_) => Err(format!("workflow timed out after {}s", WORKFLOW_TIMEOUT_MS / 1000)),
     };
@@ -103,6 +108,13 @@ pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_
     // 结果先到时排空已发送但未接收的 phase（发送先于 result，通道里必有）
     while let Ok(msg) = phase_rx.try_recv() {
         on_event(AgentEvent::Phase { name: msg.name, index: msg.index, total: msg.total, workflow_name: msg.workflow_name });
+    }
+    // 自动 run_id 随结果回传：该行进 session 持久化，中断后模型凭历史里的 id 显式续跑；
+    // 显式传入的 id 已在 tool_call 参数历史中，不重复标注
+    if auto_generated && let Ok(text) = &mut out {
+        text.push_str(&format!(
+            "\n[workflow run_id: {run_id} - if this run is interrupted, re-invoke with run_id \"{run_id}\" to resume completed dispatches from cache]"
+        ));
     }
     out
 }
@@ -315,34 +327,5 @@ async fn build_constraints(deps: &SubagentDeps) -> serde_json::Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// 级联回归：作用域结束（超时/提前返回同一 Drop 路径）必须同时置 JS 中断标志
-    /// 并取消 workflow 令牌——在飞子代理经 dispatch 的 _cascade watcher 收到取消。
-    #[test]
-    fn cancel_guard_cascades_to_workflow_token() {
-        let flag = Arc::new(AtomicBool::new(false));
-        let token = crate::agent::cancel::CancelToken::new();
-        {
-            let _guard = CancelGuard(flag.clone(), token.clone());
-        }
-        assert!(flag.load(Ordering::Relaxed), "JS 中断标志必须置位");
-        assert!(token.is_cancelled(), "workflow 令牌必须取消（子代理级联取消的源头）");
-    }
-
-    /// 级联回归：父 run abort 经 cascade_parent 传到 workflow 令牌；
-    /// done_tx 回收后 watcher 退出不再误触。
-    #[tokio::test]
-    async fn parent_abort_cascades_into_workflow_token() {
-        let parent = crate::agent::cancel::CancelToken::new();
-        let child = crate::agent::cancel::CancelToken::new();
-        let done = cascade_parent(Some(parent.clone()), &child);
-        parent.cancel();
-        tokio::time::timeout(std::time::Duration::from_secs(1), child.wait()).await.expect("父取消必须级联到 workflow 令牌");
-        drop(done);
-
-        // 无父令牌（subagent 嵌套外路径）：不建 watcher
-        assert!(cascade_parent(None, &child).is_none());
-    }
-}
+#[path = "workflow/tests.rs"]
+mod tests;
