@@ -6,6 +6,15 @@
 
 ## [Unreleased]
 
+## [0.1.2]
+
+### Changed
+
+- 依赖对齐当前可升级 latest：`reqwest` 0.13.4（`rustls` 自带 platform verifier，移除已删除的 `rustls-native-certs`）、`getrandom` 0.4、Cargo.lock 兼容范围内传递依赖刷新。
+- 前端 `@solidjs/router` 升级到 1.0.0（0.16 API 稳定版 major 对齐），并更新 `@pierre/diffs`、`shiki`、`lucide-solid`。
+- 官网 `astro` 7.2.0、`wrangler` 4.120.1；`tsconfig` 去掉已弃用的 `baseUrl`，改用相对 `paths`。
+- website `typescript` 保持 6.0.3：Astro language tools / `astro check` 尚未支持 TypeScript 7 programmatic API，待上游就绪后再升。
+
 ## [0.1.1]
 
 ### Added
@@ -109,7 +118,8 @@
 - 已被 Schedule durable dispatch 替代的 cron_dispatch 模块。
 - 与当前代码和产品文档重复的临时实现计划文档。
 
-[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/StringKe/kxen/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/StringKe/kxen/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/StringKe/kxen/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/StringKe/kxen/releases/tag/v0.0.1
