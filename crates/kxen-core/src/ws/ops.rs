@@ -25,8 +25,7 @@ fn usage_totals(tokens: &std::collections::HashMap<String, kxen_core::core::usag
         total_input,
         total_output,
         unmetered_calls,
-        // Global billable actions use synthetic system_* ledgers so crash
-        // recovery remains durable, but they are not chat Sessions.
+        // 全局可计费动作用 system_* 合成账本保证崩溃可恢复，但不计入聊天 Session 数。
         sessions: tokens.keys().filter(|id| !id.starts_with("system_")).count(),
         completeness: kxen_core::core::usage::completeness(unmetered_calls),
     }

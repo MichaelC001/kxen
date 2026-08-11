@@ -1,5 +1,5 @@
-//! System prompt assembly (English by design — models follow English most reliably).
-//! Layers: identity -> tool policy -> write-goal playbook -> active goal injection.
+//! System prompt 装配（正文故意英文：模型跟英文指令最稳）。
+//! 层次：identity -> tool policy -> write-goal playbook -> 焦点 goal 注入。
 
 use super::prompt_text::{BACKGROUND_PLAYBOOK, IDENTITY, KNOWLEDGE_GUIDE, REPLY_POLICY, TOOL_POLICY, ULTRA_PLAYBOOK, WRITE_GOAL_PLAYBOOK};
 use crate::core::goal::{Goal, GoalStatus};
@@ -24,7 +24,7 @@ pub(crate) struct SystemPromptContext<'a> {
     pub embedding_runtime: Option<&'a crate::knowledge::embedding::EmbeddingRuntime>,
 }
 
-/// Full system prompt for a turn. `workdir` is rendered into the environment line.
+/// 一轮完整 system prompt。`workdir` 写入 environment 行。
 /// `involved` = 本会话涉及文件（OKF globs 动态激活与多层就近的输入）。
 /// `session_id` = goal 按 session 粒度注入（多会话并发各见各的 goal）。
 /// `coding_rules` = 内置编码规则开关（调用方经 config::coding_rules_enabled() 现读）。
@@ -107,7 +107,7 @@ pub(crate) fn embedding_runtime(ctx: &crate::agent::agent_loop::AgentContext) ->
     })
 }
 
-/// Subagent prompt: lean identity + role brief + the same tool policy (no write-goal playbook).
+/// 子代理 prompt：精简 identity + role brief + 同工具策略（无 write-goal playbook）。
 pub fn subagent_prompt(role: &str, role_brief: &str, coding_rules: bool) -> String {
     let mut out = format!("You are the {role} subagent of kxen, a coding agent on macOS (Apple Silicon). {role_brief}\n\n{TOOL_POLICY}");
     if coding_rules {
@@ -117,7 +117,7 @@ pub fn subagent_prompt(role: &str, role_brief: &str, coding_rules: bool) -> Stri
     out
 }
 
-/// Active goal injection: renders the focus goal so the model always sees the contract it is driving.
+/// 注入焦点 goal：模型始终看到它正在驱动的 contract。
 fn goal_block(session_id: Option<&str>, bound_goal_id: Option<&str>, binding_frozen: bool) -> Option<String> {
     let goals_dir = crate::core::paths::goals_dir();
     let goal = if binding_frozen { Goal::load(&goals_dir, bound_goal_id?).ok()? } else { Goal::focus_for(&goals_dir, session_id)? };

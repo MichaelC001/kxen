@@ -30,7 +30,7 @@ async fn run(mut cli: args::Cli) -> ExitCode {
     if !cli.bind.is_loopback() {
         tracing::warn!(bind = %cli.bind, "non-loopback bind exposes the service to the network; the token is the only auth");
     }
-    // workdir = 当前工作目录（initial_workdir：cwd 可写即用，/ 或不可写回退 home）
+    // initial_workdir：cwd 可写则用，否则回退 home（含 /）
     let mut state = match AppState::new() {
         Ok(state) => state,
         Err(error) => {
@@ -42,15 +42,15 @@ async fn run(mut cli: args::Cli) -> ExitCode {
         state.ws_token = token;
     }
     let state = Arc::new(state);
-    // 崩溃前排队的消息恢复续跑；teammate -> lead 与 background late 通知的续跑触发（与桌面 setup 等价）
+    // 恢复崩溃前排队消息，并接线 teammate/background 续跑（与桌面 setup 等价）
     kxen_core::ws::pending::restore_queues(state.clone());
     kxen_core::ws::pending::wire_team_kick(&state);
     kxen_core::ws::pending::wire_background_kick(&state);
-    // 通知落盘 + notification hook（无 OS 通知：AppState 默认 NoopNotify 保持不动）
+    // 通知落盘与 hook；headless 保持默认 NoopNotify，无 OS 通知
     kxen_core::notify_sink::spawn(state.clone());
-    // cron 与 Knowledge consolidation 使用独立时钟和任务。Provider 慢请求不得阻塞定时消息。
+    // cron / Knowledge consolidation 独立任务：Provider 慢请求不得阻塞定时消息
     kxen_core::background_jobs::spawn(state.clone());
-    // MCP servers：信任门 + 双 scope 加载后台启动（server 冷启动可至 60s，绝不阻塞启动路径）
+    // MCP 冷启动可至 60s，信任门与双 scope 加载必须后台，不阻塞启动路径
     {
         let state = state.clone();
         tokio::spawn(async move {
@@ -60,7 +60,7 @@ async fn run(mut cli: args::Cli) -> ExitCode {
             }
         });
     }
-    // 显式端口语义：占用即报错退出（不静默回退随机端口，书签化 URL 不能漂）
+    // 端口占用即失败退出：不静默回退随机端口，书签化 URL 不能漂
     let remote_access = !cli.bind.is_loopback() || !cli.allow_hosts.is_empty();
     let handle = match WebServer::start((cli.bind, cli.port), state.clone(), true, std::mem::take(&mut cli.allow_hosts)) {
         Ok(handle) => handle,

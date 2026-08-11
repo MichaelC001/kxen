@@ -13,9 +13,8 @@ struct TransactionPersistError {
     committed: bool,
 }
 
-/// Records the session receipt plus a durable Goal outbox, then settles the
-/// Goal idempotently. Every crash boundary leaves either no change or a
-/// replayable pending charge.
+/// 写入 session 回执与 durable Goal outbox，再幂等结算 Goal。
+/// 每个崩溃边界要么无变更，要么留下可重放的 pending charge。
 #[allow(clippy::too_many_arguments)]
 pub fn apply_metering_transaction(
     map: &mut HashMap<String, SessionUsage>,
@@ -121,8 +120,7 @@ where
     Ok(outcome)
 }
 
-/// Startup reconciliation runs before new Provider admission. Any unresolved
-/// Goal charge fails startup closed instead of letting budgets undercount.
+/// 启动 reconcile 先于新 Provider admission；未决 Goal 扣费 fail-closed，避免预算少计。
 pub fn reconcile_pending_goal_charges(map: &mut HashMap<String, SessionUsage>) -> Result<Vec<String>, String> {
     let pending = map
         .iter()

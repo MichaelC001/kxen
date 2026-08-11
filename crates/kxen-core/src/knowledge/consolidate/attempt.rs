@@ -164,8 +164,7 @@ pub(super) fn session_ids(root: &Path) -> Result<Vec<String>, String> {
     Ok(ids)
 }
 
-/// Atomically claims a session before an LLM request. An incomplete file is
-/// intentionally fail-closed: it proves a request may have started.
+/// LLM 请求前原子 claim session。不完整文件故意 fail-closed：证明请求可能已开始。
 pub(super) fn begin(root: &Path, attempt: &Attempt) -> Result<(), PersistFailure> {
     let path = path(root, &attempt.session_id).map_err(PersistFailure::before)?;
     prepare_root(root)?;

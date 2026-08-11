@@ -154,8 +154,7 @@ pub struct GoalMeteringResult {
     pub durability_warning: Option<String>,
 }
 
-/// Idempotent half of the session-usage <-> Goal settlement transaction.
-/// The operation receipt and counters share one atomic Goal JSON write.
+/// session-usage <-> Goal 结算事务的幂等半边；操作回执与计数共享一次原子 Goal JSON 写。
 pub fn charge_goal_usage_for_operation(
     goal_id: &str,
     operation_id: &str,

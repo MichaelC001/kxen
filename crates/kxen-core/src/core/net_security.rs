@@ -1,7 +1,6 @@
-//! Safe network labels, authenticated error redaction, and base URL joins.
+//! 安全网络标签、鉴权错误脱敏与 base URL 拼接。
 
-/// Renders only scheme, host, optional port, and path. Invalid input is never
-/// echoed because it may itself contain credentials.
+/// 只渲染 scheme/host/端口/path。非法输入不得原样回显（本身可能含凭证）。
 pub fn safe_endpoint_label(raw: &str) -> String {
     let Ok(mut url) = reqwest::Url::parse(raw) else { return "<invalid endpoint>".into() };
     if url.host_str().is_none() {
@@ -14,8 +13,7 @@ pub fn safe_endpoint_label(raw: &str) -> String {
     url.to_string()
 }
 
-/// Base endpoints are configuration identities, not request URLs. Credentials
-/// and per-request query/fragment state must be supplied through typed fields.
+/// base 端点是配置身份而非请求 URL；凭证与 per-request query/fragment 必须走类型化字段。
 pub fn validate_base_endpoint(raw: &str) -> Result<reqwest::Url, String> {
     let url = reqwest::Url::parse(raw).map_err(|_| "不是有效 URL".to_string())?;
     if !matches!(url.scheme(), "http" | "https") {
@@ -45,8 +43,7 @@ pub fn join_base_endpoint(base: &str, suffix: &str) -> Result<String, String> {
     Ok(url.to_string())
 }
 
-/// Removes caller-known secrets and common authenticated fields from a remote
-/// message. Callers should still prefer fixed local classifications.
+/// 从远端消息中剔除调用方已知密钥与常见鉴权字段；调用方仍应优先用本地固定错误类。
 pub fn sanitize_error_message(message: &str, secrets: &[&str]) -> String {
     let mut sanitized = message.replace(['\r', '\n'], " ");
     for secret in secrets.iter().copied().filter(|secret| !secret.is_empty()) {
@@ -59,8 +56,7 @@ pub fn sanitize_error_message(message: &str, secrets: &[&str]) -> String {
     crate::core::shared::normalize_whitespace(&sanitized)
 }
 
-/// `reqwest::Error` may include the full URL, including encoded query secrets.
-/// Preserve only a local error class and never its Display representation.
+/// `reqwest::Error` 可能含完整 URL（含编码后的 query 密钥）；只保留本地错误类，不用 Display。
 pub fn sanitize_authenticated_error(error: &reqwest::Error, _secrets: &[&str]) -> String {
     if error.is_timeout() {
         "request timed out".into()

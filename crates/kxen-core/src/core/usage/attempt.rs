@@ -10,8 +10,7 @@ pub enum ProviderAttemptPhase {
 }
 
 fn legacy_phase() -> ProviderAttemptPhase {
-    // Markers written before the phase field existed may already have crossed
-    // the network boundary, so recovery must settle them conservatively.
+    // 无 phase 字段的旧标记可能已越过网络边界，恢复时按 Started 保守结算。
     ProviderAttemptPhase::Started
 }
 
@@ -99,8 +98,7 @@ impl ProviderAttemptStore {
         self.persist_repaired(attempt)
     }
 
-    /// Durable boundary immediately before `CallPermit::start` and the first
-    /// network poll. This fsync is what lets recovery distinguish local exits.
+    /// `CallPermit::start` 与首次网络 poll 前的 durable 边界；fsync 让恢复能区分本地退出。
     pub fn mark_started(&self, attempt: &mut ProviderAttempt) -> Result<(), String> {
         if attempt.phase == ProviderAttemptPhase::Started {
             return Ok(());

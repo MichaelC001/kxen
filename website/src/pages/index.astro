@@ -12,9 +12,9 @@ const softwareApplicationLd = jsonLd({
   applicationCategory: "DeveloperApplication",
   description: homeDescription,
 });
-// 首页的 markdown 交替页（/index.md）：Agent 指令与 PageActions 需要显式传入。
+// 首页无 docs entry，markdownUrl 须显式传入给 Agent 指令。
 const markdownUrl = Astro.site ? new URL("/index.md", Astro.site).href : "/index.md";
-// 稳定 asset 名以 scripts/release-manifest.sh 为单一出处，永久链接解析到最新版本。
+// 稳定 asset 名以 scripts/release-manifest.sh 为单一出处。
 const dl = (asset: string) => `https://github.com/StringKe/kxen/releases/latest/download/${asset}`;
 ---
 
@@ -176,7 +176,7 @@ const dl = (asset: string) => `https://github.com/StringKe/kxen/releases/latest/
 </BaseLayout>
 
 <script>
-  // SSG 下的平台检测：把主按钮改写到当前平台的稳定 asset；失败时保持 Releases 页链接。
+  // SSG 产物上按 UA 改写主下载按钮；失败则保持 Releases 链接。
   const button = document.getElementById("download-primary");
   if (button instanceof HTMLAnchorElement) {
     const base = "https://github.com/StringKe/kxen/releases/latest/download/";

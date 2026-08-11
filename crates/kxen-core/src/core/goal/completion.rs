@@ -16,13 +16,13 @@ pub struct CompletionIdentity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CompletionPhase {
-    /// Goal identity is durable, but no Provider marker exists yet.
+    /// Goal 身份已 durable，尚无 Provider 标记。
     Claimed,
-    /// Provider marker is durable and the paid call may have started.
+    /// Provider 标记已 durable，付费调用可能已开始。
     Prepared,
-    /// Semantic outcome and usage are durable and can be reused.
+    /// 语义结果与 usage 已 durable，可复用。
     Scored,
-    /// A prepared call lost its semantic result. It must never be redispatched automatically.
+    /// prepared 调用丢了语义结果：禁止自动再派发。
     Unknown,
 }
 
@@ -210,8 +210,7 @@ impl Goal {
                 }
             }
         }
-        // A successful scored receipt is retained on Complete so concurrent
-        // and post-crash retries of the same identity return without repaying.
+        // Complete 上保留成功 scored 回执：并发与崩溃后同 identity 重试不重复付费。
         if self.status != GoalStatus::Complete {
             self.complete(evidence)?;
         }
@@ -283,8 +282,7 @@ impl Goal {
                 self.transit(GoalStatus::Active)?;
                 Ok(true)
             }
-            // Active scored results are reusable by default. An explicit
-            // adjust discards that identity so changed evidence may be judged.
+            // Active 的 scored 默认可复用；显式 adjust 丢弃该 identity，才能用新证据再评判。
             (GoalStatus::Active, Some(attempt)) if attempt.phase == CompletionPhase::Scored => {
                 self.acknowledged_unmetered_calls = self.acknowledged_unmetered_calls.saturating_add(self.unmetered_calls);
                 self.unmetered_calls = 0;

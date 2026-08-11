@@ -73,8 +73,7 @@ if (!signaturePacket.subarray(2, 10).equals(publicKeyPacket.subarray(2, 10))) {
   fail("Tauri updater signature key ID does not match the configured public key");
 }
 
-// 发布链会把 updater 产物改成稳定 asset 名,trusted comment 绑定的仍是 tauri 原始文件名;
-// 此时由调用方(release-manifest.sh 派生)显式传入原始名,缺省回退 archive  basename。
+// 发布链会改成稳定 asset 名，但 trusted comment 仍绑定 tauri 原始文件名；调用方需显式传入原始名，缺省回退 archive basename
 const expectedFile = expectedFileArg ?? basename(archivePath);
 if (!/^[A-Za-z0-9._+-]+$/.test(expectedFile)) {
   fail(`expected updater file name is not URL-safe: ${expectedFile}`);

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-/// Config headers must be safe to copy onto every MCP request. Transport-owned
-/// routing and framing headers cannot be overridden by user configuration.
+/// 配置头必须可安全复制到每条 MCP 请求；传输层路由/成帧头不可被用户配置覆盖。
 pub(crate) fn validate_headers(headers: &HashMap<String, String>) -> Result<Vec<(String, String)>, String> {
     let mut output = Vec::new();
     for (name, value) in headers {

@@ -205,5 +205,5 @@ export function onTopic(
   return client.stream(topics).on((payload, topic) => handler(topic ?? "", payload));
 }
 
-// kanban 看板 RPC 与类型独立成 kanban-ops.ts（守 350 行门禁），此处转口保持既有 import 路径不变。
+// kanban RPC/类型在 kanban-ops.ts（行数门禁）；此处 re-export 兼容既有 import。
 export * from "./kanban-ops";

@@ -1,14 +1,3 @@
-/**
- * Per-page `/<slug>/index.md` — the clean-markdown alternate for every
- * indexable entry of the primary `docs` collection.
- *
- * Non-primary collections (`api`, `blog`, …) mount under their own
- * URL namespace by convention; their `.md` alternates live at the
- * sibling route `pages/<collection>/[...slug]/index.md.ts`. This route
- * filters to the primary collection so multi-collection sites don't
- * generate conflicting `[...slug]` paths at root.
- */
-
 import {
   getIndexedEntries,
   renderEntryAsMarkdown,
@@ -30,10 +19,7 @@ export async function getStaticPaths() {
   return indexed
     .filter((item) => item.collection === PRIMARY_COLLECTION)
     .map((item) => ({
-      // Root index (`entry.id === "index"`) emits at `/index.md`; Astro's
-      // rest-segment treats `undefined` as "no segment" so the URL is
-      // `/index.md` rather than `/index/index.md`. Every other entry emits
-      // at `/<entry.id>/index.md` — the convention `<page>/index.md`.
+      // index 页 slug 用 undefined，避免 rest 段变成 /index/index.md。
       params: {
         slug: item.entry.id === "index" ? undefined : item.entry.id,
       },
@@ -46,8 +32,7 @@ export async function GET({ props }: { props: SlugProps }) {
   const { entry, title, description, markdownUrl, sourceUrl, version } = item;
   const data = (entry.data ?? {}) as Record<string, unknown>;
   const rawImage = data.socialImage;
-  // 与 [...slug].astro 的 og 约定一致：无显式 socialImage 时用每页生成的 og 卡片，
-  // config.socialImage 全站占位图会让所有 markdown 交替页共用同一张卡片。
+  // 无显式 socialImage 时用每页 og 卡片，避免 config.socialImage 全站共用一张。
   const socialImage =
     typeof rawImage === "string" && rawImage.length > 0 ? rawImage : `/og/${entry.id}.png`;
 
@@ -69,7 +54,6 @@ export async function GET({ props }: { props: SlugProps }) {
     "",
     markdown,
     "",
-    // 存在 .mdx 源页时指向源页 URL，否则指向本 .md 交替页自身。
     `Source: ${new URL(sourceUrl ?? markdownUrl, config.site).href}`,
     "",
   ].join("\n");

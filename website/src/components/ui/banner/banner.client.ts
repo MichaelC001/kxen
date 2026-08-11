@@ -1,8 +1,4 @@
-/**
- * Storage key: `nb-banner-dismissed-{id}`. Value is "0" for permanent,
- * or a future timestamp (ms) for time-limited dismissal.
- */
-
+// localStorage key: nb-banner-dismissed-{id}；"0" 永久关闭，否则为到期时间戳。
 import { mount } from "@cloudflare/nimbus-docs/client";
 
 const KEY_PREFIX = "nb-banner-dismissed-";
@@ -24,7 +20,7 @@ function initBanner(banner: HTMLElement): () => void {
       localStorage.removeItem(key);
     }
   } catch {
-    // localStorage unavailable; show without persistence.
+    // private mode 等：无持久化仍展示。
   }
 
   const btn = banner.querySelector<HTMLButtonElement>("[data-nb-banner-close]");
@@ -36,7 +32,7 @@ function initBanner(banner: HTMLElement): () => void {
     try {
       localStorage.setItem(key, value);
     } catch {
-      // localStorage unavailable; dismissal is session-only.
+      // 无法写入时仅本次会话生效。
     }
     banner.remove();
   }

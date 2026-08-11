@@ -1,6 +1,5 @@
 import { defineCollection } from "astro:content";
-// `z` re-exported from `astro:content` is deprecated; import it from
-// `astro/zod` (the pattern nimbus-docs' own schema helpers document).
+// astro:content 再导出的 z 已弃用，应从 astro/zod 导入（nimbus-docs schema 惯例）。
 import { z } from "astro/zod";
 import { docsCollection } from "@cloudflare/nimbus-docs/content";
 

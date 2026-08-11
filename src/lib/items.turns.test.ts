@@ -20,7 +20,7 @@ function iteration(stream: string, turn: number, parts: StoredPart[]): StoredMes
 }
 
 function call(name: string, output: string): StoredPart {
-  // output 全量内联不截断（10k 转录截断已移除）；id 为 provider call id，前端不消费但要兼容反序列化
+  // id 为 provider call id：前端不消费但反序列化需兼容；output 全量内联（用例用 20k 覆盖大输出）
   return { type: "tool_call", name, input: name, output, id: `call_${name}_1` };
 }
 

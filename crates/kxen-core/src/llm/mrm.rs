@@ -44,8 +44,7 @@ pub struct CallPermit {
 pub enum CallOutcome {
     Success,
     Failure,
-    /// The request started but the user or Goal cancelled observation. This
-    /// neither heals nor poisons Provider health.
+    /// 请求已开始但用户/Goal 取消了观察：既不愈合也不毒化 Provider 健康度。
     Neutral,
 }
 

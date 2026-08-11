@@ -1,9 +1,8 @@
-//! Agent tool path boundary.
+//! Agent 工具路径边界。
 //!
-//! Every model-controlled filesystem path is resolved here before it reaches a
-//! file, search, LSP, shell, or background-task implementation. The boundary is
-//! the canonical Workspace root plus explicit paths selected through the native
-//! picker for the current Session. Credential locations are never grantable.
+//! 模型控制的文件系统路径在进入 file/search/LSP/shell/后台任务实现前都经此解析。
+//! 边界 = 规范化 Workspace 根 + 当前 Session 经原生选择器显式选定的路径。
+//! 凭证位置永不可授权。
 
 use std::collections::HashSet;
 use std::io::{Read, Write};
@@ -147,9 +146,8 @@ fn sync_parent_dir(dir: &cap_std::fs::Dir, _absolute: &Path) -> std::io::Result<
     dir.try_clone()?.into_std_file().sync_all()
 }
 
-/// Resolve a model-provided path against a Workspace and enforce the host
-/// boundary. Nonexistent write targets are resolved through their nearest
-/// existing ancestor so `..` and symlink escapes cannot hide in new paths.
+/// 相对 Workspace 解析模型路径并强制主机边界。
+/// 尚不存在的写目标经最近已存在祖先解析，避免 `..`/软链逃逸藏在新路径里。
 pub fn resolve(input: &str, workspace: &Path, grants: &HashSet<PathBuf>) -> Result<ResolvedPath, String> {
     let workspace = canonicalize_existing(workspace).map_err(|e| format!("workspace path unavailable: {e}"))?;
     let expanded = expand_home(input)?;
@@ -178,8 +176,7 @@ pub fn resolve(input: &str, workspace: &Path, grants: &HashSet<PathBuf>) -> Resu
     Ok(ResolvedPath { absolute: candidate, authority_root, relative, authority: Arc::new(authority) })
 }
 
-/// Canonicalize a path that may not exist yet. Existing ancestors are resolved
-/// through the filesystem, then missing normal components are appended.
+/// 规范化可能尚不存在的路径：已存在祖先走文件系统，再追加缺失的普通组件。
 pub fn canonicalize_lenient(path: &Path) -> Result<PathBuf, String> {
     let absolute = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir().map_err(|e| e.to_string())?.join(path) };
     let normalized = lexical_normalize(&absolute)?;

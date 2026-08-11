@@ -1,7 +1,6 @@
 // cva 变体定义：组件样式变体的唯一来源（类型化）。
 import { cva } from "class-variance-authority";
 
-/** 发送/停止按钮。 */
 export const sendBtn = cva("send-btn", {
   variants: {
     intent: {
@@ -12,7 +11,6 @@ export const sendBtn = cva("send-btn", {
   defaultVariants: { intent: "primary" },
 });
 
-/** composer 整卡（默认 / 录音态）。 */
 export const composerCard = cva("composer-card", {
   variants: {
     state: {
@@ -23,7 +21,7 @@ export const composerCard = cva("composer-card", {
   defaultVariants: { state: "default" },
 });
 
-/** 状态点（tool 卡片 / 代理窗格 / 成员列表共用）。 */
+/** 状态点：tool 卡 / 代理窗格 / 成员列表共用，避免三处 tone 色漂移。 */
 export const statusDot = cva("inline-block w-1.5 h-1.5 rounded-full shrink-0", {
   variants: {
     tone: {
@@ -41,7 +39,6 @@ export const statusDot = cva("inline-block w-1.5 h-1.5 rounded-full shrink-0", {
   defaultVariants: { tone: "faint", pulse: false },
 });
 
-/** 徽标 chip（kind/role/section 标签）。 */
 export const badgeChip = cva("text-2xs px-1 rounded border border-[var(--border)]", {
   variants: {
     tone: {
@@ -53,7 +50,6 @@ export const badgeChip = cva("text-2xs px-1 rounded border border-[var(--border)
   defaultVariants: { tone: "faint" },
 });
 
-/** 弹窗条目。 */
 export const popupItem = cva("w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs", {
   variants: {
     selected: {

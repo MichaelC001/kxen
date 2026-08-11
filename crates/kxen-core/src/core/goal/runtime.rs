@@ -10,8 +10,7 @@ pub enum RuntimeBudget {
 }
 
 impl Goal {
-    /// Applies one auxiliary Provider charge exactly once. The receipt is
-    /// persisted in the same Goal JSON transaction as the budget counters.
+    /// 辅助 Provider 计费只落一次：回执与预算计数写在同一 Goal JSON 事务里。
     pub fn settle_metering_once(&mut self, operation_id: &str, tokens: Option<u64>) -> Result<bool, GoalError> {
         crate::core::ids::validate_id(operation_id).map_err(GoalError::InvalidId)?;
         if self.metering_receipts.iter().any(|receipt| receipt == operation_id) {
@@ -25,8 +24,7 @@ impl Goal {
         Ok(true)
     }
 
-    /// Once the durable Provider attempt has been removed, its replay receipt
-    /// no longer protects a reachable retry and can be compacted safely.
+    /// durable Provider attempt 已移除后，回执不再保护可达重试，可安全压缩。
     pub fn forget_metering_receipt(&mut self, operation_id: &str) -> Result<bool, GoalError> {
         crate::core::ids::validate_id(operation_id).map_err(GoalError::InvalidId)?;
         let before = self.metering_receipts.len();

@@ -103,7 +103,7 @@ fn fresh_detects_same_second_same_size_rewrite() {
     assert!(!tracker.fresh(&path), "同秒同大小改写也必须检出");
 }
 
-// ---------------- edit（迁移自 fs_tool.rs 体内测试） ----------------
+// ---------------- edit ----------------
 
 #[test]
 fn anchor_edit_roundtrip() {
@@ -249,7 +249,7 @@ fn write_fresh_file_no_backup() {
 
 // ---------------- delete / 大小上限 ----------------
 
-/// 迁移自 fs_tool.rs 体内测试（350 门禁）：delete 走回收站，文件从原位置消失。
+/// delete 走回收站：文件从原位置消失（350 门禁）。
 #[test]
 fn delete_moves_file_to_trash() {
     let dir = temp_workspace("delete");

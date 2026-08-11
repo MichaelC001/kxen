@@ -1,4 +1,4 @@
-// voice 事件按 session 过滤（P1-29）：只收本会话的 partial/error；
+// voice 事件按 session 过滤：只收本会话的 partial/error；
 // start/stop RPC 均携带 session_id，stop 只停本会话槽位。
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

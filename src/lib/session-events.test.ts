@@ -1,4 +1,4 @@
-// workflow phase 上屏文案（块三）：有 index/total 用 `phase i/N · title`，无则 `phase: xxx`
+// workflow phase 上屏文案：有 index/total 用 `phase i/N · title`，无则 `phase: xxx`
 import { createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { appendRawItem, applyStreamEvent } from "./session-events";

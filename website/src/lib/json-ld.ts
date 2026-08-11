@@ -1,8 +1,6 @@
 import type { HeadElement } from "@cloudflare/nimbus-docs/types";
 
-// JSON-LD 走 nimbus 的 head 合并通道（config.head + page head，NimbusHead
-// 以 set:html 渲染 content）。`<` 转义为 `\u003c`，防止内容中的
-// `</script>` 提前闭合标签。
+// JSON-LD 经 NimbusHead set:html 注入；`<` 转 `\u003c`，避免内容里的 `</script>` 提前闭标签。
 export function jsonLd(data: Record<string, unknown>): HeadElement {
   return {
     tag: "script",

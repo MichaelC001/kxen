@@ -98,10 +98,10 @@ pub struct Goal {
     /// 进入 Paused 的时刻（ms epoch）：resume 时结算进 paused_ms
     #[serde(default)]
     pub paused_at: Option<u64>,
-    /// Idempotency receipts for auxiliary Provider usage settlement.
+    /// 辅助 Provider 用量结算的幂等回执。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub metering_receipts: Vec<String>,
-    /// Durable semantic transaction for one paid completion judge call.
+    /// 一次付费 completion 评判的 durable 语义事务。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completion_attempt: Option<GoalCompletionAttempt>,
 }

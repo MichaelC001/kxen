@@ -1,10 +1,10 @@
-//! Loop detection, four layers, cheapest first:
-//! 1. exact      - same tool + identical arguments repeated consecutively
-//! 2. semantic   - same tool + normalized arguments (case/whitespace folded)
-//! 3. stagnation - a run of tool results that never change (no new information)
-//! 4. churn      - ABABAB oscillation (edit/revert cycles)
+//! 循环检测，四层由廉到贵：
+//! 1. exact - 同工具 + 完全相同参数连续重复
+//! 2. semantic - 同工具 + 归一化参数（大小写/空白折叠）
+//! 3. stagnation - 工具结果不变的连续窗口（无新信息）
+//! 4. churn - ABABAB 振荡（edit/revert 循环）
 //!
-//! A trigger stops the turn with a written reason instead of burning budget.
+//! 触发即停轮并写明原因，避免继续烧预算。
 
 use crate::core::shared::SharedStr;
 use std::collections::VecDeque;
@@ -52,7 +52,7 @@ impl LoopDetector {
         Self::default()
     }
 
-    /// Record one executed tool call. Returns Stop when a layer triggers.
+    /// 记录一次工具执行；任一层触发则返回 Stop。
     pub fn record(&mut self, name: &str, arguments: &str, result: &str) -> LoopVerdict {
         if self.records.len() == MAX_RECORDS {
             self.records.pop_front();
@@ -132,9 +132,8 @@ fn hash(s: &str) -> u64 {
     h.finish()
 }
 
-/// Fold case and whitespace so re-issued calls with cosmetic differences still count as the same call.
-/// Digits are intentionally NOT folded: sweeping numbered files (m1.rs, m2.rs, ...) is legitimate work,
-/// and a genuinely unproductive same-number retry is caught by the stagnation layer instead.
+/// 折叠大小写与空白，使仅表象差异的重复调用仍计为同一调用。
+/// 数字故意不折叠：扫 m1.rs/m2.rs 等是合法工作；同数字无产出重试由 stagnation 层兜。
 fn normalize(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut last_ws = false;

@@ -60,8 +60,7 @@ pub struct AgentContext {
     pub registry: Arc<TaskRegistry>,
     pub tracker: FileTracker,
     pub workdir: Arc<Path>,
-    /// Native-picker grants captured at run start. Credential paths remain
-    /// denied even when present in this set.
+    /// run 开始时捕获的原生选择器授权；凭证路径即使在集合中仍拒绝。
     pub path_grants: Arc<HashSet<PathBuf>>,
     pub model: ModelRef,
     /// 运行开始时的凭证快照。子代理只克隆 Arc；仅 OAuth refresh 时通过

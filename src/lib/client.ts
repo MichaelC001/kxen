@@ -237,7 +237,7 @@ function sendCall<T>(
       params: params ?? {},
       ...(options ? { options } : {}),
     };
-    // 原生 WebSocket.send 同步抛错（CLOSING/CLOSED 或缓冲溢出）：转 Promise reject 保持旧失败语义
+    // 原生 WebSocket.send 同步抛错（CLOSING/CLOSED 或缓冲溢出）：转 Promise reject 让调用方收到失败
     try {
       connection.ws.send(JSON.stringify(frame));
     } catch (error) {

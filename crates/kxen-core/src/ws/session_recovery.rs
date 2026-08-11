@@ -106,9 +106,7 @@ fn restore_runtime_and_complete(
                 }
                 return Err(format!("persist restored session usage: {error}"));
             }
-            // The restored snapshot is already visible. Keep the same-process
-            // memory truth and repair the parent directory before discarding
-            // the recovery bundle.
+            // 恢复快照已对进程可见：保留同进程内存真值，修好父目录后再丢 recovery bundle。
             kxen_core::core::usage::persist_committed(&usage)
                 .map_err(|repair| format!("restored session usage is visible but durability repair failed: {error}; {repair}"))?;
         }

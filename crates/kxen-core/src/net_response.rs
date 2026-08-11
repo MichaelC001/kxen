@@ -1,4 +1,4 @@
-//! Bounded decoding for responses controlled by remote services.
+//! 远端响应的有界解码：防恶意/失控服务体把内存打爆。
 
 use futures::StreamExt;
 use serde::de::DeserializeOwned;

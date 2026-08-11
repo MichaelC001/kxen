@@ -1,7 +1,4 @@
-// agent 改动面板的三态数据源：loading / err / 真空 可区分。
-// Dock「会话改动」分区经 createAgentDiff(activeSessionId) 接线本模块，按 status().state 三分渲染——
-// loading 出加载占位、err 出原因 + 「重试」按钮（onClick 调 reload）、ok 且 entries 空才显示真空。
-// 单文件 diff 走 fetchAgentDiffFile：失败原因走 flashErr，不吞成空文本（空文本与「无改动」同形）。
+// agent 改动三态（loading / err / 真空）可区分；单文件 diff 失败 flashErr，不吞成空串（与「无改动」同形）。
 import { createSignal } from "solid-js";
 import { createSeqGuard } from "./async-guard";
 import { client } from "./client";

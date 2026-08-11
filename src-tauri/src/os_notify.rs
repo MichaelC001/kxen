@@ -1,21 +1,17 @@
-//! OS 桌面通知（会话完成）+ 点击跳回来源会话。
-//! tauri-plugin-notification 桌面端只有发接口：action handler（register_action_types / on_action）是
-//! mobile-only，桌面 show() 拿不到点击回调。改走其底层 notify-rust 的 wait_for_action：
-//! 投递路径同一实现，多拿点击语义 -> 聚焦主窗口 + emit 事件由前端切会话。
+//! OS 桌面通知：会话完成点击回跳。
+//! tauri-plugin-notification 桌面端无 action handler（mobile-only），
+//! 故用底层 notify-rust::wait_for_action 拿点击语义。
 
 use kxen_core::app_state::NotifyTarget;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// 前端切会话事件（payload = session_id；App.tsx 经 lib/os-notify.ts 挂 listen）。
+/// payload = session_id。
 pub const CLICK_EVENT: &str = "os-notification-click";
 
-/// worker 等单个 job 的上限：wait_for_action 无超时口，通知挂通知中心无人理时 job 永不结束，
-/// 串行 worker 会被首条堵死、后续所有点击回跳无限期排队失效。超时丢弃放行后续；
-/// 被丢弃的等待线程杀不掉（notify-rust 无可中断等待口），仍挂在原通知上，用户日后点击照常回跳。
+/// wait_for_action 无超时口；超时丢弃放行队列。被丢弃线程杀不掉，用户日后点击仍回跳。
 const JOB_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
-/// wait_for_action 串行 dispatcher：单 worker 依次派发各通知的点击等待，
-/// job 跑在各自 detached 线程（进程退出即收，不 join 不阻塞退出）。
+/// 串行派发 wait_for_action；job 在 detached 线程跑，进程退出即收。
 struct Dispatcher {
     tx: std::sync::mpsc::Sender<WaitJob>,
 }
@@ -45,17 +41,15 @@ impl Dispatcher {
     }
 
     fn enqueue(&self, job: WaitJob) {
-        // 点击回跳本就 best-effort：worker 只在进程退出时消失，send 失败静默丢弃
+        // best-effort：worker 随进程退出，send 失败静默丢弃
         let _ = self.tx.send(job);
     }
 }
 
-/// 惰性启动：首发通知才拉起 worker 线程，无通知的进程零线程开销。
+/// 首发通知才拉起 worker，无通知进程零线程开销。
 static DISPATCHER: std::sync::LazyLock<Dispatcher> = std::sync::LazyLock::new(Dispatcher::new);
 
-/// 桌面通知判定（与前端 delta.ts 同口径）：只发主会话非前台的 done 帧。
-/// subagent/teammate 终态帧带 agent 标记（与主会话同 session_id 同 bus），
-/// 不过滤会把子代理完成刷成用户会话的 OS 通知。
+/// 只发主会话非前台 done；subagent/teammate 带 agent 标记，不过滤会刷成用户会话通知。
 pub fn should_notify_done(payload: &serde_json::Value, foreground_session: &str) -> bool {
     if payload.get("kind").and_then(|k| k.as_str()) != Some("done") {
         return false;
@@ -67,8 +61,7 @@ pub fn should_notify_done(payload: &serde_json::Value, foreground_session: &str)
     !sid.is_empty() && sid != foreground_session
 }
 
-/// 桌面 NotifyTarget：聚焦主窗口 + emit CLICK_EVENT 由前端切会话。
-/// 窗口 handle 只在 bin 可得，lib 侧 AppState 默认 no-op（os_notify 说明为什么不用插件 API）。
+/// 聚焦主窗口并 emit 点击事件；窗口 handle 仅 bin 可得，lib 默认 no-op。
 struct DesktopNotify {
     app: AppHandle,
 }
@@ -84,19 +77,17 @@ impl NotifyTarget for DesktopNotify {
     }
 }
 
-/// AppState.notify 的桌面实现（bin 在 setup 注入）。
 pub fn desktop_target(app: &AppHandle) -> std::sync::Arc<dyn NotifyTarget> {
     std::sync::Arc::new(DesktopNotify { app: app.clone() })
 }
 
-/// 发「kxen 会话完成」桌面通知；点击通知体 -> 经 NotifyTarget 聚焦主窗口 + 跳回来源会话。
 pub fn notify_session_done(target: std::sync::Arc<dyn NotifyTarget>, session_id: &str, title: &str) {
     let Ok(handle) = notify_rust::Notification::new().summary("kxen 会话完成").body(title).show() else {
         tracing::warn!("desktop notification failed");
         return;
     };
     let sid = session_id.to_string();
-    // wait_for_action 阻塞到用户点击/关闭：交给单线程 dispatcher 串行等待，不占 async runtime worker。
+    // wait_for_action 阻塞至点击/关闭：丢给串行 dispatcher，不占 async runtime worker
     DISPATCHER.enqueue(Box::new(move || {
         handle.wait_for_action(|action| {
             // "default" = 点击通知体；"__closed"/自定义 action 不跳
@@ -122,10 +113,8 @@ mod tests {
 
     #[test]
     fn agent_tagged_done_frames_never_notify() {
-        // subagent 终态帧（subagent.rs 注入 agent 标记，与主会话同 session_id）
         let sub = json!({ "kind": "done", "session_id": "s1", "agent": "thinking-1" });
         assert!(!should_notify_done(&sub, "s2"));
-        // teammate 终态帧（member_loop.rs 同款注入）
         let team = json!({ "kind": "done", "session_id": "s1", "agent": "teammate-foo" });
         assert!(!should_notify_done(&team, "s2"));
     }
@@ -136,8 +125,6 @@ mod tests {
         assert!(!should_notify_done(&json!({ "kind": "done" }), "s2"));
     }
 
-    /// dispatcher 单 worker 串行：后一个 job 必须等前一个完成才启动（FIFO 顺序 + 无并发重叠）。
-    /// 纯数据路径，不触发真实系统通知。
     #[test]
     fn dispatcher_runs_jobs_serially_in_fifo_order() {
         use super::Dispatcher;
@@ -153,7 +140,7 @@ mod tests {
             let log = log.clone();
             let done = done_tx.clone();
             d.enqueue(Box::new(move || {
-                // 并发执行会撞 active 标志：单 worker 串行时 swap 恒见 false
+                // 并发会撞 active：串行时 swap 恒见 false
                 assert!(!active.swap(true, Ordering::SeqCst), "job {i} 与前一个 job 并发重叠");
                 std::thread::sleep(std::time::Duration::from_millis(10));
                 log.lock().unwrap().push(i);
@@ -167,8 +154,6 @@ mod tests {
         assert_eq!(*log.lock().unwrap(), vec![0, 1, 2], "FIFO 串行执行顺序");
     }
 
-    /// 阻塞 job（通知挂通知中心无人理，wait_for_action 永不返回）不得拖死后续 job：
-    /// worker 超时丢弃后队列必须继续推进。
     #[test]
     fn blocked_job_is_dropped_after_timeout_and_queue_moves_on() {
         use super::Dispatcher;
@@ -177,7 +162,7 @@ mod tests {
         let d = Dispatcher::with_timeout(Duration::from_millis(50));
         let (block_tx, block_rx) = std::sync::mpsc::channel::<()>();
         d.enqueue(Box::new(move || {
-            // 模拟永不结束的 wait_for_action；测试末尾放行，不给后续用例留挂死线程
+            // 模拟永不结束的 wait_for_action；末尾放行，避免挂死线程污染后续用例
             let _ = block_rx.recv();
         }));
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();

@@ -16,8 +16,7 @@ pub(super) struct InboxEntry {
     pub(super) transcript_id: String,
     #[serde(default)]
     pub(super) at: u64,
-    /// Explicit delivery IDs may be retried after an ack while a second durable store finalizes.
-    /// Generated one-shot messages do not need an ack tombstone and must not grow the mailbox.
+    /// 显式 delivery ID 可能在 ack 后、第二 durable store 定稿前重试；生成型一次性消息无需 ack 墓碑，不得撑大邮箱。
     #[serde(default)]
     retain_ack: bool,
 }

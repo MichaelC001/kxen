@@ -1,5 +1,4 @@
-//! Per-session usage ledger: known token lower bounds, UNKNOWN calls, and
-//! idempotent receipts for auxiliary Provider settlement.
+//! Per-session 用量账本：已知 token 下界、UNKNOWN 调用，以及辅助 Provider 结算的幂等回执。
 
 use std::collections::HashMap;
 
@@ -25,11 +24,10 @@ pub struct SessionUsage {
     pub output: u64,
     #[serde(default)]
     pub unmetered_calls: u64,
-    /// Receipts make replay after a partial multi-ledger commit idempotent.
+    /// 多账本部分提交后的回放靠回执幂等。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub metering_receipts: Vec<String>,
-    /// Goal work is stored with the session increment and removed only after
-    /// the matching Goal receipt is durable.
+    /// Goal 扣费与 session 增量同存；仅在对应 Goal 回执 durable 后移除。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_goal_charges: Vec<PendingGoalCharge>,
 }
@@ -38,7 +36,7 @@ pub struct SessionUsage {
 pub struct PendingGoalCharge {
     pub operation_id: String,
     pub goal_id: String,
-    /// None means the Provider started but did not report usage.
+    /// None = Provider 已开始但未回报 usage。
     pub tokens: Option<u64>,
 }
 
@@ -52,7 +50,7 @@ impl SessionUsage {
         self.unmetered_calls = self.unmetered_calls.saturating_add(1);
     }
 
-    /// Provider completeness only; RPC completeness also checks storage.
+    /// 仅 Provider 完整度；RPC 完整度还要查存储。
     pub fn usage_complete(&self) -> bool {
         self.unmetered_calls == 0
     }
@@ -131,9 +129,8 @@ impl<'de> serde::Deserialize<'de> for SessionUsage {
     }
 }
 
-/// Settle one durable Provider claim into the session receipt and Goal outbox,
-/// then remove the claim. A crash before cleanup simply replays the same
-/// operation id, so both ledgers remain idempotent.
+/// 把一条 durable Provider claim 结算进 session 回执与 Goal outbox，再移除 claim。
+/// 清理前崩溃按同一 operation id 重放，双账本保持幂等。
 pub fn settle_provider_attempt(
     store: &ProviderAttemptStore,
     map: &mut HashMap<String, SessionUsage>,
@@ -196,9 +193,8 @@ pub(crate) fn settle_provider_attempt_to(
     Ok(outcome)
 }
 
-/// The semantic Goal record is written before Provider settlement. If the
-/// process stops before the Provider marker is updated, recover the known
-/// usage from the matching scored operation instead of degrading it to UNKNOWN.
+/// 语义 Goal 记录先于 Provider 结算写入。若进程在 Provider 标记更新前停掉，
+/// 从匹配的 scored 操作恢复已知 usage，不得降成 UNKNOWN。
 fn hydrate_completion_usage_in(
     store: &ProviderAttemptStore,
     attempt: &ProviderAttempt,
@@ -225,22 +221,19 @@ fn hydrate_completion_usage_in(
     Ok(hydrated)
 }
 
-/// Startup barrier for requests that may have crossed the Provider boundary.
-/// Prepared claims are discarded; Started and legacy claims are settled.
+/// 启动屏障：可能已越过 Provider 边界的请求。Prepared 丢弃；Started 与旧 claim 结算。
 pub fn reconcile_provider_attempts(map: &mut HashMap<String, SessionUsage>) -> Result<Vec<String>, String> {
     reconcile_provider_attempts_in(&ProviderAttemptStore::global(), map)
 }
 
-/// Startup checkpoint after pending Goal charges and Provider attempts have
-/// both reconciled. With no reachable replay marker, historical receipts are
-/// redundant and can be removed in one bounded write per ledger.
+/// pending Goal 扣费与 Provider attempt 都 reconcile 后的启动压缩点。
+/// 无可达回放标记时历史回执冗余，每个账本一次有界写即可清掉。
 pub fn compact_closed_metering_receipts(map: &mut HashMap<String, SessionUsage>) -> Result<Vec<String>, String> {
     compact_closed_metering_receipts_preserving(map, &std::collections::HashSet::new())
 }
 
-/// Removes receipts that have no remaining replay marker while retaining
-/// operations owned by another durable subsystem, such as Knowledge
-/// consolidation. Retained receipts keep a crash replay idempotent.
+/// 清除无剩余回放标记的回执；Knowledge consolidation 等其它 durable 子系统持有的 operation 保留，
+/// 以免崩溃回放失去幂等。
 pub fn compact_closed_metering_receipts_preserving(
     map: &mut HashMap<String, SessionUsage>,
     retained_operation_ids: &std::collections::HashSet<String>,
@@ -279,8 +272,7 @@ pub fn compact_closed_metering_receipts_preserving(
     Ok(warnings)
 }
 
-/// Deletion barrier: settle only one session's in-flight Provider claims
-/// before its Goal and usage ledgers are removed.
+/// 删除屏障：只结算该 session 在飞 Provider claim，再移除其 Goal/usage 账本。
 pub fn reconcile_provider_attempts_for_session(map: &mut HashMap<String, SessionUsage>, session_id: &str) -> Result<Vec<String>, String> {
     crate::core::ids::validate_id(session_id)?;
     reconcile_provider_attempts_for_session_in(&ProviderAttemptStore::global(), map, session_id)

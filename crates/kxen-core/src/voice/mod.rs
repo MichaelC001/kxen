@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 pub struct EngineStatus {
     pub id: String,
     pub label: String,
-    /// ready | needs_auth | unconfigured | unavailable
+    /// 状态字面量：ready | needs_auth | unconfigured | unavailable
     pub status: String,
     pub detail: String,
 }

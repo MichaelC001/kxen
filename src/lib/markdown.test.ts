@@ -1,5 +1,4 @@
-// Markdown sanitizer 实测（报告 P1-16）：marked 原样保留 raw HTML，
-// 写 innerHTML 前必须过 DOMPurify——注入面清除 + 正常高亮结构保留。
+// Markdown sanitizer：marked 原样保留 raw HTML，写 innerHTML 前必须过 DOMPurify——注入面清除 + 正常高亮结构保留。
 import { describe, expect, it } from "vitest";
 import { initMarkdown, renderMarkdown, SHIKI_LANGS } from "./markdown";
 

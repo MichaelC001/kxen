@@ -12,9 +12,8 @@ pub fn retryable(err: &str) -> bool {
     e.contains("429") || e.contains("rate limit") || e.contains("rate_limit")
 }
 
-/// An explicit HTTP rejection with no streamed content or usage is a known
-/// zero-cost result. Ambiguous transport and 5xx failures are deliberately
-/// excluded because the Provider may already have accepted and billed them.
+/// 无流式内容与 usage 的显式 HTTP 拒绝是已知零成本结果。
+/// 歧义传输与 5xx 故意排除：Provider 可能已接受并计费。
 pub fn known_zero_rejection(err: &str) -> bool {
     retryable(err) || crate::auth::refresh::is_auth_failure(err)
 }

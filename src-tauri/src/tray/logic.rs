@@ -1,8 +1,7 @@
-//! tray 的纯状态映射与 config 持久化：GUI 之外的可单测部分。
+//! tray 纯状态映射与 config 持久化（可单测）。
 
 use std::path::{Path, PathBuf};
 
-/// tray 左键默认动作（config `tray.default_open` 的解析结果）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DefaultOpen {
     Window,
@@ -10,7 +9,7 @@ pub enum DefaultOpen {
 }
 
 impl DefaultOpen {
-    /// config 加载已校验取值（window | browser）；未知值回退 window 防御旧版本写盘。
+    /// 未知值回退 window，防御旧版本写盘。
     pub fn parse(value: &str) -> Self {
         match value {
             "browser" => Self::Browser,
@@ -26,7 +25,6 @@ impl DefaultOpen {
     }
 }
 
-/// 带 token 的浏览器访问 URL；服务未启动（port 0）时 None。
 pub fn access_url(bind_host: &str, port: u16, token: &str) -> Option<String> {
     if port == 0 {
         return None;
@@ -36,12 +34,10 @@ pub fn access_url(bind_host: &str, port: u16, token: &str) -> Option<String> {
     Some(format!("http://{host}:{port}/?token={token}"))
 }
 
-/// 「在浏览器中打开」「复制访问链接」的可用条件：浏览器访问开启且服务在跑。
 pub fn browser_actions_enabled(web_enabled: bool, url_available: bool) -> bool {
     web_enabled && url_available
 }
 
-/// 浏览器访问开关项 text（带实际端口；菜单只改 text/enabled/checked，绝不 rebuild）。
 pub fn web_access_label(bind_host: &str, port: u16) -> String {
     if port == 0 { "浏览器访问（服务未启动）".to_string() } else { format!("浏览器访问 ({bind_host}:{port})") }
 }
@@ -50,8 +46,7 @@ pub fn user_config_path() -> PathBuf {
     kxen_core::core::paths::config_dir().join("config.toml")
 }
 
-/// 用户 config.toml 的 read-modify-write（写前整文档校验 + tmp/rename 原子替换）。
-/// 与 ws/ops_config 同型；其入口 pub(super) 于 ws 模块，bin 侧不可达，此为最小复刻。
+/// 写前整文档校验 + tmp/rename 原子替换。
 pub fn persist_user_config(mutate: impl FnOnce(&mut toml::Table)) -> Result<(), String> {
     persist_config_at(&user_config_path(), mutate)
 }
@@ -81,12 +76,12 @@ fn persist_config_at(path: &Path, mutate: impl FnOnce(&mut toml::Table)) -> Resu
     Ok(())
 }
 
-/// 写 `[section] key = bool`（表不存在或类型被污染时重建）。
+/// 写 section.key；表不存在或类型被污染时重建。
 pub fn set_bool(doc: &mut toml::Table, section: &str, key: &str, value: bool) {
     section_table(doc, section).insert(key.into(), toml::Value::Boolean(value));
 }
 
-/// 写 `[section] key = string`（表不存在或类型被污染时重建）。
+/// 写 section.key；表不存在或类型被污染时重建。
 pub fn set_str(doc: &mut toml::Table, section: &str, key: &str, value: &str) {
     section_table(doc, section).insert(key.into(), toml::Value::String(value.into()));
 }

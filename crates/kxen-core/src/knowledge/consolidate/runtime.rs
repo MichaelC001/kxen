@@ -23,9 +23,8 @@ pub struct SessionRoute {
     pub model: crate::llm::ModelRef,
 }
 
-/// Startup receipt compaction must retain every operation that still has a
-/// durable Knowledge replay marker. Otherwise a crash between usage commit and
-/// `metering_ack` commit could make recovery charge the same call twice.
+/// 启动回执压缩必须保留仍有 durable Knowledge 回放标记的 operation。
+/// 否则 usage commit 与 `metering_ack` commit 之间崩溃，恢复会把同一调用计两次。
 pub fn pending_metering_operation_ids() -> Result<std::collections::HashSet<String>, String> {
     let root = super::attempt::root();
     let mut operation_ids = std::collections::HashSet::new();

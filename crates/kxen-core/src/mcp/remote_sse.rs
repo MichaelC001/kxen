@@ -239,8 +239,7 @@ async fn send_frame(
     auth: Option<&Arc<BearerAuth>>,
     frame: &Value,
 ) -> Result<reqwest::StatusCode, String> {
-    // reqwest owns the request URL, so this cheap structural clone is required
-    // at the API boundary and avoids reparsing `url.as_str()`.
+    // reqwest 持有请求 URL：API 边界处做结构体 clone，避免再 parse `url.as_str()`。
     let send = decorate_request(client.post(url.clone()), headers, auth).json(frame).send();
     tokio::time::timeout(POST_TIMEOUT, send)
         .await

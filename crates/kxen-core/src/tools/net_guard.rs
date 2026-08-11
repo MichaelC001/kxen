@@ -94,13 +94,12 @@ fn validate_resolved(host: &str, addrs: &[SocketAddr], allow_loopback: bool) -> 
     Ok(())
 }
 
-/// SSRF-sensitive clients must not delegate target DNS to an environment proxy,
-/// otherwise the proxy could resolve an attacker-controlled host to a private address.
+/// SSRF 敏感客户端不得把目标 DNS 交给环境代理，否则代理可把攻击者 host 解到私网地址。
 pub(crate) fn guarded_client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder().no_proxy().dns_resolver(GuardedResolver::strict())
 }
 
-/// Only for endpoints already proven to be an explicit localhost/loopback user setting.
+/// 仅用于已证明是用户显式 localhost/loopback 设置的端点。
 pub(crate) fn loopback_client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder().no_proxy().dns_resolver(GuardedResolver::allowing_loopback())
 }

@@ -168,9 +168,8 @@ fn body_length(headers: &[(&str, &str)]) -> Result<u64, String> {
         return Err(format!("proxy request body exceeds {MAX_BODY_BYTES} byte limit"));
     }
     if headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("transfer-encoding")) {
-        // Blindly tunneling chunked bodies would let a second absolute-form request bypass per-request
-        // target validation. Chrome's normal fetch/upload path emits Content-Length; streaming request
-        // bodies fail closed instead of weakening the one-target-per-connection invariant.
+        // 盲转 chunked 体会让第二条 absolute-form 请求绕过 per-request 目标校验。
+        // Chrome 正常 fetch/upload 发 Content-Length；流式请求体 fail-closed，不削弱一连接一目标不变量。
         return Err("browser proxy requires Content-Length for request bodies".into());
     }
     Ok(length)

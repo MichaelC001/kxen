@@ -2,8 +2,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt};
 
 pub(super) const LIMIT: usize = 1024 * 1024;
 
-/// Reads one newline-delimited JSON frame without allowing AsyncBufReadExt::lines
-/// to grow an attacker-controlled String without bound.
+/// 读一行 JSON 帧：不用 AsyncBufReadExt::lines，避免攻击者控制的 String 无界增长。
 pub(super) async fn next(reader: &mut (impl AsyncBufRead + Unpin), line: &mut Vec<u8>) -> Result<bool, String> {
     line.clear();
     loop {

@@ -1,8 +1,6 @@
 use super::super::context::AgentContext;
 
-/// Run-scoped Goal snapshot. Directory mtime invalidates the cached Goal so
-/// pause, resume, and budget changes are observed without scanning every file
-/// at each stream poll.
+/// run 作用域 Goal 快照。目录 mtime 使缓存失效，流式 poll 时观察 pause/resume/预算变化而无需扫全量文件。
 #[derive(Default)]
 pub(crate) struct GoalWallCache {
     dir_mtime: Option<std::time::SystemTime>,

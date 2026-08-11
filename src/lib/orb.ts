@@ -58,7 +58,7 @@ function radiusScale(size: number, pow: number): number {
   return (size / 300) ** pow;
 }
 
-// --- thinking：倾斜轨道上的粒子（原版 orbits 工作态，无核） ---
+// --- thinking：倾斜轨道上的粒子（orbits 工作态，无核） ---
 
 function drawOrbits(ctx: CanvasRenderingContext2D, size: number, t: number, dark: boolean): void {
   const cx = size / 2;
@@ -121,7 +121,7 @@ function drawOrbits(ctx: CanvasRenderingContext2D, size: number, t: number, dark
   paint(ctx, dots, dark);
 }
 
-// --- searching：扫描子午线扫过点阵球（原版 globe） ---
+// --- searching：扫描子午线扫过点阵球（globe） ---
 
 function drawGlobe(ctx: CanvasRenderingContext2D, size: number, t: number, dark: boolean): void {
   const spin = 0.5;
@@ -161,7 +161,7 @@ function drawGlobe(ctx: CanvasRenderingContext2D, size: number, t: number, dark:
   paint(ctx, dots, dark);
 }
 
-// --- composing：多股波浪绶带（原版 ribbon，冻结 3D 翻滚） ---
+// --- composing：多股波浪绶带（ribbon，冻结 3D 翻滚） ---
 
 function fibDir(i: number, n: number): [number, number, number] {
   const golden = Math.PI * (3 - Math.sqrt(5));
@@ -255,7 +255,7 @@ const DRAW: Record<OrbState, ModeDraw> = {
   error: drawError,
 };
 
-/** 速度调参（原版 presets 值）。 */
+/** 速度调参（thinking-orbs presets）。 */
 const SPEED: Record<OrbState, Record<OrbSize, number>> = {
   thinking: { 64: 1.885, 20: 3.9 },
   searching: { 64: 2.015, 20: 2.665 },

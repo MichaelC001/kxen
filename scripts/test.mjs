@@ -62,7 +62,7 @@ function run(command, args) {
     cwd: root,
     env: process.env,
     stdio: "inherit",
-    // Windows 上 pnpm 是 pnpm.cmd,不带 shell 的 spawnSync 无法解析,会 ENOENT 静默失败
+    // Windows 上 pnpm 是 pnpm.cmd：不带 shell 的 spawnSync 会 ENOENT 静默失败
     shell: process.platform === "win32",
   });
   if (result.status !== 0) {

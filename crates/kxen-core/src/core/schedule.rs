@@ -299,9 +299,8 @@ pub fn ack_dispatch(id: &str, dispatch_id: &str, now: u64) -> Result<bool, Strin
     Ok(true)
 }
 
-/// Queue consumers must not execute a schedule-backed delivery until the matching
-/// schedule claim is durably acknowledged. A blocked store is also unsafe: the
-/// visible in-memory ack may disappear after a crash when its parent sync failed.
+/// schedule 投递须等对应 claim durable 确认后才能执行。store 封锁时同样不安全：
+/// 父目录 sync 失败时，崩溃后可见的内存 ack 可能消失。
 pub fn ensure_delivery_admitted(id: &str, dispatch_id: &str) -> Result<(), String> {
     crate::core::ids::validate_id(id)?;
     crate::core::ids::validate_id(dispatch_id)?;

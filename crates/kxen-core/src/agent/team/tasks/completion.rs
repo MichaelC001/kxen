@@ -87,8 +87,7 @@ pub(super) fn settle_completion(
         return Ok(());
     };
 
-    // The hook has already returned, so an unpersisted transition must not leave a live-looking
-    // Completing task with no active hook. Retain the attempt for explicit lead resolution.
+    // hook 已返回：未持久化的迁移不得留下「无活跃 hook 却仍像 Completing」的任务；保留 attempt 供 lead 显式裁决。
     match block_completion_attempt(state, who, id, attempt_id) {
         Ok(()) => Err(format!("persist {status:?} failed: {error}; task #{id} is blocked for explicit resolution")),
         Err(recovery) => Err(format!("persist {status:?} failed: {error}; task #{id} block recovery failed: {recovery}")),
@@ -106,8 +105,8 @@ fn block_completion_attempt(state: &Arc<TeamState>, who: &str, id: u64, attempt_
     })
 }
 
-/// A cancelled member may drop the async completion hook after its durable claim. The hook
-/// outcome is then unknown, so retain the attempt and require explicit lead resolution.
+/// 被取消的 member 可能在 durable claim 之后丢掉异步 completion hook；outcome 未知，
+/// 保留 attempt 并要求 lead 显式裁决。
 pub(in crate::agent::team) fn block_member_completing_tasks(state: &Arc<TeamState>, who: &str) -> Result<Vec<u64>, String> {
     if !crate::core::shared::lock(&state.tasks)
         .iter()

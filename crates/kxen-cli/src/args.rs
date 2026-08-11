@@ -54,7 +54,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Parsed, String> {
             "--port" => {
                 let value = value_of(&mut args, "--port")?;
                 port = value.parse().map_err(|_| format!("--port expects a u16 port, got {value:?}"))?;
-                // 显式端口语义：0 = 随机端口，书签化 URL 会漂，与静默回退一样必须拒绝
+                // port 0 会随机绑定，书签化 URL 会漂，与静默回退一样必须拒绝
                 if port == 0 {
                     return Err("--port 0 would bind a random port; pick an explicit port".to_string());
                 }

@@ -17,7 +17,7 @@ pub struct CriterionScore {
 
 pub struct CompletionAttempt {
     pub result: Result<Vec<CriterionScore>, String>,
-    /// True only after managed admission crossed the Provider boundary.
+    /// 仅在 managed admission 越过 Provider 边界后为 true。
     pub request_started: bool,
     pub usage: Option<crate::llm::managed::TokenUsage>,
     pub unmetered_call: bool,
@@ -58,8 +58,7 @@ pub fn split_criteria(criteria: &str) -> Vec<String> {
         .collect()
 }
 
-/// Criterion identity comes only from the local contract. The model returns
-/// one-based indices; duplicates, omissions, and reordering fail closed.
+/// 判据 identity 只来自本地 contract。模型返回 1-based 下标；重复/遗漏/乱序 fail-closed。
 pub fn parse_scores(text: &str, criteria: &[String]) -> Option<Vec<CriterionScore>> {
     let start = text.find('[')?;
     let end = text.rfind(']')?;

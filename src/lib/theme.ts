@@ -35,7 +35,6 @@ function applyCurrent(): void {
   setThemeSignal(current());
 }
 
-/** 三态设置（auto/dark/light）。 */
 export function setMode(m: ThemeMode): void {
   try {
     localStorage.setItem(MODE_KEY, m);
@@ -46,12 +45,10 @@ export function setMode(m: ThemeMode): void {
   applyCurrent();
 }
 
-// 系统主题变化时 auto 模式实时跟随
 media.addEventListener("change", () => {
   if (mode() === "auto") applyCurrent();
 });
 
-/** 手动指定明暗（脱离 auto）。 */
 export function applyTheme(t: Theme): void {
   setMode(t);
 }
@@ -60,7 +57,7 @@ interface ViewTransition {
   ready: Promise<void>;
 }
 
-/** 切换主题：支持 View Transition 时从点击处圆形展开，否则瞬时切换。 */
+/** 支持 View Transition 时从点击处圆形展开，否则瞬时切换。 */
 export function toggleTheme(x?: number, y?: number): void {
   const next: Theme = theme() === "dark" ? "light" : "dark";
   const start = (

@@ -1,7 +1,5 @@
-//! 不经 tauri 的端到端测试：WebServer 起服 -> 原生 WS 客户端带 token 握手 -> heartbeat RPC 回环；
-//! 错误 token / Host 不在白名单 -> 403；`--allow-host` 追加的 Host -> 101。
-//! AppState 依赖 data_dir（auth/goals/sessions + 单实例锁），fork 子进程 + 覆盖 HOME/KXEN_DATA_DIR 隔离，
-//! 与 ws 层 AppState 测试同规约（env 是进程全局，父进程并行测试不能写）。
+//! 无 tauri 的 WebServer 端到端回环测试。
+//! AppState 依赖 data_dir 与单实例锁；env 是进程全局，故 fork 子进程并覆盖 HOME/KXEN_DATA_DIR 隔离（与 ws 层同规约，父进程并行测试不能写）。
 
 use std::sync::Arc;
 
@@ -35,7 +33,6 @@ async fn scenario() {
     let handle = WebServer::start((loopback, 0), state.clone(), true, vec!["myhost.tailnet".to_string()]).unwrap();
     let port = handle.port();
 
-    // 正确 token：升级成功，heartbeat RPC 回环
     let url = format!("ws://127.0.0.1:{port}/ws?token={token}");
     let (mut socket, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
     socket
@@ -48,24 +45,22 @@ async fn scenario() {
     assert_eq!(value["result"]["alive"], true, "heartbeat 应回 alive: {value}");
     drop(socket);
 
-    // 错误 token -> 403
     let error = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws?token=wrong")).await.unwrap_err();
     match error {
         tokio_tungstenite::tungstenite::Error::Http(response) => assert_eq!(response.status().as_u16(), 403),
         other => panic!("错误 token 应被 HTTP 403 拒绝: {other}"),
     }
 
-    // Host 不在白名单 -> 403；--allow-host 追加项 -> 101
     assert_eq!(raw_upgrade_status(port, &token, "evil.com:1").await, 403);
     assert_eq!(raw_upgrade_status(port, &token, &format!("myhost.tailnet:{port}")).await, 101);
 
-    // dist 静态托管：GET / 回 index.html（token 由前端 JS 从 URL 读，静态层不校验）
+    // 静态层不校验 token（由前端从 URL 读取）
     assert_eq!(raw_get_status(port, "/").await, 200);
 
     handle.shutdown();
 }
 
-/// 裸 TCP 发 WebSocket upgrade 请求（Host 可控），回读 HTTP 状态码。
+/// 裸 TCP 发 upgrade，以便控制 Host 头并读回 HTTP 状态码。
 async fn raw_upgrade_status(port: u16, token: &str, host: &str) -> u16 {
     let request = format!(
         "GET /ws?token={token} HTTP/1.1\r\nHost: {host}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"

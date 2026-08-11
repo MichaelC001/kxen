@@ -6,7 +6,7 @@ fn setup_store() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         let path = std::env::temp_dir().join(format!("kxen-schedule-unit-{}.json", std::process::id()));
-        // SAFETY: schedule tests serialize every access with TEST_LOCK and set this before first load.
+        // SAFETY: schedule 测试用 TEST_LOCK 串行访问，并在首次 load 前设定路径。
         unsafe { std::env::set_var("KXEN_SCHEDULE_FILE", path) };
     });
 }

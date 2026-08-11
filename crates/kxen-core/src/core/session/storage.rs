@@ -58,9 +58,8 @@ impl std::error::Error for CommitFailure {
     }
 }
 
-/// Repair a message append that returned `PostCommit` by verifying the exact visible
-/// message, syncing the JSONL, repairing metadata, and syncing the parent directory.
-/// The matching in-memory block is cleared only after every durability step succeeds.
+/// 修复返回 `PostCommit` 的消息 append：校验可见消息、sync JSONL、修 meta、sync 父目录。
+/// 内存 block 仅在全部耐久步骤成功后才清除。
 pub fn repair_message_durability(dir: &Path, message: &super::Message, original: &CommitFailure) -> Result<super::Session, CommitFailure> {
     if !original.committed() {
         return Err(CommitFailure::before(std::io::Error::new(
@@ -122,8 +121,7 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), CommitFailur
     result
 }
 
-/// New sessions publish complete messages and metadata before syncing their shared directory.
-/// Metadata is renamed last because its presence is the session admission marker.
+/// 新会话先发布完整 messages+meta 再 sync 共享目录；meta rename 放最后（其存在即 admission 标记）。
 pub(super) fn create_session_files(meta: &Path, meta_bytes: &[u8], messages: &Path, message_bytes: &[u8]) -> Result<(), CommitFailure> {
     let parent = parent(meta);
     std::fs::create_dir_all(parent).map_err(CommitFailure::before)?;
@@ -155,8 +153,7 @@ pub(super) fn create_session_files(meta: &Path, meta_bytes: &[u8], messages: &Pa
     sync_directory(parent).map_err(CommitFailure::after)
 }
 
-/// Existing JSONL files are append-only. Once a write is attempted, an error may have left a
-/// visible partial/full line, so it is a post-commit indeterminate failure and the session blocks.
+/// 已有 JSONL 只 append：一旦 write 动手，错误可能留下可见残行/整行，属 post-commit 不确定失败并封锁会话。
 /// 跨模块共用（kanban 事件流同款）：已存在文件 append + sync_data，不存在走原子创建。
 pub(crate) fn append_synced(path: &Path, bytes: &[u8]) -> Result<(), CommitFailure> {
     if !path.exists() {

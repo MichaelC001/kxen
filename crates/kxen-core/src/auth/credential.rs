@@ -70,9 +70,8 @@ pub struct Credential {
 }
 
 pub type AuthStore = HashMap<String, CredentialKind>;
-/// Read-mostly credential storage. Readers clone the inner `Arc`; mutations use
-/// copy-on-write so in-flight requests retain a stable snapshot without cloning
-/// every credential at each dispatch boundary.
+/// 读多写少凭证存储：读者 clone 内层 `Arc`；写入 copy-on-write，
+/// 在飞请求保留稳定快照，不必在每次派发边界克隆整表。
 pub type SharedAuthStore = Arc<Mutex<Arc<AuthStore>>>;
 
 #[derive(Debug)]

@@ -1,7 +1,7 @@
-//! 系统托盘（桌面 bin）：浏览器访问启停 + 默认打开动作 + close-to-tray 的中枢。
-//! 菜单只在 setup 建一次，运行时只 set_text/set_enabled/set_checked，绝不 rebuild
-//!（muda #173 macOS 展开期崩溃、Linux 菜单不可替换、Windows 整树替换行为不一致）。
-//! Linux（libappindicator）不发任何 click 事件，左键动作只在 macOS/Windows 注册。
+//! 系统托盘：浏览器访问、默认打开、close-to-tray。
+//! 菜单 setup 建一次后只改 text/enabled/checked，绝不 rebuild
+//!（muda #173 macOS 展开期崩溃；Linux 不可替换；Windows 整树替换行为不一致）。
+//! Linux libappindicator 不发 click，左键动作仅 macOS/Windows 注册。
 
 mod logic;
 
@@ -30,12 +30,11 @@ mod ids {
     pub const QUIT: &str = "tray:quit";
 }
 
-/// tray 持有物：TrayIcon drop 即注销，由 app.manage 持有到进程退出。
+/// TrayIcon drop 即注销，由 app.manage 持有到进程退出。
 pub struct TrayGuard {
     _tray: tauri::tray::TrayIcon,
 }
 
-/// 运行时只读/改这些项（setup 建一次后的全部状态出口）。
 struct Items {
     open_browser: MenuItem<Wry>,
     copy_url: MenuItem<Wry>,
@@ -182,7 +181,7 @@ fn copy_access_url(shared: &Shared) {
     }
 }
 
-/// 浏览器访问开关（CheckMenuItem 点击后 muda 已自动翻转 checked，直接读新值）。
+/// muda 点击后已自动翻转 checked，直接读新值即可。
 fn toggle_web_access(shared: &Shared) {
     let enabled = shared.items.web_access.is_checked().unwrap_or(false);
     if let Ok(guard) = shared.web.lock()
@@ -202,7 +201,7 @@ fn set_default_open(shared: &Shared, action: DefaultOpen) {
     if let Ok(mut guard) = shared.default_open.lock() {
         *guard = action;
     }
-    // 两 CheckMenuItem 互斥：muda 只翻转被点的那一项，另一项在此归位
+    // muda 只翻转被点项，另一互斥项须手动归位
     let _ = shared.items.default_window.set_checked(action == DefaultOpen::Window);
     let _ = shared.items.default_browser.set_checked(action == DefaultOpen::Browser);
     if let Err(error) = logic::persist_user_config(|doc| logic::set_str(doc, "tray", "default_open", action.as_config_str())) {
@@ -218,7 +217,7 @@ fn toggle_close_to_tray(shared: &Shared) {
     }
 }
 
-/// Rust 侧检查更新：有更新聚焦主窗口（安装在 设置 > 应用更新），结果经 OS 通知告知。
+/// 有更新时聚焦主窗口；安装入口在设置 > 应用更新。
 fn check_update(app: &AppHandle) {
     use tauri_plugin_updater::UpdaterExt;
     let app = app.clone();
@@ -253,7 +252,7 @@ fn notify(title: &str, body: &str) {
 }
 
 fn tray_icon() -> tauri::Result<tauri::image::Image<'static>> {
-    // macOS：模板图（渲染只取 alpha，深/浅菜单栏自动反色）；其余平台普通图标。
+    // macOS 模板图只取 alpha，深/浅菜单栏自动反色
     #[cfg(target_os = "macos")]
     {
         tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))

@@ -55,9 +55,8 @@ pub(super) fn record_unknown_usage(ctx: &AgentContext, acc: &mut super::usage::U
         }
     }
     acc.record_unknown();
-    // Transactional reporters settle UNKNOWN into session + Goal with the
-    // same durable operation id. The legacy direct path remains only for
-    // non-session/test contexts that have no reporter.
+    // 事务 reporter 用同一 durable operation id 把 UNKNOWN 结算进 session+Goal。
+    // 无 reporter 的非 session/测试路径才走直接记账。
     let result = match (ctx.usage_reporter.is_none(), ctx.bound_goal_id.as_deref()) {
         (true, Some(goal_id)) => super::usage::charge_goal_usage_for(goal_id, None, ctx.bus.as_ref()),
         _ => Ok(None),

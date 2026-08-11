@@ -1,4 +1,4 @@
-//! OAuth loopback callback parsing and admission.
+//! OAuth loopback 回调解析与 admission。
 
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt};
 

@@ -73,7 +73,7 @@ export default function Session() {
     invalidateQueue();
     return setPendingQueue(next);
   };
-  /** Done 对账（实现见 lib/converge.ts）：快照权威 + 队列真源。 */
+  /** Done 对账：快照权威 + 队列真源。 */
   const {
     converge,
     clearQueue,
@@ -213,7 +213,6 @@ export default function Session() {
     discardPendingDelta();
   });
 
-  // 发送链路实现见 lib/send.ts（乐观上屏 + 失败态标记/点击重发）
   const {
     send,
     submit,

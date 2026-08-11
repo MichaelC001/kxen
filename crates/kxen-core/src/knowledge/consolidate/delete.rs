@@ -135,8 +135,7 @@ pub async fn run_for_delete(request: DeleteDistillRequest<'_>) -> Result<DeleteD
     }
 }
 
-/// `distill=false` is the explicit resolution for a blocked Provider attempt.
-/// Session deletion also removes its completion watermark to avoid stale state.
+/// `distill=false` 是 blocked Provider attempt 的显式收口；Session 删除同时清 completion watermark，避免陈旧状态。
 pub fn discard_for_session(
     session_id: &str,
     session_usage: &std::sync::Mutex<std::collections::HashMap<String, crate::core::usage::SessionUsage>>,

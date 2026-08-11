@@ -3,9 +3,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-/// Session-scoped coordinator for durable Provider request receipts.
-/// Every clone shares the same session ledger, so lead, subagent, background
-/// agent, and teammate requests use one idempotent settlement path.
+/// Session 作用域的 durable Provider 请求回执协调器。
+/// 所有 clone 共享同一 session 账本：lead/子代理/后台 agent/teammate 走一条幂等结算路径。
 #[derive(Clone)]
 pub struct UsageReporter {
     session_id: String,
@@ -38,8 +37,7 @@ impl UsageReporter {
         }
     }
 
-    /// Durable accounting for billable operations that are intentionally not
-    /// owned by a chat Session, such as provider verification from Settings.
+    /// 故意不属于聊天 Session 的可计费操作（如设置页 provider 探测）的 durable 记账。
     pub fn new_unscoped(
         scope_id: impl Into<String>,
         session_usage: Arc<Mutex<HashMap<String, SessionUsage>>>,
@@ -77,8 +75,7 @@ impl UsageReporter {
         self.attempts.begin(&self.session_id, goal_id)
     }
 
-    /// Shares the semantic completion operation id with the Provider marker,
-    /// so crash recovery cannot settle one identity and retry another.
+    /// 与 Provider 标记共用语义 completion operation id，避免崩溃恢复结算一个 identity 却重试另一个。
     pub fn begin_with_id(&self, operation_id: &str, goal_id: Option<&str>) -> Result<ProviderAttempt, String> {
         self.attempts.begin_with_id(operation_id, &self.session_id, goal_id)
     }
@@ -101,9 +98,8 @@ impl UsageReporter {
         crate::core::usage::settle_provider_attempt_to(&self.attempts, &mut map, attempt, Some(&self.bus), self.usage_ledger.as_deref())
     }
 
-    /// Admission/local validation proved that no Provider request started.
-    /// Removing the prepared marker is safe; a crash before this call remains
-    /// fail-closed and is recovered as UNKNOWN.
+    /// admission/本地校验已证明未发起 Provider 请求：可安全移除 prepared 标记。
+    /// 在此之前崩溃仍 fail-closed，恢复为 UNKNOWN。
     pub fn discard_unstarted(&self, attempt: &ProviderAttempt) -> Result<Option<String>, String> {
         self.attempts.finish(attempt)
     }

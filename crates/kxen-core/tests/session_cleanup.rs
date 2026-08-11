@@ -20,7 +20,7 @@ static CRON_LOCK: Mutex<()> = Mutex::new(());
 fn cron_jobs_of_deleted_session_never_fire() {
     let _g = CRON_LOCK.lock().unwrap();
     let schedule_path = std::env::temp_dir().join(format!("kxen-schedule-cleanup-{}.json", std::process::id()));
-    // SAFETY: this integration-test process uses the schedule singleton only in this serialized test.
+    // SAFETY: 本集成测试进程只在此串行测试中使用 schedule 单例。
     unsafe { std::env::set_var("KXEN_SCHEDULE_FILE", schedule_path) };
     let a = kxen_core::core::schedule::add("*/1 * * * *", "ping-a", "ses_dead", true).unwrap();
     let b = kxen_core::core::schedule::add("*/1 * * * *", "ping-b", "ses_live", true).unwrap();

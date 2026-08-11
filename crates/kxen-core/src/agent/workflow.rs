@@ -1,14 +1,14 @@
-//! Workflow engine: model-authored JavaScript orchestration on rquickjs (sandboxed, no OS access).
+//! Workflow 引擎：模型编写的 JavaScript 编排，跑在 rquickjs（沙箱，无 OS 访问）。
 //!
-//! Globals available to scripts:
-//! - `agent(role, prompt)` / `agent(prompt, { agentType, label })` -> Promise<string>   dispatch a subagent by role (routed + gated by MRM)
-//! - `parallel(thunks, { concurrency })` -> Promise<array>   fan-out with worker pool (default 8); failed items come back as `{ __failed: true, error }`
-//! - `CONSTRAINTS`                              role bindings + provider availability snapshot
-//! - `phase(name)`                              progress marker, streamed live; carries index/total when `meta.phases` matches
-//! - `log(msg)`                                 tracing
+//! 脚本可用全局：
+//! - `agent(role, prompt)` / `agent(prompt, { agentType, label })` -> Promise<string>  按角色派发子代理（MRM 路由+门控）
+//! - `parallel(thunks, { concurrency })` -> Promise<array>  工作池扇出（默认 8）；失败项为 `{ __failed: true, error }`
+//! - `CONSTRAINTS`  角色绑定 + provider 可用性快照
+//! - `phase(name)`  进度标记，实时流式；匹配 `meta.phases` 时带 index/total
+//! - `log(msg)`  tracing
 //!
-//! Optional `export const meta = { name, description, whenToUse, phases: [{ title, detail }] }` drives structured phase
-//! progress and the completion envelope appended to the script's return text.
+//! 可选 `export const meta = { name, description, whenToUse, phases: [{ title, detail }] }`
+//! 驱动结构化 phase 进度，并在脚本返回文本后附完成信封。
 
 use crate::agent::agent_loop::{AgentContext, AgentEvent};
 use crate::agent::subagent::{SubagentDeps, dispatch};

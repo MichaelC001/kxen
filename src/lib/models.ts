@@ -41,7 +41,6 @@ export function displayName(cat: ProviderCatalog[], provider: string, id: string
   return modelOf(cat, provider, id)?.name ?? id;
 }
 
-/** ctx 窗格式化：1000000 -> 1M，262144 -> 256k。 */
 export function fmtCtx(n: number): string {
   if (!n) return "";
   if (n >= 1_000_000) {

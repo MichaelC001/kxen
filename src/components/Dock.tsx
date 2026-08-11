@@ -158,7 +158,7 @@ function DockSections(props: {
 export default function Dock() {
   const [goal, setGoal] = createSignal<GoalInfo | null>(null);
   const [goalLoad, setGoalLoad] = createSignal<DockLoadState>({ state: "loading" });
-  // 会话改动三态数据源（loading/err/真空可区分，实现见 lib/agent-diff.ts）
+  // 会话改动三态：loading/err/真空可区分（空列表不得当「无改动」静默吞错）
   const agentDiff = createAgentDiff(activeSessionId);
   const [tasks, setTasks] = createSignal<TaskInfo[]>([]);
   const [tasksLoad, setTasksLoad] = createSignal<DockLoadState>({ state: "loading" });

@@ -20,8 +20,7 @@ pub fn write<T>(l: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
 /// 共享字符串别名（clone 仅计数，零拷贝共享）。
 pub type SharedStr = std::sync::Arc<str>;
 
-/// Metadata identity for caches backed by replaceable files. `mtime + len` alone
-/// can miss a same-size atomic rename; Unix identity and ctime close that gap.
+/// 可替换文件缓存的元数据身份：仅 `mtime + len` 会漏同尺寸原子 rename；Unix 身份与 ctime 补上。
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FileStamp {
     exists: bool,
@@ -67,8 +66,7 @@ pub(crate) fn file_stamp(path: &std::path::Path) -> std::io::Result<FileStamp> {
     }
 }
 
-/// Immutable payload text shared across Session storage, LLM history and
-/// provider projections. JSON representation stays a plain string.
+/// Session 存储、LLM 历史与 provider 投影共享的不可变文本；JSON 仍是普通 string。
 #[derive(Clone, Default, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
 pub struct SharedText(std::sync::Arc<str>);

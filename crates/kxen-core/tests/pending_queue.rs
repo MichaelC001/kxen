@@ -261,8 +261,7 @@ fn crash_after_session_append_replays_and_acknowledges_exactly_once() {
 fn schedule_origin_is_structured_and_survives_restore() {
     let dir = tmp_dir("schedule-origin");
     let schedule_file = dir.join("schedule.json");
-    // SAFETY: this integration-test binary has no other schedule users, and the
-    // isolated path is set before the schedule store is initialized.
+    // SAFETY: 本集成测试二进制无其他 schedule 使用者；隔离路径在 store 首次加载前设定。
     unsafe { std::env::set_var("KXEN_SCHEDULE_FILE", schedule_file) };
     let queue = PendingQueues::new(dir.clone());
     queue.enqueue("user", "[cron cron_fake] user text".into(), vec![], vec![]).unwrap();

@@ -1,5 +1,5 @@
-//! Resident tool definitions (progressive disclosure per design 3.2: ~12 resident, rest via tool_search).
-//! All tool descriptions are English by design; UI strings stay Simplified Chinese.
+//! 常驻工具定义（设计 3.2 渐进披露：约 12 个常驻，其余经 tool_search）。
+//! 工具描述故意用英文；UI 文案保持简体中文。
 
 use crate::llm::tool::ToolDefinition;
 use serde_json::json;

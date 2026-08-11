@@ -30,26 +30,21 @@ const prevNext = await getPrevNext(currentSlug, {
   sidebarTree: sidebar === false ? [] : sidebar,
   overrides: { prev: entry.data.prev, next: entry.data.next },
 });
-// Pass `collection` so versioned pages (docs-<v>) get version-prefixed
-// breadcrumb hrefs — parity with the getSidebar call above. 根 crumb 标签
-// 需显式传入，nimbus 默认英文 "Home"，不读 config.homeLabel。
+// collection 使版本化页面面包屑带版本前缀；根 crumb 须显式传入（nimbus 默认英文 "Home"，不读 config.homeLabel）。
 const breadcrumbs = await getBreadcrumbs(currentSlug, {
   collection: entry.collection,
   root: { label: "首页", href: "/" },
 });
 const editUrl = await getEditUrl(entry);
-// Frontmatter wins; git is the fallback.
+// frontmatter 优先，否则回落 git 时间。
 const lastUpdated = entry.data.lastUpdated ?? await getLastUpdated(entry);
-// `tocOn` already implies `tableOfContents !== false`, but TS can't carry
-// that boolean narrowing to the value here — re-check it so `getTOC` only
-// ever sees its options object (or undefined), never `false`.
+// tocOn 已蕴含 tableOfContents !== false，但 TS 收窄不到此处，再判一次以免 getTOC 收到 false。
 const tocConfig = entry.data.tableOfContents;
 const toc = tocOn && tocConfig !== false ? getTOC(headings, tocConfig) : false;
 const markdownPath = `/${entry.id}/index.md`;
 const markdownUrl = Astro.site ? new URL(markdownPath, Astro.site).href : markdownPath;
 const socialImage = entry.data.socialImage ?? `/og/${entry.id}.png`;
 
-// JSON-LD：文档页 TechArticle + 全站 BreadcrumbList（数据与视觉面包屑同源）。
 const pageUrl = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : undefined;
 const techArticleLd = jsonLd({
   "@context": "https://schema.org",

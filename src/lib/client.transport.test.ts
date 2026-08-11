@@ -181,8 +181,8 @@ describe("client transport", () => {
     });
     socket.emit({ id: unsubscribe.id, result: null });
 
-    // 原生 send 同步抛错 -> Promise reject（旧 plugin 异步 reject 语义的等价转换）。
-    // send 失败会 drop 连接，下一次 RPC 换新实例：失败注入挂在跨实例的 sendHook 上。
+    // 原生 send 同步抛错 -> Promise reject；send 失败会 drop 连接，下一次 RPC 换新实例：
+    // 失败注入挂在跨实例的 sendHook 上。
     FakeWebSocket.sendHook = () => {
       throw new Error("send failed");
     };

@@ -7,22 +7,15 @@ import { SearchTrigger } from "./ui/search";
 import { config } from "virtual:nimbus/config";
 
 interface Props {
-  /** Astro collection id for the current page, forwarded from DocsLayout. */
   collection?: string;
-  /** Astro entry id for the current page, forwarded from DocsLayout. */
   entryId?: string;
-  /**
-   * Whether the page has a sidebar to open. When `false`, the mobile
-   * menu button is hidden — pages that opted out via `sidebar: false`
-   * shouldn't show a button that opens an empty dialog. Default `true`.
-   */
+  /** false 时隐藏移动端菜单（sidebar:false 的页没有可开的侧栏）。 */
   showSidebar?: boolean;
 }
 
-// Collection and entry IDs remain forward-compat hooks for versioned docs.
+// collection/entryId 预留给版本化文档，当前导航未消费。
 const { showSidebar = true } = Astro.props;
 
-// Normalize trailing slash so isActive matches sidebar hrefs.
 const currentSlug = Astro.url.pathname.replace(/\/$/, "") || "/";
 const primaryNav = [
   { label: "产品", href: "/overview", active: currentSlug.startsWith("/overview") },

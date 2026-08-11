@@ -256,8 +256,7 @@ impl Config {
 }
 
 fn validate_project_keys(document: &toml::Value, path: &Path) -> crate::core::Result<()> {
-    // Custom endpoint definitions stay user-owned. Letting a project replace the endpoint
-    // behind an existing custom:<name> would redirect the user's stored API key and prompts.
+    // 自定义端点归用户：若项目配置可顶替已有 custom:<name>，会把用户存的 API key 与提示词指到别处。
     const ALLOWED: &[&str] = &["roles", "limits", "hooks"];
     let table = document
         .as_table()
