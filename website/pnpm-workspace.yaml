@@ -10,11 +10,16 @@ overrides:
 # Declines install scripts for esbuild and sharp (they ship prebuilds),
 # clearing pnpm's build-scripts gate. Adding a package here lets it run scripts.
 packages: []
-allowBuilds: # pnpm 11
+allowBuilds:
+  # pnpm 11
   esbuild: false
   sharp: false
   workerd: false
-ignoredBuiltDependencies: # pnpm 10
+ignoredBuiltDependencies:
+  # pnpm 10
   - esbuild
   - sharp
   - workerd
+minimumReleaseAgeExclude:
+  - miniflare@5.20260804.0-alpha
+  - wrangler@4.120.1

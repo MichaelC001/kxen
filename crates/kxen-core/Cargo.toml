@@ -31,8 +31,8 @@ regex = "1.13"
 ignore = "0.4"
 globset = "0.4"
 reqwest = { version = "0.13", default-features = false, features = [
+  # rustls 已捆绑 rustls-platform-verifier（取代已移除的 rustls-native-certs）
   "rustls",
-  "rustls-native-certs",
   "json",
   "stream",
   "multipart",
@@ -57,7 +57,7 @@ chromiumoxide = { version = "0.9", default-features = false }
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.11"
 # MCP OAuth 的 PKCE/state 熵源（跨平台 OS 随机，替 /dev/urandom）
-getrandom = "0.3"
+getrandom = "0.4"
 notify-rust = "4"
 
 # voice 的 Speech.framework / AVFAudio 手写绑定（voice/objc.rs）只在 macOS 编译
