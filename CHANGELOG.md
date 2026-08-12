@@ -6,6 +6,26 @@
 
 ## [Unreleased]
 
+## [0.1.4]
+
+### Added
+
+- 独立 Bots 产品块，提供 Bot Library、Bot Build、Routine、Runs、Recovery 和统一管理界面；Bot definition 支持草稿、immutable revision、生命周期、输入输出契约、最小 capability/resource grant、预算、Memory 和手动运行。
+- DCP BotRun 使用 provider-neutral context、revision/permission snapshot、durable turn、tool journal、Approval、Input、Cancel、Artifact、usage、terminal 和 restart recovery，副作用结果不确定时进入 `UNKNOWN` 而不是自动重放。
+- Bot-to-Bot Direct 和 2 至 6 Bot Group，提供 reciprocal peer allowlist、moderator、mentions、`@everyone`、Message、Delivery、CollaborationTask 和异步 recipient BotRun 闭环；每个 Bot 保留自己的 revision、权限与预算。
+- Bot Routine 支持 cron、IANA timezone、isolated/continue-conversation context、follow-current/pinned revision、Run now、幂等 occurrence 和连续失败自动暂停。
+
+### Changed
+
+- 抽取通用 identity、durability、event store、operation journal、delivery、scheduler、artifact 和 recovery primitives，并增加可由 Session、Subagent、Team、Workflow 与 Bot 复用的 Agent runtime、capability、DCP 和 domain tool 边界。
+- MCP tool 暴露改为 exact server grant，Bot Connector 必须显式绑定 Workspace；Bots RPC、Stream topic ACL、frontend contract、README 和官网产品文档同步到同一行为模型。
+
+### Fixed
+
+- 修复 Bot cancellation 被迟到 failure 覆盖、未 settle 副作用被普通终态隐藏、重复 tool call identity 冲突，以及 restart recovery 对 cancellation 和 `UNKNOWN` 状态的结算问题。
+- 修复 inactive Bot 仍接受任务或 Routine 派发、Direct policy 非 reciprocal、Group member/Task admission 漂移、Routine terminal 重复结算和 Builder evidence 未与精确 draft hash 绑定的问题。
+- 修复 Bot 管理界面用未发布 draft 解释正式 Run 输入、Routine 手动运行 contract race、RPC filter 命名漂移和结构化 peer message 校验缺失。
+
 ## [0.1.3]
 
 ### Added
@@ -131,7 +151,8 @@
 - 已被 Schedule durable dispatch 替代的 cron_dispatch 模块。
 - 与当前代码和产品文档重复的临时实现计划文档。
 
-[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/StringKe/kxen/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/StringKe/kxen/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/StringKe/kxen/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/StringKe/kxen/compare/v0.1.0...v0.1.1
