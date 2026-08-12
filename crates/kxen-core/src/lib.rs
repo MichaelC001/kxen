@@ -8,6 +8,7 @@ pub mod agent;
 pub mod app_state;
 pub mod auth;
 pub mod background_jobs;
+pub mod bot;
 pub mod composer_suggest;
 pub mod core;
 pub mod doctor;

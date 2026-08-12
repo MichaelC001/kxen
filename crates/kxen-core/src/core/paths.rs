@@ -58,6 +58,14 @@ pub fn sessions_dir() -> PathBuf {
     data_dir().join("sessions")
 }
 
+/// Application-level Bot definitions, Runs, Conversations, Routines and artifacts.
+pub fn bots_dir() -> PathBuf {
+    if let Ok(path) = std::env::var("KXEN_BOTS_DIR") {
+        return PathBuf::from(path);
+    }
+    data_dir().join("bots")
+}
+
 #[cfg(test)]
 mod tests {
     const CHILD_ENV: &str = "KXEN_PATHS_DATA_DIR_CHILD";

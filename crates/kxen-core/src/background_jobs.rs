@@ -8,6 +8,7 @@ const CONSOLIDATION_INTERVAL: Duration = Duration::from_secs(30 * 60);
 /// kanban 列驱动 tick 5s：卡片流转的响应下限；扫描是纯文件读且板数为个位数，开销可忽略。
 /// 周期扫描同时承担崩溃恢复（orphan run 检测），比事件钩子少一条要保活的触发路径。
 const KANBAN_INTERVAL: Duration = Duration::from_secs(5);
+const BOT_INTERVAL: Duration = Duration::from_secs(1);
 
 pub fn spawn(state: Arc<AppState>) {
     let schedule_state = state.clone();
@@ -20,11 +21,82 @@ pub fn spawn(state: Arc<AppState>) {
         let state = consolidation_state.clone();
         async move { consolidate_knowledge(state).await }
     }));
-    let kanban_state = state;
+    let kanban_state = state.clone();
     tokio::spawn(run_periodic(KANBAN_INTERVAL, move || {
         let state = kanban_state.clone();
         async move { kxen_core::kanban::tick(&state).await }
     }));
+    tokio::spawn(run_periodic(BOT_INTERVAL, move || {
+        let state = state.clone();
+        async move { bot_tick(state).await }
+    }));
+}
+
+async fn bot_tick(state: Arc<AppState>) {
+    let now = kxen_core::core::shared::now_ms();
+    match state.bots.reconcile_group_lifecycle(now) {
+        Ok(paused) if paused > 0 => state.bus.publish(kxen_core::core::event::Event::BotUpdate {
+            topic: "bot-groups".into(),
+            aggregate_id: "group_lifecycle".into(),
+            seq: now,
+        }),
+        Ok(_) => {}
+        Err(error) => tracing::error!(%error, "Bot Group lifecycle reconciliation failed"),
+    }
+    let report = state.bots.tick_routines(now);
+    if !report.queued_run_ids.is_empty() || report.skipped_occurrences > 0 {
+        state.bus.publish(kxen_core::core::event::Event::BotUpdate {
+            topic: "bot-routines".into(),
+            aggregate_id: "routine_scheduler".into(),
+            seq: now,
+        });
+    }
+    for error in report.errors {
+        tracing::error!(%error, "Bot Routine tick failed");
+    }
+    for error in state.bots.reconcile_runs(now) {
+        tracing::error!(%error, "BotRun settlement reconciliation failed");
+    }
+    for _ in 0..16 {
+        match state.bots.dispatch_next_delivery(now) {
+            Ok(Some(receipt)) => state.bus.publish(kxen_core::core::event::Event::BotUpdate {
+                topic: format!("bot-conversation:{}", receipt.conversation_id),
+                aggregate_id: receipt.conversation_id.to_string(),
+                seq: state.bots.conversations().get(&receipt.conversation_id).map_or(0, |value| value.event_version),
+            }),
+            Ok(None) => break,
+            Err(error) => {
+                tracing::error!(%error, "Bot Delivery dispatch failed");
+                break;
+            }
+        }
+    }
+    let workspace = match state.active_workspace.read() {
+        Ok(workspace) => workspace.clone(),
+        Err(_) => return,
+    };
+    let runs = match state.bots.runs().recoverable() {
+        Ok(runs) => runs,
+        Err(error) => {
+            tracing::error!(%error, "BotRun recovery scan failed");
+            return;
+        }
+    };
+    for run in runs.into_iter().take(8) {
+        let state = state.clone();
+        let workspace = workspace.clone();
+        tokio::spawn(async move {
+            match state.bot_executor.execute(&run.spec.run_id, &workspace).await {
+                Ok(run) => state.bus.publish(kxen_core::core::event::Event::BotUpdate {
+                    topic: format!("bot-run:{}", run.spec.run_id),
+                    aggregate_id: run.spec.run_id.to_string(),
+                    seq: run.event_version,
+                }),
+                Err(error) if error.contains("already active") => {}
+                Err(error) => tracing::error!(run_id = %run.spec.run_id, %error, "BotRun execution failed"),
+            }
+        });
+    }
 }
 
 async fn run_periodic<Job, JobFuture>(interval: Duration, mut job: Job)

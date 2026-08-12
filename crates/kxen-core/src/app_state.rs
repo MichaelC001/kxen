@@ -66,6 +66,8 @@ pub struct AppState {
     pub picked_files: kxen_core::core::attachment::PickedFiles,
     /// workspace 级 kanban runner（P2a）：在飞去重与 orphan 恢复状态，background_jobs 周期 tick 驱动
     pub kanban: std::sync::Arc<kxen_core::kanban::Runner>,
+    pub bots: std::sync::Arc<kxen_core::bot::system::BotSystem>,
+    pub bot_executor: std::sync::Arc<kxen_core::bot::executor::BotExecutor>,
 }
 
 impl AppState {
@@ -92,7 +94,6 @@ impl AppState {
         let workdir: std::sync::Arc<std::path::Path> = std::sync::Arc::from(initial_workdir(&cwd, dirs::home_dir()));
         let bus = kxen_core::core::event::EventBus::default();
         let agents = std::sync::Arc::new(kxen_core::agent::activity::AgentRegistry::default());
-        // subagent 转录/turn 历史写穿根目录（sessions_dir，随会话子目录清理）；teammate 根目录由 TeamManager 注入
         agents.set_agents_root(kxen_core::core::paths::sessions_dir());
         let approvals = std::sync::Arc::new(kxen_core::agent::approval::production_broker(bus.clone()));
         let workspace_runtimes = std::sync::Arc::new(kxen_core::workspace_runtime::WorkspaceRuntimeRegistry::with_mcp_execution_approval(
@@ -101,7 +102,6 @@ impl AppState {
             mrm.clone(),
         ));
         workspace_runtimes.runtime(&workdir)?;
-        // team relay 与 AppState 共享同一队列实例（teammate 报告入队 = 用户消息同路续跑）
         let pending_messages =
             std::sync::Arc::new(kxen_core::core::pending_queue::PendingQueues::new(kxen_core::core::paths::sessions_dir()));
         let mut loaded_usage = kxen_core::core::usage::load().map_err(|error| format!("session usage load failed: {error}"))?;
@@ -146,6 +146,19 @@ impl AppState {
             kxen_core::core::paths::sessions_dir(),
             Some(pending_messages.clone()),
         );
+        let bots = std::sync::Arc::new(
+            kxen_core::bot::system::BotSystem::new(kxen_core::core::paths::bots_dir()).map_err(|error| error.to_string())?,
+        );
+        let bot_executor = std::sync::Arc::new(kxen_core::bot::executor::BotExecutor::new(
+            bots.clone(),
+            kxen_core::bot::executor::BotExecutorDeps {
+                registry: registry.clone(),
+                auth_store: store.clone(),
+                runtimes: workspace_runtimes.clone(),
+                session_usage: session_tokens.clone(),
+                bus: bus.clone(),
+            },
+        ));
         Ok(Self {
             _instance_lock: instance_lock,
             auth_store: store,
@@ -176,6 +189,8 @@ impl AppState {
             foreground_session: std::sync::RwLock::new(String::new()),
             picked_files: kxen_core::core::attachment::PickedFiles::default(),
             kanban: std::sync::Arc::new(kxen_core::kanban::Runner::new()),
+            bots,
+            bot_executor,
             workdir,
         })
     }

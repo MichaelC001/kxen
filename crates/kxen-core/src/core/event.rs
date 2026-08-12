@@ -8,16 +8,43 @@ pub enum Event {
     // 持久化（persist_turn），断连期间的增量不需要也无法从 EventBus 恢复；kanban 列执行的
     // 增量将走自己的 event log 持久化，不依赖本总线。
     LlmDelta(serde_json::Value),
-    TaskUpdate { id: String, status: &'static str },
-    GoalUpdate { id: String, status: &'static str },
+    TaskUpdate {
+        id: String,
+        status: &'static str,
+    },
+    GoalUpdate {
+        id: String,
+        status: &'static str,
+    },
     // session_id 记录来源会话：通知中心条目点击可跳转回来源，系统级通知为 None（不可点）
-    Notification { text: String, session_id: Option<String> },
+    Notification {
+        text: String,
+        session_id: Option<String>,
+    },
     // run 开始/结束（session.update topic；侧栏 running 圆点事件源）。
     // 不走 LlmDelta：那一路带 session_id ACL 只发订阅方，侧栏需要全量会话的存亡信号。
-    SessionRun { session_id: String, running: bool },
+    SessionRun {
+        session_id: String,
+        running: bool,
+    },
     // 看板粗粒度变更信号（kanban:<board_id> topic）：板变了，订阅方重拉 kanban.snapshot。
     // 不带全量状态：snapshot 才是重连恢复口径，事件只承担「失效通知」。
-    KanbanUpdate { board_id: String, workspace: String },
+    KanbanUpdate {
+        board_id: String,
+        workspace: String,
+    },
+    /// Durable Bot aggregate invalidation. Consumers re-fetch a snapshot at
+    /// `seq`; transient deltas never replace the event store.
+    BotUpdate {
+        topic: String,
+        aggregate_id: String,
+        seq: u64,
+    },
+    /// In-flight BotRun rendering only. Reconnect recovery uses bot.run.get.
+    BotDelta {
+        run_id: String,
+        payload: serde_json::Value,
+    },
 }
 
 impl Event {
