@@ -99,6 +99,44 @@ if kxen_require_release_above_published_stable v2.0.0 example/project >/dev/null
   fail 'GitHub API failure was accepted'
 fi
 
+# Release notes:只接受 git-cliff 生成的单版本内容，再追加分发说明。
+notes_dir="$(mktemp -d "${TMPDIR:-/tmp}/kxen-release-notes-test.XXXXXX")"
+cat > "$notes_dir/v1.2.0.md" <<'EOF'
+## [1.2.0]
+
+### 新增功能
+
+- **bot:** Add release-specific capability ([1234567](https://github.com/example/project/commit/1234567890))
+
+### 问题修复
+
+- Fix release-specific failure ([abcdef0](https://github.com/example/project/commit/abcdef0123))
+EOF
+if ! kxen_validate_release_notes_file v1.2.0 "$notes_dir/v1.2.0.md"; then
+  fail 'valid generated release notes were rejected'
+fi
+rendered_notes="$(kxen_render_release_body v1.2.0 example/project "$notes_dir/v1.2.0.md" '<!-- workflow-marker -->')" || fail 'release body renderer returned an error'
+for expected in '## [1.2.0]' 'Add release-specific capability' '## 下载与安装' 'SHA256SUMS' '<!-- workflow-marker -->'; do
+  if [[ "$rendered_notes" != *"$expected"* ]]; then
+    fail "release body renderer omitted $expected"
+  fi
+done
+if kxen_render_release_body v1.2.0 example/project "$notes_dir/v1.2.0.md" '' invalid-profile >/dev/null 2>&1; then
+  fail 'release body renderer accepted an unknown distribution profile'
+fi
+printf '## [1.2.0]\n\n### 新增功能\n' > "$notes_dir/no-entry.md"
+if kxen_validate_release_notes_file v1.2.0 "$notes_dir/no-entry.md" >/dev/null 2>&1; then
+  fail 'release notes without entries were accepted'
+fi
+printf '## [1.2.0]\n\n- one\n\n## [1.1.0]\n\n- two\n' > "$notes_dir/multiple.md"
+if kxen_validate_release_notes_file v1.2.0 "$notes_dir/multiple.md" >/dev/null 2>&1; then
+  fail 'release notes containing multiple versions were accepted'
+fi
+printf 'Kxen v1.2.0 development preview.\n' > "$notes_dir/generic.md"
+if kxen_validate_release_notes_file v1.2.0 "$notes_dir/generic.md" >/dev/null 2>&1; then
+  fail 'retired generic release notes were accepted'
+fi
+
 # kxen_merge_updater_manifest fixture:多平台 sig 合并、无 sig 平台跳过、异常输入拒绝。
 merge_dir="$(mktemp -d "${TMPDIR:-/tmp}/kxen-release-lib-test.XXXXXX")"
 trap 'rm -rf "$merge_dir"' EXIT
@@ -131,7 +169,8 @@ assert_manifest_platform() {
 }
 
 make_updater_fixtures "$merge_dir"
-if ! kxen_merge_updater_manifest 9.9.9 example/project v9.9.9 "$merge_dir" "$merge_dir/latest.json" 2>/dev/null; then
+updater_notes=$'## [9.9.9]\n\n### 新增功能\n\n- Release-specific updater notes.'
+if ! kxen_merge_updater_manifest 9.9.9 example/project v9.9.9 "$merge_dir" "$merge_dir/latest.json" "$updater_notes" 2>/dev/null; then
   fail 'multi-platform merge returned an error'
 else
   if [[ "$(jq -r '.platforms | keys | length' "$merge_dir/latest.json")" != 6 ]]; then
@@ -140,6 +179,7 @@ else
   if ! jq -e \
     '((keys | sort) == ["notes", "platforms", "pub_date", "version"]) and
      .version == "9.9.9" and
+     .notes == "## [9.9.9]\n\n### 新增功能\n\n- Release-specific updater notes." and
      (.pub_date | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))' \
     "$merge_dir/latest.json" >/dev/null; then
     fail 'merged manifest envelope is invalid'
@@ -152,7 +192,7 @@ fi
 # 无 sig 平台跳过:删除一个 sig 后该 key 消失,其余保留。
 skip_asset="$(kxen_release_updater_asset windows-aarch64)"
 rm "$merge_dir/$skip_asset.sig"
-if ! kxen_merge_updater_manifest 9.9.9 example/project v9.9.9 "$merge_dir" "$merge_dir/latest-skip.json" 2>/dev/null; then
+if ! kxen_merge_updater_manifest 9.9.9 example/project v9.9.9 "$merge_dir" "$merge_dir/latest-skip.json" "$updater_notes" 2>/dev/null; then
   fail 'merge with a missing signature returned an error'
 else
   if [[ "$(jq -r '.platforms | keys | length' "$merge_dir/latest-skip.json")" != 5 ]]; then
@@ -176,7 +216,7 @@ fi
 # sig 存在但 archive 缺失必须失败。
 rm "$merge_dir/$skip_asset"
 printf 'sig-windows-aarch64\n' > "$merge_dir/$skip_asset.sig"
-if kxen_merge_updater_manifest 9.9.9 example/project v9.9.9 "$merge_dir" "$merge_dir/latest-orphan.json" >/dev/null 2>&1; then
+if kxen_merge_updater_manifest 9.9.9 example/project v9.9.9 "$merge_dir" "$merge_dir/latest-orphan.json" "$updater_notes" >/dev/null 2>&1; then
   fail 'signature without archive was accepted'
 fi
 printf 'archive-windows-aarch64\n' > "$merge_dir/$skip_asset"
@@ -184,7 +224,7 @@ printf 'archive-windows-aarch64\n' > "$merge_dir/$skip_asset"
 # 空 sig 必须失败。
 empty_sig_asset="$(kxen_release_updater_asset linux-x86_64)"
 : > "$merge_dir/$empty_sig_asset.sig"
-if kxen_merge_updater_manifest 9.9.9 example/project v9.9.9 "$merge_dir" "$merge_dir/latest-empty.json" >/dev/null 2>&1; then
+if kxen_merge_updater_manifest 9.9.9 example/project v9.9.9 "$merge_dir" "$merge_dir/latest-empty.json" "$updater_notes" >/dev/null 2>&1; then
   fail 'empty signature was accepted'
 fi
 printf 'sig-linux-x86_64\n' > "$merge_dir/$empty_sig_asset.sig"
@@ -192,8 +232,11 @@ printf 'sig-linux-x86_64\n' > "$merge_dir/$empty_sig_asset.sig"
 # 全部平台无 sig 必须失败。
 # merge_dir 子目录,EXIT trap 统一清理。
 empty_dir="$(mktemp -d "$merge_dir/empty.XXXXXX")"
-if kxen_merge_updater_manifest 9.9.9 example/project v9.9.9 "$empty_dir" "$empty_dir/latest.json" >/dev/null 2>&1; then
+if kxen_merge_updater_manifest 9.9.9 example/project v9.9.9 "$empty_dir" "$empty_dir/latest.json" "$updater_notes" >/dev/null 2>&1; then
   fail 'merge without any signature was accepted'
+fi
+if kxen_merge_updater_manifest 9.9.9 example/project v9.9.9 "$empty_dir" "$empty_dir/latest-no-notes.json" '' >/dev/null 2>&1; then
+  fail 'merge without release-specific updater notes was accepted'
 fi
 
 # kxen_write_sha256sums:覆盖全部文件且校验通过。

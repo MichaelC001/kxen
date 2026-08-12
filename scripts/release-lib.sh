@@ -146,6 +146,65 @@ kxen_require_release_above_published_stable() {
   printf 'PASS release tag %s is newer than published stable release %s\n' "$release_tag" "$latest"
 }
 
+kxen_validate_release_notes_file() {
+  local release_tag="$1"
+  local release_notes_path="$2"
+  local version
+  local version_regex
+  kxen_require_release_tag "$release_tag" >/dev/null || return 1
+  kxen_require_regular_file_size 'release notes' "$release_notes_path" 131072 || return 1
+  version="${release_tag#v}"
+  version_regex="${version//./\\.}"
+  if [[ "$(grep -Ec "^## \[$version_regex\]( - [0-9]{4}-[0-9]{2}-[0-9]{2})?$" "$release_notes_path" || true)" != 1 ]]; then
+    printf 'release notes must contain exactly one version heading for %s\n' "$version" >&2
+    return 1
+  fi
+  if [[ "$(grep -Ec '^## \[[^]]+\]' "$release_notes_path" || true)" != 1 ]]; then
+    printf 'release notes must describe exactly one version: %s\n' "$release_tag" >&2
+    return 1
+  fi
+  if ! grep -Eq '^- .+' "$release_notes_path"; then
+    printf 'release notes do not contain any change entries: %s\n' "$release_notes_path" >&2
+    return 1
+  fi
+}
+
+kxen_render_release_body() {
+  local release_tag="$1"
+  local repository="$2"
+  local release_notes_path="$3"
+  local workflow_marker="${4:-}"
+  local distribution_profile="${5:-six-platform}"
+  kxen_require_release_tag "$release_tag" >/dev/null || return 1
+  kxen_require_github_repository "$repository" >/dev/null || return 1
+  kxen_validate_release_notes_file "$release_tag" "$release_notes_path" || return 1
+
+  cat "$release_notes_path"
+  printf '\n完整变更记录见 [CHANGELOG.md](https://github.com/%s/blob/main/CHANGELOG.md)。\n\n' \
+    "$repository"
+  printf '## 下载与安装\n\n'
+  if [[ "$distribution_profile" == macos-aarch64-only ]]; then
+    printf '%s\n' \
+      '- 桌面版: macOS 14+ Apple Silicon，Developer ID 签名并经 Apple 公证。' \
+      '- 自动更新: `Kxen.app.tar.gz` 与签名文件。' \
+      '- 手动安装: 下载 DMG，打开后将 Kxen 拖入 Applications。'
+  elif [[ "$distribution_profile" == six-platform ]]; then
+    printf '%s\n' \
+      '- 桌面版: macOS Apple Silicon/Intel、Windows x64/ARM64、Linux x86_64/ARM64。' \
+      '- macOS: DMG 与 updater archive 均经 Developer ID 签名和 Apple 公证。' \
+      '- Windows: 提供 NSIS installer；当前未做 Authenticode 签名，首次启动可能出现 SmartScreen reputation warning，可选择 `More info` -> `Run anyway`。' \
+      '- Linux: 提供 AppImage 与 deb。' \
+      '- Headless server: `kxen-<platform>.tar.gz`，Windows 为 `.zip`。运行 `kxen` 后会打印带 token 的访问 URL；远程访问建议使用 `tailscale serve`，并通过 `--allow-host` 放行 tailnet hostname。' \
+      '- 完整性: 使用 `SHA256SUMS` 校验下载文件；`latest.json` 和对应 `.sig` 供自动更新使用。'
+  else
+    printf 'unknown release distribution profile: %s\n' "$distribution_profile" >&2
+    return 1
+  fi
+  if [[ -n "$workflow_marker" ]]; then
+    printf '\n%s\n' "$workflow_marker"
+  fi
+}
+
 kxen_find_one() {
   local label="$1"
   local directory="$2"
@@ -350,8 +409,24 @@ kxen_merge_updater_manifest() {
   local release_tag="$3"
   local asset_dir="$4"
   local output_path="$5"
+  local release_notes="${6:-}"
   local entries=()
   local platform key asset signature url
+  if [[ -z "$release_notes" ]]; then
+    printf 'release-specific updater notes are required: %s\n' "$release_tag" >&2
+    return 1
+  fi
+  if [[ "${#release_notes}" -gt 131072 ]]; then
+    printf 'updater notes exceed 131072 characters: %s\n' "$release_tag" >&2
+    return 1
+  fi
+  local notes_version_regex
+  notes_version_regex="${version//./\\.}"
+  if ! grep -Eq "^## \[$notes_version_regex\]( - [0-9]{4}-[0-9]{2}-[0-9]{2})?$" <<< "$release_notes" \
+    || ! grep -Eq '^- .+' <<< "$release_notes"; then
+    printf 'updater notes are not structured release-specific content: %s\n' "$release_tag" >&2
+    return 1
+  fi
   for platform in "${KXEN_RELEASE_PLATFORMS[@]}"; do
     key="$(kxen_release_updater_key "$platform")" || return 1
     asset="$(kxen_release_updater_asset "$platform")" || return 1
@@ -385,7 +460,7 @@ kxen_merge_updater_manifest() {
   pub_date="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   printf '%s\n' "${entries[@]}" | jq -s \
     --arg version "$version" \
-    --arg notes "Kxen $release_tag development preview." \
+    --arg notes "$release_notes" \
     --arg pub_date "$pub_date" \
     '{
       version: $version,

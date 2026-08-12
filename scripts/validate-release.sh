@@ -120,19 +120,20 @@ for pair in \
   fi
 done
 
-release_heading="## [$version]"
-heading_count="$(grep -Fxc "$release_heading" CHANGELOG.md || true)"
+version_regex="${version//./\\.}"
+release_heading_pattern="^## \[$version_regex\]( - [0-9]{4}-[0-9]{2}-[0-9]{2})?$"
+heading_count="$(grep -Ec "$release_heading_pattern" CHANGELOG.md || true)"
 if [[ "$heading_count" != 1 ]]; then
-  printf 'CHANGELOG.md must contain exactly one release heading: %s\n' "$release_heading"
+  printf 'CHANGELOG.md must contain exactly one release heading for %s\n' "$version"
   exit 1
 fi
-if ! awk -v heading="$release_heading" '
-  $0 == heading { capture = 1; next }
+if ! awk -v version="$version_regex" '
+  $0 ~ "^## \\[" version "\\]( - [0-9]{4}-[0-9]{2}-[0-9]{2})?$" { capture = 1; next }
   capture && /^## / { exit }
   capture && /[^[:space:]]/ { found = 1 }
   END { exit found != 1 }
 ' CHANGELOG.md; then
-  printf 'CHANGELOG.md release section is empty: %s\n' "$release_heading"
+  printf 'CHANGELOG.md release section is empty for %s\n' "$version"
   exit 1
 fi
 

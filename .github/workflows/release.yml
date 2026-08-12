@@ -388,6 +388,7 @@ jobs:
           cp scripts/{github-release,prepare-release-assets,release-lib,release-manifest,validate-release,verify-macos-release,verify-release-assets}.sh \
             scripts/verify-updater-signature.mjs \
             "$RUNNER_TEMP/trusted-release-tools/"
+          cp cliff.toml "$RUNNER_TEMP/trusted-release-tools/cliff.toml"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.validate.outputs.commit }}
@@ -407,6 +408,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
         run: bash "$RUNNER_TEMP/trusted-release-tools/validate-release.sh" "$RELEASE_TAG" origin/main "$GITHUB_REPOSITORY"
+      - name: Generate version-specific release notes
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4.8.0
+        with:
+          version: v2.13.1
+          config: ${{ runner.temp }}/trusted-release-tools/cliff.toml
+          args: --current --strip header --output ${{ runner.temp }}/release-notes.md
       - name: Merge updater manifest and checksums
         shell: bash
         env:
@@ -414,9 +421,12 @@ jobs:
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/trusted-release-tools/release-lib.sh"
+          kxen_validate_release_notes_file "$RELEASE_TAG" "$RUNNER_TEMP/release-notes.md"
+          release_notes="$(cat "$RUNNER_TEMP/release-notes.md")"
           kxen_merge_updater_manifest \
             "${RELEASE_TAG#v}" "$GITHUB_REPOSITORY" "$RELEASE_TAG" \
-            "$RUNNER_TEMP/release-assets" "$RUNNER_TEMP/release-assets/latest.json"
+            "$RUNNER_TEMP/release-assets" "$RUNNER_TEMP/release-assets/latest.json" \
+            "$release_notes"
           kxen_write_sha256sums "$RUNNER_TEMP/release-assets"
       - name: Verify downloaded release assets
         shell: bash
@@ -431,7 +441,7 @@ jobs:
           RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
         run: >-
           bash "$RUNNER_TEMP/trusted-release-tools/github-release.sh"
-          create-draft "$RELEASE_TAG" "$GITHUB_REPOSITORY" "$RELEASE_COMMIT" "$RUNNER_TEMP/release-assets"
+          create-draft "$RELEASE_TAG" "$GITHUB_REPOSITORY" "$RELEASE_COMMIT" "$RUNNER_TEMP/release-assets" "$RUNNER_TEMP/release-notes.md"
       - name: Verify draft release asset set
         shell: bash
         env:

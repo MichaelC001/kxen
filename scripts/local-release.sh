@@ -28,6 +28,7 @@ release_tag="${2:-}"
 repository="${3:-}"
 release_commit="${4:-}"
 asset_dir="$repo_root/release-assets"
+release_notes_path="$repo_root/target/kxen-release-notes.md"
 bundle_root="$repo_root/target/aarch64-apple-darwin/release/bundle"
 tauri_dir="$HOME/.tauri"
 
@@ -60,6 +61,9 @@ validate_source() {
 
 build_assets() {
   validate_source
+  mkdir -p "$(dirname "$release_notes_path")"
+  bash "$script_dir/changelog.sh" release-notes "$release_tag" "$release_notes_path"
+  kxen_validate_release_notes_file "$release_tag" "$release_notes_path"
 
   require_file 'Tauri updater private key' "$tauri_dir/kxen.key"
   require_file 'Tauri updater private key password' "$tauri_dir/kxen.key.password"
@@ -147,13 +151,16 @@ build_assets() {
   # 本地路径只产出 macOS arm64 一个平台,latest.json 仅含 darwin-aarch64 条目;
   # 全平台发布由 release.yml 矩阵产出,publish 段同样走这两个函数。
   kxen_merge_updater_manifest "${release_tag#v}" "$repository" "$release_tag" \
-    "$asset_dir" "$asset_dir/latest.json"
+    "$asset_dir" "$asset_dir/latest.json" "$(cat "$release_notes_path")"
   kxen_write_sha256sums "$asset_dir"
   bash "$script_dir/verify-release-assets.sh" "$release_tag" "$repository" "$asset_dir" macos-aarch64
 }
 
 publish_release() {
   validate_source
+  mkdir -p "$(dirname "$release_notes_path")"
+  bash "$script_dir/changelog.sh" release-notes "$release_tag" "$release_notes_path"
+  kxen_validate_release_notes_file "$release_tag" "$release_notes_path"
   if [[ ! -d "$asset_dir" ]] || [[ -z "$(find "$asset_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
     printf 'release asset directory is empty, run the build step first: %s\n' "$asset_dir" >&2
     exit 1
@@ -161,7 +168,7 @@ publish_release() {
   # github-release.sh 用 run id 标记 draft 归属;本地运行用 pid 占位,语义相同。
   export GITHUB_RUN_ID="$$"
   export GITHUB_RUN_ATTEMPT=1
-  bash "$script_dir/github-release.sh" create-draft "$release_tag" "$repository" "$release_commit" "$asset_dir"
+  bash "$script_dir/github-release.sh" create-draft "$release_tag" "$repository" "$release_commit" "$asset_dir" "$release_notes_path"
   bash "$script_dir/github-release.sh" verify-draft "$release_tag" "$repository" "$release_commit" "$asset_dir"
   bash "$script_dir/github-release.sh" publish "$release_tag" "$repository" "$release_commit" "$asset_dir"
 }

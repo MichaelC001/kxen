@@ -10,6 +10,7 @@ release_tag="${2:-}"
 repository="${3:-}"
 release_commit="${4:-}"
 asset_dir="${5:-release-assets}"
+release_notes_path="${6:-}"
 
 kxen_require_release_tag "$release_tag"
 kxen_require_github_repository "$repository"
@@ -104,24 +105,15 @@ create_draft() {
     printf 'removed incomplete workflow-owned draft: %s\n' "$release_tag"
   fi
   release_notes="$(
-    cat <<EOF
-Kxen $release_tag development preview.
-
-Desktop builds: macOS (Apple Silicon and Intel, signed and notarized), Windows (x64 and arm64, NSIS installer), Linux (x64 and arm64, deb and AppImage).
-
-Windows builds are not code-signed in this release: SmartScreen shows a reputation warning on first launch. Choose "More info" -> "Run anyway" to proceed.
-
-kxen-<platform>.tar.gz / .zip contains the headless server build (no GUI); the macOS builds are Developer ID signed and notarized like the desktop app. Run \`kxen\` (flags: --bind, --port, --token, --allow-host); it prints the access URL with token on startup. To access it from other machines, expose it over your tailnet with \`tailscale serve\` and pass the tailnet hostname via \`--allow-host\`.
-
-$draft_marker
-EOF
+    kxen_render_release_body \
+      "$release_tag" "$repository" "$release_notes_path" "$draft_marker"
   )"
   gh release create "$release_tag" \
     --repo "$repository" \
     --verify-tag \
     --target "$release_commit" \
     --draft \
-    --title "Kxen $release_tag development preview" \
+    --title "Kxen $release_tag" \
     --notes "$release_notes" \
     "$asset_dir"/*
   require_current_draft "$(find_release)"
@@ -205,7 +197,7 @@ case "$operation" in
   publish) publish_release ;;
   cleanup-draft) cleanup_draft ;;
   *)
-    printf 'usage: github-release.sh <create-draft|verify-draft|publish|cleanup-draft> <tag> <repository> <commit> [asset-dir]\n'
+    printf 'usage: github-release.sh <create-draft|verify-draft|publish|cleanup-draft> <tag> <repository> <commit> [asset-dir] [release-notes]\n'
     exit 1
     ;;
 esac
