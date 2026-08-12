@@ -20,6 +20,7 @@ import {
 } from "../../lib/bots";
 import { flashErr, flashOk } from "../../lib/flash";
 import { formatError } from "../../lib/error-text";
+import { encodeBotInput, publishedBotDefinition } from "./bot-definition";
 import { Panel, shortId, statusClass, type RefreshProps } from "./shared";
 import BotLibraryDetail from "./BotLibraryDetail";
 
@@ -101,15 +102,22 @@ export default function BotLibrary(props: RefreshProps) {
     const state = detail();
     const text = prompt().trim();
     if (!state || !text) return;
+    let input;
+    try {
+      input = encodeBotInput(text, publishedBotDefinition(state));
+    } catch (error) {
+      flashErr(`输入契约校验失败：${formatError(error)}`);
+      return;
+    }
     void act(
-      () => botRunStart(newBotId("brun"), state.bot_id, [{ kind: "text", text }], newBotId("idem")),
+      () => botRunStart(newBotId("brun"), state.bot_id, input, newBotId("idem")),
       "BotRun 已排队",
     );
   };
   const duplicate = () => {
     const state = detail();
     if (!state?.current_revision_id) return;
-    const definition = currentDefinition(state);
+    const definition = publishedBotDefinition(state);
     const id = newBotId("bot");
     void act(
       () =>
@@ -237,11 +245,4 @@ export default function BotLibrary(props: RefreshProps) {
       </div>
     </div>
   );
-}
-
-function currentDefinition(state: BotState) {
-  if (state.draft) return state.draft.definition;
-  return Object.values(state.revisions).sort(
-    (left, right) => right.revision_number - left.revision_number,
-  )[0]?.definition;
 }

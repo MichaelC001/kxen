@@ -1,5 +1,6 @@
 import { For, Show } from "solid-js";
 import type { BotMemoryState, BotState } from "../../lib/bots";
+import { editableBotDefinition, publishedBotDefinition } from "./bot-definition";
 import { actionClass, fieldClass, Panel, primaryClass, shortId, statusClass } from "./shared";
 
 interface BotLibraryDetailProps {
@@ -22,7 +23,8 @@ interface BotLibraryDetailProps {
 }
 
 export default function BotLibraryDetail(props: BotLibraryDetailProps) {
-  const definition = () => currentDefinition(props.state);
+  const definition = () => editableBotDefinition(props.state);
+  const runDefinition = () => publishedBotDefinition(props.state);
   return (
     <>
       <Panel
@@ -62,7 +64,7 @@ export default function BotLibraryDetail(props: BotLibraryDetailProps) {
       <Show when={props.state.lifecycle === "active"}>
         <Panel
           title="手动运行"
-          detail="创建独立的持久化 BotRun，可在 Runs 中查看进度、审批和结果。"
+          detail={`创建持久化 BotRun。输入契约：${runDefinition()?.input_contract.content_type ?? "text/plain"}${runDefinition()?.input_contract.required_fields.length ? `，必填 ${runDefinition()!.input_contract.required_fields.join(", ")}` : ""}。`}
         >
           <textarea
             class={`${fieldClass} min-h-20`}
@@ -223,11 +225,4 @@ function LifecycleActions(props: {
       </button>
     </div>
   );
-}
-
-function currentDefinition(state: BotState) {
-  if (state.draft) return state.draft.definition;
-  return Object.values(state.revisions).sort(
-    (left, right) => right.revision_number - left.revision_number,
-  )[0]?.definition;
 }

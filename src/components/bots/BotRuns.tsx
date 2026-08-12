@@ -101,7 +101,7 @@ export default function BotRuns(props: RefreshProps) {
     if (!run || terminal(run.status)) return;
     void act(
       () => botRunCancel(run.spec.run_id, run.event_version, newBotId("idem"), "canceled by owner"),
-      "BotRun 已取消",
+      "BotRun 取消请求已记录",
     );
   };
   const inspectArtifact = async (artifactId: string, displayName: string, mediaType: string) => {
@@ -202,7 +202,7 @@ export default function BotRuns(props: RefreshProps) {
                 {(approvalRequest) => (
                   <Panel
                     title="需要审批"
-                    detail="受控副作用在执行前暂停，审批绑定精确 operation_id。"
+                    detail="受控副作用审批绑定精确 operation_id，协作任务审批不伪造副作用 identity。"
                   >
                     <p class="text-xs selectable mb-3">{approvalRequest().summary}</p>
                     <div class="flex gap-2">

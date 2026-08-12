@@ -57,7 +57,12 @@ export interface BuilderState {
   lifecycle: string;
   event_version: number;
   user_goal: string;
-  draft?: { version: number; content_hash: string; definition: BotDefinition };
+  draft?: {
+    version: number;
+    source_message_id?: string;
+    content_hash: string;
+    definition: BotDefinition;
+  };
   grants: Array<{ grant_id: string; draft_hash: string; permission_hash: string; reason: string }>;
   reports: Array<{
     report_id: string;
@@ -87,7 +92,7 @@ export interface BotRun {
   status: string;
   event_version: number;
   result: Array<{ kind: string; text?: string }>;
-  approval?: { approval_id: string; operation_id: string; summary: string };
+  approval?: { approval_id: string; operation_id?: string; summary: string };
   input_request?: { request_id: string; prompt: string };
   artifacts: Array<{
     artifact_id: string;
@@ -98,6 +103,7 @@ export interface BotRun {
   }>;
   error_code?: string;
   error_message?: string;
+  cancellation_requested?: string;
   usage: {
     input_tokens: number;
     output_tokens: number;
@@ -123,6 +129,7 @@ export interface BotConversation {
     target_bot_id?: string;
     created_at_ms: number;
   }>;
+  message_sequences: Record<string, number>;
   tasks: Record<string, BotTask>;
 }
 
@@ -187,7 +194,10 @@ export interface RoutineDefinition {
   };
   context_mode: "isolated" | "continue_conversation";
   target_conversation_id?: string;
-  input: Array<{ kind: "text"; text: string }>;
+  input: Array<
+    | { kind: "text"; text: string }
+    | { kind: "data"; schema_id: string; fields: Record<string, string> }
+  >;
   budget_override?: Record<string, number | null>;
   revision_policy: { kind: "follow_current" } | { kind: "pinned"; revision_id: string };
   failure_threshold: number;

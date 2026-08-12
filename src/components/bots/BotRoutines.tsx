@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal } from "solid-js";
 import {
   botConversationList,
+  botGet,
   botList,
   botRoutineCreate,
   botRoutineList,
@@ -12,11 +13,13 @@ import {
   newBotId,
   type BotConversation,
   type BotRoutine,
+  type BotState,
   type BotSummary,
   type RoutineDefinition,
 } from "../../lib/bots";
 import { flashErr, flashOk } from "../../lib/flash";
 import { formatError } from "../../lib/error-text";
+import { encodeBotInput, publishedBotDefinition } from "./bot-definition";
 import { actionClass, Panel, shortId, statusClass, type RefreshProps } from "./shared";
 import BotRoutineForm from "./BotRoutineForm";
 
@@ -40,6 +43,7 @@ export default function BotRoutines(props: RefreshProps) {
     "follow_current",
   );
   const [failureThreshold, setFailureThreshold] = createSignal(3);
+  const [selectedBot, setSelectedBot] = createSignal<BotState | null>(null);
   const [acting, setActing] = createSignal(false);
   const [loadErr, setLoadErr] = createSignal("");
   let loadSeq = 0;
@@ -67,6 +71,23 @@ export default function BotRoutines(props: RefreshProps) {
     void props.epoch;
     void reload();
   });
+  let botLoadSeq = 0;
+  createEffect(() => {
+    const id = botId();
+    const seq = ++botLoadSeq;
+    if (!id) {
+      setSelectedBot(null);
+      return;
+    }
+    setSelectedBot(null);
+    void botGet(id)
+      .then((state) => {
+        if (seq === botLoadSeq) setSelectedBot(state);
+      })
+      .catch(() => {
+        if (seq === botLoadSeq) setSelectedBot(null);
+      });
+  });
   const act = async (job: () => Promise<unknown>, label: string) => {
     if (acting()) return;
     setActing(true);
@@ -83,12 +104,27 @@ export default function BotRoutines(props: RefreshProps) {
   };
   const definition = (): RoutineDefinition | null => {
     const text = input().trim();
-    const selectedBot = bots().find((bot) => bot.bot_id === botId());
-    if (!selectedBot || !name().trim() || !cron().trim() || !text) return null;
+    const summary = bots().find((bot) => bot.bot_id === botId());
+    const state = selectedBot();
+    if (
+      !summary ||
+      !state ||
+      state.bot_id !== summary.bot_id ||
+      !name().trim() ||
+      !cron().trim() ||
+      !text
+    )
+      return null;
     if (contextMode() === "continue_conversation" && !conversationId()) return null;
-    if (revisionMode() === "pinned" && !selectedBot.current_revision_id) return null;
+    if (revisionMode() === "pinned" && !summary.current_revision_id) return null;
+    let routineInput: RoutineDefinition["input"];
+    try {
+      routineInput = encodeBotInput(text, publishedBotDefinition(state));
+    } catch {
+      return null;
+    }
     return {
-      bot_id: selectedBot.bot_id,
+      bot_id: summary.bot_id,
       name: name().trim(),
       schedule: {
         expression: { kind: "cron", expression: cron().trim() },
@@ -100,10 +136,10 @@ export default function BotRoutines(props: RefreshProps) {
       ...(contextMode() === "continue_conversation"
         ? { target_conversation_id: conversationId() }
         : {}),
-      input: [{ kind: "text", text }],
+      input: routineInput,
       revision_policy:
         revisionMode() === "pinned"
-          ? { kind: "pinned", revision_id: selectedBot.current_revision_id! }
+          ? { kind: "pinned", revision_id: summary.current_revision_id! }
           : { kind: "follow_current" },
       failure_threshold: failureThreshold(),
     };
@@ -138,7 +174,11 @@ export default function BotRoutines(props: RefreshProps) {
         : "0 9 * * *",
     );
     setTimezone(definition.schedule.timezone);
-    setInput(definition.input.map((part) => part.text).join("\n"));
+    setInput(
+      definition.input
+        .map((part) => (part.kind === "text" ? part.text : JSON.stringify(part.fields, null, 2)))
+        .join("\n"),
+    );
     setContextMode(definition.context_mode);
     setConversationId(definition.target_conversation_id || "");
     setRevisionMode(definition.revision_policy.kind);
