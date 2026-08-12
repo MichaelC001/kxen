@@ -85,6 +85,14 @@ generate() {
     "${strip_args[@]}" \
     --output "$destination" \
     "${range_args[@]}"
+  python3 - "$destination" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+content = path.read_text(encoding="utf-8").rstrip("\n") + "\n"
+path.write_text(content, encoding="utf-8")
+PY
 }
 
 if [[ "$operation" == check ]]; then
