@@ -28,7 +28,8 @@ impl ExecutionBudget {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if self.max_turns == Some(0)
+        if self.max_tokens == Some(0)
+            || self.max_turns == Some(0)
             || self.max_wall_clock_ms == Some(0)
             || self.max_tool_calls == Some(0)
             || self.max_child_tasks == Some(0)

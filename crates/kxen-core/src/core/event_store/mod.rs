@@ -180,14 +180,59 @@ fn semantic_command_hash<E: Serialize>(
 
 fn strip_server_times(value: &mut serde_json::Value) {
     match value {
-        serde_json::Value::Array(values) => values.iter_mut().for_each(strip_server_times),
-        serde_json::Value::Object(object) => {
-            for field in ["at_ms", "created_at_ms", "updated_at_ms", "granted_at_ms", "recorded_at_ms", "opened_at_ms", "resolved_at_ms"] {
-                object.remove(field);
+        serde_json::Value::Array(values) => {
+            for entry in values {
+                if let Some(payload) = entry.get_mut("payload") {
+                    strip_event_time(payload);
+                }
             }
-            object.values_mut().for_each(strip_server_times);
         }
         _ => {}
+    }
+}
+
+fn strip_event_time(value: &mut serde_json::Value) {
+    let serde_json::Value::Object(payload) = value else {
+        strip_generated_times(value);
+        return;
+    };
+    if payload.len() == 1
+        && let Some(serde_json::Value::Object(body)) = payload.values_mut().next()
+    {
+        strip_event_body(body);
+    } else {
+        strip_event_body(payload);
+    }
+}
+
+fn strip_event_body(body: &mut serde_json::Map<String, serde_json::Value>) {
+    body.remove("at_ms");
+    strip_generated_fields(body);
+    for (field, value) in body {
+        if field == "event" {
+            strip_event_time(value);
+        } else {
+            strip_generated_times(value);
+        }
+    }
+}
+
+fn strip_generated_times(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Array(values) => values.iter_mut().for_each(strip_generated_times),
+        serde_json::Value::Object(object) => {
+            strip_generated_fields(object);
+            object.values_mut().for_each(strip_generated_times);
+        }
+        _ => {}
+    }
+}
+
+fn strip_generated_fields(object: &mut serde_json::Map<String, serde_json::Value>) {
+    for field in ["created_at_ms", "updated_at_ms", "granted_at_ms", "recorded_at_ms", "opened_at_ms", "resolved_at_ms"] {
+        if object.get(field).is_some_and(serde_json::Value::is_number) {
+            object.remove(field);
+        }
     }
 }
 

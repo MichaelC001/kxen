@@ -55,10 +55,15 @@ impl RecoveryRegistry {
         }
         let _guard = crate::core::shared::lock(&self.lock);
         let (records, seq) = self.load()?;
-        if let Some(existing) = records.get(&aggregate).filter(|record| record.resolved_at_ms.is_none() && record.reason == reason) {
-            return Ok(existing.clone());
+        if let Some(existing) = records.get(&aggregate).filter(|record| record.resolved_at_ms.is_none()) {
+            return if existing.reason == reason {
+                Ok(existing.clone())
+            } else {
+                Err(RecoveryError::Invalid(format!("aggregate already has open recovery: {}", existing.recovery_id)))
+            };
         }
-        let recovery_id = deterministic("recovery", &[aggregate.id.as_str(), &format!("{:?}", aggregate.kind), &reason])?;
+        let predecessor = records.get(&aggregate).map_or("initial", |record| record.recovery_id.as_str());
+        let recovery_id = deterministic("recovery", &[aggregate.id.as_str(), &format!("{:?}", aggregate.kind), &reason, predecessor])?;
         let record = RecoveryRecord {
             recovery_id,
             aggregate: aggregate.clone(),
@@ -184,6 +189,9 @@ mod tests {
         let resolved = registry.resolve(&aggregate, "owner reconciled evidence", 3).unwrap().unwrap();
         assert_eq!(resolved.resolution.as_deref(), Some("owner reconciled evidence"));
         assert!(RecoveryRegistry::new(&root).list_open().unwrap().is_empty());
+        let reopened = registry.open(aggregate.clone(), "UNKNOWN tool outcome", vec!["op_two".into()], 4).unwrap();
+        assert_ne!(reopened.recovery_id, first.recovery_id);
+        assert_eq!(RecoveryRegistry::new(&root).list_open().unwrap(), vec![reopened]);
         std::fs::remove_dir_all(root).ok();
     }
 }

@@ -8,6 +8,18 @@ enum Event {
     Added { value: u64 },
     Removed { value: u64 },
     Timed { value: u64, at_ms: u64 },
+    Scheduled { schedule: BusinessSchedule, at_ms: u64 },
+    Wrapped { event: InnerEvent, at_ms: u64 },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct BusinessSchedule {
+    at_ms: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+enum InnerEvent {
+    Timed { value: u64, at_ms: u64 },
 }
 
 fn store(name: &str) -> EventStore<Event> {
@@ -83,6 +95,44 @@ fn duplicate_ignores_new_server_time_but_not_business_fields() {
 }
 
 #[test]
+fn nested_business_time_participates_in_idempotency() {
+    let store = store("business-time-idempotency");
+    let append = |scheduled_at_ms, recorded_at_ms| {
+        store.append(
+            Sequence(0),
+            IdempotencyKey::parse("idem_schedule").unwrap(),
+            actor(),
+            TraceContext::default(),
+            vec![entry("evt_schedule", Event::Scheduled { schedule: BusinessSchedule { at_ms: scheduled_at_ms }, at_ms: recorded_at_ms })],
+        )
+    };
+    assert!(matches!(append(1_000, 10).unwrap(), AppendOutcome::Committed(_)));
+    assert!(matches!(append(1_000, 20).unwrap(), AppendOutcome::Duplicate(_)));
+    assert!(matches!(append(2_000, 20), Err(EventStoreError::IdCollision(_))));
+    std::fs::remove_dir_all(store.root()).ok();
+}
+
+#[test]
+fn nested_event_recording_time_is_ignored_for_idempotent_retry() {
+    let store = store("nested-event-time-idempotency");
+    let append = |inner_at_ms, outer_at_ms| {
+        store.append(
+            Sequence(0),
+            IdempotencyKey::parse("idem_nested_event").unwrap(),
+            actor(),
+            TraceContext::default(),
+            vec![entry(
+                "evt_nested_event",
+                Event::Wrapped { event: InnerEvent::Timed { value: 7, at_ms: inner_at_ms }, at_ms: outer_at_ms },
+            )],
+        )
+    };
+    assert!(matches!(append(10, 11).unwrap(), AppendOutcome::Committed(_)));
+    assert!(matches!(append(20, 21).unwrap(), AppendOutcome::Duplicate(_)));
+    std::fs::remove_dir_all(store.root()).ok();
+}
+
+#[test]
 fn expected_sequence_conflict_is_rejected() {
     let store = store("version");
     store
@@ -139,6 +189,8 @@ impl Projector<Event> for Sum {
             Event::Added { value } => *state += *value as i64,
             Event::Removed { value } => *state -= *value as i64,
             Event::Timed { value, .. } => *state += *value as i64,
+            Event::Scheduled { .. } => {}
+            Event::Wrapped { .. } => {}
         }
         Ok(())
     }

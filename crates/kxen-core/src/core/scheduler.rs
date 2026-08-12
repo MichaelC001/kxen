@@ -77,10 +77,11 @@ impl ScheduleSpec {
         if observed_at_ms <= last_observed_at_ms {
             return Ok(None);
         }
-        let due = self.due_between(last_observed_at_ms, observed_at_ms)?;
-        let Some(&scheduled_at_ms) = due.last() else { return Ok(None) };
+        let Some(due) = self.due_between(last_observed_at_ms, observed_at_ms)? else { return Ok(None) };
+        let scheduled_at_ms = due.latest;
         let lateness = observed_at_ms.saturating_sub(scheduled_at_ms);
-        let decision = if due.len() == 1 || (self.misfire == MisfirePolicy::RunOnce && lateness <= self.max_lateness_ms) {
+        let decision = if lateness <= self.max_lateness_ms && ((!due.truncated && due.count == 1) || self.misfire == MisfirePolicy::RunOnce)
+        {
             OccurrenceDecision::Run
         } else {
             OccurrenceDecision::Skip
@@ -91,30 +92,45 @@ impl ScheduleSpec {
             scheduled_at_ms,
             observed_at_ms,
             decision,
-            missed_before: u32::try_from(due.len().saturating_sub(1)).unwrap_or(u32::MAX),
+            missed_before: if due.truncated { u32::MAX } else { u32::try_from(due.count.saturating_sub(1)).unwrap_or(u32::MAX) },
         }))
     }
 
-    fn due_between(&self, after_ms: u64, through_ms: u64) -> Result<Vec<u64>, SchedulerError> {
+    fn due_between(&self, after_ms: u64, through_ms: u64) -> Result<Option<DueWindow>, SchedulerError> {
         match &self.expression {
-            ScheduleExpression::Once { at_ms } => Ok((after_ms < *at_ms && *at_ms <= through_ms).then_some(*at_ms).into_iter().collect()),
-            ScheduleExpression::Cron { .. } => {
-                let mut due = Vec::new();
-                let mut cursor = after_ms;
-                while let Some(next) = self.next_after(cursor)? {
-                    if next > through_ms {
+            ScheduleExpression::Once { at_ms } => {
+                Ok((after_ms < *at_ms && *at_ms <= through_ms).then_some(DueWindow { latest: *at_ms, count: 1, truncated: false }))
+            }
+            ScheduleExpression::Cron { expression } => {
+                let schedule = parse_cron(expression)?;
+                let tz = timezone(&self.timezone)?;
+                let through = instant(through_ms.saturating_add(1))?.with_timezone(&tz);
+                let mut reverse = schedule.after(&through).rev();
+                let mut latest = None;
+                let mut count = 0usize;
+                let mut truncated = false;
+                while let Some(value) = reverse.next() {
+                    let scheduled_at_ms = value.timestamp_millis() as u64;
+                    if scheduled_at_ms <= after_ms {
                         break;
                     }
-                    due.push(next);
-                    if due.len() >= MAX_SCAN_OCCURRENCES {
-                        return Err(SchedulerError::ScanLimit);
+                    latest.get_or_insert(scheduled_at_ms);
+                    count += 1;
+                    if count == MAX_SCAN_OCCURRENCES {
+                        truncated = reverse.next().is_some_and(|previous| previous.timestamp_millis() as u64 > after_ms);
+                        break;
                     }
-                    cursor = next;
                 }
-                Ok(due)
+                Ok(latest.map(|latest| DueWindow { latest, count, truncated }))
             }
         }
     }
+}
+
+struct DueWindow {
+    latest: u64,
+    count: usize,
+    truncated: bool,
 }
 
 pub fn occurrence_id(schedule_id: &ResourceId, scheduled_at_ms: u64) -> Result<ResourceId, SchedulerError> {
@@ -140,8 +156,6 @@ fn instant(ms: u64) -> Result<DateTime<Utc>, SchedulerError> {
 pub enum SchedulerError {
     #[error("schedule is invalid: {0}")]
     Invalid(String),
-    #[error("schedule occurrence scan exceeded bounded limit")]
-    ScanLimit,
 }
 
 #[cfg(test)]
@@ -191,5 +205,31 @@ mod tests {
         let plan = spec.plan(&ResourceId::parse("routine_skip").unwrap(), 0, 300_000).unwrap().unwrap();
         assert_eq!(plan.decision, OccurrenceDecision::Skip);
         assert_eq!(plan.missed_before, 4);
+    }
+
+    #[test]
+    fn a_single_occurrence_beyond_max_lateness_is_skipped() {
+        let spec = ScheduleSpec {
+            expression: ScheduleExpression::Once { at_ms: 60_000 },
+            timezone: "UTC".into(),
+            misfire: MisfirePolicy::RunOnce,
+            max_lateness_ms: 1_000,
+        };
+        let plan = spec.plan(&ResourceId::parse("routine_late_once").unwrap(), 0, 120_000).unwrap().unwrap();
+        assert_eq!(plan.decision, OccurrenceDecision::Skip);
+    }
+
+    #[test]
+    fn long_downtime_is_bounded_without_wedging_the_schedule() {
+        let spec = ScheduleSpec {
+            expression: ScheduleExpression::Cron { expression: "* * * * *".into() },
+            timezone: "UTC".into(),
+            misfire: MisfirePolicy::RunOnce,
+            max_lateness_ms: 60_000,
+        };
+        let plan = spec.plan(&ResourceId::parse("routine_long_downtime").unwrap(), 0, 7 * 24 * 60 * 60 * 1_000).unwrap().unwrap();
+        assert_eq!(plan.decision, OccurrenceDecision::Run);
+        assert_eq!(plan.scheduled_at_ms, 7 * 24 * 60 * 60 * 1_000);
+        assert_eq!(plan.missed_before, u32::MAX);
     }
 }
