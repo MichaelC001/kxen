@@ -56,6 +56,9 @@ const METHODS: &[&str] = &[
 
 /// 返回 Some(result) 表示命中；None 表示不是本组方法。
 pub(super) async fn try_handle(method: &str, params: &Value, state: &Arc<AppState>) -> Option<Result<Value, String>> {
+    if super::ops_bot::METHODS.contains(&method) {
+        return Some(super::ops_bot::handle(method, params, state).await);
+    }
     if super::ops_provider::METHODS.contains(&method) {
         return Some(super::ops_provider::handle(method, params, state).await);
     }

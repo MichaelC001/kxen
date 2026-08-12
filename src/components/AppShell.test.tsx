@@ -39,6 +39,7 @@ vi.mock("../pages/Session", () => ({ default: () => <div>session page</div> }));
 vi.mock("../pages/Settings", () => ({ default: () => <div>settings page</div> }));
 vi.mock("../pages/Workspaces", () => ({ default: () => <div>workspaces page</div> }));
 vi.mock("../pages/Kanban", () => ({ default: () => <div>kanban page</div> }));
+vi.mock("../pages/Bots", () => ({ default: () => <div>bots page</div> }));
 vi.mock("./ResizeHandle", () => ({
   default: (props: { onDrag: (dx: number) => void; onReset: () => void }) => (
     <button
@@ -105,6 +106,7 @@ describe("App shell", () => {
     expect(document.body.textContent).toContain("session page");
     expect(document.body.textContent).toContain("settings page");
     expect(document.body.textContent).toContain("workspaces page");
+    await vi.waitFor(() => expect(document.body.textContent).toContain("bots page"));
 
     const input = document.createElement("input");
     input.value = "hello world";

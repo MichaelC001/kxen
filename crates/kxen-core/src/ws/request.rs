@@ -133,8 +133,8 @@ pub(super) fn validate_system(request: &Request, stream_ids: &[String]) -> Reque
 }
 
 fn valid_topic(topic: &str) -> bool {
-    matches!(topic, "llm.delta" | "approval.global" | "task.update" | "goal.update" | "notification" | "session.update")
-        || ["session:", "kanban:"]
+    matches!(topic, "llm.delta" | "approval.global" | "task.update" | "goal.update" | "notification" | "session.update" | "bots")
+        || ["session:", "kanban:", "bot:", "bot-run:", "bot-conversation:", "bot-routine:", "bot-builder:"]
             .iter()
             .any(|prefix| topic.strip_prefix(prefix).is_some_and(|id| !id.is_empty() && !id.chars().any(char::is_whitespace)))
 }

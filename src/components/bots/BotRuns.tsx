@@ -1,0 +1,335 @@
+import { For, Show, createEffect, createSignal } from "solid-js";
+import {
+  botArtifactGet,
+  botArtifactRestore,
+  botArtifactTrash,
+  botRunApproval,
+  botRunCancel,
+  botRunInput,
+  botRunList,
+  newBotId,
+  type BotRun,
+} from "../../lib/bots";
+import { flashErr, flashOk } from "../../lib/flash";
+import { formatError } from "../../lib/error-text";
+import {
+  actionClass,
+  fieldClass,
+  Panel,
+  primaryClass,
+  shortId,
+  statusClass,
+  type RefreshProps,
+} from "./shared";
+
+export default function BotRuns(props: RefreshProps) {
+  const [runs, setRuns] = createSignal<BotRun[]>([]);
+  const [selectedId, setSelectedId] = createSignal("");
+  const [input, setInput] = createSignal("");
+  const [acting, setActing] = createSignal(false);
+  const [artifactPreview, setArtifactPreview] = createSignal<{
+    id: string;
+    name: string;
+    content: string;
+  } | null>(null);
+  const [loadErr, setLoadErr] = createSignal("");
+  let loadSeq = 0;
+  const reload = async () => {
+    const seq = ++loadSeq;
+    try {
+      const items = await botRunList();
+      if (seq !== loadSeq) return;
+      items.sort((left, right) => right.updated_at_ms - left.updated_at_ms);
+      setRuns(items);
+      if (!selectedId() && items[0]) setSelectedId(items[0].spec.run_id);
+      setLoadErr("");
+    } catch (error) {
+      if (seq === loadSeq) setLoadErr(formatError(error));
+    }
+  };
+  createEffect(() => {
+    void props.epoch;
+    void reload();
+  });
+  const selected = () => runs().find((run) => run.spec.run_id === selectedId()) || null;
+  const act = async (job: () => Promise<unknown>, label: string) => {
+    if (acting()) return;
+    setActing(true);
+    try {
+      await job();
+      await reload();
+      props.onChanged();
+      flashOk(label);
+    } catch (error) {
+      flashErr(`${label}失败：${formatError(error)}`);
+    } finally {
+      setActing(false);
+    }
+  };
+  const approval = (allow: boolean) => {
+    const run = selected();
+    if (!run?.approval) return;
+    void act(
+      () =>
+        botRunApproval(
+          run.spec.run_id,
+          run.approval!.approval_id,
+          allow,
+          run.event_version,
+          newBotId("idem"),
+        ),
+      allow ? "审批已允许" : "审批已拒绝",
+    );
+  };
+  const provideInput = () => {
+    const run = selected();
+    const text = input().trim();
+    if (!run?.input_request || !text) return;
+    void act(async () => {
+      await botRunInput(
+        run.spec.run_id,
+        run.input_request!.request_id,
+        [{ kind: "text", text }],
+        run.event_version,
+        newBotId("idem"),
+      );
+      setInput("");
+    }, "输入已绑定");
+  };
+  const cancel = () => {
+    const run = selected();
+    if (!run || terminal(run.status)) return;
+    void act(
+      () => botRunCancel(run.spec.run_id, run.event_version, newBotId("idem"), "canceled by owner"),
+      "BotRun 已取消",
+    );
+  };
+  const inspectArtifact = async (artifactId: string, displayName: string, mediaType: string) => {
+    if (acting()) return;
+    setActing(true);
+    try {
+      const payload = (await botArtifactGet(artifactId)) as { content_base64: string };
+      const bytes = Uint8Array.from(atob(payload.content_base64), (character) =>
+        character.charCodeAt(0),
+      );
+      const content =
+        mediaType.startsWith("text/") || mediaType.includes("json")
+          ? new TextDecoder().decode(bytes)
+          : `已验证 ${bytes.byteLength} bytes 的 ${mediaType} 内容。二进制内容不在预览区渲染。`;
+      setArtifactPreview({ id: artifactId, name: displayName, content });
+    } catch (error) {
+      flashErr(`读取 Artifact 失败：${formatError(error)}`);
+    } finally {
+      setActing(false);
+    }
+  };
+  const trashArtifact = (artifactId: string) => {
+    void act(async () => {
+      await botArtifactTrash(artifactId);
+      if (artifactPreview()?.id === artifactId) setArtifactPreview(null);
+    }, "Artifact 已移到废纸篓");
+  };
+  const restoreArtifact = (artifactId: string) => {
+    void act(() => botArtifactRestore(artifactId), "Artifact 已恢复");
+  };
+
+  return (
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <Panel title="BotRuns" detail="Run 是可恢复的执行真源，瞬态 delta 只用于渲染。">
+        <Show when={loadErr()}>
+          <p class="text-xs text-[var(--err)] mb-2">{loadErr()}</p>
+        </Show>
+        <div class="space-y-2 max-h-[65vh] overflow-auto">
+          <For
+            each={runs()}
+            fallback={<p class="text-xs text-[var(--text-faint)]">暂无 BotRun。</p>}
+          >
+            {(run) => (
+              <button
+                class="pressable w-full text-left rounded border border-[var(--border)] p-2"
+                classList={{ "border-[var(--accent)]": selectedId() === run.spec.run_id }}
+                onClick={() => setSelectedId(run.spec.run_id)}
+              >
+                <div class="flex gap-2">
+                  <span class="text-xs truncate">{run.spec.bot_id}</span>
+                  <span class={`ml-auto text-2xs ${statusClass(run.status)}`}>{run.status}</span>
+                </div>
+                <div class="text-2xs font-mono text-[var(--text-faint)]">
+                  {shortId(run.spec.run_id)}
+                </div>
+              </button>
+            )}
+          </For>
+        </div>
+      </Panel>
+      <div class="lg:col-span-2 space-y-4">
+        <Show
+          when={selected()}
+          fallback={
+            <Panel title="Run 详情">
+              <p class="text-xs text-[var(--text-faint)]">选择一个 Run。</p>
+            </Panel>
+          }
+        >
+          {(run) => (
+            <>
+              <Panel
+                title={`Run ${shortId(run().spec.run_id)}`}
+                detail={`${run().spec.trigger.kind}，revision ${shortId(run().spec.revision_id)}`}
+              >
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  <Metric label="状态" value={run().status} tone={statusClass(run().status)} />
+                  <Metric
+                    label="Tokens"
+                    value={String(run().usage.input_tokens + run().usage.output_tokens)}
+                  />
+                  <Metric label="Tool calls" value={String(run().usage.tool_calls)} />
+                  <Metric label="Turns" value={String(run().usage.turns)} />
+                </div>
+                <Show when={run().error_message}>
+                  <div class="mt-3 rounded border border-[var(--err)]/50 p-2 text-xs text-[var(--err)] selectable">
+                    {run().error_code}: {run().error_message}
+                  </div>
+                </Show>
+                <Show when={!terminal(run().status)}>
+                  <button class={`${actionClass} mt-3`} disabled={acting()} onClick={cancel}>
+                    Cancel Run
+                  </button>
+                </Show>
+              </Panel>
+
+              <Show when={run().approval}>
+                {(approvalRequest) => (
+                  <Panel
+                    title="需要审批"
+                    detail="受控副作用在执行前暂停，审批绑定精确 operation_id。"
+                  >
+                    <p class="text-xs selectable mb-3">{approvalRequest().summary}</p>
+                    <div class="flex gap-2">
+                      <button
+                        class={primaryClass}
+                        disabled={acting()}
+                        onClick={() => approval(true)}
+                      >
+                        Allow
+                      </button>
+                      <button
+                        class={actionClass}
+                        disabled={acting()}
+                        onClick={() => approval(false)}
+                      >
+                        Deny
+                      </button>
+                    </div>
+                  </Panel>
+                )}
+              </Show>
+              <Show when={run().input_request}>
+                {(request) => (
+                  <Panel title="需要输入" detail={request().prompt}>
+                    <div class="flex gap-2">
+                      <input
+                        class={fieldClass}
+                        value={input()}
+                        onInput={(event) => setInput(event.currentTarget.value)}
+                        placeholder="补充本次 Run 所需信息"
+                      />
+                      <button
+                        class={primaryClass}
+                        disabled={acting() || !input().trim()}
+                        onClick={provideInput}
+                      >
+                        提交
+                      </button>
+                    </div>
+                  </Panel>
+                )}
+              </Show>
+
+              <Panel
+                title="结果与 Artifacts"
+                detail="终态结果和 Artifact manifest 可在重启后重新读取。"
+              >
+                <div class="space-y-2 selectable">
+                  <For
+                    each={run().result}
+                    fallback={<p class="text-xs text-[var(--text-faint)]">尚无终态结果。</p>}
+                  >
+                    {(part) => (
+                      <div class="rounded border border-[var(--border)] p-2 text-xs whitespace-pre-wrap">
+                        {part.kind === "text" ? part.text : JSON.stringify(part, null, 2)}
+                      </div>
+                    )}
+                  </For>
+                  <For each={run().artifacts}>
+                    {(artifact) => (
+                      <div class="rounded border border-[var(--border)] p-2 text-xs">
+                        <div>{artifact.display_name}</div>
+                        <div class="text-2xs text-[var(--text-faint)]">
+                          {artifact.media_type}，{artifact.size_bytes} bytes
+                        </div>
+                        <div class="font-mono text-2xs break-all">{artifact.content_hash}</div>
+                        <div class="flex flex-wrap gap-2 mt-2">
+                          <button
+                            class={actionClass}
+                            disabled={acting()}
+                            onClick={() =>
+                              void inspectArtifact(
+                                artifact.artifact_id,
+                                artifact.display_name,
+                                artifact.media_type,
+                              )
+                            }
+                          >
+                            验证并预览
+                          </button>
+                          <button
+                            class={actionClass}
+                            disabled={acting()}
+                            onClick={() => trashArtifact(artifact.artifact_id)}
+                          >
+                            Trash
+                          </button>
+                          <button
+                            class={actionClass}
+                            disabled={acting()}
+                            onClick={() => restoreArtifact(artifact.artifact_id)}
+                          >
+                            Restore
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                  <Show when={artifactPreview()}>
+                    {(preview) => (
+                      <div class="rounded border border-[var(--accent)]/60 p-3 text-xs">
+                        <div class="mb-2 text-[var(--accent-hover)]">{preview().name}</div>
+                        <pre class="selectable whitespace-pre-wrap max-h-80 overflow-auto">
+                          {preview().content}
+                        </pre>
+                      </div>
+                    )}
+                  </Show>
+                </div>
+              </Panel>
+            </>
+          )}
+        </Show>
+      </div>
+    </div>
+  );
+}
+
+function Metric(props: { label: string; value: string; tone?: string }) {
+  return (
+    <div>
+      <div class="text-2xs text-[var(--text-faint)]">{props.label}</div>
+      <div class={props.tone || "text-[var(--text)]"}>{props.value}</div>
+    </div>
+  );
+}
+
+function terminal(status: string): boolean {
+  return ["completed", "failed", "canceled", "rejected", "blocked"].includes(status);
+}

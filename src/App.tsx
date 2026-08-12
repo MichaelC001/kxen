@@ -38,7 +38,9 @@ import {
 import ResizeHandle from "./components/ResizeHandle";
 import GlobalApprovalHost from "./components/GlobalApprovalHost";
 import { useLocation, useNavigate } from "@solidjs/router";
-import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, lazy, onCleanup, onMount, Show } from "solid-js";
+
+const Bots = lazy(() => import("./pages/Bots"));
 
 function Home() {
   // agents 名单同时驱动 AgentRunCards 与 RightColumn，轮询放共同父级
@@ -220,6 +222,7 @@ export default function App() {
       <Route path="/" component={Home} />
       <Route path="/settings" component={Settings} />
       <Route path="/workspaces" component={Workspaces} />
+      <Route path="/bots" component={Bots} />
       <Route path="/kanban/:board" component={Kanban} />
     </Router>
   );

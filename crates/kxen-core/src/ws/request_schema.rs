@@ -4,11 +4,13 @@ use serde_json::Value;
 
 use super::protocol::{CallError, value_kind};
 
+#[path = "request_schema/bot_fields.rs"]
+mod bot_fields;
 #[path = "request_schema/methods.rs"]
 mod methods;
 
 #[derive(Clone, Copy)]
-enum Kind {
+pub(super) enum Kind {
     String,
     Bool,
     Array,
@@ -42,6 +44,7 @@ pub(super) fn validate_rpc(method: &str, params: Value) -> Result<ValidatedParam
             return Err(CallError::invalid_params(method, field, kind.expected(), value_kind(value)));
         }
     }
+    reject_unknown_bot_fields(method, &params)?;
     validate_values(method, &params)?;
     if method == "send_message" {
         serde_json::from_value(params)
@@ -84,6 +87,9 @@ impl Kind {
 }
 
 fn required_fields(method: &str) -> &'static [(&'static str, Kind)] {
+    if let Some(fields) = bot_fields::required(method) {
+        return fields;
+    }
     use Kind::{Bool as B, Object as O, String as S, StringArray as SA};
     match method {
         "task.kill"
@@ -145,6 +151,9 @@ fn required_fields(method: &str) -> &'static [(&'static str, Kind)] {
 }
 
 fn optional_fields(method: &str) -> &'static [(&'static str, Kind)] {
+    if let Some(fields) = bot_fields::optional(method) {
+        return fields;
+    }
     use Kind::{Array as A, Bool as B, Number as N, Object as O, String as S, StringArray as SA, U64 as U};
     match method {
         "current_model"
@@ -203,6 +212,9 @@ fn validate_values(method: &str, params: &Value) -> Result<(), CallError> {
         CallError::invalid_params(method, field, expected, params.get(field).map(value_kind).unwrap_or("missing"))
     };
     match method {
+        "bot.group.create" if params.get("bot_ids").and_then(Value::as_array).is_none_or(|bot_ids| !(2..=6).contains(&bot_ids.len())) => {
+            Err(invalid("bot_ids", "array containing 2 to 6 Bot ids"))
+        }
         "config.set_send_policy" if !matches!(params.get("policy").and_then(Value::as_str), Some("queue" | "interrupt")) => {
             Err(invalid("policy", "queue or interrupt"))
         }
@@ -230,6 +242,19 @@ fn validate_values(method: &str, params: &Value) -> Result<(), CallError> {
         }
         _ => validate_nested(method, params, invalid),
     }
+}
+
+fn reject_unknown_bot_fields(method: &str, params: &Value) -> Result<(), CallError> {
+    if !method.starts_with("bot.") {
+        return Ok(());
+    }
+    let object = params.as_object().ok_or_else(|| CallError::invalid_params(method, "$", "object", value_kind(params)))?;
+    if let Some(field) = object.keys().find(|field| {
+        !required_fields(method).iter().any(|(known, _)| known == field) && !optional_fields(method).iter().any(|(known, _)| known == field)
+    }) {
+        return Err(CallError::invalid_params(method, field, "declared Bot RPC field", "unknown field"));
+    }
+    Ok(())
 }
 
 fn validate_nested(method: &str, params: &Value, invalid: impl Fn(&str, &str) -> CallError) -> Result<(), CallError> {

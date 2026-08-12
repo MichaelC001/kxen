@@ -1,6 +1,6 @@
 import { A } from "@solidjs/router";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
-import { Folders, Moon, Plus, Settings as SettingsIcon, Sun } from "lucide-solid";
+import { Bot, Folders, Moon, Plus, Settings as SettingsIcon, Sun } from "lucide-solid";
 import SessionTree from "./SessionTree";
 import { initSessions, mountSessionEvents, newSession } from "../lib/state";
 import { onDragStart } from "../lib/drag";
@@ -69,6 +69,13 @@ export default function Sidebar() {
           >
             <Folders size={13} />
             工作区
+          </A>
+          <A
+            href="/bots"
+            class="px-1 text-xs text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
+          >
+            <Bot size={13} />
+            Bots
           </A>
           <A
             href="/settings"

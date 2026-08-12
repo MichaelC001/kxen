@@ -96,3 +96,50 @@ fn accepts_registered_contracts_and_rejects_every_value_constraint() {
 
     assert!(validate_rpc("session.update_meta", json!({ "id": "ses_one", "title": null })).is_ok());
 }
+
+#[test]
+fn bot_contracts_are_closed_and_group_size_is_two_to_six() {
+    for bot_ids in [vec!["bot_a", "bot_b"], vec!["bot_a", "bot_b", "bot_c", "bot_d", "bot_e", "bot_f"]] {
+        assert!(
+            validate_rpc(
+                "bot.group.create",
+                json!({
+                    "conversation_id": "conversation_one",
+                    "bot_ids": bot_ids,
+                    "moderator_bot_id": "bot_a",
+                    "idempotency_key": "idem_one"
+                }),
+            )
+            .is_ok()
+        );
+    }
+
+    for bot_ids in [vec!["bot_a"], vec!["bot_a", "bot_b", "bot_c", "bot_d", "bot_e", "bot_f", "bot_g"]] {
+        let error = validate_rpc(
+            "bot.group.create",
+            json!({
+                "conversation_id": "conversation_one",
+                "bot_ids": bot_ids,
+                "moderator_bot_id": "bot_a",
+                "idempotency_key": "idem_one"
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, -32602);
+        assert_eq!(error.data.unwrap()["field"], "bot_ids");
+    }
+
+    let unknown = validate_rpc(
+        "bot.run.start",
+        json!({
+            "run_id": "run_one",
+            "bot_id": "bot_a",
+            "input": [],
+            "idempotency_key": "idem_one",
+            "marketplace_listing": true
+        }),
+    )
+    .unwrap_err();
+    assert_eq!(unknown.code, -32602);
+    assert_eq!(unknown.data.unwrap()["field"], "marketplace_listing");
+}

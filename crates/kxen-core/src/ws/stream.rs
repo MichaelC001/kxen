@@ -46,6 +46,21 @@ pub(super) fn event_to_chunks(
                 serde_json::json!({ "topic": topic, "payload": { "board_id": board_id, "workspace": workspace } }),
             ))
         }
+        Event::BotUpdate { topic, aggregate_id, seq } => {
+            let binding = subs.iter().find(|binding| binding.topics.contains(&topic) || binding.topics.contains("bots"))?;
+            let stream_seq = sequences.next(&binding.stream_id);
+            Some(StreamChunk::new(
+                &binding.stream_id,
+                stream_seq,
+                serde_json::json!({ "topic": topic, "payload": { "aggregate_id": aggregate_id, "seq": seq } }),
+            ))
+        }
+        Event::BotDelta { run_id, payload } => {
+            let topic = format!("bot-run:{run_id}");
+            let binding = subs.iter().find(|binding| binding.topics.contains(&topic))?;
+            let seq = sequences.next(&binding.stream_id);
+            Some(StreamChunk::new(&binding.stream_id, seq, serde_json::json!({ "topic": topic, "payload": payload })))
+        }
         other => {
             let (topic, payload) = map_event(other);
             let binding = subs.iter().find(|b| b.topics.contains(topic))?;
@@ -72,6 +87,7 @@ fn map_event(event: kxen_core::core::event::Event) -> (&'static str, Value) {
         }
         // 动态 topic 放不进 &'static str：event_to_chunks 的专用臂先行拦截，到不了这里
         Event::KanbanUpdate { .. } => unreachable!("KanbanUpdate 由 event_to_chunks 的动态 topic 臂处理"),
+        Event::BotUpdate { .. } | Event::BotDelta { .. } => unreachable!("Bot dynamic topics are handled before map_event"),
     }
 }
 
@@ -191,5 +207,17 @@ mod tests {
 
         let unsubscribed = vec![binding(&["kanban:board_2"])];
         assert!(event_to_chunks(update(), &unsubscribed, &mut StreamSequences::default()).is_none());
+    }
+
+    #[test]
+    fn bot_run_delta_requires_exact_dynamic_topic() {
+        let event = || kxen_core::core::event::Event::BotDelta {
+            run_id: "brun_one".into(),
+            payload: serde_json::json!({ "kind": "text", "text": "done" }),
+        };
+        let subscribed = vec![binding(&["bot-run:brun_one"])];
+        let chunk = event_to_chunks(event(), &subscribed, &mut StreamSequences::default()).unwrap();
+        assert_eq!(chunk.result["topic"], "bot-run:brun_one");
+        assert!(event_to_chunks(event(), &[binding(&["bots"])], &mut StreamSequences::default()).is_none());
     }
 }

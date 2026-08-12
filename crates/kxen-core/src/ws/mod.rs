@@ -18,6 +18,7 @@ pub mod llm_task;
 mod ops;
 mod ops_agents;
 mod ops_attach;
+mod ops_bot;
 mod ops_config;
 mod ops_diagnostics;
 mod ops_knowledge;
