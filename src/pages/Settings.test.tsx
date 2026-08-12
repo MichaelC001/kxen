@@ -1,5 +1,4 @@
-// Settings 通用区回归：「运行中发送」乐观更新在 RPC 失败时必须回滚到旧值并 flashErr，
-// 不留与后端不一致的假状态；页面无常驻提示条容器。
+// Settings 通用区回归：乐观更新失败时回滚，不留与后端不一致的假状态。
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JSX } from "solid-js";
@@ -45,6 +44,16 @@ function btnByText(text: string): HTMLButtonElement {
   );
   if (!found) throw new Error(`button not found: ${text}`);
   return found;
+}
+
+function experimentToggles(text: "已启用" | "已关闭"): HTMLButtonElement[] {
+  const heading = [...document.body.querySelectorAll<HTMLDivElement>("div")].find(
+    (element) => element.textContent === "实验能力与数据边界",
+  );
+  if (!heading?.parentElement) throw new Error("experimental settings section not found");
+  return [...heading.parentElement.querySelectorAll<HTMLButtonElement>("button")].filter(
+    (button) => button.textContent === text,
+  );
 }
 
 beforeEach(() => {
@@ -213,6 +222,15 @@ describe("Settings 实验能力与诊断导出", () => {
         experimental: {
           automatic_knowledge_distillation: false,
           browser_automation: false,
+          remote_mcp: false,
+        },
+      })
+      .mockResolvedValueOnce({
+        roles: {},
+        send_when_running: "queue",
+        experimental: {
+          automatic_knowledge_distillation: false,
+          browser_automation: false,
           remote_mcp: true,
         },
       });
@@ -225,21 +243,17 @@ describe("Settings 实验能力与诊断导出", () => {
     const dispose = render(() => <Settings />, document.body);
     btnByText("高级").click();
     await vi.waitFor(() => {
-      const toggles = [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter(
-        (button) => button.textContent === "已关闭",
-      );
+      const toggles = experimentToggles("已关闭");
       expect(toggles).toHaveLength(3);
       expect(toggles.every((button) => !button.disabled)).toBe(true);
     });
 
-    const remoteToggle = [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter(
-      (button) => button.textContent === "已关闭",
-    )[2];
+    const remoteToggle = experimentToggles("已关闭")[2];
     if (!remoteToggle) throw new Error("remote MCP toggle not found");
     remoteToggle.click();
 
     await vi.waitFor(() => {
-      expect(h.cfg).toHaveBeenCalledTimes(2);
+      expect(h.cfg).toHaveBeenCalledTimes(3);
       expect(remoteToggle.textContent).toBe("已启用");
       expect(remoteToggle.disabled).toBe(false);
     });
@@ -271,16 +285,12 @@ describe("Settings 实验能力与诊断导出", () => {
     // hint 文案是静态的，必须等配置读回（toggle 解禁）后再点，否则点击被 disabled 吞掉
     await vi.waitFor(() => {
       expect(document.body.textContent).toContain("按各 Session 所属 Workspace 的模型路由");
-      const disabledToggles = [...document.body.querySelectorAll("button")].filter(
-        (button) => button.textContent === "已关闭",
-      );
+      const disabledToggles = experimentToggles("已关闭");
       expect(disabledToggles).toHaveLength(3);
       expect(disabledToggles.every((button) => !button.disabled)).toBe(true);
     });
     expect(h.rpc.mock.calls.some(([method]) => method === "current_model")).toBe(false);
-    const toggles = [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter(
-      (button) => button.textContent === "已关闭",
-    );
+    const toggles = experimentToggles("已关闭");
     expect(toggles).toHaveLength(3);
     toggles[0]!.click();
     await vi.waitFor(() =>
@@ -319,23 +329,15 @@ describe("Settings 实验能力与诊断导出", () => {
     const dispose = render(() => <Settings />, document.body);
     btnByText("高级").click();
     await vi.waitFor(() => {
-      const enabled = [...document.body.querySelectorAll("button")].filter(
-        (button) => button.textContent === "已启用",
-      );
+      const enabled = experimentToggles("已启用");
       expect(enabled).toHaveLength(3);
     });
-    const enabled = [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter(
-      (button) => button.textContent === "已启用",
-    );
+    const enabled = experimentToggles("已启用");
     enabled[1]!.click();
     await vi.waitFor(() =>
       expect(flash.msgs().some((message) => message.text.includes("read only"))).toBe(true),
     );
-    expect(
-      [...document.body.querySelectorAll("button")].filter(
-        (button) => button.textContent === "已启用",
-      ),
-    ).toHaveLength(3);
+    expect(experimentToggles("已启用")).toHaveLength(3);
 
     btnByText("导出诊断包（markdown）").click();
     await vi.waitFor(() =>

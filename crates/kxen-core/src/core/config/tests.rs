@@ -4,7 +4,7 @@ use super::*;
 fn default_role_providers_align_with_registry_and_probe() {
     let mut config = Config::default();
     config.seed_default_roles();
-    let expected = ["chat", "thinking", "planning", "execution", "review", "research"];
+    let expected = ["chat", "thinking", "planning", "execution", "review", "research", "suggestion"];
     let probe_keys: Vec<&str> = crate::auth::probe::RULES.iter().map(|r| r.provider).collect();
     for role in expected {
         let b = config.roles.get(role).unwrap_or_else(|| panic!("缺角色 {role} 默认绑定"));
@@ -17,6 +17,7 @@ fn default_role_providers_align_with_registry_and_probe() {
     }
     // planning 必须绑 kimi-for-coding：探测导入的凭证键是 kimi-for-coding，绑 "kimi"（API key provider）会失配
     assert_eq!(config.roles["planning"].provider, "kimi-for-coding");
+    assert_eq!(config.roles["suggestion"].fallback.as_deref(), Some("chat"));
 }
 
 #[test]

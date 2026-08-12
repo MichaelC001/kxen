@@ -48,6 +48,7 @@ kxen 采用本地优先存储，当前没有 kxen 云同步服务。
 - `shadow/`: Checkpoint 的独立 Git repository。
 - `models-catalog.json`: Provider 模型目录缓存。
 - `embedding-cache.json`: Knowledge embedding cache。
+- `composer-suggestions/<workspace-hash>/embedding-cache.json`: 用户显式启用 Composer semantic suggest 后生成的 Workspace 隔离向量缓存。
 - `consolidate.json`: Knowledge consolidation watermark。
 - `consolidation-attempts/`: Knowledge 蒸馏的 Provider attempt、消息 revision、cursor、候选 Note 和写入进度。每个 attempt 同时保存可解释的 `status` 和 `reason`；`provider_result_unknown` 会阻止自动重试，直到用户显式确认 UNKNOWN。
 - `knowledge-moves/`: 项目与个人 scope 移动的私有 transaction claim；项目内容不能提供或修改该 claim。

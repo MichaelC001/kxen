@@ -7,6 +7,9 @@ pub(super) async fn delete(params: &Value, state: &Arc<AppState>) -> Result<Valu
     let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
     let distill = params.get("distill").and_then(Value::as_bool).unwrap_or(false);
     let sessions_dir = kxen_core::core::paths::sessions_dir();
+    if let Some((_, token)) = kxen_core::core::shared::lock(&state.composer_suggestion_requests).remove(id) {
+        token.cancel();
+    }
     let lifecycle = kxen_core::core::session_lifecycle::begin_deletion(id).await?;
     kxen_core::core::session::load_meta(&sessions_dir, id).map_err(|error| format!("session not found: {error}"))?;
 
@@ -192,6 +195,7 @@ fn cleanup_references_leased(
     state.picked_files.drop_session(id);
     kxen_core::tools::snapshot::drop_session(&state.session_snapshots, id);
     kxen_core::core::shared::lock(&state.session_involved).remove(id);
+    kxen_core::core::shared::lock(&state.composer_suggestion_requests).remove(id);
     kxen_core::core::shared::lock(&state.session_last_input).remove(id);
     {
         let mut usage = kxen_core::core::shared::lock(&state.session_tokens);

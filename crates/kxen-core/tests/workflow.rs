@@ -26,6 +26,7 @@ fn test_deps() -> SubagentDeps {
         custom_providers: Default::default(),
         send_when_running: String::new(),
         embedding: Default::default(),
+        composer_suggestions: Default::default(),
         search: Default::default(),
         coding_rules: Default::default(),
         experimental: Default::default(),

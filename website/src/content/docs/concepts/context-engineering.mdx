@@ -36,6 +36,12 @@ Composer 的 `@` 引用支持 Workspace 内文件和目录。图片、拖入文�
 
 路径先 canonicalize，再检查 Workspace 边界、symlink 逃逸和 Safety 保护路径。通过原生文件选择器授权的外部文件可以进入上下文，但不能越过 Safety。
 
+## Composer 候选上下文
+
+Composer 主动推荐与发送时模型 context 是两条不同链路。Local 候选排序可以使用完整 draft、最近 Session Text、附件路径、`ContextSources`、最近 involved 文件、Git status/diff 和 Workspace 文件摘要，但候选只有在用户接受后才转换为 chip 或文本。候选本身不会自动进入下一次模型请求。
+
+默认路径不访问网络。未信任 Workspace 不读取候选文件正文；敏感路径、`.git`、`.kxen`、依赖和构建目录被排除，Walk 索引尊重 `.gitignore` 且不跟随 symlink。Embedding 和 LLM 只在用户级配置显式开启时运行，并且只处理本地 shortlist。LLM 返回的文件 identity 必须由后端对本地候选 id 做闭集验证。
+
 ## 项目指令
 
 AGENTS.md 和 Rules 保存需要持续生效的约束。References 只在任务需要时读取，避免把全部资料注入每一轮。

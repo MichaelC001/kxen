@@ -62,7 +62,7 @@ async fn warm(ep: &Endpoint, texts: &[String], runtime: &EmbeddingRuntime) -> Re
     Ok(())
 }
 
-async fn fetch_managed(ep: &Endpoint, texts: &[String], runtime: &EmbeddingRuntime) -> Result<Vec<Vec<f32>>, String> {
+pub(super) async fn fetch_managed(ep: &Endpoint, texts: &[String], runtime: &EmbeddingRuntime) -> Result<Vec<Vec<f32>>, String> {
     if ep.allow_loopback {
         crate::tools::net_guard::check_url_allow_loopback(&ep.url).await?;
     } else {

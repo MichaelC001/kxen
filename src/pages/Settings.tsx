@@ -10,6 +10,7 @@ import ScheduleSection from "../components/settings/ScheduleSection";
 import UsageSection from "../components/settings/UsageSection";
 import VoiceSection from "../components/settings/VoiceSection";
 import GeneralSection from "../components/settings/GeneralSection";
+import ComposerSuggestionsSection from "../components/settings/ComposerSuggestionsSection";
 import { client } from "../lib/client";
 import { configGet, doctor } from "../lib/chat";
 import { flashErr, flashOk } from "../lib/flash";
@@ -238,6 +239,8 @@ export default function Settings() {
 
           <Show when={section() === "高级"}>
             <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-4 space-y-3 text-sm text-[var(--text-dim)]">
+              <ComposerSuggestionsSection />
+              <div class="border-t border-[var(--border)]" />
               <div class="space-y-2">
                 <div class="text-sm text-[var(--text)]">实验能力与数据边界</div>
                 <div class="text-xs text-[var(--text-faint)]">

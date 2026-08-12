@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+#[path = "config/composer.rs"]
+mod composer;
 mod custom_provider;
 pub use custom_provider::{CustomProviderDef, validate_custom_provider_auth, validate_custom_provider_endpoint};
 pub(crate) use custom_provider::{custom_provider_def_checked, endpoint_is_explicit_loopback, validate_custom_provider_definition};
@@ -11,6 +13,7 @@ mod document;
 mod load;
 #[path = "config/web_tray.rs"]
 mod web_tray;
+pub use composer::{ComposerSuggestionsConfig, EmbeddingConfig};
 pub use document::{merge_voice_engine, validate_user_document};
 pub use web_tray::{TrayConfig, WebConfig};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -26,6 +29,8 @@ pub struct Config {
     pub send_when_running: String,
     /// 记忆检索的 embedding 语义召回（缺省关闭，纯 BM25）
     pub embedding: EmbeddingConfig,
+    /// Composer 主动候选。仅本地候选默认开启，任何 Provider 调用都需显式 opt-in。
+    pub composer_suggestions: ComposerSuggestionsConfig,
     /// 网页搜索引擎（缺省 auto：tavily -> brave -> ddg 按 key 可用性）
     pub search: SearchConfig,
     /// 内置编码规则注入开关（缺省开启）
@@ -59,19 +64,6 @@ impl Default for CodingRulesConfig {
     fn default() -> Self {
         Self { enabled: true }
     }
-}
-
-/// embedding 语义召回：三档 provider（openai / openrouter / ollama），缺省 provider 为空 = 关闭。
-/// api key 不落 config，复用 auth.json 的同 provider 凭证（ollama 无鉴权）。
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct EmbeddingConfig {
-    /// ""（关闭）| "openai" | "openrouter" | "ollama"
-    pub provider: String,
-    /// 模型覆盖：缺省 openai/openrouter = text-embedding-3-small，ollama = nomic-embed-text
-    pub model: String,
-    /// base URL 覆盖；远程必须 HTTPS，HTTP 仅允许 localhost/loopback；缺省使用 Provider 官方端点。
-    pub base_url: String,
 }
 
 /// 语音输入：引擎选择 + 降级链 + locale（API key 不落 config，走 auth.json）。
@@ -229,7 +221,7 @@ impl Config {
         Ok(())
     }
 
-    /// 六角色默认绑定：只补缺位（用户 config 逐项覆盖）。
+    /// 七角色默认绑定：只补缺位（用户 config 逐项覆盖）。
     /// 思考/评审走 claude（评审需独立产出质量），主会话/执行走 grok-build（命令调度快），
     /// 研究走 grok-4.5（长上下文检索），规划走 kimi-for-coding 的 k3（1M 上下文推理型；
     /// provider key 必须对齐订阅探测导入键，否则探测到的凭证不会被该角色命中）。
@@ -241,13 +233,14 @@ impl Config {
             fallback: fallback.map(String::from),
             account: None,
         };
-        let defaults: [(&str, RoleBinding); 6] = [
+        let defaults: [(&str, RoleBinding); 7] = [
             ("chat", binding("xai", "grok-build-0.1", Some("execution"))),
             ("thinking", binding("anthropic", "claude-opus-4-8", Some("planning"))),
             ("planning", binding("kimi-for-coding", "k3", Some("review"))),
             ("execution", binding("xai", "grok-build-0.1", Some("research"))),
             ("review", binding("anthropic", "claude-sonnet-4-6", Some("thinking"))),
             ("research", binding("xai", "grok-4.5", Some("execution"))),
+            ("suggestion", binding("xai", "grok-build-0.1", Some("chat"))),
         ];
         for (role, b) in defaults {
             self.roles.entry(role.to_string()).or_insert(b);

@@ -5,6 +5,9 @@ use std::sync::Arc;
 
 use crate::AppState;
 
+mod composer;
+pub(super) use composer::{set_composer_suggestions, set_embedding};
+
 fn session_usage_report(tokens: kxen_core::core::usage::SessionUsage, completeness: kxen_core::core::usage::UsageCompleteness) -> Value {
     json!({
         "input": tokens.input,

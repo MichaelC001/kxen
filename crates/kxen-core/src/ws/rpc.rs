@@ -8,6 +8,8 @@ use super::settings::{set_role, statusline_report};
 use crate::AppState;
 use crate::doctor::doctor_report;
 
+#[path = "rpc/composer_suggest.rs"]
+mod composer_suggest;
 #[path = "rpc/session_messages.rs"]
 mod session_messages;
 #[path = "rpc/session_start.rs"]
@@ -273,6 +275,9 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
             let account = params.get("account").and_then(Value::as_str);
             set_role(role, provider, model, fallback, account, state)
         }
+        "composer.suggest.local" => composer_suggest::local(&params, state).await,
+        "composer.suggest.remote" => composer_suggest::remote(&params, state).await,
+        "composer.suggest.cancel" => composer_suggest::cancel(&params, state),
         "fs.complete" => {
             let query = params.get("query").and_then(Value::as_str).unwrap_or("");
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;

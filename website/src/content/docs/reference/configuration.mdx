@@ -21,7 +21,7 @@ kxen 使用 TOML 保存非敏感配置。
 
 这些表项按字段覆盖用户配置，Hook 列表按事件以 `user -> project` 顺序追加。项目配置出现其他顶层键时，整个 Workspace 配置加载失败并显示具体键名，不会静默忽略。
 
-`send_when_running`、`statusline`、`voice`、`embedding`、`search`、`coding_rules` 和 `experimental` 只允许出现在用户配置。项目不能改变个人交互偏好、开启数据外发能力或扩大宿主机能力面。
+`send_when_running`、`statusline`、`voice`、`embedding`、`composer_suggestions`、`search`、`coding_rules` 和 `experimental` 只允许出现在用户配置。项目不能改变个人交互偏好、开启数据外发能力或扩大宿主机能力面。
 
 ## 用户配置示例
 
@@ -47,6 +47,11 @@ model = "grok-build-0.1"
 account = "work"
 fallback = "research"
 
+[roles.suggestion]
+provider = "xai"
+model = "grok-build-0.1"
+fallback = "chat"
+
 [voice]
 engine = "apple"
 fallback = ["openai"]
@@ -57,6 +62,11 @@ transcribe_model = "whisper-1"
 provider = "ollama"
 model = "nomic-embed-text"
 base_url = "http://localhost:11434"
+
+[composer_suggestions]
+enabled = true
+semantic = false
+llm = false
 
 [search]
 engine = "auto"
@@ -114,6 +124,17 @@ pre_tool_use = [{ matcher = "exec", command = "./scripts/check-command.sh" }]
 用户自定义远程端点必须使用 `https://`；`http://` 只允许明确的 `localhost` 或 loopback IP。URL 不能内嵌 username 或 password。API key 和 OAuth token 只能来自用户认证存储。`models` 至少包含一个无空白身份，`capabilities` 只能使用 `text`、`vision` 或 `audio`。
 
 `embedding.base_url` 使用相同的传输安全边界。显式 loopback OpenAI-compatible 或 Ollama endpoint 可以使用 HTTP；其他 endpoint 必须使用 HTTPS。
+
+## Composer 主动推荐
+
+`composer_suggestions.enabled` 默认是 `true`，只启用本地候选。它按完整 draft、最近 4 条有效 Session 文本、已选文件和目录、先前 context sources、最近 involved 文件、Git status/diff、文件路径、mtime 和受信任 Workspace 的截断文本摘要排序。索引尊重 `.gitignore`，不跟随 symlink，不读取敏感路径；未信任 Workspace 只使用路径和 mtime。
+
+`semantic` 和 `llm` 默认都是 `false`，只能从用户 Settings 或用户配置显式启用:
+
+- `semantic`: 只把完整输入、近期 Session 文本和最多 8 个本地 shortlist 的截断摘要发送给 `[embedding]` Provider。向量缓存在 Workspace 隔离的 `composer-suggestions/<workspace-hash>/embedding-cache.json` 中。失败时保留 BM25 Local 结果。
+- `llm`: 通过 `roles.suggestion` 路由，缺少可用绑定时按该角色的 fallback 进入 `chat`。请求只包含截断 draft、近期 Session 文本、已选路径和本地候选 metadata，不包含图片、完整 diff 或完整源文件。返回的文件 id 必须来自本地 shortlist，文本候选不会自动发送。
+
+两条远端路径都经过 Workspace MRM、并发/RPM/Circuit、durable usage attempt、Goal budget、10 秒 timeout、取消和输出上限。Session 正在运行或尚未持久化时不会发起远端推荐。Settings 的高级区域可以配置全部开关和 embedding endpoint。
 
 ## 网络代理
 

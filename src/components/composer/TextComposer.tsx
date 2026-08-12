@@ -17,7 +17,6 @@ import { createPasteStore, planPaste } from "./paste";
 import { createTokenEstimate } from "./token-estimate";
 import { listenComposerDragDrop } from "./drag-drop";
 import { createTriggerCheck } from "./trigger-check";
-import { handlePopupKey } from "./popup-keys";
 import { createComposerSubmit, type ComposerSend } from "./composer-submit";
 import AttachMenu from "./AttachMenu";
 import ComposerPopup from "./ComposerPopup";
@@ -26,6 +25,7 @@ import ModelPicker from "./ModelPicker";
 import RowChips, { type RowChip } from "./RowChips";
 import { sendBtn } from "../../lib/variants";
 import { composerRestoreVersion, takeComposerRestore } from "../../lib/composer-restore";
+import { ComposerAutoSuggestPanel, createComposerAutoSuggest } from "./composer-auto-suggest";
 
 let chipSeq = 0;
 const MAX_HEIGHT = 176; // styles 里 max-h-44 同值
@@ -51,7 +51,6 @@ export default function TextComposer(props: {
     [voiceEngine, setVoiceEngine] = createSignal(""),
     [dragOver, setDragOver] = createSignal(false);
   let ta: HTMLTextAreaElement | undefined;
-  let imeLockUntil = 0; // Safari compositionend 先于 commit keydown（WebKit #165231），50ms 锁窗吞尾随 Enter
   let alive = true;
   const images = new Map<string, { media_type: string; data: string }>();
   const pastes = createPasteStore();
@@ -198,6 +197,19 @@ export default function TextComposer(props: {
     setRowChips((prev) => prev.filter((c) => c.id !== id));
   };
 
+  const autoSuggest = createComposerAutoSuggest({
+    text,
+    textarea: () => ta,
+    popup,
+    setPopup,
+    rowChips,
+    pushChip,
+    streaming: props.streaming,
+    recording,
+    insertText: insertAtCaret,
+    closePopupIfCaretOut,
+  });
+
   // hover 与键盘选中合一：写同一个 selected，谁后动谁生效
   const syncSelected = (i: number) =>
     setPopup((p) => (p && p.selected !== i ? { ...p, selected: i } : p));
@@ -237,18 +249,9 @@ export default function TextComposer(props: {
   }
 
   function onKeyDown(e: KeyboardEvent) {
-    const p = popup();
-    // IME 组字中弹层放行：Enter/方向键归输入法候选窗（isComposing/keyCode229/锁窗三保险，同发送守卫）
-    if (p && (e.isComposing || e.keyCode === 229 || Date.now() < imeLockUntil)) return;
-    if (p && handlePopupKey(e, p, setPopup)) return;
+    if (autoSuggest.handleKeyDown(e)) return;
     // IME 提交 Enter 不发送：isComposing / keyCode 229 / 50ms 锁窗 三保险
-    if (
-      e.key === "Enter" &&
-      !e.shiftKey &&
-      !e.isComposing &&
-      e.keyCode !== 229 &&
-      Date.now() >= imeLockUntil
-    ) {
+    if (e.key === "Enter" && !e.shiftKey && autoSuggest.canSendEnter(e)) {
       e.preventDefault();
       sendGuarded();
       return;
@@ -280,6 +283,7 @@ export default function TextComposer(props: {
 
   return (
     <div class="relative">
+      <ComposerAutoSuggestPanel popup={popup} controller={autoSuggest} />
       <Show when={popup()}>
         {(p) => (
           <ComposerPopup
@@ -309,12 +313,14 @@ export default function TextComposer(props: {
           onKeyDown={onKeyDown}
           onKeyUp={(e) => {
             voiceCtl.onSpaceUp(e);
-            closePopupIfCaretOut();
+            autoSuggest.onCaretMove();
           }}
-          onClick={closePopupIfCaretOut}
-          onBlur={() => setPopup(null)}
+          onClick={autoSuggest.onCaretMove}
+          onFocus={autoSuggest.onFocus}
+          onBlur={autoSuggest.onBlur}
           onPaste={onPaste}
-          onCompositionEnd={() => (imeLockUntil = Date.now() + 50)}
+          onCompositionStart={autoSuggest.onCompositionStart}
+          onCompositionEnd={autoSuggest.onCompositionEnd}
         />
         <div class="composer-actionbar">
           <AttachMenu onPaths={(paths) => void attachPaths(paths)} onFiles={attachFiles} />

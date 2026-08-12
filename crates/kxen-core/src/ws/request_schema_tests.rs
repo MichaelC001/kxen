@@ -50,6 +50,12 @@ fn accepts_registered_contracts_and_rejects_every_value_constraint() {
                 "circuit_cooldown_seconds": 30
             }),
         ),
+        (
+            "composer.suggest.remote",
+            json!({ "draft": "fix auth", "session_id": "ses_one", "request_id": "suggest_one", "candidate_ids": [] }),
+        ),
+        ("config.set_composer_suggestions", json!({ "key": "semantic", "enabled": true })),
+        ("config.set_embedding", json!({ "provider": "ollama", "model": "nomic-embed-text", "base_url": "" })),
         ("knowledge.move", json!({ "scope": "project", "slug": "note", "to": "personal" })),
         ("knowledge.consolidation_acknowledge_unknown", json!({ "session_id": "ses_one", "confirm_unknown": true })),
     ] {
@@ -76,6 +82,8 @@ fn accepts_registered_contracts_and_rejects_every_value_constraint() {
 
     for (method, params) in [
         ("config.set_experimental", json!({ "key": "unknown", "enabled": true })),
+        ("config.set_composer_suggestions", json!({ "key": "unknown", "enabled": true })),
+        ("config.set_embedding", json!({ "provider": "unknown" })),
         ("session.set_model", json!({ "id": "ses_one", "provider": "xai" })),
         ("provider.add_custom", json!({ "name": "local", "base_url": "https://example.test", "models": [], "api_key": "secret" })),
         ("knowledge.remove", json!({ "scope": "bogus", "slug": "note" })),

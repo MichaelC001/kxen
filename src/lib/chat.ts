@@ -177,6 +177,16 @@ export async function configGet(): Promise<{
     browser_automation?: boolean;
     remote_mcp?: boolean;
   };
+  composer_suggestions?: {
+    enabled?: boolean;
+    semantic?: boolean;
+    llm?: boolean;
+  };
+  embedding?: {
+    provider?: string;
+    model?: string;
+    base_url?: string;
+  };
 }> {
   return client.rpc("config.get");
 }
@@ -280,3 +290,4 @@ export async function sessionExport(sessionId: string): Promise<{ path: string }
 }
 
 export * from "./chat-ops";
+export * from "./composer-suggest";

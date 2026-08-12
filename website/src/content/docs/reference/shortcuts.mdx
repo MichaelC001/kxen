@@ -28,17 +28,21 @@ sidebar:
 | `/`           | 在行首打开 Command 和 Skill |
 | `@`           | 搜索文件和目录              |
 | `#`           | 选择 Knowledge 写入目标     |
+| `Tab`         | 接受上下文主动推荐          |
+| `Escape`      | 对当前 draft 关闭主动推荐   |
 
 输入法组字期间，Enter 和方向键交给输入法候选窗口，不触发发送或弹层选择。
 
 ## 弹层
 
-| 快捷键      | 动作                 |
-| ----------- | -------------------- |
-| `ArrowUp`   | 选择上一项           |
-| `ArrowDown` | 选择下一项           |
-| `Enter`     | 应用当前项           |
-| `Tab`       | 应用 Composer 触发项 |
-| `Escape`    | 关闭弹层             |
+| 快捷键      | 动作                      |
+| ----------- | ------------------------- |
+| `ArrowUp`   | 选择上一项                |
+| `ArrowDown` | 选择下一项                |
+| `Enter`     | 应用 Trigger popup 当前项 |
+| `Tab`       | 应用 Composer 触发项      |
+| `Escape`    | 关闭弹层                  |
+
+上下文主动推荐面板不接管 `Enter`，因此候选可见时按 `Enter` 仍发送当前 Composer 内容。
 
 macOS 使用 Cmd。触发判断同时接受 Cmd 和 Ctrl，不按平台区分，但文档以 macOS 主路径为准。

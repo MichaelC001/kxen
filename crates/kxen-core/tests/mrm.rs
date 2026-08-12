@@ -32,6 +32,7 @@ fn config_with(roles: &[(&str, &str, &str, Option<&str>)], providers: &[(&str, O
         custom_providers: Default::default(),
         send_when_running: String::new(),
         embedding: Default::default(),
+        composer_suggestions: Default::default(),
         search: Default::default(),
         coding_rules: Default::default(),
         experimental: Default::default(),

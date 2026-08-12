@@ -56,6 +56,8 @@ pub struct AppState {
     pub session_snapshots: std::sync::Mutex<std::collections::HashMap<String, kxen_core::tools::snapshot::SnapshotStore>>,
     /// session_id -> 最近一轮 run 的 involved 文件（injection_preview 的真实 glob 命中数据源）
     pub session_involved: std::sync::Mutex<std::collections::HashMap<String, Vec<std::path::PathBuf>>>,
+    /// session_id -> Composer 远端候选请求。新请求和显式 cancel 都会取消旧 Provider 调用。
+    pub composer_suggestion_requests: std::sync::Mutex<std::collections::HashMap<String, (String, kxen_core::agent::cancel::CancelToken)>>,
     /// 通知环形缓冲（teammate/cron/系统事件，顶栏通知中心数据源，50 条）
     pub notifications: std::sync::Mutex<std::collections::VecDeque<kxen_core::core::notifications::Notice>>,
     /// 前台聚焦会话（OS 通知只发非前台会话的完成事件）
@@ -167,6 +169,7 @@ impl AppState {
             active_workspace: std::sync::RwLock::new(workdir.to_path_buf()),
             session_snapshots: std::sync::Mutex::new(std::collections::HashMap::new()),
             session_involved: std::sync::Mutex::new(std::collections::HashMap::new()),
+            composer_suggestion_requests: std::sync::Mutex::new(std::collections::HashMap::new()),
             notifications: std::sync::Mutex::new(
                 kxen_core::core::notifications::load().map_err(|error| format!("notifications load failed: {error}"))?,
             ),

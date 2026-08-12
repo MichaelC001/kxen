@@ -105,6 +105,9 @@ fn required_fields(method: &str) -> &'static [(&'static str, Kind)] {
         "agents.stop" | "agents.dismiss" => &[("session_id", S), ("name", S)],
         "agents.transcript" => &[("name", S)],
         "config.set_role" => &[("role", S), ("provider", S), ("model", S)],
+        "composer.suggest.local" => &[("draft", S)],
+        "composer.suggest.remote" => &[("draft", S), ("session_id", S), ("request_id", S), ("candidate_ids", SA)],
+        "composer.suggest.cancel" => &[("session_id", S)],
         "fs.resolve_name" => &[("name", S)],
         "fs.allow_path" | "fs.read_attachment" => &[("session_id", S), ("path", S)],
         "coding_rules.set" => &[("enabled", B)],
@@ -119,6 +122,7 @@ fn required_fields(method: &str) -> &'static [(&'static str, Kind)] {
         "voice.set_engine" => &[("engine", S)],
         "config.set_send_policy" => &[("policy", S)],
         "config.set_experimental" => &[("key", S), ("enabled", B)],
+        "config.set_composer_suggestions" => &[("key", S), ("enabled", B)],
         "agent.test_dispatch" => &[("role", S)],
         "provider.verify" | "provider.models" => &[("provider", S)],
         "provider.import_account" => &[("provider", S), ("account", S), ("access", S)],
@@ -162,6 +166,9 @@ fn optional_fields(method: &str) -> &'static [(&'static str, Kind)] {
         "send_message" => &[("text", S), ("context", A), ("images", A)],
         "config.set_role" => &[("fallback", S), ("account", S)],
         "fs.complete" => &[("query", S), ("limit", U)],
+        "composer.suggest.local" => &[("session_id", S), ("selected_paths", SA), ("limit", U)],
+        "composer.suggest.remote" => &[("selected_paths", SA), ("limit", U)],
+        "composer.suggest.cancel" => &[("request_id", S)],
         "knowledge.add" => &[("scope", S), ("slug", S), ("type", S)],
         "schedule.add" => &[("once", B)],
         "voice.set_engine" => &[("fallback", SA), ("locale", S)],
@@ -175,6 +182,7 @@ fn optional_fields(method: &str) -> &'static [(&'static str, Kind)] {
             ("circuit_failure_threshold", U),
             ("circuit_cooldown_seconds", U),
         ],
+        "config.set_embedding" => &[("provider", S), ("model", S), ("base_url", S)],
         "provider.verify" => &[("account", S), ("model", S), ("access", S), ("kind", S), ("refresh", S), ("expires", U), ("region", S)],
         "provider.models" => &[("account", S)],
         "provider.import_account" => &[("kind", S), ("refresh", S), ("expires", U), ("region", S), ("account_id", S)],
@@ -205,6 +213,9 @@ fn validate_values(method: &str, params: &Value) -> Result<(), CallError> {
             ) =>
         {
             Err(invalid("key", "known experimental setting"))
+        }
+        "config.set_composer_suggestions" if !matches!(params.get("key").and_then(Value::as_str), Some("enabled" | "semantic" | "llm")) => {
+            Err(invalid("key", "enabled, semantic, or llm"))
         }
         "session.set_model"
             if params.get("provider").and_then(Value::as_str).is_some() != params.get("model").and_then(Value::as_str).is_some() =>
@@ -252,6 +263,11 @@ fn validate_nested(method: &str, params: &Value, invalid: impl Fn(&str, &str) ->
         if scoped.iter().any(|field| params.get(*field).is_some()) && params.get("provider").and_then(Value::as_str).is_none() {
             return Err(invalid("provider", "provider id for provider-scoped limits"));
         }
+    }
+    if method == "config.set_embedding"
+        && !matches!(params.get("provider").and_then(Value::as_str), None | Some("" | "openai" | "openrouter" | "ollama"))
+    {
+        return Err(invalid("provider", "empty, openai, openrouter, or ollama"));
     }
     Ok(())
 }

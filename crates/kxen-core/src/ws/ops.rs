@@ -47,6 +47,8 @@ const METHODS: &[&str] = &[
     "voice.set_engine",
     "config.set_send_policy",
     "config.set_experimental",
+    "config.set_composer_suggestions",
+    "config.set_embedding",
     "config.set_limits",
     "voice.start",
     "voice.stop",
@@ -203,6 +205,8 @@ async fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<V
             Ok(json!({ "send_when_running": policy }))
         }
         "config.set_experimental" => super::settings::set_experimental(params, state).await,
+        "config.set_composer_suggestions" => super::settings::set_composer_suggestions(params, state),
+        "config.set_embedding" => super::settings::set_embedding(params, state),
         "config.set_limits" => super::settings::set_limits(params, state),
         "voice.start" => {
             let config = load_config()?;

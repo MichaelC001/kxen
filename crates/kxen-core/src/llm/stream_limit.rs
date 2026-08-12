@@ -17,6 +17,10 @@ impl Default for StreamBudget {
 }
 
 impl StreamBudget {
+    pub(crate) fn with_byte_limit(byte_limit: usize) -> Self {
+        Self { bytes: 0, events: 0, byte_limit: byte_limit.clamp(1, MAX_OUTPUT_BYTES), event_limit: MAX_EVENTS }
+    }
+
     pub(crate) fn observe(&mut self, delta: &Delta) -> Result<(), String> {
         self.events = self.events.saturating_add(1);
         if self.events > self.event_limit {

@@ -124,6 +124,34 @@ pub async fn collect_text_observed_with_policy_and_start<'a>(
     stream_override: Option<&StreamFn>,
     cancel: Option<&crate::agent::cancel::CancelToken>,
     circuit_policy: CircuitPolicy,
+    start_barrier: Option<Box<dyn FnMut() -> Result<(), String> + Send + 'a>>,
+) -> Result<ManagedOutput, ManagedError> {
+    collect_text_observed_with_policy_and_start_limited(
+        mrm,
+        model,
+        messages,
+        store,
+        timeout,
+        stream_override,
+        cancel,
+        circuit_policy,
+        None,
+        start_barrier,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn collect_text_observed_with_policy_and_start_limited<'a>(
+    mrm: &crate::llm::mrm::ModelResourceManager,
+    model: &ModelRef,
+    messages: &[Message],
+    store: &crate::auth::credential::AuthStore,
+    timeout: Duration,
+    stream_override: Option<&StreamFn>,
+    cancel: Option<&crate::agent::cancel::CancelToken>,
+    circuit_policy: CircuitPolicy,
+    max_output_bytes: Option<usize>,
     mut start_barrier: Option<Box<dyn FnMut() -> Result<(), String> + Send + 'a>>,
 ) -> Result<ManagedOutput, ManagedError> {
     let mut effective_model = model.clone();
@@ -201,7 +229,7 @@ pub async fn collect_text_observed_with_policy_and_start<'a>(
         let mut output = 0u64;
         let mut usage_reported = false;
         let mut metering_warning = None;
-        let mut stream_budget = crate::llm::stream_limit::StreamBudget::default();
+        let mut stream_budget = max_output_bytes.map(crate::llm::stream_limit::StreamBudget::with_byte_limit).unwrap_or_default();
         while let Some(delta) = stream.next().await {
             stream_budget.observe(&delta)?;
             match delta {

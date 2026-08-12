@@ -27,6 +27,14 @@ Composer 是 Session 的统一输入界面。它负责把自然语言、上下�
 
 输入法组字期间，Enter 不会误发送。每个 Session 保存自己的 Composer 草稿，切换后可以恢复未发送文本。
 
+## 上下文主动推荐
+
+普通文本输入不需要 `@`、`/` 或 `#` 触发符。默认 Local 推荐会读取完整 draft，并融合最近 Session 文本、当前附件、先前上下文、最近涉及文件、Git 变更和最近文件。Trigger popup 始终优先；光标不在文本末尾、IME 组字、录音或 Session 运行期间不显示主动推荐。
+
+候选标记来源为 `Local`、`Embedding` 或 `LLM`。文件候选只会加入 row chip，文本候选只会插入 Composer，二者都不会自动发送。`ArrowUp` 和 `ArrowDown` 选择，`Tab` 接受，`Escape` 对当前 draft 关闭；`Enter` 保持发送语义。
+
+Embedding 和 LLM 推荐默认关闭，需要在 Settings 的高级区域明确确认数据边界后启用。网络失败、模型不可用或远端输出不合法时保留 Local 结果，不阻断输入。
+
 ## 发送前
 
 Composer 会显示当前模型和 token 估算。附件会在发送时解析成上下文或图片载荷。文件仍受 Workspace 边界和 Safety 约束，添加到 Composer 不代表 Agent 获得越界访问权限。

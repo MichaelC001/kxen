@@ -5,6 +5,7 @@ export const ROLE_LABELS: Record<string, string> = {
   execution: "高速执行",
   review: "审查验证",
   research: "调研搜索",
+  suggestion: "Composer 推荐",
 };
 
 export interface Slot {

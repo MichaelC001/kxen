@@ -156,6 +156,12 @@ pub fn build_ollama_request(model: &str, texts: &[String]) -> serde_json::Value 
     serde_json::json!({ "model": model, "input": texts })
 }
 
+/// Composer 等显式 opt-in 调用的同步语义入口。网络、MRM admission、取消与 durable
+/// usage accounting 全复用知识检索的统一实现，调用方自行维护独立缓存。
+pub async fn embed_managed(ep: &Endpoint, texts: &[String], runtime: &EmbeddingRuntime) -> Result<Vec<Vec<f32>>, String> {
+    warm::fetch_managed(ep, texts, runtime).await
+}
+
 /// Ollama /api/embed 响应：{"embeddings": [[...], ...]}
 pub fn parse_ollama_response(body: &str) -> Option<Vec<Vec<f32>>> {
     let v: serde_json::Value = serde_json::from_str(body).ok()?;
