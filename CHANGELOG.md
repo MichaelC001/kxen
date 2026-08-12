@@ -6,6 +6,19 @@
 
 ## [Unreleased]
 
+## [0.1.3]
+
+### Added
+
+- Composer 无触发符上下文主动推荐，默认以完整 draft、近期 Session 文本、已选附件、先前上下文、最近 involved 文件、Git status/diff、路径、mtime 和本地摘要生成 Local 候选。
+- 可选 Embedding semantic rerank 和 LLM prompt suggest。两者默认关闭，使用 Workspace MRM、durable usage accounting、Goal budget、RPM、Circuit、timeout、取消和独立 Workspace cache；LLM 文件候选严格限制为本地 shortlist id。
+- Settings 高级区域提供 Composer Local、Embedding、LLM 开关及 embedding provider 配置，模型路由增加 `suggestion` 角色并回退 `chat`。
+
+### Changed
+
+- Trigger popup 保持最高优先级；主动推荐仅在光标位于末尾、非 IME、非录音和非 Session run 状态显示。`ArrowUp`/`ArrowDown` 选择、`Tab` 接受、`Escape` 关闭当前 draft，`Enter` 始终保留发送语义。
+- 文件候选只转换为 row chip，文本候选只插入 Composer，不会自动发送。未信任 Workspace 只使用路径和 mtime；索引尊重 `.gitignore`，排除敏感路径且不跟随 symlink。
+
 ## [0.1.2]
 
 ### Changed
@@ -118,7 +131,8 @@
 - 已被 Schedule durable dispatch 替代的 cron_dispatch 模块。
 - 与当前代码和产品文档重复的临时实现计划文档。
 
-[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/StringKe/kxen/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/StringKe/kxen/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/StringKe/kxen/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/StringKe/kxen/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/StringKe/kxen/compare/v0.0.1...v0.1.0
