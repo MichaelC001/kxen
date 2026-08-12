@@ -1,62 +1,9 @@
-use std::fmt;
 use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CommitPhase {
-    PreCommit,
-    PostCommit,
-}
+use crate::core::durability;
 
-#[derive(Debug)]
-pub struct CommitFailure {
-    phase: CommitPhase,
-    error: std::io::Error,
-}
-
-impl CommitFailure {
-    pub(super) fn before(error: impl Into<std::io::Error>) -> Self {
-        Self { phase: CommitPhase::PreCommit, error: error.into() }
-    }
-
-    pub(super) fn after(error: impl Into<std::io::Error>) -> Self {
-        Self { phase: CommitPhase::PostCommit, error: error.into() }
-    }
-
-    pub(super) fn after_visible(mut self) -> Self {
-        self.phase = CommitPhase::PostCommit;
-        self
-    }
-
-    pub fn phase(&self) -> CommitPhase {
-        self.phase
-    }
-
-    pub fn committed(&self) -> bool {
-        self.phase == CommitPhase::PostCommit
-    }
-
-    pub fn kind(&self) -> std::io::ErrorKind {
-        self.error.kind()
-    }
-
-    pub fn into_io_error(self) -> std::io::Error {
-        self.error
-    }
-}
-
-impl fmt::Display for CommitFailure {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}", self.error)
-    }
-}
-
-impl std::error::Error for CommitFailure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.error)
-    }
-}
+pub use crate::core::durability::{CommitError as CommitFailure, CommitPhase};
 
 /// 修复返回 `PostCommit` 的消息 append：校验可见消息、sync JSONL、修 meta、sync 父目录。
 /// 内存 block 仅在全部耐久步骤成功后才清除。
@@ -100,39 +47,27 @@ pub fn repair_message_durability(dir: &Path, message: &super::Message, original:
     let messages_path = super::messages_path(dir, &message.session_id);
     OpenOptions::new().read(true).write(true).open(&messages_path).and_then(|file| file.sync_all()).map_err(CommitFailure::after)?;
     let session = super::append::repair_meta_after_idempotent_append(dir, message, visible.count).map_err(CommitFailure::after_visible)?;
-    sync_directory(dir).map_err(CommitFailure::after)?;
+    durability::sync_directory(dir).map_err(CommitFailure::after)?;
     super::transaction::clear_matching_append_block(&message.session_id, &message.id, &cause).map_err(CommitFailure::after)?;
     Ok(session)
 }
 
-/// 跨模块共用（kanban 快照缓存同款）：tmp + fsync + rename + 父目录 sync。
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), CommitFailure> {
-    let parent = parent(path);
-    std::fs::create_dir_all(parent).map_err(CommitFailure::before)?;
-    let tmp = temporary_path(path);
-    let result = write_new_file(&tmp, bytes).and_then(|()| {
-        fail_before_rename(path)?;
-        std::fs::rename(&tmp, path).map_err(CommitFailure::before)?;
-        sync_directory(parent).map_err(CommitFailure::after)
-    });
-    if result.is_err() {
-        std::fs::remove_file(&tmp).ok();
-    }
-    result
+    durability::atomic_replace(path, bytes)
 }
 
 /// 新会话先发布完整 messages+meta 再 sync 共享目录；meta rename 放最后（其存在即 admission 标记）。
 pub(super) fn create_session_files(meta: &Path, meta_bytes: &[u8], messages: &Path, message_bytes: &[u8]) -> Result<(), CommitFailure> {
-    let parent = parent(meta);
+    let parent = meta.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(parent).map_err(CommitFailure::before)?;
-    let meta_tmp = temporary_path(meta);
-    let messages_tmp = temporary_path(messages);
-    let staged = write_new_file(&meta_tmp, meta_bytes).and_then(|()| write_new_file(&messages_tmp, message_bytes));
+    let meta_tmp = durability::temporary_path(meta);
+    let messages_tmp = durability::temporary_path(messages);
+    let staged = durability::write_new_file(&meta_tmp, meta_bytes).and_then(|()| durability::write_new_file(&messages_tmp, message_bytes));
     if let Err(error) = staged {
         cleanup(&[&meta_tmp, &messages_tmp]);
         return Err(error);
     }
-    if let Err(error) = fail_before_rename(meta) {
+    if let Err(error) = durability::before_replace(meta) {
         cleanup(&[&meta_tmp, &messages_tmp]);
         return Err(error);
     }
@@ -150,46 +85,11 @@ pub(super) fn create_session_files(meta: &Path, meta_bytes: &[u8], messages: &Pa
         std::fs::remove_file(messages).ok();
         return Err(CommitFailure::before(std::io::Error::new(error.kind(), format!("publish session metadata after messages: {error}"))));
     }
-    sync_directory(parent).map_err(CommitFailure::after)
+    durability::sync_directory(parent).map_err(CommitFailure::after)
 }
 
-/// 已有 JSONL 只 append：一旦 write 动手，错误可能留下可见残行/整行，属 post-commit 不确定失败并封锁会话。
-/// 跨模块共用（kanban 事件流同款）：已存在文件 append + sync_data，不存在走原子创建。
 pub(crate) fn append_synced(path: &Path, bytes: &[u8]) -> Result<(), CommitFailure> {
-    if !path.exists() {
-        return write_atomic(path, bytes);
-    }
-    let mut file = OpenOptions::new().append(true).open(path).map_err(CommitFailure::before)?;
-    fail_before_append(path)?;
-    file.write_all(bytes).map_err(CommitFailure::after)?;
-    fail_append_sync(path)?;
-    file.sync_data().map_err(CommitFailure::after)
-}
-
-fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), CommitFailure> {
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path).map_err(CommitFailure::before)?;
-    if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
-        drop(file);
-        std::fs::remove_file(path).ok();
-        return Err(CommitFailure::before(error));
-    }
-    Ok(())
-}
-
-fn parent(path: &Path) -> &Path {
-    path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."))
-}
-
-fn temporary_path(path: &Path) -> PathBuf {
-    let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("session");
-    path.with_file_name(format!(".{name}.{}.tmp", uuid::Uuid::new_v4()))
+    durability::append_synced(path, bytes)
 }
 
 fn cleanup(paths: &[&Path]) {
@@ -198,83 +98,34 @@ fn cleanup(paths: &[&Path]) {
     }
 }
 
-#[cfg(unix)]
-fn sync_directory(path: &Path) -> Result<(), std::io::Error> {
-    #[cfg(test)]
-    if FAIL_NEXT_PARENT_SYNC.with(|fault| fault.replace(false)) {
-        return Err(std::io::Error::other(format!("injected session parent sync failure: {}", path.display())));
-    }
-    std::fs::File::open(path).and_then(|directory| directory.sync_all())
-}
-
-#[cfg(not(unix))]
-fn sync_directory(_path: &Path) -> Result<(), std::io::Error> {
-    #[cfg(test)]
-    if FAIL_NEXT_PARENT_SYNC.with(|fault| fault.replace(false)) {
-        return Err(std::io::Error::other("injected session parent sync failure"));
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 thread_local! {
-    static FAIL_NEXT_BEFORE_RENAME: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    static FAIL_NEXT_BEFORE_APPEND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    static FAIL_NEXT_APPEND_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    static FAIL_NEXT_PARENT_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FAIL_NEXT_AFTER_MESSAGES_RENAME: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 #[cfg(test)]
 pub(super) fn inject_before_rename() {
-    FAIL_NEXT_BEFORE_RENAME.with(|fault| fault.set(true));
+    durability::inject_before_replace("injected session pre-commit failure");
 }
 
 #[cfg(test)]
 pub(super) fn inject_before_append() {
-    FAIL_NEXT_BEFORE_APPEND.with(|fault| fault.set(true));
+    durability::inject_before_append("injected session append pre-commit failure");
 }
 
 #[cfg(test)]
 pub(crate) fn inject_append_sync() {
-    FAIL_NEXT_APPEND_SYNC.with(|fault| fault.set(true));
+    durability::inject_append_sync("injected session append sync failure");
 }
 
 #[cfg(test)]
 pub(super) fn inject_parent_sync() {
-    FAIL_NEXT_PARENT_SYNC.with(|fault| fault.set(true));
+    durability::inject_parent_sync("injected session parent sync failure");
 }
 
 #[cfg(test)]
 pub(super) fn inject_after_messages_rename() {
     FAIL_NEXT_AFTER_MESSAGES_RENAME.with(|fault| fault.set(true));
-}
-
-fn fail_before_rename(_path: &Path) -> Result<(), CommitFailure> {
-    #[cfg(test)]
-    if FAIL_NEXT_BEFORE_RENAME.with(|fault| fault.replace(false)) {
-        return Err(CommitFailure::before(std::io::Error::other(format!("injected session pre-commit failure: {}", _path.display()))));
-    }
-    Ok(())
-}
-
-fn fail_before_append(_path: &Path) -> Result<(), CommitFailure> {
-    #[cfg(test)]
-    if FAIL_NEXT_BEFORE_APPEND.with(|fault| fault.replace(false)) {
-        return Err(CommitFailure::before(std::io::Error::other(format!(
-            "injected session append pre-commit failure: {}",
-            _path.display()
-        ))));
-    }
-    Ok(())
-}
-
-fn fail_append_sync(_path: &Path) -> Result<(), CommitFailure> {
-    #[cfg(test)]
-    if FAIL_NEXT_APPEND_SYNC.with(|fault| fault.replace(false)) {
-        return Err(CommitFailure::after(std::io::Error::other(format!("injected session append sync failure: {}", _path.display()))));
-    }
-    Ok(())
 }
 
 fn fail_after_messages_rename(_path: &Path) -> Result<(), CommitFailure> {

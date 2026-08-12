@@ -4,8 +4,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::core::durability as storage;
 use crate::core::ids;
-use crate::core::session::storage;
 use serde::{Deserialize, Serialize};
 
 use super::error::KanbanError;
@@ -213,7 +213,7 @@ pub fn save_snapshot(board_dir: &Path, state: &BoardState) -> Result<(), KanbanE
     let event_log =
         if anchor.as_ref().map(|(seq, id)| (*seq, id.as_str())) == state_anchor { Some(current_event_log_stamp(&path)?) } else { None };
     let bytes = serde_json::to_vec(&StoredSnapshotRef { version: 1, state, event_log }).map_err(log_error)?;
-    storage::write_atomic(&snapshot_path(board_dir), &bytes).map_err(|failure| log_error(failure.to_string()))
+    storage::atomic_replace(&snapshot_path(board_dir), &bytes).map_err(|failure| log_error(failure.to_string()))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -15,8 +15,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::core::durability as storage;
 use crate::core::ids;
-use crate::core::session::storage;
 
 use super::error::KanbanError;
 
@@ -152,7 +152,7 @@ pub fn save(workspace: &Path, definition: &AgentDefinition) -> Result<(), Kanban
     let markdown = to_markdown(definition);
     parse(&markdown)?;
     let path = agents_dir(workspace).join(format!("{}.md", definition.name));
-    storage::write_atomic(&path, markdown.as_bytes()).map_err(|failure| KanbanError::Log(failure.to_string()))
+    storage::atomic_replace(&path, markdown.as_bytes()).map_err(|failure| KanbanError::Log(failure.to_string()))
 }
 
 pub fn load(workspace: &Path, name: &str) -> Result<AgentDefinition, KanbanError> {

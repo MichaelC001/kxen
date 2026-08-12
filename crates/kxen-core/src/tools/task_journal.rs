@@ -91,7 +91,7 @@ fn append_inner(path: &Path, line: &TaskLine) -> Result<(), String> {
     }
     let mut bytes = serde_json::to_vec(line).map_err(|error| error.to_string())?;
     bytes.push(b'\n');
-    crate::core::session::storage::append_synced(path, &bytes).map_err(|failure| failure.to_string())
+    crate::core::durability::append_synced(path, &bytes).map_err(|failure| failure.to_string())
 }
 
 /// 恢复扫描读出的中断任务（最后一行是 start）。
