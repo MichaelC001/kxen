@@ -91,6 +91,7 @@ impl BotSystem {
         &self,
         builder_session_id: &ResourceId,
         mrm_roles: &BTreeSet<ResourceId>,
+        connectors: &BTreeSet<ResourceId>,
         idempotency_key: IdempotencyKey,
         at_ms: u64,
     ) -> Result<crate::bot::builder::BuilderState, BotSystemError> {
@@ -104,6 +105,7 @@ impl BotSystem {
             ValidationContext {
                 catalog: &self.capabilities,
                 mrm_roles,
+                connectors,
                 grant: builder.grants.iter().rev().find(|grant| grant.draft_hash == draft.content_hash),
                 tests: &builder.tests,
             },

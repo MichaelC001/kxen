@@ -17,11 +17,51 @@ impl RunToolJournal {
         Self { system, run_id, calls: std::sync::Mutex::new(Default::default()) }
     }
 
-    fn ids(&self, tool_name: &str, arguments_json: &str) -> Result<(ResourceId, ResourceId, ResourceId), String> {
-        let operation = crate::bot::ids::deterministic_id("op", &[self.run_id.as_str(), tool_name, arguments_json])?;
-        let generation = crate::bot::ids::deterministic_id("gen", &[operation.as_str(), "1"])?;
-        let call = crate::bot::ids::deterministic_id("call", &[operation.as_str()])?;
-        Ok((operation, generation, call))
+    fn select_ids(
+        &self,
+        provider_call_id: &str,
+        tool_name: &str,
+        arguments_json: &str,
+        calls: &std::collections::HashMap<String, (ResourceId, ResourceId)>,
+        run: &crate::bot::run::BotRunState,
+    ) -> Result<(ResourceId, ResourceId, ResourceId), String> {
+        if let Some((operation_id, generation)) = calls.get(provider_call_id) {
+            let attempt = run
+                .tool_operations
+                .get(operation_id)
+                .and_then(|operation| operation.attempt.as_ref())
+                .ok_or("assigned tool operation is missing")?;
+            if attempt.intent.capability_id.as_str() != tool_name || attempt.intent.arguments_json != arguments_json {
+                return Err(format!("provider tool call id collision: {provider_call_id}"));
+            }
+            return Ok((operation_id.clone(), generation.clone(), attempt.intent.call_id.clone()));
+        }
+        let active = calls.values().map(|(operation_id, _)| operation_id).collect::<std::collections::HashSet<_>>();
+        if let Some(attempt) = run.tool_operations.values().filter_map(|operation| operation.attempt.as_ref()).find(|attempt| {
+            attempt.intent.capability_id.as_str() == tool_name
+                && attempt.intent.arguments_json == arguments_json
+                && !matches!(attempt.phase, AttemptPhase::Settled | AttemptPhase::CanceledBeforeStart | AttemptPhase::OutcomeUnknown)
+                && !active.contains(&attempt.operation_id)
+        }) {
+            return Ok((attempt.operation_id.clone(), attempt.generation.clone(), attempt.intent.call_id.clone()));
+        }
+        let base = crate::bot::ids::deterministic_id("op", &[self.run_id.as_str(), tool_name, arguments_json])?;
+        let operation_id = if run.tool_operations.contains_key(&base) {
+            let mut occurrence = 2u64;
+            loop {
+                let candidate = crate::bot::ids::deterministic_id("op", &[base.as_str(), &occurrence.to_string()])?;
+                if !run.tool_operations.contains_key(&candidate) && !active.contains(&candidate) {
+                    break candidate;
+                }
+                occurrence = occurrence.checked_add(1).ok_or("tool operation occurrence overflow")?;
+            }
+        } else {
+            base
+        };
+        let generation = crate::bot::ids::deterministic_id("gen", &[operation_id.as_str(), "1"])?;
+        let call_id = ResourceId::parse(provider_call_id)
+            .or_else(|_| crate::bot::ids::deterministic_id("call", &[self.run_id.as_str(), provider_call_id]))?;
+        Ok((operation_id, generation, call_id))
     }
 
     fn write(&self, suffix: &str, command: RunCommand) -> Result<crate::bot::run::BotRunState, String> {
@@ -42,22 +82,29 @@ impl RunToolJournal {
 
     fn needs_approval(&self, tool_name: &str) -> Result<bool, String> {
         let run = self.system.runs().get(&self.run_id).map_err(|error| error.to_string())?;
-        let capability = ResourceId::parse(tool_name)?;
-        let descriptor = self.system.capabilities().get(&capability).ok_or_else(|| format!("capability is not registered: {tool_name}"))?;
+        let controlled = if crate::mcp::tools::split_prefixed(tool_name).is_some() {
+            true
+        } else {
+            let capability = ResourceId::parse(tool_name)?;
+            self.system
+                .capabilities()
+                .get(&capability)
+                .ok_or_else(|| format!("capability is not registered: {tool_name}"))?
+                .requires_approval
+        };
         Ok(match run.spec.permission.approval {
             crate::bot::ApprovalPolicy::AlwaysManual => true,
-            crate::bot::ApprovalPolicy::ManualWhenRequired => descriptor.requires_approval,
-            crate::bot::ApprovalPolicy::DenyControlledEffects => descriptor.requires_approval,
+            crate::bot::ApprovalPolicy::ManualWhenRequired | crate::bot::ApprovalPolicy::DenyControlledEffects => controlled,
         })
     }
 }
 
 impl ToolBoundaryJournal for RunToolJournal {
-    fn before(&self, _call_id: &str, tool_name: &str, arguments_json: &str, at_ms: u64) -> Result<ToolBoundaryAction, String> {
+    fn before(&self, call_id: &str, tool_name: &str, arguments_json: &str, at_ms: u64) -> Result<ToolBoundaryAction, String> {
         let mut calls = crate::core::shared::lock(&self.calls);
-        let (operation_id, generation, call_id) = self.ids(tool_name, arguments_json)?;
-        calls.insert(_call_id.to_string(), (operation_id.clone(), generation.clone()));
         let mut run = self.system.runs().get(&self.run_id).map_err(|error| error.to_string())?;
+        let (operation_id, generation, durable_call_id) = self.select_ids(call_id, tool_name, arguments_json, &calls, &run)?;
+        calls.insert(call_id.to_string(), (operation_id.clone(), generation.clone()));
         if let Some(attempt) = run.tool_operations.get(&operation_id).and_then(|operation| operation.attempt.as_ref()).cloned() {
             return match attempt.phase {
                 AttemptPhase::Settled => replay(attempt.outcome.as_ref()),
@@ -97,7 +144,11 @@ impl ToolBoundaryJournal for RunToolJournal {
             RunCommand::PrepareTool {
                 operation_id: operation_id.clone(),
                 generation: generation.clone(),
-                intent: ToolIntent { call_id, capability_id: ResourceId::parse(tool_name)?, arguments_json: arguments_json.into() },
+                intent: ToolIntent {
+                    call_id: durable_call_id,
+                    capability_id: ResourceId::parse(tool_name)?,
+                    arguments_json: arguments_json.into(),
+                },
                 at_ms,
             },
         )?;
@@ -119,7 +170,7 @@ impl ToolBoundaryJournal for RunToolJournal {
                 RunCommand::RequestApproval {
                     request: ApprovalRequest {
                         approval_id,
-                        operation_id,
+                        operation_id: Some(operation_id),
                         summary: format!("Allow Bot capability {tool_name} with arguments {arguments_json}"),
                     },
                     at_ms,
@@ -131,9 +182,17 @@ impl ToolBoundaryJournal for RunToolJournal {
         Ok(ToolBoundaryAction::Execute)
     }
 
-    fn after(&self, _call_id: &str, tool_name: &str, arguments_json: &str, output: &str, is_error: bool, at_ms: u64) -> Result<(), String> {
-        let _guard = crate::core::shared::lock(&self.calls);
-        let (operation_id, generation, _) = self.ids(tool_name, arguments_json)?;
+    fn after(
+        &self,
+        call_id: &str,
+        _tool_name: &str,
+        _arguments_json: &str,
+        output: &str,
+        is_error: bool,
+        at_ms: u64,
+    ) -> Result<(), String> {
+        let calls = crate::core::shared::lock(&self.calls);
+        let (operation_id, generation) = calls.get(call_id).cloned().ok_or_else(|| "tool operation assignment is missing".to_string())?;
         self.write(
             &format!("{}_outcome", operation_id),
             RunCommand::RecordToolOutcome {
@@ -190,3 +249,6 @@ fn replay(outcome: Option<&OperationOutcome<ToolExecutionResult>>) -> Result<Too
         None => Err("known tool outcome is missing its result".into()),
     }
 }
+
+#[cfg(test)]
+mod tests;

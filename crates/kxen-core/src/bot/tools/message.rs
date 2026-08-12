@@ -14,19 +14,18 @@ pub(super) fn execute(system: &crate::bot::system::BotSystem, run_id: &ResourceI
     let (kind, target, parts, depth, hops) = match action {
         "send_request" => {
             let target = ResourceId::parse(helpers::required(args, "target_bot_id")?)?;
-            let text = helpers::required(args, "text")?.to_string();
+            let parts = message_parts(args)?;
             let depth = base_depth.saturating_add(1);
             let hops = base_hops.saturating_add(1);
             if let Err(reason) = helpers::check_lineage(&run, depth, hops, helpers::outbound_request_count(&conversation, &run)) {
                 helpers::record_limit_rejected(system, &run, &conversation, args, &reason)?;
                 return Err(reason);
             }
-            (MessageKind::Request, Some(target), vec![MessagePart::Text { text }], depth, hops)
+            (MessageKind::Request, Some(target), parts, depth, hops)
         }
         "send_response" => {
             let target = response_target(args, &conversation, &run)?;
-            let text = helpers::required(args, "text")?.to_string();
-            (MessageKind::Response, target, vec![MessagePart::Text { text }], base_depth, base_hops.saturating_add(1))
+            (MessageKind::Response, target, message_parts(args)?, base_depth, base_hops.saturating_add(1))
         }
         "post_notice" => (
             MessageKind::Notice,
@@ -91,6 +90,19 @@ pub(super) fn execute(system: &crate::bot::system::BotSystem, run_id: &ResourceI
         .map_err(|error| error.to_string())
 }
 
+fn message_parts(args: &serde_json::Value) -> Result<Vec<MessagePart>, String> {
+    match (args.get("text").and_then(serde_json::Value::as_str), args.get("fields")) {
+        (Some(text), None) if !text.trim().is_empty() => Ok(vec![MessagePart::Text { text: text.into() }]),
+        (None, Some(fields)) => {
+            let schema_id = ResourceId::parse(helpers::required(args, "schema_id")?)?;
+            let fields =
+                serde_json::from_value(fields.clone()).map_err(|error| format!("invalid structured Bot message fields: {error}"))?;
+            Ok(vec![MessagePart::Data { schema_id, fields }])
+        }
+        _ => Err("Bot request or response requires exactly one of text or structured fields".into()),
+    }
+}
+
 fn response_target(
     args: &serde_json::Value,
     conversation: &crate::bot::conversation::ConversationState,
@@ -110,4 +122,20 @@ fn response_target(
         Some(ActorRef::Bot { id }) => Some(id.clone()),
         _ => None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn structured_peer_message_requires_schema_and_string_fields() {
+        let parts = message_parts(&serde_json::json!({
+            "schema_id": "bot_contract_input",
+            "fields": { "topic": "weekly report" }
+        }))
+        .unwrap();
+        assert!(matches!(&parts[0], MessagePart::Data { fields, .. } if fields["topic"] == "weekly report"));
+        assert!(message_parts(&serde_json::json!({ "text": "x", "fields": { "topic": "x" }, "schema_id": "s" })).is_err());
+    }
 }

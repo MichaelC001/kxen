@@ -25,6 +25,7 @@ pub fn apply(state: &mut Option<BotRunState>, event: &RunEvent) -> Result<(), Ru
                 result: Vec::new(),
                 error_code: None,
                 error_message: None,
+                cancellation_requested: None,
                 created_at_ms: *at_ms,
                 updated_at_ms: *at_ms,
             });
@@ -53,7 +54,9 @@ pub fn apply(state: &mut Option<BotRunState>, event: &RunEvent) -> Result<(), Ru
             let finishing_paused = matches!(state.status, RunStatus::ApprovalRequired | RunStatus::InputRequired)
                 && matches!(
                     event,
-                    crate::core::operation::OperationEvent::OutcomeRecorded { .. } | crate::core::operation::OperationEvent::Settled { .. }
+                    crate::core::operation::OperationEvent::OutcomeRecorded { .. }
+                        | crate::core::operation::OperationEvent::Settled { .. }
+                        | crate::core::operation::OperationEvent::CanceledBeforeStart { .. }
                 );
             if !finishing_paused {
                 require(state, RunStatus::Running)?;
@@ -76,7 +79,7 @@ pub fn apply(state: &mut Option<BotRunState>, event: &RunEvent) -> Result<(), Ru
         }
         RunEvent::ApprovalResolved { decision, .. } => {
             require(state, RunStatus::ApprovalRequired)?;
-            let operation_id = state.approval.as_ref().map(|request| request.operation_id.clone());
+            let operation_id = state.approval.as_ref().and_then(|request| request.operation_id.clone());
             state.approval = None;
             state.status = match decision {
                 super::types::ApprovalDecision::Approved => {
@@ -85,7 +88,10 @@ pub fn apply(state: &mut Option<BotRunState>, event: &RunEvent) -> Result<(), Ru
                     }
                     RunStatus::Running
                 }
-                super::types::ApprovalDecision::Denied => RunStatus::Rejected,
+                super::types::ApprovalDecision::Denied => {
+                    state.cancellation_requested = None;
+                    RunStatus::Rejected
+                }
             };
         }
         RunEvent::InputRequired { request, .. } => {
@@ -122,6 +128,7 @@ pub fn apply(state: &mut Option<BotRunState>, event: &RunEvent) -> Result<(), Ru
             state.status = RunStatus::Completed;
             state.result = result.clone();
             state.usage = usage.clone();
+            state.cancellation_requested = None;
         }
         RunEvent::Failed { code, message, usage, .. } => {
             require(state, RunStatus::Running)?;
@@ -129,6 +136,14 @@ pub fn apply(state: &mut Option<BotRunState>, event: &RunEvent) -> Result<(), Ru
             state.error_code = Some(code.clone());
             state.error_message = Some(message.clone());
             state.usage = usage.clone();
+            state.cancellation_requested = None;
+        }
+        RunEvent::CancellationRequested { reason, .. } => {
+            require(state, RunStatus::Running)?;
+            if state.cancellation_requested.is_some() {
+                return Err(RunError::InvalidEvent("cancellation is already requested".into()));
+            }
+            state.cancellation_requested = Some(reason.clone());
         }
         RunEvent::Canceled { reason, usage, .. } => {
             if !matches!(state.status, RunStatus::Queued | RunStatus::Running | RunStatus::ApprovalRequired | RunStatus::InputRequired) {
@@ -139,6 +154,7 @@ pub fn apply(state: &mut Option<BotRunState>, event: &RunEvent) -> Result<(), Ru
             state.usage = usage.clone();
             state.approval = None;
             state.input_request = None;
+            state.cancellation_requested = None;
         }
         RunEvent::Rejected { code, message, .. } => {
             if !matches!(state.status, RunStatus::Queued | RunStatus::Running) {
@@ -147,12 +163,14 @@ pub fn apply(state: &mut Option<BotRunState>, event: &RunEvent) -> Result<(), Ru
             state.status = RunStatus::Rejected;
             state.error_code = Some(code.clone());
             state.error_message = Some(message.clone());
+            state.cancellation_requested = None;
         }
         RunEvent::Blocked { reason, .. } => {
             state.status = RunStatus::Blocked;
             state.error_message = Some(reason.clone());
             state.approval = None;
             state.input_request = None;
+            state.cancellation_requested = None;
         }
     }
     state.event_version = state.event_version.checked_add(1).ok_or_else(|| RunError::InvalidEvent("event version overflow".into()))?;

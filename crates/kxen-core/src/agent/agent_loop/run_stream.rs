@@ -137,7 +137,7 @@ pub(super) async fn consume_stream(
                 if produced
                     || consumption.attempt_usage_reported
                     || !crate::llm::retry::retryable(&e)
-                    || attempt + 1 >= crate::llm::retry::MAX_ATTEMPTS
+                    || attempt + 1 >= max_attempts(ctx.max_pure_retries)
                 {
                     consumption.terminal_stream_error = Some(e);
                     break;
@@ -155,4 +155,20 @@ pub(super) async fn consume_stream(
         consumption.attempt_usage_reported = true;
     }
     consumption
+}
+
+fn max_attempts(max_pure_retries: Option<u8>) -> usize {
+    max_pure_retries.map_or(crate::llm::retry::MAX_ATTEMPTS, |retries| usize::from(retries).saturating_add(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pure_retry_policy_counts_retries_after_the_initial_attempt() {
+        assert_eq!(max_attempts(Some(0)), 1);
+        assert_eq!(max_attempts(Some(2)), 3);
+        assert_eq!(max_attempts(None), crate::llm::retry::MAX_ATTEMPTS);
+    }
 }

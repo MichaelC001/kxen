@@ -179,15 +179,12 @@ fn semantic_command_hash<E: Serialize>(
 }
 
 fn strip_server_times(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Array(values) => {
-            for entry in values {
-                if let Some(payload) = entry.get_mut("payload") {
-                    strip_event_time(payload);
-                }
+    if let serde_json::Value::Array(values) = value {
+        for entry in values {
+            if let Some(payload) = entry.get_mut("payload") {
+                strip_event_time(payload);
             }
         }
-        _ => {}
     }
 }
 

@@ -22,9 +22,7 @@ pub(super) fn execute(system: &crate::bot::system::BotSystem, run_id: &ResourceI
     let now = crate::core::shared::now_ms();
     let command = match action {
         "propose_create" => {
-            if current.items.len() >= revision.definition.memory.max_items as usize {
-                return Err("Bot Memory item limit reached".into());
-            }
+            crate::bot::memory::admit_create(&revision.definition.memory, &current).map_err(|error| error.to_string())?;
             let kind: MemoryKind =
                 serde_json::from_value(args.get("kind").cloned().ok_or("missing kind")?).map_err(|error| error.to_string())?;
             MemoryCommand::Create {

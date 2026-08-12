@@ -1,13 +1,54 @@
 use crate::core::identity::{ActorRef, SystemActor, TraceContext};
 
 use crate::bot::conversation::{ConversationCommand, ConversationWrite, Message, MessageKind, MessagePart};
-use crate::bot::routine::{ContextMode, OccurrenceStatus, RoutineCommand, RoutineLifecycle, RoutineWrite};
+use crate::bot::routine::{
+    ContextMode, OccurrenceStatus, RevisionPolicy, RoutineCommand, RoutineDefinition, RoutineLifecycle, RoutineWrite,
+};
 use crate::bot::run::{RunTrigger, RunTriggerKind};
+use crate::core::identity::ResourceId;
 
 use super::dispatch::{runtime_actor, stable_key};
 use super::{BotSystem, BotSystemError, QueueRun, RoutineTickReport};
 
 impl BotSystem {
+    /// Cross-aggregate admission for Routine control-plane mutations and ticks.
+    /// The Routine aggregate validates its own shape; the application service
+    /// additionally freezes the current Bot, revision and Conversation boundary.
+    pub fn validate_routine_definition(&self, definition: &RoutineDefinition) -> Result<ResourceId, BotSystemError> {
+        definition.validate().map_err(BotSystemError::Rejected)?;
+        let bot = self.active_bot(&definition.bot_id)?;
+        let revision = match &definition.revision_policy {
+            RevisionPolicy::FollowCurrent => {
+                bot.current_revision().ok_or_else(|| BotSystemError::Rejected("Bot has no current revision".into()))?
+            }
+            RevisionPolicy::Pinned { revision_id } => bot
+                .revisions
+                .values()
+                .find(|revision| &revision.revision_id == revision_id)
+                .ok_or_else(|| BotSystemError::Rejected("pinned Bot revision is unavailable".into()))?,
+        };
+        revision.definition.validate_input(&definition.input).map_err(|error| BotSystemError::Rejected(error.to_string()))?;
+        match (&definition.context_mode, &definition.target_conversation_id) {
+            (ContextMode::Isolated, None) => {}
+            (ContextMode::Isolated, Some(_)) => {
+                return Err(BotSystemError::Rejected("isolated Routine cannot target a Conversation".into()));
+            }
+            (ContextMode::ContinueConversation, Some(conversation_id)) => {
+                let conversation = self.conversations.get(conversation_id)?;
+                if conversation.lifecycle != crate::bot::conversation::ConversationLifecycle::Active {
+                    return Err(BotSystemError::Rejected(format!("Conversation is {:?}", conversation.lifecycle)));
+                }
+                if !conversation.members.get(&definition.bot_id).is_some_and(|member| member.active) {
+                    return Err(BotSystemError::Rejected("Routine Bot is not an active Conversation member".into()));
+                }
+            }
+            (ContextMode::ContinueConversation, None) => {
+                return Err(BotSystemError::Rejected("continue_conversation requires target Conversation".into()));
+            }
+        }
+        Ok(revision.revision_id.clone())
+    }
+
     pub fn tick_routines(&self, observed_at_ms: u64) -> RoutineTickReport {
         let mut report = RoutineTickReport::default();
         let routines = match self.routines.list() {
@@ -31,8 +72,23 @@ impl BotSystem {
         observed_at_ms: u64,
         report: &mut RoutineTickReport,
     ) -> Result<(), BotSystemError> {
-        let bot = self.definitions.get(&routine.definition.bot_id)?;
-        let current_revision = bot.current_revision().map(|revision| revision.revision_id.clone());
+        let current_revision = match self.validate_routine_definition(&routine.definition) {
+            Ok(revision_id) => Some(revision_id),
+            Err(error) => {
+                self.routines.execute(RoutineWrite {
+                    routine_id: routine.routine_id.clone(),
+                    expected_version: routine.event_version,
+                    idempotency_key: stable_key(
+                        "routine_policy_pause",
+                        &[routine.routine_id.as_str(), &routine.event_version.to_string()],
+                    )?,
+                    actor: runtime_actor(),
+                    trace: TraceContext::default(),
+                    command: RoutineCommand::Pause { reason: format!("Routine admission failed: {error}"), at_ms: observed_at_ms },
+                })?;
+                return Err(error);
+            }
+        };
         let state = self.routines.execute(RoutineWrite {
             routine_id: routine.routine_id.clone(),
             expected_version: routine.event_version,

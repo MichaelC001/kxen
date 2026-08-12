@@ -131,6 +131,16 @@ fn post(
         };
     }
     validate_parts(&message.parts)?;
+    if message
+        .reply_to_message_id
+        .as_ref()
+        .is_some_and(|reply_id| !state.messages.iter().any(|candidate| &candidate.message_id == reply_id))
+    {
+        return Err(ConversationError::Rejected("reply message is unavailable in this Conversation".into()));
+    }
+    if new_task.is_none() && message.task_id.as_ref().is_some_and(|task_id| !state.tasks.contains_key(task_id)) {
+        return Err(ConversationError::Rejected("message task is unavailable in this Conversation".into()));
+    }
     let recipients = routing::recipients(state, &message)?;
     let mut events = Vec::new();
     if let Some(task) = new_task {
@@ -140,6 +150,15 @@ fn post(
         require_member(state, &task.owner_bot_id)?;
         if !recipients.contains(&task.owner_bot_id) || task.title.trim().is_empty() || task.expected_output.trim().is_empty() {
             return Err(ConversationError::Rejected("task owner, title or output contract is invalid".into()));
+        }
+        validate_parts(&task.input)?;
+        task.budget.validate().map_err(ConversationError::Rejected)?;
+        if task
+            .parent_task_id
+            .as_ref()
+            .is_some_and(|parent_id| !state.tasks.get(parent_id).is_some_and(|parent| !parent.status.is_terminal()))
+        {
+            return Err(ConversationError::Rejected("parent task is unavailable or terminal".into()));
         }
         events.push(ConversationEvent::TaskCreated {
             task: CollaborationTask {
@@ -270,7 +289,7 @@ fn task_transition(from: TaskStatus, to: TaskStatus) -> bool {
                 | TaskStatus::Blocked
         ),
         TaskStatus::InputRequired | TaskStatus::ApprovalRequired => {
-            matches!(to, TaskStatus::Working | TaskStatus::Canceled | TaskStatus::Blocked)
+            matches!(to, TaskStatus::Working | TaskStatus::Canceled | TaskStatus::Rejected | TaskStatus::Blocked)
         }
         _ => false,
     }

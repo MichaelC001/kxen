@@ -1,5 +1,6 @@
 //! Application-level composition root for Bot definitions, Runs and collaboration.
 
+mod admission;
 mod builder_flow;
 mod dispatch;
 mod error;
@@ -14,9 +15,11 @@ pub use types::{ConversationMutation, DispatchReceipt, PostConversation, QueueRu
 use std::path::{Path, PathBuf};
 
 use crate::agent::capability::{CapabilityAvailability, CapabilityCatalog, CapabilityDescriptor, CapabilityKind};
-use crate::core::identity::{ActorRef, ResourceId};
+use crate::core::identity::ResourceId;
 
-use crate::bot::conversation::{ConversationCommand, ConversationKind, ConversationRepository, ConversationState, ConversationWrite};
+#[cfg(test)]
+use crate::bot::conversation::ConversationKind;
+use crate::bot::conversation::{ConversationCommand, ConversationRepository, ConversationState, ConversationWrite};
 use crate::bot::routine::RoutineRepository;
 use crate::bot::run::{PermissionSnapshot, RunCommand, RunRepository, RunSpec};
 use crate::bot::{BotLifecycle, BotRepository};
@@ -119,7 +122,29 @@ impl BotSystem {
             None => bot.current_revision().ok_or_else(|| BotSystemError::Rejected("Bot has no published revision".into()))?,
         };
         self.capabilities.resolve(&revision.definition.capabilities).map_err(|error| BotSystemError::Rejected(error.to_string()))?;
+        revision.definition.validate_input(&input).map_err(|error| BotSystemError::Rejected(error.to_string()))?;
         let budget = effective_budget(&revision.definition, budget_override.as_ref());
+        budget.validate().map_err(BotSystemError::Rejected)?;
+        if let Some(conversation_id) = &conversation_id {
+            let conversation = self.conversations.get(conversation_id)?;
+            if conversation.lifecycle != crate::bot::conversation::ConversationLifecycle::Active {
+                return Err(BotSystemError::Rejected(format!("Conversation is {:?}", conversation.lifecycle)));
+            }
+            if !conversation.members.get(&bot_id).is_some_and(|member| member.active) {
+                return Err(BotSystemError::Rejected(format!("Bot is not an active Conversation member: {bot_id}")));
+            }
+            if let Some(task_id) = &task_id {
+                let task = conversation
+                    .tasks
+                    .get(task_id)
+                    .ok_or_else(|| BotSystemError::Rejected(format!("Conversation task is unavailable: {task_id}")))?;
+                if task.owner_bot_id != bot_id || task.status.is_terminal() {
+                    return Err(BotSystemError::Rejected("BotRun task must be nonterminal and owned by the Run Bot".into()));
+                }
+            }
+        } else if task_id.is_some() {
+            return Err(BotSystemError::Rejected("task-bound BotRun requires a Conversation".into()));
+        }
         let spec = RunSpec {
             run_id: run_id.clone(),
             bot_id,
@@ -165,94 +190,6 @@ impl BotSystem {
             idempotency_key: request.idempotency_key,
         })
     }
-
-    fn admit_conversation_command(&self, command: &ConversationCommand, actor: &ActorRef) -> Result<(), BotSystemError> {
-        match command {
-            ConversationCommand::Create { kind, members, moderator_bot_id, .. } => {
-                if actor != &ActorRef::Owner {
-                    return Err(BotSystemError::Rejected("only owner can create Conversation".into()));
-                }
-                for member in members {
-                    let bot = self.active_bot(&member.bot_id)?;
-                    if *kind == ConversationKind::BotGroup && !bot.current_revision().unwrap().definition.communication.allow_groups {
-                        return Err(BotSystemError::Rejected(format!("Bot does not allow Groups: {}", member.bot_id)));
-                    }
-                }
-                if *kind == ConversationKind::BotDirect && members.len() == 2 {
-                    let left = self.active_bot(&members[0].bot_id)?;
-                    let right = self.active_bot(&members[1].bot_id)?;
-                    let left_policy = &left.current_revision().unwrap().definition.communication;
-                    let right_policy = &right.current_revision().unwrap().definition.communication;
-                    if !left_policy.allow_direct
-                        || !right_policy.allow_direct
-                        || !left_policy.allowed_peers.contains(&right.bot_id)
-                        || !right_policy.allowed_peers.contains(&left.bot_id)
-                    {
-                        return Err(BotSystemError::Rejected(
-                            "direct Conversation requires reciprocal allow_direct and peer allowlists".into(),
-                        ));
-                    }
-                }
-                if *kind == ConversationKind::BotGroup && moderator_bot_id.is_none() {
-                    return Err(BotSystemError::Rejected("Group moderator is required".into()));
-                }
-            }
-            ConversationCommand::AddMember { participant, .. } => {
-                let bot = self.active_bot(&participant.bot_id)?;
-                if !bot.current_revision().unwrap().definition.communication.allow_groups {
-                    return Err(BotSystemError::Rejected("Bot does not allow Groups".into()));
-                }
-            }
-            ConversationCommand::SetModerator { bot_id, .. } => {
-                let bot = self.active_bot(bot_id)?;
-                if !bot.current_revision().unwrap().definition.communication.allow_groups {
-                    return Err(BotSystemError::Rejected("Bot does not allow Groups".into()));
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    fn admit_post(
-        &self,
-        state: &ConversationState,
-        actor: &ActorRef,
-        message: &crate::bot::conversation::Message,
-    ) -> Result<(), BotSystemError> {
-        if let Some(moderator) = &state.moderator_bot_id {
-            self.active_bot(moderator)?;
-        }
-        if let ActorRef::Bot { id } = actor {
-            let sender = self.active_bot(id)?;
-            let policy = &sender.current_revision().unwrap().definition.communication;
-            match state.kind {
-                ConversationKind::BotDirect if !policy.allow_direct => {
-                    return Err(BotSystemError::Rejected("sender does not allow direct Bot communication".into()));
-                }
-                ConversationKind::BotGroup if !policy.allow_groups => {
-                    return Err(BotSystemError::Rejected("sender does not allow Group communication".into()));
-                }
-                _ => {}
-            }
-            if let Some(target) = &message.target_bot_id
-                && state.kind == ConversationKind::BotDirect
-                && !policy.allowed_peers.contains(target)
-            {
-                return Err(BotSystemError::Rejected("target is not in direct peer allowlist".into()));
-            }
-        }
-        Ok(())
-    }
-
-    fn active_bot(&self, bot_id: &ResourceId) -> Result<crate::bot::BotState, BotSystemError> {
-        let bot = self.definitions.get(bot_id)?;
-        if bot.lifecycle == BotLifecycle::Active && bot.current_revision().is_some() {
-            Ok(bot)
-        } else {
-            Err(BotSystemError::Rejected(format!("Bot is not active: {bot_id}")))
-        }
-    }
 }
 
 fn runtime_catalog() -> Result<CapabilityCatalog, BotSystemError> {
@@ -297,7 +234,9 @@ fn runtime_catalog() -> Result<CapabilityCatalog, BotSystemError> {
 }
 
 fn bot_runtime_tool(name: &str) -> bool {
-    matches!(name, "read" | "edit" | "write" | "delete" | "glob" | "grep" | "webfetch" | "websearch" | "tool_search" | "todo" | "lsp")
+    // LSP navigation can return cross-file locations outside a granted path.
+    // It remains unavailable to Bots until its result surface is ACL-aware.
+    matches!(name, "read" | "edit" | "write" | "delete" | "glob" | "grep" | "webfetch" | "websearch" | "tool_search" | "todo")
 }
 
 pub(super) fn effective_budget(

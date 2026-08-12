@@ -146,6 +146,7 @@ pub struct ConversationState {
     pub moderator_bot_id: Option<ResourceId>,
     pub blocked_reason: Option<String>,
     pub messages: Vec<Message>,
+    pub message_sequences: BTreeMap<ResourceId, u64>,
     pub deliveries: DeliveryProjection<MessageDelivery>,
     pub delivery_runs: BTreeMap<ResourceId, ResourceId>,
     pub tasks: BTreeMap<ResourceId, CollaborationTask>,

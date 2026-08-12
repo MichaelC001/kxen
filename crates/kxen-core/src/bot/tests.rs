@@ -15,6 +15,46 @@ fn definition(name: &str) -> BotDefinition {
     definition
 }
 
+#[test]
+fn definition_binds_connectors_and_paths_to_one_workspace() {
+    let mut connector_only = definition("Connector");
+    connector_only.resources.connectors.insert(id("docs"));
+    assert!(connector_only.validate_draft().is_err());
+
+    connector_only.resources.workspaces.push(crate::bot::WorkspaceGrantSpec { workspace_id: id("workspace_one"), paths: Vec::new() });
+    assert!(connector_only.validate_draft().is_ok());
+    connector_only.resources.workspaces.push(crate::bot::WorkspaceGrantSpec { workspace_id: id("workspace_two"), paths: Vec::new() });
+    assert!(connector_only.validate_draft().is_err());
+}
+
+#[test]
+fn structured_contracts_validate_required_fields_and_parse_output() {
+    let mut contract_definition = definition("Structured");
+    contract_definition.input_contract = crate::bot::ContractSpec {
+        description: "Structured request".into(),
+        content_type: "application/json".into(),
+        required_fields: vec!["topic".into()],
+    };
+    contract_definition.output_contract = crate::bot::ContractSpec {
+        description: "Structured result".into(),
+        content_type: "application/json".into(),
+        required_fields: vec!["status".into()],
+    };
+    assert!(contract_definition.validate_draft().is_ok());
+    let missing = vec![crate::agent::dcp::ProviderNeutralPart::Data { schema_id: id("bot_contract_input"), fields: Default::default() }];
+    assert!(contract_definition.validate_input(&missing).is_err());
+    let valid = vec![crate::agent::dcp::ProviderNeutralPart::Data {
+        schema_id: id("bot_contract_input"),
+        fields: [("topic".into(), "weekly report".into())].into_iter().collect(),
+    }];
+    assert!(contract_definition.validate_input(&valid).is_ok());
+    let output = contract_definition.output_parts(r#"{"status":"PASS","count":2}"#).unwrap();
+    assert!(matches!(&output[0], crate::agent::dcp::ProviderNeutralPart::Data { fields, .. } if fields["status"] == "PASS"));
+
+    contract_definition.output_contract.content_type = "text/plain".into();
+    assert!(contract_definition.validate_draft().is_err());
+}
+
 fn id(value: &str) -> ResourceId {
     ResourceId::parse(value).unwrap()
 }

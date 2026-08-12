@@ -9,6 +9,7 @@ use crate::bot::BotDefinition;
 pub struct ValidationContext<'a> {
     pub catalog: &'a CapabilityCatalog,
     pub mrm_roles: &'a BTreeSet<ResourceId>,
+    pub connectors: &'a BTreeSet<ResourceId>,
     pub grant: Option<&'a PermissionGrant>,
     pub tests: &'a [TestEvidence],
 }
@@ -43,6 +44,23 @@ pub fn validate(
             Some(&resolved.iter().map(|item| item.id.as_str()).collect::<Vec<_>>().join(",")),
         ),
         Err(error) => finding("capabilities", ValidationStatus::Fail, &error.to_string(), None),
+    });
+    let unavailable_connectors =
+        definition.resources.connectors.difference(context.connectors).map(ToString::to_string).collect::<Vec<_>>();
+    findings.push(if unavailable_connectors.is_empty() {
+        finding(
+            "connectors",
+            ValidationStatus::Pass,
+            "Every requested connector is configured in the active Workspace",
+            Some(&definition.resources.connectors.iter().map(ToString::to_string).collect::<Vec<_>>().join(",")),
+        )
+    } else {
+        finding(
+            "connectors",
+            ValidationStatus::Fail,
+            &format!("Unavailable Workspace connectors: {}", unavailable_connectors.join(", ")),
+            None,
+        )
     });
     let permission_hash = permission_hash(definition)?;
     findings.push(match context.grant {

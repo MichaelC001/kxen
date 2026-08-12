@@ -261,6 +261,7 @@ impl McpManager {
         prefixed: &str,
         args: &Value,
         approval: Option<&crate::tools::exec::ApprovalCtx<'_>>,
+        approval_prechecked: bool,
     ) -> Result<String, String> {
         let (server, tool) = tools::split_prefixed(prefixed).ok_or_else(|| format!("invalid mcp tool name: {prefixed}"))?;
         let remote = crate::core::shared::lock(&self.servers)
@@ -272,6 +273,7 @@ impl McpManager {
         match self.policy_for(server, tool) {
             ToolPolicy::Deny => Err(format!("mcp tool {prefixed} denied by toolPolicies")),
             ToolPolicy::Allow => self.call(server, tool, args).await,
+            ToolPolicy::Ask if approval_prechecked => self.call(server, tool, args).await,
             ToolPolicy::Ask => {
                 // fail-closed：无审批通道一律拒，不静默放行
                 let Some(appr) = approval else {

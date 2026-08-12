@@ -326,7 +326,7 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
                 ctx.session_id.as_deref(),
                 None,
             );
-            ctx.mcp.as_ref().ok_or("mcp not configured")?.call_gated(other, args, appr.as_ref()).await
+            ctx.mcp.as_ref().ok_or("mcp not configured")?.call_gated(other, args, appr.as_ref(), ctx.mcp_approval_prechecked).await
         }
         other => Err(format!("unknown tool: {other}")),
     }

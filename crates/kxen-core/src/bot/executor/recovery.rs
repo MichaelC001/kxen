@@ -45,6 +45,12 @@ impl BotExecutor {
         if run.status.is_terminal() || matches!(run.status, RunStatus::ApprovalRequired | RunStatus::InputRequired) {
             return;
         }
+        if run.cancellation_requested.is_some() {
+            if let Ok(canceled) = self.finish_cancellation(run) {
+                let _ = self.system.settle_run(&canceled, crate::core::shared::now_ms());
+            }
+            return;
+        }
         if let Some((operation_id, attempt)) = run.tool_operations.iter().find_map(|(id, operation)| {
             operation
                 .attempt
@@ -71,6 +77,7 @@ impl BotExecutor {
                     vec![operation_id.to_string()],
                     crate::core::shared::now_ms(),
                 );
+                let _ = self.system.settle_run(&run, crate::core::shared::now_ms());
             }
             return;
         }
@@ -88,8 +95,8 @@ impl BotExecutor {
                 return;
             }
         }
-        if run.status == RunStatus::Running {
-            let _ = self.write(
+        if run.status == RunStatus::Running
+            && let Ok(failed) = self.write(
                 run_id,
                 "execution_error",
                 RunCommand::Fail {
@@ -98,7 +105,9 @@ impl BotExecutor {
                     usage: run.usage,
                     at_ms: crate::core::shared::now_ms(),
                 },
-            );
+            )
+        {
+            let _ = self.system.settle_run(&failed, crate::core::shared::now_ms());
         }
     }
 }

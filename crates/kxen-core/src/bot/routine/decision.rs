@@ -119,7 +119,7 @@ fn decide_existing(state: &RoutineState, actor: &ActorRef, command: RoutineComma
             }
         }
         RoutineCommand::Pause { reason, at_ms } => {
-            require_owner(actor)?;
+            require_owner_or_runtime(actor)?;
             if reason.trim().is_empty() || state.lifecycle != RoutineLifecycle::Active {
                 return Err(RoutineError::Rejected("Routine cannot be paused".into()));
             }
@@ -164,6 +164,14 @@ fn occurrence<'a>(state: &'a RoutineState, id: &crate::core::identity::ResourceI
 
 fn require_owner(actor: &ActorRef) -> Result<(), RoutineError> {
     if actor == &ActorRef::Owner { Ok(()) } else { Err(RoutineError::Rejected("owner action required".into())) }
+}
+
+fn require_owner_or_runtime(actor: &ActorRef) -> Result<(), RoutineError> {
+    if actor == &ActorRef::Owner || actor == &(ActorRef::System { actor: SystemActor::Runtime }) {
+        Ok(())
+    } else {
+        Err(RoutineError::Rejected("owner or runtime action required".into()))
+    }
 }
 
 fn require_system(actor: &ActorRef, expected: SystemActor) -> Result<(), RoutineError> {

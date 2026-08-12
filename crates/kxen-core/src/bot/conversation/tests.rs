@@ -110,6 +110,7 @@ fn group_owner_routing_matrix_is_deterministic() {
         },
     );
     assert_eq!(active_delivery_recipients(&state), [id("bot_a")].into_iter().collect());
+    assert_eq!(state.message_sequences[&id("bmsg_one")], 2);
 
     let mut mentioned = message(&conversation_id, "bmsg_two", ActorRef::Owner, MessageKind::Instruction);
     mentioned.mentions = [id("bot_b"), id("bot_c")].into_iter().collect();
@@ -122,6 +123,7 @@ fn group_owner_routing_matrix_is_deterministic() {
         ConversationCommand::Post { message: Box::new(mentioned), task: None, at_ms: 30 },
     );
     assert_eq!(active_delivery_recipients(&state), [id("bot_a"), id("bot_b"), id("bot_c")].into_iter().collect());
+    assert_eq!(state.message_sequences[&id("bmsg_two")], 4);
 
     let mut everyone = message(&conversation_id, "bmsg_three", ActorRef::Owner, MessageKind::Instruction);
     everyone.everyone = true;

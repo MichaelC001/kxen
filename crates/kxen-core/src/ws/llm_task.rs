@@ -281,6 +281,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
         model,
         store,
         max_turns: 32,
+        max_pure_retries: None,
         mrm: Some(mrm),
         allowed_tools: None,
         extras: Some(state.extras_for(&session_id)),
@@ -298,6 +299,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
         approvals: Some(state.approvals.clone()),
         kanban_auto: None,
         mcp: Some(runtime.mcp()),
+        mcp_approval_prechecked: false,
         lsp: Some(runtime.lsp()),
         notify: Some(notify.clone()),
         persist_compaction: Some({

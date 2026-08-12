@@ -61,30 +61,30 @@ fn list_runs(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
         runs.retain(|run| run.spec.conversation_id.as_ref().is_some_and(|id| id.as_str() == conversation_id));
     }
     if let Some(status) = params.get("status").and_then(Value::as_str) {
-        runs.retain(|run| format!("{:?}", run.status).eq_ignore_ascii_case(status));
+        runs.retain(|run| run_status_name(run.status).eq_ignore_ascii_case(status));
     }
     value(runs)
 }
 
 fn cancel_run(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
     let run_id = resource_id(params, "run_id")?;
-    state.bot_executor.cancel(&run_id);
     let current = state.bots.runs().get(&run_id)?;
     if current.status.is_terminal() {
         return value(current);
     }
-    value(state.bots.runs().execute(crate::bot::run::RunWrite {
-        run_id,
+    let requested = state.bots.runs().execute(crate::bot::run::RunWrite {
+        run_id: run_id.clone(),
         expected_version: expected(params)?,
         idempotency_key: idempotency(params)?,
         actor: owner(),
         trace: trace(),
-        command: RunCommand::Cancel {
+        command: RunCommand::RequestCancel {
             reason: params.get("reason").and_then(Value::as_str).unwrap_or("canceled by owner").into(),
-            usage: current.usage,
             at_ms: now(),
         },
-    })?)
+    })?;
+    state.bot_executor.cancel(&run_id);
+    value(requested)
 }
 
 fn bind_input(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
@@ -134,22 +134,27 @@ fn routine(method: &str, params: &Value, state: &Arc<AppState>) -> RpcResult<Val
     }
     let command = match method {
         "bot.routine.create" => {
-            RoutineCommand::Create { routine_id: routine_id.clone(), definition: decode(params, "definition")?, at_ms: now() }
+            let definition = decode(params, "definition")?;
+            state.bots.validate_routine_definition(&definition)?;
+            RoutineCommand::Create { routine_id: routine_id.clone(), definition, at_ms: now() }
         }
-        "bot.routine.update" => RoutineCommand::Update { definition: decode(params, "definition")?, at_ms: now() },
+        "bot.routine.update" => {
+            let definition = decode(params, "definition")?;
+            state.bots.validate_routine_definition(&definition)?;
+            RoutineCommand::Update { definition, at_ms: now() }
+        }
         "bot.routine.pause" => {
             RoutineCommand::Pause { reason: params.get("reason").and_then(Value::as_str).unwrap_or("paused by owner").into(), at_ms: now() }
         }
-        "bot.routine.resume" => RoutineCommand::Resume { at_ms: now() },
+        "bot.routine.resume" => {
+            let routine = state.bots.routines().get(&routine_id)?;
+            state.bots.validate_routine_definition(&routine.definition)?;
+            RoutineCommand::Resume { at_ms: now() }
+        }
         "bot.routine.run_now" => {
             let routine = state.bots.routines().get(&routine_id)?;
-            let bot = state.bots.definitions().get(&routine.definition.bot_id)?;
-            let revision = bot.current_revision().ok_or("Bot has no current revision")?;
-            RoutineCommand::RunNow {
-                occurrence_id: resource_id(params, "occurrence_id")?,
-                resolved_revision_id: revision.revision_id.clone(),
-                at_ms: now(),
-            }
+            let revision_id = state.bots.validate_routine_definition(&routine.definition)?;
+            RoutineCommand::RunNow { occurrence_id: resource_id(params, "occurrence_id")?, resolved_revision_id: revision_id, at_ms: now() }
         }
         "bot.routine.trash" => RoutineCommand::Trash { at_ms: now() },
         _ => return Err(format!("unknown Routine method: {method}").into()),
@@ -166,21 +171,27 @@ fn routine(method: &str, params: &Value, state: &Arc<AppState>) -> RpcResult<Val
 
 fn memory(method: &str, params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
     let bot_id = resource_id(params, "bot_id")?;
+    let bot = state.bots.definitions().get(&bot_id)?;
     if method == "bot.memory.list" {
         return value(state.bots.memory().get(&bot_id)?);
     }
+    let memory = state.bots.memory().get(&bot_id)?;
     let command = match method {
-        "bot.memory.create" => MemoryCommand::Create {
-            item: MemoryItem {
-                item_id: resource_id(params, "item_id")?,
-                kind: decode(params, "kind")?,
-                content: params.get("content").and_then(Value::as_str).ok_or("missing content")?.into(),
-                provenance: AggregateRef { kind: AggregateKind::Bot, id: bot_id.clone() },
-                version: 1,
-                created_at_ms: now(),
-                updated_at_ms: now(),
-            },
-        },
+        "bot.memory.create" => {
+            let policy = &bot.current_revision().ok_or("Bot has no published revision")?.definition.memory;
+            crate::bot::memory::admit_create(policy, &memory)?;
+            MemoryCommand::Create {
+                item: MemoryItem {
+                    item_id: resource_id(params, "item_id")?,
+                    kind: decode(params, "kind")?,
+                    content: params.get("content").and_then(Value::as_str).ok_or("missing content")?.into(),
+                    provenance: AggregateRef { kind: AggregateKind::Bot, id: bot_id.clone() },
+                    version: 1,
+                    created_at_ms: now(),
+                    updated_at_ms: now(),
+                },
+            }
+        }
         "bot.memory.revise" => MemoryCommand::Revise {
             item_id: resource_id(params, "item_id")?,
             expected_item_version: params.get("expected_item_version").and_then(Value::as_u64).ok_or("missing expected_item_version")?,
@@ -202,6 +213,20 @@ fn memory(method: &str, params: &Value, state: &Arc<AppState>) -> RpcResult<Valu
         trace: trace(),
         command,
     })?)
+}
+
+fn run_status_name(status: RunStatus) -> &'static str {
+    match status {
+        RunStatus::Queued => "queued",
+        RunStatus::Running => "running",
+        RunStatus::ApprovalRequired => "approval_required",
+        RunStatus::InputRequired => "input_required",
+        RunStatus::Completed => "completed",
+        RunStatus::Failed => "failed",
+        RunStatus::Canceled => "canceled",
+        RunStatus::Rejected => "rejected",
+        RunStatus::Blocked => "blocked",
+    }
 }
 
 fn recovery(method: &str, params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {

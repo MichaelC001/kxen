@@ -30,7 +30,7 @@ fn decide_existing(state: &BuilderState, actor: &ActorRef, command: BuilderComma
             }
             BuilderEvent::MessageAppended { message, at_ms }
         }
-        BuilderCommand::ReplaceDraft { expected_draft_version, definition, at_ms } => {
+        BuilderCommand::ReplaceDraft { expected_draft_version, source_message_id, definition, at_ms } => {
             if !is_owner_or_builder(actor) {
                 return Err(BuilderError::Rejected("only owner or built-in Builder can patch draft".into()));
             }
@@ -41,6 +41,7 @@ fn decide_existing(state: &BuilderState, actor: &ActorRef, command: BuilderComma
             }
             let draft = BuilderDraft {
                 version: actual.checked_add(1).ok_or_else(|| BuilderError::Rejected("draft version overflow".into()))?,
+                source_message_id,
                 content_hash: definition.content_hash().map_err(|error| BuilderError::Rejected(error.to_string()))?,
                 definition: *definition,
                 updated_at_ms: at_ms,

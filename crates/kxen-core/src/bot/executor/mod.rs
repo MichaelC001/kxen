@@ -1,5 +1,6 @@
 //! BotRun adapter for the single shared Agent execution kernel.
 
+mod completion;
 mod context;
 mod journal;
 mod messages;
@@ -38,6 +39,7 @@ struct AgentContextInput<'a> {
     model: crate::llm::ModelRef,
     store: Arc<crate::auth::credential::AuthStore>,
     path_scope: crate::agent::agent_loop::ResourcePathScope,
+    mcp: Option<Arc<crate::mcp::McpManager>>,
     cancel: CancelToken,
 }
 
@@ -72,6 +74,11 @@ impl BotExecutor {
 
     async fn execute_reserved(&self, run_id: &ResourceId, active_workspace: &Path, cancel: CancelToken) -> Result<BotRunState, String> {
         let mut run = self.system.runs().get(run_id).map_err(|error| error.to_string())?;
+        if run.cancellation_requested.is_some() {
+            let terminal = self.finish_cancellation(run)?;
+            self.system.settle_run(&terminal, crate::core::shared::now_ms()).map_err(|error| error.to_string())?;
+            return Ok(terminal);
+        }
         if run.status == RunStatus::Queued {
             run = self.write(run_id, "start", RunCommand::Start { at_ms: crate::core::shared::now_ms() })?;
         }
@@ -81,6 +88,7 @@ impl BotExecutor {
         let path_scope = policy::resolve_paths(&run.spec.permission.resources, &workspace, &sandbox)?;
         let execution_workdir = if run.spec.permission.resources.workspaces.is_empty() { sandbox } else { workspace.clone() };
         let runtime = self.deps.runtimes.runtime(&workspace)?;
+        let mcp = self.resolve_connectors(&run, &runtime).await?;
         let store = crate::core::shared::lock(&self.deps.auth_store).clone();
         let resolved = runtime
             .mrm()
@@ -111,6 +119,7 @@ impl BotExecutor {
             model,
             store,
             path_scope,
+            mcp,
             cancel,
         });
         let outcome = crate::agent::agent_loop::run_turn(&mut agent, &mut wire).await;
@@ -120,12 +129,71 @@ impl BotExecutor {
         self.finish(run_id, outcome)
     }
 
+    fn finish_cancellation(&self, run: BotRunState) -> Result<BotRunState, String> {
+        self.finish_cancellation_with_usage(run, None)
+    }
+
+    fn finish_cancellation_with_usage(&self, mut run: BotRunState, usage: Option<UsageSummary>) -> Result<BotRunState, String> {
+        self.block_unknown_recovery(&run)?;
+        let prepared = run
+            .tool_operations
+            .iter()
+            .filter_map(|(operation_id, operation)| {
+                operation
+                    .attempt
+                    .as_ref()
+                    .filter(|attempt| attempt.phase == crate::core::operation::AttemptPhase::Prepared)
+                    .map(|attempt| (operation_id.clone(), attempt.generation.clone()))
+            })
+            .collect::<Vec<_>>();
+        for (operation_id, generation) in prepared {
+            run = self.write(
+                &run.spec.run_id,
+                &format!("{}_canceled_before_start", operation_id),
+                RunCommand::CancelToolBeforeStart { operation_id, generation, at_ms: crate::core::shared::now_ms() },
+            )?;
+        }
+        let known = run
+            .tool_operations
+            .iter()
+            .filter_map(|(operation_id, operation)| {
+                operation
+                    .attempt
+                    .as_ref()
+                    .filter(|attempt| attempt.phase == crate::core::operation::AttemptPhase::OutcomeKnown)
+                    .map(|attempt| (operation_id.clone(), attempt.generation.clone()))
+            })
+            .collect::<Vec<_>>();
+        for (operation_id, generation) in known {
+            run = self.write(
+                &run.spec.run_id,
+                &format!("{}_settled", operation_id),
+                RunCommand::SettleTool { operation_id, generation, at_ms: crate::core::shared::now_ms() },
+            )?;
+        }
+        let reason = run.cancellation_requested.clone().ok_or("BotRun cancellation request disappeared")?;
+        let usage = usage.unwrap_or_else(|| run.usage.clone());
+        self.write(&run.spec.run_id, "cancel_terminal", RunCommand::Cancel { reason, usage, at_ms: crate::core::shared::now_ms() })
+    }
+
     fn agent_context(&self, input: AgentContextInput<'_>) -> AgentContext {
-        let AgentContextInput { run, runtime, workdir, model, store, path_scope, cancel } = input;
+        let AgentContextInput { run, runtime, workdir, model, store, path_scope, mcp, cancel } = input;
         let run_id = run.spec.run_id.clone();
         let persist_turn = self.persist_turn(run_id.clone());
         let bus = self.deps.bus.clone();
         let event_run_id = run_id.to_string();
+        let mut allowed_tools = run.spec.permission.capabilities.iter().map(ToString::to_string).collect::<Vec<_>>();
+        if let Some(mcp) = &mcp {
+            allowed_tools.extend(mcp.all_tools().iter().filter_map(|tool| {
+                run.spec
+                    .permission
+                    .resources
+                    .connectors
+                    .contains(&ResourceId::parse(&tool.server).ok()?)
+                    .then(|| crate::mcp::tools::provider_tool_name(&tool.server, &tool.name).ok())
+                    .flatten()
+            }));
+        }
         AgentContext {
             registry: self.deps.registry.clone(),
             tracker: crate::tools::fs_tool::FileTracker::default(),
@@ -135,8 +203,9 @@ impl BotExecutor {
             model,
             store,
             max_turns: run.spec.permission.budget.max_turns.unwrap_or(32),
+            max_pure_retries: completion::run_definition(&self.system, run).map(|definition| definition.failure.max_pure_retries),
             mrm: Some(runtime.mrm()),
-            allowed_tools: Some(run.spec.permission.capabilities.iter().map(ToString::to_string).collect()),
+            allowed_tools: Some(allowed_tools),
             extras: Some(Arc::default()),
             hooks: None,
             loop_detector: crate::agent::loop_detect::LoopDetector::new(),
@@ -151,7 +220,8 @@ impl BotExecutor {
             bus: Some(bus.clone()),
             approvals: None,
             kanban_auto: None,
-            mcp: None,
+            mcp,
+            mcp_approval_prechecked: true,
             lsp: Some(runtime.lsp()),
             notify: None,
             persist_compaction: None,
@@ -167,6 +237,32 @@ impl BotExecutor {
                 }
             }),
         }
+    }
+
+    async fn resolve_connectors(
+        &self,
+        run: &BotRunState,
+        runtime: &Arc<crate::workspace_runtime::WorkspaceRuntime>,
+    ) -> Result<Option<Arc<crate::mcp::McpManager>>, String> {
+        let granted = &run.spec.permission.resources.connectors;
+        if granted.is_empty() {
+            return Ok(None);
+        }
+        runtime.ensure_mcp().await?;
+        let mcp = runtime.mcp();
+        let configured =
+            mcp.status().into_iter().filter_map(|status| ResourceId::parse(status.name).ok()).collect::<std::collections::BTreeSet<_>>();
+        let missing = granted.difference(&configured).map(ToString::to_string).collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(format!("granted MCP connector is unavailable in this Workspace: {}", missing.join(", ")));
+        }
+        let available =
+            mcp.all_tools().into_iter().filter_map(|tool| ResourceId::parse(&tool.server).ok()).collect::<std::collections::BTreeSet<_>>();
+        let without_tools = granted.difference(&available).map(ToString::to_string).collect::<Vec<_>>();
+        if !without_tools.is_empty() {
+            return Err(format!("granted MCP connector has no available tools: {}", without_tools.join(", ")));
+        }
+        Ok(Some(mcp))
     }
 
     fn persist_turn(&self, run_id: ResourceId) -> PersistTurn {
@@ -209,45 +305,6 @@ impl BotExecutor {
         };
         self.write(&run.spec.run_id, "context", RunCommand::RecordTurn { record, at_ms: crate::core::shared::now_ms() })?;
         Ok(())
-    }
-
-    fn finish(&self, run_id: &ResourceId, outcome: crate::agent::agent_loop::AgentOutcome) -> Result<BotRunState, String> {
-        let current = self.system.runs().get(run_id).map_err(|error| error.to_string())?;
-        if current.status != RunStatus::Running {
-            return Ok(current);
-        }
-        let usage = outcome.stats.map_or_else(UsageSummary::default, |stats| UsageSummary {
-            input_tokens: stats.input_tokens,
-            output_tokens: stats.output_tokens,
-            tool_calls: current.tool_operations.len() as u32,
-            turns: outcome.turns,
-            wall_clock_ms: stats.duration_ms,
-        });
-        let now = crate::core::shared::now_ms();
-        let tokens = usage.input_tokens.saturating_add(usage.output_tokens);
-        let token_budget_exceeded = current.spec.permission.budget.max_tokens.is_some_and(|limit| tokens > limit);
-        let command = if token_budget_exceeded {
-            RunCommand::Fail {
-                code: "budget_exceeded".into(),
-                message: format!("BotRun token budget exceeded: used {tokens}"),
-                usage,
-                at_ms: now,
-            }
-        } else if outcome.aborted {
-            RunCommand::Cancel { reason: "BotRun canceled or wall-clock budget reached".into(), usage, at_ms: now }
-        } else {
-            match outcome.terminal {
-                crate::agent::agent_loop::AgentEvent::Done { .. } if !outcome.final_text.trim().is_empty() => RunCommand::Complete {
-                    result: vec![crate::agent::dcp::ProviderNeutralPart::Text { text: outcome.final_text }],
-                    usage,
-                    at_ms: now,
-                },
-                _ => RunCommand::Fail { code: "agent_execution_failed".into(), message: outcome.final_text, usage, at_ms: now },
-            }
-        };
-        let terminal = self.write(run_id, "terminal", command)?;
-        self.system.settle_run(&terminal, now).map_err(|error| error.to_string())?;
-        Ok(terminal)
     }
 
     fn write(&self, run_id: &ResourceId, suffix: &str, command: RunCommand) -> Result<BotRunState, String> {

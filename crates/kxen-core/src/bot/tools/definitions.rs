@@ -12,6 +12,8 @@ pub(super) fn all() -> Vec<ToolDefinition> {
                     "action": { "type": "string", "enum": ["send_request", "send_response", "post_notice", "post_artifact"] },
                     "target_bot_id": { "type": "string" },
                     "text": { "type": "string" },
+                    "schema_id": { "type": "string" },
+                    "fields": { "type": "object", "additionalProperties": { "type": "string" } },
                     "task_id": { "type": "string" },
                     "artifact_id": { "type": "string" }
                 },

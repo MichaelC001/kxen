@@ -20,6 +20,7 @@ pub fn apply(state: &mut Option<ConversationState>, event: &ConversationEvent) -
                 moderator_bot_id: moderator_bot_id.clone(),
                 blocked_reason: None,
                 messages: Vec::new(),
+                message_sequences: Default::default(),
                 deliveries: crate::core::delivery::DeliveryProjection::new(1024),
                 delivery_runs: Default::default(),
                 tasks: Default::default(),
@@ -60,6 +61,9 @@ pub fn apply(state: &mut Option<ConversationState>, event: &ConversationEvent) -
             if message.conversation_id != state.conversation_id || state.messages.iter().any(|item| item.message_id == message.message_id) {
                 return Err(ConversationError::InvalidEvent("message identity mismatch or duplicate".into()));
             }
+            let sequence =
+                state.event_version.checked_add(1).ok_or_else(|| ConversationError::InvalidEvent("event version overflow".into()))?;
+            state.message_sequences.insert(message.message_id.clone(), sequence);
             state.messages.push(message.clone());
         }
         ConversationEvent::Delivery { event, .. } => state.deliveries.apply(event.clone())?,

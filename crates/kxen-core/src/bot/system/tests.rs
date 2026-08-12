@@ -1,7 +1,9 @@
 use super::*;
-use crate::bot::conversation::{BotParticipant, Message, MessageKind, MessagePart};
-use crate::bot::{BotDefinition, CreateBot, PublishBot};
+use crate::bot::conversation::{BotParticipant, Message, MessageKind, MessagePart, NewTask, TaskStatus};
+use crate::bot::routine::{ContextMode, RevisionPolicy, RoutineCommand, RoutineDefinition, RoutineLifecycle, RoutineWrite};
+use crate::bot::{BotDefinition, ChangeLifecycle, CreateBot, LifecycleChange, PublishBot, WorkspaceGrantSpec};
 use crate::core::identity::{ActorRef, IdempotencyKey, ResourceId, TraceContext};
+use crate::core::scheduler::{MisfirePolicy, ScheduleExpression, ScheduleSpec};
 use std::collections::BTreeSet;
 
 fn id(value: &str) -> ResourceId {
@@ -54,74 +56,206 @@ fn participant(bot_id: &ResourceId) -> BotParticipant {
     BotParticipant { bot_id: bot_id.clone(), joined_at_seq: 1, history_visible_from_seq: 1, active: true }
 }
 
-#[test]
-fn group_instruction_dispatches_one_durable_moderator_run_without_permission_union() {
-    let root = std::env::temp_dir().join(format!("kxen-bot-system-{}", uuid::Uuid::new_v4()));
-    let system = BotSystem::new(&root).unwrap();
-    let bot_a = id("bot_a");
-    let bot_b = id("bot_b");
-    let mut definition_a = definition("A");
-    definition_a.resources.connectors.insert(id("connector_a"));
-    let mut definition_b = definition("B");
-    definition_b.resources.connectors.insert(id("connector_b"));
-    publish(&system, &bot_a, &definition_a, "a");
-    publish(&system, &bot_b, &definition_b, "b");
+fn routine_definition(bot_id: &ResourceId) -> RoutineDefinition {
+    RoutineDefinition {
+        bot_id: bot_id.clone(),
+        name: "Validated schedule".into(),
+        schedule: ScheduleSpec {
+            expression: ScheduleExpression::Once { at_ms: 60_000 },
+            timezone: "UTC".into(),
+            misfire: MisfirePolicy::RunOnce,
+            max_lateness_ms: 1_000,
+        },
+        context_mode: ContextMode::Isolated,
+        target_conversation_id: None,
+        input: vec![crate::agent::dcp::ProviderNeutralPart::Text { text: "work".into() }],
+        budget_override: None,
+        revision_policy: RevisionPolicy::FollowCurrent,
+        failure_threshold: 3,
+    }
+}
 
-    let conversation_id = id("bconv_system");
-    let group = system
+#[test]
+fn routine_admission_resolves_pinned_revision_and_closes_conversation_scope() {
+    let root = std::env::temp_dir().join(format!("kxen-bot-system-routine-admission-{}", uuid::Uuid::new_v4()));
+    let system = BotSystem::new(&root).unwrap();
+    let bot_id = id("bot_routine_admission");
+    publish(&system, &bot_id, &definition("Routine Bot"), "routine_admission");
+    let bot = system.definitions().get(&bot_id).unwrap();
+    let revision_id = bot.current_revision().unwrap().revision_id.clone();
+
+    let mut routine = routine_definition(&bot_id);
+    routine.revision_policy = RevisionPolicy::Pinned { revision_id: revision_id.clone() };
+    assert_eq!(system.validate_routine_definition(&routine).unwrap(), revision_id);
+
+    routine.target_conversation_id = Some(id("bconv_forbidden_isolated"));
+    assert!(matches!(system.validate_routine_definition(&routine), Err(BotSystemError::Rejected(_))));
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn routine_admission_requires_active_conversation_membership() {
+    let root = std::env::temp_dir().join(format!("kxen-bot-system-routine-membership-{}", uuid::Uuid::new_v4()));
+    let system = BotSystem::new(&root).unwrap();
+    let member = id("bot_routine_member");
+    let outsider = id("bot_routine_outsider");
+    publish(&system, &member, &definition("Member"), "routine_member");
+    publish(&system, &outsider, &definition("Outsider"), "routine_outsider");
+    let conversation_id = id("bconv_routine_membership");
+    system
         .mutate_conversation(ConversationMutation {
             conversation_id: conversation_id.clone(),
             expected_version: 0,
             actor: ActorRef::Owner,
             command: ConversationCommand::Create {
                 conversation_id: conversation_id.clone(),
-                kind: ConversationKind::BotGroup,
-                members: vec![participant(&bot_a), participant(&bot_b)],
-                moderator_bot_id: Some(bot_a.clone()),
+                kind: ConversationKind::HumanBot,
+                members: vec![participant(&member)],
+                moderator_bot_id: None,
                 at_ms: 3,
             },
             trace: TraceContext::default(),
-            idempotency_key: key("idem_group"),
+            idempotency_key: key("idem_routine_membership"),
         })
         .unwrap();
-    let message = Message {
-        message_id: id("bmsg_instruction"),
-        conversation_id: conversation_id.clone(),
-        actor: ActorRef::Owner,
-        kind: MessageKind::Instruction,
-        parts: vec![MessagePart::Text { text: "prepare evidence".into() }],
-        mentions: BTreeSet::new(),
-        everyone: false,
-        target_bot_id: None,
-        reply_to_message_id: None,
-        task_id: None,
-        origin_run_id: None,
-        causation_id: None,
-        correlation_id: None,
-        delegation_depth: 0,
-        hop_count: 0,
-        created_at_ms: 4,
-    };
-    system
-        .post_conversation(PostConversation {
-            conversation_id: conversation_id.clone(),
-            expected_version: group.event_version,
-            actor: ActorRef::Owner,
-            message,
-            task: None,
-            trace: TraceContext::default(),
-            idempotency_key: key("idem_post"),
-            at_ms: 4,
-        })
-        .unwrap();
-    let dispatched = system.dispatch_next_delivery(5).unwrap().unwrap();
-    assert_eq!(dispatched.run.spec.bot_id, bot_a);
-    assert!(dispatched.run.spec.permission.resources.connectors.contains(&id("connector_a")));
-    assert!(!dispatched.run.spec.permission.resources.connectors.contains(&id("connector_b")));
-    assert!(system.conversations().get(&conversation_id).unwrap().deliveries.in_flight.is_none());
-    assert!(system.dispatch_next_delivery(6).unwrap().is_none());
+    let mut routine = routine_definition(&outsider);
+    routine.context_mode = ContextMode::ContinueConversation;
+    routine.target_conversation_id = Some(conversation_id);
+    assert!(matches!(system.validate_routine_definition(&routine), Err(BotSystemError::Rejected(_))));
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn bot_catalog_keeps_cross_scope_lsp_unavailable() {
+    let root = std::env::temp_dir().join(format!("kxen-bot-system-catalog-{}", uuid::Uuid::new_v4()));
+    let system = BotSystem::new(&root).unwrap();
+    assert_eq!(system.capabilities().get(&id("lsp")).unwrap().availability, crate::agent::capability::CapabilityAvailability::Unavailable);
+    std::fs::remove_dir_all(root).ok();
+}
+
+fn fail_manual_run(system: &BotSystem, bot_id: &ResourceId, run_id: &str, at_ms: u64) {
+    use crate::bot::run::{RunCommand, RunTrigger, RunTriggerKind, RunWrite, UsageSummary};
+
+    let queued = system
+        .queue_run(QueueRun {
+            run_id: id(run_id),
+            bot_id: bot_id.clone(),
+            revision_id: None,
+            trigger: RunTrigger { kind: RunTriggerKind::Manual, source_id: None, occurrence_id: None },
+            input: vec![crate::agent::dcp::ProviderNeutralPart::Text { text: "fail deterministically".into() }],
+            conversation_id: None,
+            task_id: None,
+            budget_override: None,
+            actor: ActorRef::Owner,
+            trace: TraceContext::default(),
+            idempotency_key: key(&format!("idem_{run_id}_queue")),
+            at_ms,
+        })
+        .unwrap();
+    let running = system
+        .runs()
+        .execute(RunWrite {
+            run_id: queued.spec.run_id.clone(),
+            expected_version: queued.event_version,
+            idempotency_key: key(&format!("idem_{run_id}_start")),
+            actor: ActorRef::System { actor: crate::core::identity::SystemActor::Runtime },
+            trace: TraceContext::default(),
+            command: RunCommand::Start { at_ms: at_ms + 1 },
+        })
+        .unwrap();
+    let failed = system
+        .runs()
+        .execute(RunWrite {
+            run_id: running.spec.run_id.clone(),
+            expected_version: running.event_version,
+            idempotency_key: key(&format!("idem_{run_id}_fail")),
+            actor: ActorRef::System { actor: crate::core::identity::SystemActor::Runtime },
+            trace: TraceContext::default(),
+            command: RunCommand::Fail {
+                code: "test_failure".into(),
+                message: "controlled failure".into(),
+                usage: UsageSummary::default(),
+                at_ms: at_ms + 2,
+            },
+        })
+        .unwrap();
+    system.settle_run(&failed, at_ms + 3).unwrap();
+}
+
+#[test]
+fn bot_failure_policy_pauses_after_exact_consecutive_threshold() {
+    let root = std::env::temp_dir().join(format!("kxen-bot-system-failure-policy-{}", uuid::Uuid::new_v4()));
+    let system = BotSystem::new(&root).unwrap();
+    let bot_id = id("bot_failure_policy");
+    let mut bot_definition = definition("Failure policy");
+    bot_definition.failure.auto_pause_after_failures = 2;
+    publish(&system, &bot_id, &bot_definition, "failure_policy");
+
+    fail_manual_run(&system, &bot_id, "brun_failure_one", 10);
+    assert_eq!(system.definitions().get(&bot_id).unwrap().lifecycle, crate::bot::BotLifecycle::Active);
+    fail_manual_run(&system, &bot_id, "brun_failure_two", 20);
+    assert_eq!(system.definitions().get(&bot_id).unwrap().lifecycle, crate::bot::BotLifecycle::Paused);
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn routine_terminal_settlement_is_repeatable() {
+    use crate::bot::run::{RunCommand, RunWrite, UsageSummary};
+
+    let root = std::env::temp_dir().join(format!("kxen-bot-system-routine-settlement-{}", uuid::Uuid::new_v4()));
+    let system = BotSystem::new(&root).unwrap();
+    let bot_id = id("bot_routine_settlement");
+    publish(&system, &bot_id, &definition("Routine settlement"), "routine_settlement");
+    let routine_id = id("routine_repeatable_settlement");
+    system
+        .routines()
+        .execute(RoutineWrite {
+            routine_id: routine_id.clone(),
+            expected_version: 0,
+            idempotency_key: key("idem_routine_repeatable_create"),
+            actor: ActorRef::Owner,
+            trace: TraceContext::default(),
+            command: RoutineCommand::Create { routine_id: routine_id.clone(), definition: routine_definition(&bot_id), at_ms: 1 },
+        })
+        .unwrap();
+    let report = system.tick_routines(60_000);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    let run_id = report.queued_run_ids[0].clone();
+    let queued = system.runs().get(&run_id).unwrap();
+    let running = system
+        .runs()
+        .execute(RunWrite {
+            run_id: run_id.clone(),
+            expected_version: queued.event_version,
+            idempotency_key: key("idem_routine_repeatable_start"),
+            actor: ActorRef::System { actor: crate::core::identity::SystemActor::Runtime },
+            trace: TraceContext::default(),
+            command: RunCommand::Start { at_ms: 60_001 },
+        })
+        .unwrap();
+    let completed = system
+        .runs()
+        .execute(RunWrite {
+            run_id: run_id.clone(),
+            expected_version: running.event_version,
+            idempotency_key: key("idem_routine_repeatable_complete"),
+            actor: ActorRef::System { actor: crate::core::identity::SystemActor::Runtime },
+            trace: TraceContext::default(),
+            command: RunCommand::Complete {
+                result: vec![crate::agent::dcp::ProviderNeutralPart::Text { text: "done".into() }],
+                usage: UsageSummary::default(),
+                at_ms: 60_002,
+            },
+        })
+        .unwrap();
+    system.settle_run(&completed, 60_003).unwrap();
+    system.settle_run(&completed, 60_004).unwrap();
+    let occurrence = system.routines().get(&routine_id).unwrap().occurrences.into_values().next().unwrap();
+    assert_eq!(occurrence.status, crate::bot::routine::OccurrenceStatus::Completed);
+    std::fs::remove_dir_all(root).ok();
+}
+
+mod group_dispatch;
 
 #[test]
 fn direct_open_policy_requires_explicit_peer_allowlist() {
@@ -155,131 +289,48 @@ fn direct_open_policy_requires_explicit_peer_allowlist() {
 }
 
 #[test]
-fn direct_request_response_settles_without_response_ping_pong() {
-    use crate::agent::dcp::ProviderNeutralPart;
-    use crate::bot::run::{RunCommand, RunWrite, UsageSummary};
-
-    let root = std::env::temp_dir().join(format!("kxen-bot-system-direct-loop-{}", uuid::Uuid::new_v4()));
+fn conversation_bound_run_requires_active_membership() {
+    let root = std::env::temp_dir().join(format!("kxen-bot-system-membership-{}", uuid::Uuid::new_v4()));
     let system = BotSystem::new(&root).unwrap();
-    let bot_a = id("bot_direct_loop_a");
-    let bot_b = id("bot_direct_loop_b");
-    let mut a = definition("A");
-    a.communication.allow_direct = true;
-    a.communication.allowed_peers.insert(bot_b.clone());
-    let mut b = definition("B");
-    b.communication.allow_direct = true;
-    b.communication.allowed_peers.insert(bot_a.clone());
-    publish(&system, &bot_a, &a, "loop_a");
-    publish(&system, &bot_b, &b, "loop_b");
-    let conversation_id = crate::bot::conversation::direct_conversation_id(&bot_a, &bot_b).unwrap();
-    let conversation = system
+    let bot_a = id("bot_member_a");
+    let bot_b = id("bot_member_b");
+    publish(&system, &bot_a, &definition("A"), "member_a");
+    publish(&system, &bot_b, &definition("B"), "member_b");
+    let conversation_id = id("bconv_membership");
+    system
         .mutate_conversation(ConversationMutation {
             conversation_id: conversation_id.clone(),
             expected_version: 0,
             actor: ActorRef::Owner,
             command: ConversationCommand::Create {
                 conversation_id: conversation_id.clone(),
-                kind: ConversationKind::BotDirect,
+                kind: ConversationKind::BotGroup,
                 members: vec![participant(&bot_a), participant(&bot_b)],
-                moderator_bot_id: None,
+                moderator_bot_id: Some(bot_a.clone()),
                 at_ms: 3,
             },
             trace: TraceContext::default(),
-            idempotency_key: key("idem_direct_loop"),
+            idempotency_key: key("idem_membership_group"),
         })
         .unwrap();
-    let request = Message {
-        message_id: id("bmsg_direct_loop"),
-        conversation_id: conversation_id.clone(),
-        actor: ActorRef::Bot { id: bot_a.clone() },
-        kind: MessageKind::Request,
-        parts: vec![MessagePart::Text { text: "verify".into() }],
-        mentions: BTreeSet::new(),
-        everyone: false,
-        target_bot_id: Some(bot_b.clone()),
-        reply_to_message_id: None,
+    let outsider = id("bot_member_outsider");
+    publish(&system, &outsider, &definition("Outsider"), "member_outsider");
+    let result = system.queue_run(QueueRun {
+        run_id: id("brun_membership_denied"),
+        bot_id: outsider,
+        revision_id: None,
+        trigger: crate::bot::run::RunTrigger { kind: crate::bot::run::RunTriggerKind::Manual, source_id: None, occurrence_id: None },
+        input: vec![crate::agent::dcp::ProviderNeutralPart::Text { text: "read group".into() }],
+        conversation_id: Some(conversation_id),
         task_id: None,
-        origin_run_id: Some(id("brun_origin")),
-        causation_id: None,
-        correlation_id: None,
-        delegation_depth: 1,
-        hop_count: 1,
-        created_at_ms: 4,
-    };
-    system
-        .post_conversation(PostConversation {
-            conversation_id: conversation_id.clone(),
-            expected_version: conversation.event_version,
-            actor: request.actor.clone(),
-            message: request,
-            task: None,
-            trace: TraceContext::default(),
-            idempotency_key: key("idem_direct_request"),
-            at_ms: 4,
-        })
-        .unwrap();
-
-    let first = system.dispatch_next_delivery(5).unwrap().unwrap().run;
-    let running = system
-        .runs()
-        .execute(RunWrite {
-            run_id: first.spec.run_id.clone(),
-            expected_version: first.event_version,
-            idempotency_key: key("idem_direct_start_b"),
-            actor: ActorRef::System { actor: crate::core::identity::SystemActor::Runtime },
-            trace: TraceContext::default(),
-            command: RunCommand::Start { at_ms: 6 },
-        })
-        .unwrap();
-    let completed = system
-        .runs()
-        .execute(RunWrite {
-            run_id: running.spec.run_id.clone(),
-            expected_version: running.event_version,
-            idempotency_key: key("idem_direct_complete_b"),
-            actor: ActorRef::System { actor: crate::core::identity::SystemActor::Runtime },
-            trace: TraceContext::default(),
-            command: RunCommand::Complete {
-                result: vec![ProviderNeutralPart::Text { text: "verified".into() }],
-                usage: UsageSummary::default(),
-                at_ms: 7,
-            },
-        })
-        .unwrap();
-    system.settle_run(&completed, 8).unwrap();
-
-    let second = system.dispatch_next_delivery(9).unwrap().unwrap().run;
-    assert_eq!(second.spec.bot_id, bot_a);
-    let running = system
-        .runs()
-        .execute(RunWrite {
-            run_id: second.spec.run_id.clone(),
-            expected_version: second.event_version,
-            idempotency_key: key("idem_direct_start_a"),
-            actor: ActorRef::System { actor: crate::core::identity::SystemActor::Runtime },
-            trace: TraceContext::default(),
-            command: RunCommand::Start { at_ms: 10 },
-        })
-        .unwrap();
-    let completed = system
-        .runs()
-        .execute(RunWrite {
-            run_id: running.spec.run_id.clone(),
-            expected_version: running.event_version,
-            idempotency_key: key("idem_direct_complete_a"),
-            actor: ActorRef::System { actor: crate::core::identity::SystemActor::Runtime },
-            trace: TraceContext::default(),
-            command: RunCommand::Complete {
-                result: vec![ProviderNeutralPart::Text { text: "received".into() }],
-                usage: UsageSummary::default(),
-                at_ms: 11,
-            },
-        })
-        .unwrap();
-    system.settle_run(&completed, 12).unwrap();
-
-    let final_state = system.conversations().get(&conversation_id).unwrap();
-    assert_eq!(final_state.messages.last().unwrap().kind, MessageKind::Notice);
-    assert!(system.dispatch_next_delivery(13).unwrap().is_none());
+        budget_override: None,
+        actor: ActorRef::Owner,
+        trace: TraceContext::default(),
+        idempotency_key: key("idem_membership_denied"),
+        at_ms: 4,
+    });
+    assert!(matches!(result, Err(BotSystemError::Rejected(_))));
     std::fs::remove_dir_all(root).ok();
 }
+
+mod lifecycle;

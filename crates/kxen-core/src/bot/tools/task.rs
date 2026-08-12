@@ -30,6 +30,9 @@ pub(super) fn execute(system: &crate::bot::system::BotSystem, run_id: &ResourceI
         "cancel" => (TaskStatus::Canceled, Vec::new()),
         _ => return Err(format!("unknown bot_task action: {action}")),
     };
+    if matches!(action, "need_input" | "need_approval") {
+        pause_run(system, &run, action, args)?;
+    }
     let updated = system
         .conversations()
         .execute(ConversationWrite {
@@ -43,9 +46,6 @@ pub(super) fn execute(system: &crate::bot::system::BotSystem, run_id: &ResourceI
         .map_err(|error| error.to_string())?;
     if matches!(action, "need_input" | "need_approval" | "fail" | "reject" | "cancel") {
         post_status_note(system, &run, &updated, &task_id, action, args)?;
-    }
-    if matches!(action, "need_input" | "need_approval") {
-        pause_run(system, &run, action, args)?;
     }
     serde_json::to_string(&updated.tasks[&task_id]).map_err(|error| error.to_string())
 }
@@ -109,11 +109,10 @@ fn pause_run(
             at_ms: crate::core::shared::now_ms(),
         }
     } else {
-        let operation_id = helpers::stable_id("approval_op", &run.spec.run_id, args)?;
         RunCommand::RequestApproval {
             request: ApprovalRequest {
                 approval_id: helpers::stable_id("approval", &run.spec.run_id, args)?,
-                operation_id,
+                operation_id: None,
                 summary: helpers::required(args, "reason")?.into(),
             },
             at_ms: crate::core::shared::now_ms(),

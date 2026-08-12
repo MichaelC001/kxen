@@ -60,6 +60,17 @@ impl BotSystem {
             ActorRef::Bot { id } => id.clone(),
             _ => return Err(BotSystemError::Rejected("Delivery recipient is not a Bot".into())),
         };
+        if !conversation.members.get(&bot_id).is_some_and(|member| member.active) {
+            self.reject_delivery(
+                &conversation,
+                &delivery_id,
+                &bot_id,
+                Some(token.generation.clone()),
+                "Delivery recipient is no longer an active Conversation member".into(),
+                at_ms,
+            )?;
+            return Ok(None);
+        }
         if self.runs.list()?.into_iter().any(|run| {
             !run.status.is_terminal()
                 && run.spec.bot_id == bot_id
@@ -83,11 +94,31 @@ impl BotSystem {
         let bot = match self.active_bot(&bot_id) {
             Ok(bot) => bot,
             Err(error) => {
-                self.reject_claimed_delivery(&conversation, &delivery_id, &bot_id, &token, error.to_string(), at_ms)?;
+                self.reject_delivery(&conversation, &delivery_id, &bot_id, Some(token.generation.clone()), error.to_string(), at_ms)?;
                 return Ok(None);
             }
         };
         let revision = bot.current_revision().expect("active_bot requires a published revision");
+        let communication = &revision.definition.communication;
+        let recipient_rejection = match conversation.kind {
+            crate::bot::conversation::ConversationKind::BotGroup if !communication.allow_groups => {
+                Some("Delivery recipient no longer permits Bot Groups".to_string())
+            }
+            crate::bot::conversation::ConversationKind::BotDirect if !communication.allow_direct => {
+                Some("Delivery recipient no longer permits direct Bot communication".to_string())
+            }
+            crate::bot::conversation::ConversationKind::BotDirect => match &message.actor {
+                ActorRef::Bot { id } if !communication.allowed_peers.contains(id) => {
+                    Some("Delivery recipient no longer permits the direct Bot peer".to_string())
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(reason) = recipient_rejection {
+            self.reject_delivery(&conversation, &delivery_id, &bot_id, Some(token.generation.clone()), reason, at_ms)?;
+            return Ok(None);
+        }
         let run_id = crate::bot::run::deterministic_run_id(&delivery_id, &revision.revision_id, 0).map_err(BotSystemError::InvalidId)?;
         let run = match self.queue_run(QueueRun {
             run_id: run_id.clone(),
@@ -115,7 +146,7 @@ impl BotSystem {
         }) {
             Ok(run) => run,
             Err(error) => {
-                self.reject_claimed_delivery(&conversation, &delivery_id, &bot_id, &token, error.to_string(), at_ms)?;
+                self.reject_delivery(&conversation, &delivery_id, &bot_id, Some(token.generation.clone()), error.to_string(), at_ms)?;
                 return Ok(None);
             }
         };
@@ -147,12 +178,12 @@ impl BotSystem {
         Ok(Some(DispatchReceipt { conversation_id: conversation.conversation_id, delivery_id, run }))
     }
 
-    fn reject_claimed_delivery(
+    pub(crate) fn reject_delivery(
         &self,
         conversation: &crate::bot::conversation::ConversationState,
         delivery_id: &crate::core::identity::ResourceId,
         bot_id: &crate::core::identity::ResourceId,
-        token: &crate::core::delivery::ClaimToken,
+        generation: Option<crate::core::identity::ResourceId>,
         reason: String,
         at_ms: u64,
     ) -> Result<(), BotSystemError> {
@@ -162,12 +193,7 @@ impl BotSystem {
             idempotency_key: stable_key("reject", &[delivery_id.as_str()])?,
             actor: runtime_actor(),
             trace: TraceContext::default(),
-            command: ConversationCommand::RejectDelivery {
-                delivery_id: delivery_id.clone(),
-                generation: Some(token.generation.clone()),
-                reason: reason.clone(),
-                at_ms,
-            },
+            command: ConversationCommand::RejectDelivery { delivery_id: delivery_id.clone(), generation, reason: reason.clone(), at_ms },
         })?;
         if let Some(task_id) =
             conversation.deliveries.records.get(delivery_id).and_then(|delivery| delivery.envelope.payload.task_id.as_ref())

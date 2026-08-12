@@ -174,6 +174,14 @@ impl BotDefinition {
         if self.memory.allow_sensitive {
             return Err(BotError::InvalidDefinition("Bot Memory cannot allow secrets or sensitive credentials".into()));
         }
+        if self.resources.workspaces.len() > 1 {
+            return Err(BotError::InvalidDefinition("Bot runtime supports exactly one active Workspace boundary".into()));
+        }
+        if !self.resources.connectors.is_empty() && self.resources.workspaces.is_empty() {
+            return Err(BotError::InvalidDefinition(
+                "connector grants require an explicit active Workspace binding, which may contain zero path grants".into(),
+            ));
+        }
         for workspace in &self.resources.workspaces {
             let mut paths = BTreeSet::new();
             for grant in &workspace.paths {
@@ -196,6 +204,70 @@ impl BotDefinition {
         }
         Ok(())
     }
+
+    pub fn validate_input(&self, parts: &[crate::agent::dcp::ProviderNeutralPart]) -> Result<(), BotError> {
+        self.input_contract.validate_parts(parts, "input")
+    }
+
+    pub fn output_parts(&self, text: &str) -> Result<Vec<crate::agent::dcp::ProviderNeutralPart>, BotError> {
+        self.output_contract.parts_from_text(text)
+    }
+}
+
+impl ContractSpec {
+    fn validate_parts(&self, parts: &[crate::agent::dcp::ProviderNeutralPart], field: &str) -> Result<(), BotError> {
+        match self.content_type.as_str() {
+            "text/plain"
+                if parts
+                    .iter()
+                    .any(|part| matches!(part, crate::agent::dcp::ProviderNeutralPart::Text { text } if !text.trim().is_empty())) =>
+            {
+                Ok(())
+            }
+            "application/json" => {
+                let fields = parts.iter().find_map(|part| match part {
+                    crate::agent::dcp::ProviderNeutralPart::Data { fields, .. } => Some(fields),
+                    _ => None,
+                });
+                let Some(fields) = fields else {
+                    return Err(BotError::InvalidDefinition(format!("{field} contract requires a structured data part")));
+                };
+                let missing = self.required_fields.iter().filter(|required| !fields.contains_key(*required)).cloned().collect::<Vec<_>>();
+                if missing.is_empty() {
+                    Ok(())
+                } else {
+                    Err(BotError::InvalidDefinition(format!("{field} contract is missing fields: {}", missing.join(", "))))
+                }
+            }
+            _ => Err(BotError::InvalidDefinition(format!("{field} does not satisfy {}", self.content_type))),
+        }
+    }
+
+    fn parts_from_text(&self, text: &str) -> Result<Vec<crate::agent::dcp::ProviderNeutralPart>, BotError> {
+        if self.content_type == "text/plain" {
+            let parts = vec![crate::agent::dcp::ProviderNeutralPart::Text { text: text.into() }];
+            self.validate_parts(&parts, "output")?;
+            return Ok(parts);
+        }
+        let value = text.trim();
+        let value = value.strip_prefix("```json").or_else(|| value.strip_prefix("```")).unwrap_or(value);
+        let value = value.strip_suffix("```").unwrap_or(value).trim();
+        let object = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(value)
+            .map_err(|error| BotError::InvalidDefinition(format!("output contract requires a JSON object: {error}")))?;
+        let fields = object
+            .into_iter()
+            .map(|(key, value)| {
+                let value = value.as_str().map(ToOwned::to_owned).unwrap_or_else(|| value.to_string());
+                (key, value)
+            })
+            .collect();
+        let parts = vec![crate::agent::dcp::ProviderNeutralPart::Data {
+            schema_id: ResourceId::parse("bot_contract_output").expect("built-in contract schema id"),
+            fields,
+        }];
+        self.validate_parts(&parts, "output")?;
+        Ok(parts)
+    }
 }
 
 fn validate_text(field: &str, value: &str, min: usize, max: usize) -> Result<(), BotError> {
@@ -215,6 +287,12 @@ fn validate_contract(contract: &ContractSpec) -> Result<(), BotError> {
         if !fields.insert(field) {
             return Err(BotError::InvalidDefinition(format!("duplicate contract field: {field}")));
         }
+    }
+    match contract.content_type.as_str() {
+        "text/plain" if contract.required_fields.is_empty() => {}
+        "text/plain" => return Err(BotError::InvalidDefinition("text/plain contract cannot declare structured required_fields".into())),
+        "application/json" => {}
+        other => return Err(BotError::InvalidDefinition(format!("unsupported Bot contract content_type: {other}"))),
     }
     Ok(())
 }

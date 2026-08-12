@@ -32,6 +32,54 @@ impl BotSystem {
             crate::bot::run::RunTriggerKind::Routine => self.record_routine_result(run, at_ms)?,
             _ => {}
         }
+        self.auto_pause_bot_after_failures(run, at_ms)?;
+        Ok(())
+    }
+
+    fn auto_pause_bot_after_failures(&self, run: &BotRunState, at_ms: u64) -> Result<(), BotSystemError> {
+        if !matches!(run.status, RunStatus::Failed | RunStatus::Blocked) {
+            return Ok(());
+        }
+        let bot = self.definitions.get(&run.spec.bot_id)?;
+        if bot.lifecycle != crate::bot::BotLifecycle::Active {
+            return Ok(());
+        }
+        let threshold = bot
+            .revisions
+            .values()
+            .find(|revision| revision.revision_id == run.spec.revision_id)
+            .map(|revision| revision.definition.failure.auto_pause_after_failures)
+            .unwrap_or(0);
+        if threshold == 0 {
+            return Ok(());
+        }
+        let mut runs = self
+            .runs
+            .list()?
+            .into_iter()
+            .filter(|candidate| candidate.spec.bot_id == run.spec.bot_id && candidate.status.is_terminal())
+            .collect::<Vec<_>>();
+        runs.sort_by(|left, right| (left.updated_at_ms, left.spec.run_id.as_str()).cmp(&(right.updated_at_ms, right.spec.run_id.as_str())));
+        let Some(position) = runs.iter().position(|candidate| candidate.spec.run_id == run.spec.run_id) else {
+            return Ok(());
+        };
+        let failures = runs[..=position]
+            .iter()
+            .rev()
+            .take_while(|candidate| matches!(candidate.status, RunStatus::Failed | RunStatus::Blocked))
+            .count();
+        if failures < usize::from(threshold) {
+            return Ok(());
+        }
+        self.definitions.change_lifecycle(crate::bot::ChangeLifecycle {
+            bot_id: &bot.bot_id,
+            expected_event_version: bot.event_version,
+            change: crate::bot::LifecycleChange::Pause,
+            actor: runtime_actor(),
+            trace: TraceContext::default(),
+            idempotency_key: stable_key("bot_failure_pause", &[bot.bot_id.as_str(), run.spec.run_id.as_str()])?,
+            at_ms,
+        })?;
         Ok(())
     }
 
@@ -108,8 +156,19 @@ impl BotSystem {
             return Ok(());
         }
         let draft = builder.draft.as_ref().ok_or_else(|| BotSystemError::Rejected("BuilderTest draft missing".into()))?;
-        let passed = run.status == RunStatus::Completed;
-        let criteria = draft.definition.success_criteria.iter().cloned().map(|criterion| (criterion, passed)).collect();
+        let (passed, criteria, summary) = if run.status == RunStatus::Completed {
+            match parse_builder_test_report(&terminal_text(run), &draft.definition.success_criteria) {
+                Ok(report) => {
+                    let passed = report.criteria.values().all(|value| *value);
+                    (passed, report.criteria, report.summary)
+                }
+                Err(error) => {
+                    (false, draft.definition.success_criteria.iter().cloned().map(|criterion| (criterion, false)).collect(), error)
+                }
+            }
+        } else {
+            (false, draft.definition.success_criteria.iter().cloned().map(|criterion| (criterion, false)).collect(), terminal_text(run))
+        };
         self.builder.execute(BuilderWrite {
             builder_session_id: builder_id.clone(),
             expected_version: builder.event_version,
@@ -122,7 +181,7 @@ impl BotSystem {
                     draft_hash: draft.content_hash.clone(),
                     passed,
                     criteria,
-                    summary: terminal_text(run),
+                    summary,
                     recorded_at_ms: at_ms,
                 },
                 at_ms,
@@ -136,6 +195,19 @@ impl BotSystem {
         let occurrence_id =
             run.spec.trigger.occurrence_id.as_ref().ok_or_else(|| BotSystemError::Rejected("Routine occurrence missing".into()))?;
         let routine = self.routines.get(routine_id)?;
+        let occurrence =
+            routine.occurrences.get(occurrence_id).ok_or_else(|| BotSystemError::Rejected("Routine occurrence is unavailable".into()))?;
+        if occurrence.run_id.as_ref() != Some(&run.spec.run_id) {
+            return Err(BotSystemError::Rejected("Routine occurrence is linked to a different Run".into()));
+        }
+        if matches!(
+            occurrence.status,
+            crate::bot::routine::OccurrenceStatus::Completed
+                | crate::bot::routine::OccurrenceStatus::Failed
+                | crate::bot::routine::OccurrenceStatus::Blocked
+        ) {
+            return Ok(());
+        }
         self.routines.execute(RoutineWrite {
             routine_id: routine_id.clone(),
             expected_version: routine.event_version,
@@ -150,6 +222,30 @@ impl BotSystem {
         })?;
         Ok(())
     }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BuilderTestReport {
+    criteria: std::collections::BTreeMap<String, bool>,
+    summary: String,
+}
+
+fn parse_builder_test_report(value: &str, expected_criteria: &[String]) -> Result<BuilderTestReport, String> {
+    let value = value.trim();
+    let value = value.strip_prefix("```json").or_else(|| value.strip_prefix("```")).unwrap_or(value);
+    let value = value.strip_suffix("```").unwrap_or(value).trim();
+    let report: BuilderTestReport =
+        serde_json::from_str(value).map_err(|error| format!("Builder test evidence is not valid JSON: {error}"))?;
+    if report.summary.trim().is_empty() {
+        return Err("Builder test evidence summary is empty".into());
+    }
+    let expected = expected_criteria.iter().cloned().collect::<std::collections::BTreeSet<_>>();
+    let actual = report.criteria.keys().cloned().collect::<std::collections::BTreeSet<_>>();
+    if actual != expected {
+        return Err("Builder test evidence must report every exact success criterion and no others".into());
+    }
+    Ok(report)
 }
 
 fn source_message<'a>(conversation: &'a crate::bot::conversation::ConversationState, run: &BotRunState) -> Option<&'a Message> {
@@ -224,5 +320,22 @@ fn convert_part(part: &ProviderNeutralPart) -> Option<MessagePart> {
             },
         }),
         ProviderNeutralPart::ToolCall { .. } | ProviderNeutralPart::ToolResult { .. } => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_test_report_requires_exact_structured_criteria() {
+        let expected = vec!["Evidence exists".to_string(), "Totals match".to_string()];
+        let report = parse_builder_test_report(
+            r#"{"criteria":{"Evidence exists":true,"Totals match":false},"summary":"Totals require review"}"#,
+            &expected,
+        )
+        .unwrap();
+        assert!(!report.criteria["Totals match"]);
+        assert!(parse_builder_test_report(r#"{"criteria":{"Evidence exists":true},"summary":"Incomplete"}"#, &expected).is_err());
     }
 }

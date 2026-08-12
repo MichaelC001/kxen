@@ -3,6 +3,8 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
+mod bot_lifecycle;
+
 const SCHEDULE_INTERVAL: Duration = Duration::from_secs(15);
 const CONSOLIDATION_INTERVAL: Duration = Duration::from_secs(30 * 60);
 /// kanban 列驱动 tick 5s：卡片流转的响应下限；扫描是纯文件读且板数为个位数，开销可忽略。
@@ -34,6 +36,16 @@ pub fn spawn(state: Arc<AppState>) {
 
 async fn bot_tick(state: Arc<AppState>) {
     let now = kxen_core::core::shared::now_ms();
+    match state.bots.reconcile_inactive_bot_work(now) {
+        Ok(changes) if changes > 0 => state.bus.publish(kxen_core::core::event::Event::BotUpdate {
+            topic: "bot-lifecycle".into(),
+            aggregate_id: "inactive_work".into(),
+            seq: now,
+        }),
+        Ok(_) => {}
+        Err(error) => tracing::error!(%error, "inactive Bot work reconciliation failed"),
+    }
+    bot_lifecycle::reconcile_inactive_runs(&state, now);
     match state.bots.reconcile_group_lifecycle(now) {
         Ok(paused) if paused > 0 => state.bus.publish(kxen_core::core::event::Event::BotUpdate {
             topic: "bot-groups".into(),
@@ -75,8 +87,18 @@ async fn bot_tick(state: Arc<AppState>) {
         Ok(workspace) => workspace.clone(),
         Err(_) => return,
     };
-    let runs = match state.bots.runs().recoverable() {
-        Ok(runs) => runs,
+    let runs: Vec<_> = match state.bots.runs().recoverable() {
+        Ok(runs) => runs
+            .into_iter()
+            .filter(|run| {
+                run.cancellation_requested.is_some()
+                    || state
+                        .bots
+                        .definitions()
+                        .get(&run.spec.bot_id)
+                        .is_ok_and(|bot| bot.lifecycle == kxen_core::bot::BotLifecycle::Active && bot.current_revision().is_some())
+            })
+            .collect(),
         Err(error) => {
             tracing::error!(%error, "BotRun recovery scan failed");
             return;

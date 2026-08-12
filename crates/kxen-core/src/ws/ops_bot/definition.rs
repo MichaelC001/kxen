@@ -82,12 +82,19 @@ pub(super) async fn handle(method: &str, params: &Value, state: &Arc<AppState>) 
             let builder_id = resource_id(params, "builder_session_id")?;
             let builder = state.bots.builder().get(&builder_id)?;
             let draft = builder.draft.as_ref().ok_or("Builder draft is missing")?;
-            let mrm = state.active_runtime()?.mrm();
+            let runtime = state.ready_active_runtime().await?;
+            let mrm = runtime.mrm();
             let mut roles = std::collections::BTreeSet::new();
             if mrm.role(draft.definition.mrm_role.as_str()).is_some() {
                 roles.insert(draft.definition.mrm_role.clone());
             }
-            value(state.bots.validate_builder(&builder_id, &roles, idempotency(params)?, now())?)
+            let connectors = runtime
+                .mcp()
+                .status()
+                .into_iter()
+                .filter_map(|status| crate::core::identity::ResourceId::parse(status.name).ok())
+                .collect();
+            value(state.bots.validate_builder(&builder_id, &roles, &connectors, idempotency(params)?, now())?)
         }
         "bot.publish" => {
             let builder_id = resource_id(params, "builder_session_id")?;

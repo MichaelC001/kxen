@@ -24,7 +24,7 @@ pub(super) fn resolve_paths(policy: &ResourcePolicy, workspace: &Path, sandbox: 
     }
     let mut scope = ResourcePathScope::default();
     for grant in &binding.paths {
-        let root = checked_root(workspace, &grant.relative_path)?;
+        let root = checked_root(workspace, &grant.relative_path, grant.access)?;
         match grant.access {
             ResourceAccess::Read => scope.read.push(root),
             ResourceAccess::Write => {
@@ -44,13 +44,16 @@ pub(super) fn resolve_paths(policy: &ResourcePolicy, workspace: &Path, sandbox: 
     Ok(scope)
 }
 
-fn checked_root(workspace: &Path, relative: &str) -> Result<PathBuf, String> {
+fn checked_root(workspace: &Path, relative: &str, access: ResourceAccess) -> Result<PathBuf, String> {
     let workspace = std::fs::canonicalize(workspace).map_err(|error| error.to_string())?;
     let root = crate::tools::path_policy::canonicalize_lenient(&workspace.join(relative))?;
     if !root.starts_with(&workspace) {
         return Err(format!("Bot resource escapes Workspace: {relative}"));
     }
     if !root.exists() {
+        if access == ResourceAccess::Read {
+            return Err(format!("read-only Bot resource root does not exist: {}", root.display()));
+        }
         std::fs::create_dir_all(&root).map_err(|error| format!("create Bot resource root {}: {error}", root.display()))?;
     }
     Ok(root)
@@ -59,4 +62,42 @@ fn checked_root(workspace: &Path, relative: &str) -> Result<PathBuf, String> {
 fn dedupe(paths: &mut Vec<PathBuf>) {
     paths.sort();
     paths.dedup();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bot::{PathGrantSpec, WorkspaceGrantSpec};
+
+    fn policy(workspace: &Path, relative_path: &str, access: ResourceAccess) -> ResourcePolicy {
+        ResourcePolicy {
+            workspaces: vec![WorkspaceGrantSpec {
+                workspace_id: workspace_id(workspace).unwrap(),
+                paths: vec![PathGrantSpec { relative_path: relative_path.into(), access }],
+            }],
+            connectors: Default::default(),
+        }
+    }
+
+    #[test]
+    fn read_grant_never_creates_a_missing_workspace_path() {
+        let workspace = std::env::temp_dir().join(format!("kxen-bot-policy-read-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).unwrap();
+        let missing = workspace.join("missing");
+        let result = resolve_paths(&policy(&workspace, "missing", ResourceAccess::Read), &workspace, &workspace.join("sandbox"));
+        assert!(result.is_err());
+        assert!(!missing.exists());
+        std::fs::remove_dir_all(workspace).ok();
+    }
+
+    #[test]
+    fn write_grant_may_create_its_declared_workspace_path() {
+        let workspace = std::env::temp_dir().join(format!("kxen-bot-policy-write-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).unwrap();
+        let created = workspace.join("generated");
+        let scope = resolve_paths(&policy(&workspace, "generated", ResourceAccess::Write), &workspace, &workspace.join("sandbox")).unwrap();
+        assert!(created.is_dir());
+        assert_eq!(scope.write, vec![std::fs::canonicalize(created).unwrap()]);
+        std::fs::remove_dir_all(workspace).ok();
+    }
 }

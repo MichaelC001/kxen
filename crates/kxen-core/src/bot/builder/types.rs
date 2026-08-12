@@ -74,6 +74,8 @@ pub enum BuilderLifecycle {
 #[serde(deny_unknown_fields)]
 pub struct BuilderDraft {
     pub version: u64,
+    #[serde(default)]
+    pub source_message_id: Option<ResourceId>,
     pub definition: BotDefinition,
     pub content_hash: ContentHash,
     pub updated_at_ms: u64,

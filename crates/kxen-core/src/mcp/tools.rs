@@ -31,25 +31,22 @@ pub fn tool_defs(tools: &[McpTool]) -> Vec<ToolDefinition> {
         .collect()
 }
 
-/// Server 提供的 annotations 只是 advisory metadata，不能提升 Agent 权限。
-/// restricted 角色默认看不到任何 MCP tool；完整角色仍由本地 MCP policy 和 Approval 治理。
-pub fn tool_defs_for(tools: &[Arc<McpTool>], restricted: bool) -> Vec<ToolDefinition> {
-    if restricted {
-        Vec::new()
-    } else {
-        tools
-            .iter()
-            .filter_map(|tool| match provider_tool_name(&tool.server, &tool.name) {
-                Ok(name) => {
-                    Some(ToolDefinition::function(name, format!("[mcp:{}] {}", tool.server, tool.description), tool.schema.clone()))
-                }
-                Err(error) => {
-                    tracing::warn!(server = tool.server, tool = tool.name, %error, "invalid MCP tool omitted from provider definitions");
-                    None
-                }
-            })
-            .collect()
-    }
+/// Server annotations are advisory only. Restricted identities receive only
+/// exact locally-derived tool names present in their allowlist.
+pub fn tool_defs_for(tools: &[Arc<McpTool>], allowed: Option<&[String]>) -> Vec<ToolDefinition> {
+    tools
+        .iter()
+        .filter_map(|tool| match provider_tool_name(&tool.server, &tool.name) {
+            Ok(name) if allowed.is_none_or(|allowed| allowed.contains(&name)) => {
+                Some(ToolDefinition::function(name, format!("[mcp:{}] {}", tool.server, tool.description), tool.schema.clone()))
+            }
+            Ok(_) => None,
+            Err(error) => {
+                tracing::warn!(server = tool.server, tool = tool.name, %error, "invalid MCP tool omitted from provider definitions");
+                None
+            }
+        })
+        .collect()
 }
 
 /// 前缀解析：mcp__server__tool -> (server, tool)。
@@ -103,14 +100,15 @@ mod tests {
     #[test]
     fn unrestricted_keeps_all() {
         let tools = vec![Arc::new(tool("read_file", true)), Arc::new(tool("write_file", false))];
-        let defs = tool_defs_for(&tools, false);
+        let defs = tool_defs_for(&tools, None);
         assert_eq!(defs.len(), 2, "非 restricted 角色放行全部 MCP 工具");
     }
 
     #[test]
-    fn restricted_rejects_even_server_claimed_read_only_tools() {
+    fn restricted_requires_exact_locally_derived_names() {
         let tools = vec![Arc::new(tool("read_file", true)), Arc::new(tool("write_file", false))];
-        let defs = tool_defs_for(&tools, true);
-        assert!(defs.is_empty(), "untrusted server annotations must never expand a restricted role's capability set");
+        let allowed = vec!["mcp__s__read_file".to_string()];
+        let defs = tool_defs_for(&tools, Some(&allowed));
+        assert_eq!(defs.iter().map(|tool| tool.function.name.as_str()).collect::<Vec<_>>(), ["mcp__s__read_file"]);
     }
 }

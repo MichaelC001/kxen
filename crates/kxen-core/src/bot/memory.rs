@@ -130,6 +130,16 @@ pub struct MemoryWrite {
     pub command: MemoryCommand,
 }
 
+pub fn admit_create(policy: &crate::bot::MemoryPolicy, current: &MemoryState) -> Result<(), MemoryError> {
+    if !policy.enabled {
+        return Err(MemoryError::Rejected("Bot Memory is disabled by the immutable revision".into()));
+    }
+    if current.items.len() >= policy.max_items as usize {
+        return Err(MemoryError::Rejected("Bot Memory item limit reached".into()));
+    }
+    Ok(())
+}
+
 fn decide(state: &MemoryState, command: MemoryCommand) -> Result<MemoryEvent, MemoryError> {
     match command {
         MemoryCommand::Create { item } => {

@@ -30,13 +30,14 @@ pub(super) fn compose(system: &BotSystem, run: &BotRunState) -> Result<ContextFr
         VisibilityRef::Bot { bot_id: run.spec.bot_id.clone() },
         vec![ProviderNeutralPart::Text {
             text: format!(
-                "Bot: {}\nObjective: {}\nSuccess criteria:\n- {}\nInstructions:\n{}\nOutput contract: {} ({})",
+                "Bot: {}\nObjective: {}\nSuccess criteria:\n- {}\nInstructions:\n{}\nOutput contract: {} ({})\nRequired output fields: {}",
                 definition.display_name,
                 definition.objective,
                 definition.success_criteria.join("\n- "),
                 definition.instructions,
                 definition.output_contract.description,
                 definition.output_contract.content_type,
+                definition.output_contract.required_fields.join(", "),
             ),
         }],
     )?];
@@ -90,7 +91,10 @@ pub(super) fn recorded(run: &BotRunState) -> Result<Option<ContextFrame>, String
 
 fn append_memory(system: &BotSystem, run: &BotRunState, limit: u32, segments: &mut Vec<ContextSegment>) -> Result<(), String> {
     let memory = system.memory().get(&run.spec.bot_id).map_err(|error| error.to_string())?;
-    for (index, item) in memory.items.values().rev().take(limit as usize).rev().enumerate() {
+    let mut items = memory.items.values().collect::<Vec<_>>();
+    items.sort_by(|left, right| left.updated_at_ms.cmp(&right.updated_at_ms).then_with(|| left.item_id.cmp(&right.item_id)));
+    let visible_from = items.len().saturating_sub(limit as usize);
+    for (index, item) in items.into_iter().skip(visible_from).enumerate() {
         segments.push(segment(
             &format!("memory_{}", item.item_id),
             ContextLayer::Memory,
@@ -105,21 +109,27 @@ fn append_memory(system: &BotSystem, run: &BotRunState, limit: u32, segments: &m
 fn append_conversation(system: &BotSystem, run: &BotRunState, limit: u32, segments: &mut Vec<ContextSegment>) -> Result<(), String> {
     let Some(conversation_id) = &run.spec.conversation_id else { return Ok(()) };
     let conversation = system.conversations().get(conversation_id).map_err(|error| error.to_string())?;
-    let visible_from = conversation.members.get(&run.spec.bot_id).map_or(0, |member| member.history_visible_from_seq);
+    let visible_from = conversation
+        .members
+        .get(&run.spec.bot_id)
+        .filter(|member| member.active)
+        .map(|member| member.history_visible_from_seq)
+        .ok_or_else(|| format!("Bot is not an active Conversation member: {}", run.spec.bot_id))?;
     let visible = conversation
         .messages
         .iter()
         .enumerate()
-        .filter(|(index, _)| (*index as u64 + 1) >= visible_from)
+        .filter(|(_, message)| conversation.message_sequences.get(&message.message_id).is_some_and(|sequence| *sequence >= visible_from))
         .rev()
         .take(limit as usize)
         .collect::<Vec<_>>();
-    for (index, message) in visible.into_iter().rev() {
+    for (_, message) in visible.into_iter().rev() {
+        let sequence = conversation.message_sequences[&message.message_id];
         let parts = message.parts.iter().map(conversation_part).collect();
         segments.push(segment(
             &format!("message_{}", message.message_id),
             ContextLayer::Conversation,
-            &format!("{index:08}"),
+            &format!("{sequence:020}"),
             VisibilityRef::Conversation { conversation_id: conversation_id.clone(), visible_from_seq: visible_from },
             parts,
         )?);

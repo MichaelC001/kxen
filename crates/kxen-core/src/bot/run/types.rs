@@ -94,7 +94,7 @@ pub type ToolOperation = OperationProjection<ToolIntent, ToolExecutionResult>;
 #[serde(deny_unknown_fields)]
 pub struct ApprovalRequest {
     pub approval_id: ResourceId,
-    pub operation_id: ResourceId,
+    pub operation_id: Option<ResourceId>,
     pub summary: String,
 }
 
@@ -149,6 +149,7 @@ pub struct BotRunState {
     pub result: Vec<ProviderNeutralPart>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+    pub cancellation_requested: Option<String>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
 }

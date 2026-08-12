@@ -28,6 +28,11 @@ pub enum RunCommand {
         generation: ResourceId,
         at_ms: u64,
     },
+    CancelToolBeforeStart {
+        operation_id: ResourceId,
+        generation: ResourceId,
+        at_ms: u64,
+    },
     RecordToolOutcome {
         operation_id: ResourceId,
         generation: ResourceId,
@@ -78,6 +83,10 @@ pub enum RunCommand {
         code: String,
         message: String,
         usage: UsageSummary,
+        at_ms: u64,
+    },
+    RequestCancel {
+        reason: String,
         at_ms: u64,
     },
     Cancel {

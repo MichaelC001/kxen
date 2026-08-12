@@ -40,6 +40,22 @@ fn write(
 }
 
 #[test]
+fn builder_draft_without_source_message_remains_readable() {
+    let definition = definition("Legacy draft");
+    let draft = BuilderDraft {
+        version: 1,
+        source_message_id: None,
+        content_hash: definition.content_hash().unwrap(),
+        definition,
+        updated_at_ms: 1,
+    };
+    let mut encoded = serde_json::to_value(draft).unwrap();
+    encoded.as_object_mut().unwrap().remove("source_message_id");
+    let decoded: BuilderDraft = serde_json::from_value(encoded).unwrap();
+    assert!(decoded.source_message_id.is_none());
+}
+
+#[test]
 fn deterministic_validation_requires_exact_grant_and_test_evidence() {
     let definition = definition("Reporter");
     let draft_hash = definition.content_hash().unwrap();
@@ -56,7 +72,7 @@ fn deterministic_validation_requires_exact_grant_and_test_evidence() {
     let without_test = validate(
         id("report_one"),
         &definition,
-        ValidationContext { catalog: &catalog, mrm_roles: &roles, grant: Some(&grant), tests: &[] },
+        ValidationContext { catalog: &catalog, mrm_roles: &roles, connectors: &Default::default(), grant: Some(&grant), tests: &[] },
         2,
     )
     .unwrap();
@@ -73,12 +89,39 @@ fn deterministic_validation_requires_exact_grant_and_test_evidence() {
     let eligible = validate(
         id("report_two"),
         &definition,
-        ValidationContext { catalog: &catalog, mrm_roles: &roles, grant: Some(&grant), tests: &[evidence] },
+        ValidationContext {
+            catalog: &catalog,
+            mrm_roles: &roles,
+            connectors: &Default::default(),
+            grant: Some(&grant),
+            tests: &[evidence],
+        },
         4,
     )
     .unwrap();
     assert!(eligible.publish_eligible);
     assert!(eligible.findings.iter().all(|finding| finding.status == ValidationStatus::Pass));
+}
+
+#[test]
+fn deterministic_validation_rejects_unconfigured_connectors() {
+    let mut definition = definition("Connector Reporter");
+    definition.resources.connectors.insert(id("missing_connector"));
+    let report = validate(
+        id("report_missing_connector"),
+        &definition,
+        ValidationContext {
+            catalog: &CapabilityCatalog::default(),
+            mrm_roles: &[id("execution")].into_iter().collect(),
+            connectors: &Default::default(),
+            grant: None,
+            tests: &[],
+        },
+        1,
+    )
+    .unwrap();
+    assert!(report.findings.iter().any(|finding| finding.code == "connectors" && finding.status == ValidationStatus::Fail));
+    assert!(!report.publish_eligible);
 }
 
 #[test]
@@ -106,7 +149,12 @@ fn builder_cannot_grant_and_draft_change_invalidates_review_state() {
         started.event_version,
         "idem_draft",
         ActorRef::System { actor: SystemActor::Builder },
-        BuilderCommand::ReplaceDraft { expected_draft_version: 0, definition: Box::new(definition("Reporter")), at_ms: 2 },
+        BuilderCommand::ReplaceDraft {
+            expected_draft_version: 0,
+            source_message_id: None,
+            definition: Box::new(definition("Reporter")),
+            at_ms: 2,
+        },
     );
     let draft = drafted.draft.as_ref().unwrap();
     let grant = PermissionGrant {
@@ -139,7 +187,12 @@ fn builder_cannot_grant_and_draft_change_invalidates_review_state() {
         granted.event_version,
         "idem_changed",
         ActorRef::System { actor: SystemActor::Builder },
-        BuilderCommand::ReplaceDraft { expected_draft_version: 1, definition: Box::new(definition("Reporter changed")), at_ms: 4 },
+        BuilderCommand::ReplaceDraft {
+            expected_draft_version: 1,
+            source_message_id: None,
+            definition: Box::new(definition("Reporter changed")),
+            at_ms: 4,
+        },
     );
     assert!(changed.current_report().is_none());
     assert_ne!(changed.draft.as_ref().unwrap().content_hash, changed.grants[0].draft_hash);

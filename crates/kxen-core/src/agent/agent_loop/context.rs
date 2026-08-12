@@ -77,6 +77,9 @@ pub struct AgentContext {
     /// `Arc::make_mut` 分离并更新当前 run 的快照。
     pub store: Arc<crate::auth::credential::AuthStore>,
     pub max_turns: u32,
+    /// Maximum retries for known-zero provider rejections. None keeps the
+    /// shared Session default; BotRun freezes its revision failure policy here.
+    pub max_pure_retries: Option<u8>,
     pub mrm: Option<Arc<crate::llm::mrm::ModelResourceManager>>,
     /// 子代理/kanban 列执行的工具白名单（None = 全部常驻工具）。custom DCP agent 的白名单来自
     /// 定义文件的 tools 字段（kanban::agents::resolve_allowed_tools 校验过的闭集）。
@@ -111,6 +114,9 @@ pub struct AgentContext {
     pub kanban_auto: Option<Arc<dyn crate::tools::auto_approve::AutoApprove>>,
     /// MCP 工具桥（mcp__server__tool 前缀调用；None = 未配置 MCP server）。
     pub mcp: Option<Arc<crate::mcp::McpManager>>,
+    /// BotRun 的 durable operation journal 已完成逐次审批时为 true。
+    /// 仅替代 MCP policy 的 ask 通道，不能绕过本地 deny。
+    pub mcp_approval_prechecked: bool,
     /// LSP 多语言诊断/导航（rust/ts/js/py/go per-language 懒启动；None = 未接线）。
     pub lsp: Option<Arc<crate::lsp::LspManager>>,
     /// 后台 agent 完成通知路由（仅主会话 ctx 开；子代理不再嵌套派发，None）。

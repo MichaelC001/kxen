@@ -133,6 +133,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         model: model.clone(),
         store: deps.store.clone(),
         max_turns: agent.max_turns,
+        max_pure_retries: None,
         mrm: Some(deps.mrm.clone()),
         allowed_tools: if allowed.is_empty() { None } else { Some(allowed) },
         // 与父 run 同 session 共享 extras（todo/deferred 工具互通）；deps.extras 为 None（无 session 上下文）给临时实例
@@ -151,6 +152,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         approvals: deps.approvals.clone(),
         kanban_auto: None,
         mcp: deps.mcp.clone(),
+        mcp_approval_prechecked: false,
         lsp: deps.lsp.clone(),
         notify: None, // 子代理不开通知通道：不嵌套派发（background 只从主会话发起）
         persist_compaction: None,

@@ -35,7 +35,7 @@ pub(super) fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Rpc
 fn list(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
     let mut conversations = state.bots.conversations().list()?;
     if let Some(kind) = params.get("kind").and_then(Value::as_str) {
-        conversations.retain(|conversation| format!("{:?}", conversation.kind).eq_ignore_ascii_case(kind));
+        conversations.retain(|conversation| conversation_kind_name(conversation.kind).eq_ignore_ascii_case(kind));
     }
     if !params.get("include_archived").and_then(Value::as_bool).unwrap_or(false) {
         conversations.retain(|conversation| conversation.lifecycle != ConversationLifecycle::Archived);
@@ -178,25 +178,23 @@ fn stop_group(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
     })?;
     let pending = conversation.deliveries.records.keys().cloned().collect::<Vec<_>>();
     for delivery_id in pending {
+        let delivery = conversation
+            .deliveries
+            .records
+            .get(&delivery_id)
+            .ok_or_else(|| format!("Delivery disappeared during Group stop: {delivery_id}"))?;
+        let bot_id = match &delivery.envelope.recipient {
+            crate::core::identity::ActorRef::Bot { id } => id.clone(),
+            _ => return Err(format!("Group Delivery recipient is not a Bot: {delivery_id}").into()),
+        };
         let generation = conversation
             .deliveries
             .in_flight
             .as_ref()
             .filter(|token| token.delivery_ids.contains(&delivery_id))
             .map(|token| token.generation.clone());
-        conversation = state.bots.mutate_conversation(ConversationMutation {
-            conversation_id: conversation_id.clone(),
-            expected_version: conversation.event_version,
-            actor: crate::core::identity::ActorRef::System { actor: crate::core::identity::SystemActor::Runtime },
-            command: ConversationCommand::RejectDelivery {
-                delivery_id: delivery_id.clone(),
-                generation,
-                reason: "Bot Group stopped by owner".into(),
-                at_ms: now(),
-            },
-            trace: trace(),
-            idempotency_key: crate::bot::system::stable_idempotency("group_stop_delivery", &[delivery_id.as_str()])?,
-        })?;
+        state.bots.reject_delivery(&conversation, &delivery_id, &bot_id, generation, "Bot Group stopped by owner".into(), now())?;
+        conversation = state.bots.conversations().get(&conversation_id)?;
     }
     for run in state
         .bots
@@ -205,15 +203,15 @@ fn stop_group(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
         .into_iter()
         .filter(|run| run.spec.conversation_id.as_ref() == Some(&conversation_id) && !run.status.is_terminal())
     {
-        state.bot_executor.cancel(&run.spec.run_id);
         state.bots.runs().execute(crate::bot::run::RunWrite {
             run_id: run.spec.run_id.clone(),
             expected_version: run.event_version,
             idempotency_key: crate::bot::system::stable_idempotency("group_stop_run", &[run.spec.run_id.as_str()])?,
             actor: owner(),
             trace: trace(),
-            command: crate::bot::run::RunCommand::Cancel { reason: "Bot Group stopped by owner".into(), usage: run.usage, at_ms: now() },
+            command: crate::bot::run::RunCommand::RequestCancel { reason: "Bot Group stopped by owner".into(), at_ms: now() },
         })?;
+        state.bot_executor.cancel(&run.spec.run_id);
     }
     value(conversation)
 }
@@ -269,4 +267,12 @@ fn task_reassign(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
 
 fn optional_id(params: &Value, field: &str) -> RpcResult<Option<crate::core::identity::ResourceId>> {
     Ok(params.get(field).and_then(Value::as_str).map(crate::core::identity::ResourceId::parse).transpose()?)
+}
+
+fn conversation_kind_name(kind: ConversationKind) -> &'static str {
+    match kind {
+        ConversationKind::HumanBot => "human_bot",
+        ConversationKind::BotDirect => "bot_direct",
+        ConversationKind::BotGroup => "bot_group",
+    }
 }

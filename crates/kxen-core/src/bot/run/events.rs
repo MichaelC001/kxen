@@ -20,6 +20,7 @@ pub enum RunEvent {
     ArtifactCommitted { artifact: ArtifactRef, at_ms: u64 },
     Completed { result: Vec<ProviderNeutralPart>, usage: UsageSummary, at_ms: u64 },
     Failed { code: String, message: String, usage: UsageSummary, at_ms: u64 },
+    CancellationRequested { reason: String, at_ms: u64 },
     Canceled { reason: String, usage: UsageSummary, at_ms: u64 },
     Rejected { code: String, message: String, at_ms: u64 },
     Blocked { reason: String, at_ms: u64 },
@@ -39,6 +40,7 @@ impl RunEvent {
             | Self::ArtifactCommitted { at_ms, .. }
             | Self::Completed { at_ms, .. }
             | Self::Failed { at_ms, .. }
+            | Self::CancellationRequested { at_ms, .. }
             | Self::Canceled { at_ms, .. }
             | Self::Rejected { at_ms, .. }
             | Self::Blocked { at_ms, .. } => *at_ms,

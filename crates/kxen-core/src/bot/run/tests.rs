@@ -176,6 +176,55 @@ fn started_tool_cannot_be_hidden_by_failed_terminal() {
         },
     });
     assert!(matches!(failed, Err(RunError::Transition(_))));
+    let canceled = repo.execute(RunWrite {
+        run_id: run_id.clone(),
+        expected_version: started.event_version,
+        idempotency_key: IdempotencyKey::parse("idem_uncertain_canceled").unwrap(),
+        actor: ActorRef::Owner,
+        trace: TraceContext::default(),
+        command: RunCommand::Cancel { reason: "owner canceled".into(), usage: Default::default(), at_ms: 50 },
+    });
+    assert!(matches!(canceled, Err(RunError::Transition(_))));
+    std::fs::remove_dir_all(repo.root()).ok();
+}
+
+#[test]
+fn running_cancel_is_durably_requested_before_terminal_cancellation() {
+    let repo = repository("cancel-request");
+    let run_id = id("brun_cancel_request");
+    let running = write(&repo, &run_id, queued(&repo, &run_id).event_version, "idem_cancel_start", RunCommand::Start { at_ms: 20 });
+    let requested = write(
+        &repo,
+        &run_id,
+        running.event_version,
+        "idem_cancel_request",
+        RunCommand::RequestCancel { reason: "owner canceled".into(), at_ms: 30 },
+    );
+    assert_eq!(requested.status, RunStatus::Running);
+    assert_eq!(requested.cancellation_requested.as_deref(), Some("owner canceled"));
+    let late_failure = repo.execute(RunWrite {
+        run_id: run_id.clone(),
+        expected_version: requested.event_version,
+        idempotency_key: IdempotencyKey::parse("idem_late_failure").unwrap(),
+        actor: ActorRef::Owner,
+        trace: TraceContext::default(),
+        command: RunCommand::Fail {
+            code: "late_failure".into(),
+            message: "must not overtake cancellation".into(),
+            usage: Default::default(),
+            at_ms: 35,
+        },
+    });
+    assert!(matches!(late_failure, Err(RunError::Transition(_))));
+    let canceled = write(
+        &repo,
+        &run_id,
+        requested.event_version,
+        "idem_cancel_terminal",
+        RunCommand::Cancel { reason: "owner canceled".into(), usage: Default::default(), at_ms: 40 },
+    );
+    assert_eq!(canceled.status, RunStatus::Canceled);
+    assert!(canceled.cancellation_requested.is_none());
     std::fs::remove_dir_all(repo.root()).ok();
 }
 
@@ -235,102 +284,7 @@ fn known_tool_outcome_must_settle_before_failed_terminal() {
     std::fs::remove_dir_all(repo.root()).ok();
 }
 
-#[test]
-fn approval_and_input_are_explicit_interruptions() {
-    let repo = repository("interruptions");
-    let run_id = id("brun_interruptions");
-    let running = write(&repo, &run_id, queued(&repo, &run_id).event_version, "idem_start", RunCommand::Start { at_ms: 20 });
-    let waiting = write(
-        &repo,
-        &run_id,
-        running.event_version,
-        "idem_approval",
-        RunCommand::RequestApproval {
-            request: ApprovalRequest { approval_id: id("approval_one"), operation_id: id("op_one"), summary: "write output".into() },
-            at_ms: 30,
-        },
-    );
-    assert_eq!(waiting.status, RunStatus::ApprovalRequired);
-    let denied = write(
-        &repo,
-        &run_id,
-        waiting.event_version,
-        "idem_deny",
-        RunCommand::ResolveApproval { approval_id: id("approval_one"), decision: ApprovalDecision::Denied, at_ms: 40 },
-    );
-    assert_eq!(denied.status, RunStatus::Rejected);
-    std::fs::remove_dir_all(repo.root()).ok();
-}
-
-#[test]
-fn input_pause_settles_current_tool_and_replays_bound_input() {
-    let repo = repository("input-pause");
-    let run_id = id("brun_input_pause");
-    let running = write(&repo, &run_id, queued(&repo, &run_id).event_version, "idem_start", RunCommand::Start { at_ms: 20 });
-    let operation_id = id("op_need_input");
-    let generation = id("gen_need_input");
-    let prepared = write(
-        &repo,
-        &run_id,
-        running.event_version,
-        "idem_prepare_input",
-        RunCommand::PrepareTool {
-            operation_id: operation_id.clone(),
-            generation: generation.clone(),
-            intent: ToolIntent { call_id: id("call_need_input"), capability_id: id("bot_task"), arguments_json: "{}".into() },
-            at_ms: 30,
-        },
-    );
-    let started = write(
-        &repo,
-        &run_id,
-        prepared.event_version,
-        "idem_start_input_tool",
-        RunCommand::MarkToolStarted { operation_id: operation_id.clone(), generation: generation.clone(), at_ms: 31 },
-    );
-    let paused = write(
-        &repo,
-        &run_id,
-        started.event_version,
-        "idem_require_input",
-        RunCommand::RequireInput { request: InputRequest { request_id: id("input_one"), prompt: "Which region?".into() }, at_ms: 32 },
-    );
-    let outcome = write(
-        &repo,
-        &run_id,
-        paused.event_version,
-        "idem_input_tool_outcome",
-        RunCommand::RecordToolOutcome {
-            operation_id: operation_id.clone(),
-            generation: generation.clone(),
-            outcome: OperationOutcome::Succeeded { value: ToolExecutionResult { output: "input requested".into(), is_error: false } },
-            evidence: Vec::new(),
-            at_ms: 33,
-        },
-    );
-    let settled = write(
-        &repo,
-        &run_id,
-        outcome.event_version,
-        "idem_input_tool_settle",
-        RunCommand::SettleTool { operation_id, generation, at_ms: 34 },
-    );
-    assert_eq!(settled.status, RunStatus::InputRequired);
-    let bound = write(
-        &repo,
-        &run_id,
-        settled.event_version,
-        "idem_bind_input",
-        RunCommand::BindInput {
-            request_id: id("input_one"),
-            parts: vec![ProviderNeutralPart::Text { text: "Asia/Dubai".into() }],
-            at_ms: 35,
-        },
-    );
-    assert_eq!(bound.status, RunStatus::Running);
-    assert_eq!(bound.bound_inputs, [ProviderNeutralPart::Text { text: "Asia/Dubai".into() }]);
-    std::fs::remove_dir_all(repo.root()).ok();
-}
+mod interruptions;
 
 #[test]
 fn queued_and_running_runs_are_discovered_after_restart() {
