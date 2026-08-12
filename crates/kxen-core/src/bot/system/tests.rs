@@ -255,6 +255,7 @@ fn routine_terminal_settlement_is_repeatable() {
     std::fs::remove_dir_all(root).ok();
 }
 
+mod builder_flow;
 mod group_dispatch;
 
 #[test]

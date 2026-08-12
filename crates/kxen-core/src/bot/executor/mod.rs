@@ -337,3 +337,6 @@ fn write_run(
 fn local_sandbox(run_id: &ResourceId) -> PathBuf {
     std::env::temp_dir().join("kxen-bot-sandboxes").join(run_id.as_str())
 }
+
+#[cfg(test)]
+mod tests;

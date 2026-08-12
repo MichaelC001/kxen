@@ -9,6 +9,7 @@ use crate::bot::system::{BotSystem, ConversationMutation, PostConversation, Queu
 use crate::bot::{BotDefinition, CreateBot, PublishBot};
 use crate::core::identity::{ActorRef, IdempotencyKey, ResourceId, TraceContext};
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 fn id(value: &str) -> ResourceId {
     ResourceId::parse(value).unwrap()
@@ -51,6 +52,69 @@ fn publish_bot(system: &BotSystem, bot_id: &ResourceId, name: &str, capabilities
             at_ms: 2,
         })
         .unwrap();
+}
+
+fn running_bot(system: &BotSystem, bot_id: &ResourceId, run_id: &ResourceId, capabilities: CapabilitySet, suffix: &str) {
+    publish_bot(system, bot_id, "Tool Bot", capabilities, suffix);
+    let queued = system
+        .queue_run(QueueRun {
+            run_id: run_id.clone(),
+            bot_id: bot_id.clone(),
+            revision_id: None,
+            trigger: RunTrigger { kind: RunTriggerKind::Manual, source_id: None, occurrence_id: None },
+            input: vec![ProviderNeutralPart::Text { text: "work".into() }],
+            conversation_id: None,
+            task_id: None,
+            budget_override: None,
+            actor: ActorRef::Owner,
+            trace: TraceContext::default(),
+            idempotency_key: key(&format!("idem_tool_run_{suffix}")),
+            at_ms: 3,
+        })
+        .unwrap();
+    system
+        .runs()
+        .execute(RunWrite {
+            run_id: run_id.clone(),
+            expected_version: queued.event_version,
+            idempotency_key: key(&format!("idem_tool_start_{suffix}")),
+            actor: ActorRef::System { actor: crate::core::identity::SystemActor::Runtime },
+            trace: TraceContext::default(),
+            command: RunCommand::Start { at_ms: 4 },
+        })
+        .unwrap();
+}
+
+#[tokio::test]
+async fn router_exposes_and_executes_memory_with_runtime_identity() {
+    use crate::agent::domain_tool::DomainToolRouter;
+
+    let root = std::env::temp_dir().join(format!("kxen-bot-router-{}", uuid::Uuid::new_v4()));
+    let system = Arc::new(BotSystem::new(&root).unwrap());
+    let bot_id = id("bot_router_memory");
+    let run_id = id("brun_router_memory");
+    running_bot(&system, &bot_id, &run_id, CapabilitySet::new([id("bot_memory")]), "router_memory");
+    let router = BotToolRouter::new(system.clone(), run_id);
+
+    assert_eq!(router.definitions().len(), 4);
+    assert!(router.handles("bot_memory"));
+    assert!(!router.handles("unknown"));
+    let created = router
+        .execute(
+            "bot_memory",
+            &serde_json::json!({
+                "action": "propose_create",
+                "kind": "fact",
+                "content": "Use verified evidence"
+            }),
+        )
+        .await
+        .unwrap();
+    assert!(created.contains("Use verified evidence"));
+    let listed = router.execute("bot_memory", &serde_json::json!({ "action": "list" })).await.unwrap();
+    assert!(listed.contains("Use verified evidence"));
+    assert!(router.execute("unknown", &serde_json::json!({})).await.is_err());
+    std::fs::remove_dir_all(root).ok();
 }
 
 #[test]

@@ -161,3 +161,6 @@ fn segment(
 ) -> Result<ContextSegment, String> {
     Ok(ContextSegment { stable_id: ResourceId::parse(format!("ctx_{suffix}"))?, layer, order_key: order_key.into(), visibility, parts })
 }
+
+#[cfg(test)]
+mod tests;
