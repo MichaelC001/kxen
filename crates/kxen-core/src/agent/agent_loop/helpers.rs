@@ -12,11 +12,32 @@ pub fn parse_shell(s: &str) -> Result<ShellKind, String> {
 }
 
 pub fn resolve_path(input: &str, ctx: &super::context::AgentContext) -> Result<std::path::PathBuf, String> {
-    crate::tools::path_policy::resolve(input, &ctx.workdir, &ctx.path_grants).map(crate::tools::path_policy::ResolvedPath::into_path_buf)
+    resolve_authorized_path(input, ctx).map(crate::tools::path_policy::ResolvedPath::into_path_buf)
 }
 
 pub fn resolve_authorized_path(input: &str, ctx: &super::context::AgentContext) -> Result<crate::tools::path_policy::ResolvedPath, String> {
-    crate::tools::path_policy::resolve(input, &ctx.workdir, &ctx.path_grants)
+    match &ctx.path_scope {
+        Some(scope) => crate::tools::path_policy::resolve_scoped(input, &ctx.workdir, &ctx.path_grants, &scope.read),
+        None => crate::tools::path_policy::resolve(input, &ctx.workdir, &ctx.path_grants),
+    }
+}
+
+pub fn resolve_authorized_write_path(
+    input: &str,
+    ctx: &super::context::AgentContext,
+) -> Result<crate::tools::path_policy::ResolvedPath, String> {
+    match &ctx.path_scope {
+        Some(scope) => crate::tools::path_policy::resolve_scoped(input, &ctx.workdir, &ctx.path_grants, &scope.write),
+        None => crate::tools::path_policy::resolve(input, &ctx.workdir, &ctx.path_grants),
+    }
+}
+
+pub fn resolve_authorized_execute_path(input: &str, ctx: &super::context::AgentContext) -> Result<std::path::PathBuf, String> {
+    match &ctx.path_scope {
+        Some(scope) => crate::tools::path_policy::resolve_scoped(input, &ctx.workdir, &ctx.path_grants, &scope.execute),
+        None => crate::tools::path_policy::resolve(input, &ctx.workdir, &ctx.path_grants),
+    }
+    .map(crate::tools::path_policy::ResolvedPath::into_path_buf)
 }
 
 pub fn parse_tool_arguments(name: &str, arguments: &str) -> Result<serde_json::Value, String> {

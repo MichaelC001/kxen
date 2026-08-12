@@ -16,6 +16,13 @@ pub type PersistCompaction = Arc<dyn Fn(&str, &[crate::llm::Message]) -> Result<
 pub type PersistTurn = Arc<dyn Fn(u32, Vec<crate::core::session::Part>) -> Result<(), String> + Send + Sync>;
 pub use super::usage::UsageReporter;
 
+#[derive(Clone, Debug, Default)]
+pub struct ResourcePathScope {
+    pub read: Vec<PathBuf>,
+    pub write: Vec<PathBuf>,
+    pub execute: Vec<PathBuf>,
+}
+
 /// 会话级共享态：tool_search 挂载的 deferred 工具 + todo 清单。
 /// 按 session 隔离（SessionExtrasRegistry 惰性创建），同 session 的 lead/teammate/subagent 共享。
 #[derive(Default)]
@@ -62,6 +69,9 @@ pub struct AgentContext {
     pub workdir: Arc<Path>,
     /// run 开始时捕获的原生选择器授权；凭证路径即使在集合中仍拒绝。
     pub path_grants: Arc<HashSet<PathBuf>>,
+    /// None keeps Session semantics. Some closes resource access to the given
+    /// roots and is mandatory for BotRun.
+    pub path_scope: Option<Arc<ResourcePathScope>>,
     pub model: ModelRef,
     /// 运行开始时的凭证快照。子代理只克隆 Arc；仅 OAuth refresh 时通过
     /// `Arc::make_mut` 分离并更新当前 run 的快照。
@@ -110,6 +120,12 @@ pub struct AgentContext {
     /// 主会话把每个 tool 迭代落为一条 Assistant 消息；None = 纯内存（subagent/team/background，
     /// 行为与迭代持久化引入前完全一致）。
     pub persist_turn: Option<PersistTurn>,
+    /// Durable tool intent/outcome boundary. BotRun mounts this adapter;
+    /// ordinary Session agents keep it None and retain their current journal.
+    pub tool_journal: Option<Arc<dyn crate::agent::dcp::ToolBoundaryJournal>>,
+    /// Domain-specific tools use an injected port so the shared Agent loop does
+    /// not depend on Bot, Kanban, Session or any other product aggregate.
+    pub domain_tools: Option<Arc<dyn crate::agent::domain_tool::DomainToolRouter>>,
     /// completion judge 等辅助请求的 session/run 统计汇入点；Goal 已在调用处独立记账。
     pub auxiliary_usage: Arc<super::usage::AuxiliaryUsage>,
     /// 所有 lead/subagent/background/team run 共用的 session usage 汇入点。

@@ -129,6 +129,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         tracker: crate::tools::fs_tool::FileTracker::default(),
         workdir: deps.workdir.clone(),
         path_grants: deps.path_grants.clone(),
+        path_scope: None,
         model: model.clone(),
         store: deps.store.clone(),
         max_turns: agent.max_turns,
@@ -154,6 +155,8 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         notify: None, // 子代理不开通知通道：不嵌套派发（background 只从主会话发起）
         persist_compaction: None,
         persist_turn,
+        tool_journal: None,
+        domain_tools: None,
         auxiliary_usage: Arc::default(),
         usage_reporter: deps.usage_reporter.clone(),
         stream_override: deps.stream_override.clone(),

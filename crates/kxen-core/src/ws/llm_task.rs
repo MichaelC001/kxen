@@ -277,6 +277,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
         },
         workdir,
         path_grants: Arc::new(picked),
+        path_scope: None,
         model,
         store,
         max_turns: 32,
@@ -305,6 +306,8 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
             Arc::new(move |summary, covered| super::llm_compaction::save_run_checkpoint(&sessions_dir, &session_id, summary, covered))
         }),
         persist_turn: Some(persist_turn),
+        tool_journal: None,
+        domain_tools: None,
         auxiliary_usage: Arc::default(),
         usage_reporter: Some(kxen_core::agent::agent_loop::UsageReporter::new(
             session_id.clone(),

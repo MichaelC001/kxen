@@ -16,12 +16,13 @@ pub async fn execute_calls(
     text: String,
     calls: Vec<ToolCall>,
     messages: &mut Vec<Message>,
-) -> (bool, Option<crate::agent::loop_detect::LoopStop>, Vec<crate::core::session::Part>) {
+) -> (bool, Option<crate::agent::loop_detect::LoopStop>, Option<String>, Vec<crate::core::session::Part>) {
     // assistant 消息带标准 tool_calls，结果用 Role::Tool 回传。
     // 同一 call 数据要进两条协议消息（assistant.tool_calls + tool_result），arguments 只克隆一次。
     let mut results = Vec::with_capacity(calls.len());
     let mut loop_stop: Option<crate::agent::loop_detect::LoopStop> = None;
     let mut aborted = false;
+    let mut journal_failure = None;
     // 连续只读调用并批并行执行（P2-04）：read/glob/grep/search 类互不依赖，串行白等 IO；
     // 写工具保持顺序。事件与结果始终按调用序落出，协议消息顺序不变。
     let mut idx = 0usize;
@@ -49,6 +50,11 @@ pub async fn execute_calls(
         let cx: &AgentContext = ctx;
         let batch_results = futures::future::join_all(batch.iter().map(|call| execute_one(call, cx, cancel.clone()))).await;
         for (call, result) in batch.iter().zip(batch_results) {
+            if let Err(error) = &result
+                && let Some(error) = error.strip_prefix(DCP_JOURNAL_FATAL)
+            {
+                journal_failure = Some(error.trim_start_matches(':').trim().to_string());
+            }
             if is_interrupted(&result) {
                 (ctx.on_event)(AgentEvent::ToolResult {
                     name: call.name.clone(),
@@ -75,12 +81,15 @@ pub async fn execute_calls(
                 break;
             }
             results.push(result);
+            if journal_failure.is_some() {
+                break;
+            }
         }
         // 工具跑完后才观察到取消（execute_one 保留了真实结果）：不再启动后续批次
         if !aborted && ctx.cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
             aborted = true;
         }
-        if aborted || loop_stop.is_some() {
+        if aborted || loop_stop.is_some() || journal_failure.is_some() {
             break;
         }
         idx = batch_end;
@@ -90,7 +99,7 @@ pub async fn execute_calls(
     messages.push(Message::assistant_with_tools(text.clone(), assistant_calls));
     let outputs = push_tool_results(&calls, results, messages);
     let parts = iteration_parts(text, &calls, outputs);
-    (aborted, loop_stop, parts)
+    (aborted, loop_stop, journal_failure, parts)
 }
 
 const CANCEL_CLEANUP_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
@@ -98,6 +107,7 @@ const CANCEL_CLEANUP_GRACE: std::time::Duration = std::time::Duration::from_secs
 /// 中断占位统一前缀：execute_calls 据此识别中断并停出。占位文本同时回传模型，
 /// 必须写明副作用是否可知，否则模型会把已生效的写操作当作未执行而盲目重试。
 const INTERRUPTED: &str = "(interrupted)";
+const DCP_JOURNAL_FATAL: &str = "DCP_TOOL_JOURNAL_FATAL";
 
 fn is_interrupted(result: &Result<String, String>) -> bool {
     matches!(result, Err(e) if e.starts_with(INTERRUPTED))
@@ -115,6 +125,42 @@ fn needs_cancel_cleanup(name: &str) -> bool {
 }
 
 async fn execute_one(call: &ToolCall, ctx: &AgentContext, cancel: Option<crate::agent::cancel::CancelToken>) -> Result<String, String> {
+    let now = crate::core::shared::now_ms();
+    if let Some(journal) = &ctx.tool_journal {
+        match journal
+            .before(&call.id, &call.name, &call.arguments, now)
+            .map_err(|error| format!("{DCP_JOURNAL_FATAL}: before tool execution: {error}"))?
+        {
+            crate::agent::dcp::ToolBoundaryAction::Execute => {}
+            crate::agent::dcp::ToolBoundaryAction::Replay { output, is_error } => {
+                return if is_error { Err(output) } else { Ok(output) };
+            }
+            crate::agent::dcp::ToolBoundaryAction::Pause { reason } => {
+                return Err(format!("approval required: {reason}"));
+            }
+        }
+    }
+    let result = execute_one_inner(call, ctx, cancel).await;
+    if let Some(journal) = &ctx.tool_journal {
+        let now = crate::core::shared::now_ms();
+        if matches!(&result, Err(error) if error.contains("tool may still have taken effect")) {
+            journal
+                .mark_unknown(&call.id, result_text(&result).as_str(), now)
+                .map_err(|error| format!("{DCP_JOURNAL_FATAL}: mark UNKNOWN tool outcome: {error}"))?;
+        } else {
+            journal
+                .after(&call.id, &call.name, &call.arguments, result_text(&result).as_str(), result.is_err(), now)
+                .map_err(|error| format!("{DCP_JOURNAL_FATAL}: after tool execution: {error}"))?;
+        }
+    }
+    result
+}
+
+async fn execute_one_inner(
+    call: &ToolCall,
+    ctx: &AgentContext,
+    cancel: Option<crate::agent::cancel::CancelToken>,
+) -> Result<String, String> {
     let run = execute_tool(&call.name, &call.arguments, ctx);
     tokio::pin!(run);
     let Some(cancel) = cancel else { return run.await };

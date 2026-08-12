@@ -4,7 +4,11 @@ use super::context::AgentContext;
 use crate::llm::Message;
 
 pub(super) fn base_tools(ctx: &AgentContext) -> Vec<crate::llm::tool::ToolDefinition> {
-    resolve_base_tools(ctx.allowed_tools.as_deref())
+    let mut tools = resolve_base_tools(ctx.allowed_tools.as_deref());
+    if let Some(router) = &ctx.domain_tools {
+        tools.extend(router.definitions().into_iter().filter(|tool| ctx.permits(&tool.function.name)));
+    }
+    tools
 }
 
 /// 白名单（Some）按名挂载：先查常驻 core_tools，查不到再查 deferred_tools，两者都命中才并入。

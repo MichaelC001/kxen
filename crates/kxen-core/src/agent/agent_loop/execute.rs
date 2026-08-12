@@ -1,6 +1,6 @@
 //! 工具执行入口与路由（goal 工具单独在 goal_tool.rs，task 工具在 task_tool.rs，kanban 工具在 kanban_tool.rs）。
 use super::context::AgentContext;
-use super::helpers::{parse_shell, resolve_authorized_path, resolve_path};
+use super::helpers::{parse_shell, resolve_authorized_execute_path, resolve_authorized_path, resolve_authorized_write_path, resolve_path};
 use super::knowledge_tool::execute_knowledge_tool;
 use super::task_tool::execute_task_tool;
 use crate::tools::exec::{ExecOutcome, ExecParams, exec};
@@ -50,13 +50,20 @@ pub async fn execute_tool(name: &str, arguments: &str, ctx: &AgentContext) -> Re
 }
 
 pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx: &'a AgentContext) -> Result<String, String> {
+    if let Some(router) = &ctx.domain_tools
+        && router.handles(name)
+    {
+        return router.execute(name, args).await;
+    }
     match name {
         "exec" => {
             let owner_id = ctx.session_id.as_deref().or(ctx.exec_scope.as_deref()).ok_or("exec requires a session context")?;
             let owner = crate::tools::task::TaskOwner::new(owner_id, &ctx.workdir)?;
             let params = ExecParams {
                 shell_type: parse_shell(args.get("type").and_then(Value::as_str).unwrap_or("zsh"))?,
-                path: resolve_path(args.get("path").and_then(Value::as_str).unwrap_or(cwd), ctx)?.to_string_lossy().into_owned(),
+                path: resolve_authorized_execute_path(args.get("path").and_then(Value::as_str).unwrap_or(cwd), ctx)?
+                    .to_string_lossy()
+                    .into_owned(),
                 command: args.get("command").and_then(Value::as_str).ok_or("missing command")?.to_string(),
                 timeout_ms: args.get("timeout_ms").and_then(Value::as_u64),
                 background: args.get("background").and_then(Value::as_bool).unwrap_or(false),
@@ -103,7 +110,7 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
                 .map_err(|e| e.to_string())
         }
         "edit" => {
-            let path = resolve_authorized_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, ctx)?;
+            let path = resolve_authorized_write_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, ctx)?;
             let spec = match args.get("mode").and_then(Value::as_str) {
                 Some("anchors") => EditSpec::Anchors {
                     edits: match args.get("edits") {
@@ -123,7 +130,7 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
                 .inspect(|_| crate::lsp::notify_change(ctx.lsp.as_ref(), path.as_path()))
         }
         "write" => {
-            let path = resolve_authorized_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, ctx)?;
+            let path = resolve_authorized_write_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, ctx)?;
             let content = args.get("content").and_then(Value::as_str).unwrap_or("");
             write_resolved(&path, content, &ctx.tracker, cwd)
                 .map(|_| format!("wrote {} bytes", content.len()))
@@ -131,7 +138,7 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
                 .inspect(|_| crate::lsp::notify_change(ctx.lsp.as_ref(), path.as_path()))
         }
         "delete" => {
-            let path = resolve_authorized_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, ctx)?;
+            let path = resolve_authorized_write_path(args.get("path").and_then(Value::as_str).ok_or("missing path")?, ctx)?;
             delete_resolved(&path, &ctx.tracker, cwd).map(|_| "moved to Trash".to_string()).map_err(|e| e.to_string())
         }
         "lsp" => {

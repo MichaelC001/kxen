@@ -149,6 +149,16 @@ fn sync_parent_dir(dir: &cap_std::fs::Dir, _absolute: &Path) -> std::io::Result<
 /// 相对 Workspace 解析模型路径并强制主机边界。
 /// 尚不存在的写目标经最近已存在祖先解析，避免 `..`/软链逃逸藏在新路径里。
 pub fn resolve(input: &str, workspace: &Path, grants: &HashSet<PathBuf>) -> Result<ResolvedPath, String> {
+    resolve_in(input, workspace, grants, None)
+}
+
+/// Resolve inside an explicit closed set of Workspace roots. The active
+/// Workspace remains context and is not an implicit authorization.
+pub fn resolve_scoped(input: &str, workspace: &Path, grants: &HashSet<PathBuf>, roots: &[PathBuf]) -> Result<ResolvedPath, String> {
+    resolve_in(input, workspace, grants, Some(roots))
+}
+
+fn resolve_in(input: &str, workspace: &Path, grants: &HashSet<PathBuf>, roots: Option<&[PathBuf]>) -> Result<ResolvedPath, String> {
     let workspace = canonicalize_existing(workspace).map_err(|e| format!("workspace path unavailable: {e}"))?;
     let expanded = expand_home(input)?;
     let candidate = if expanded.is_absolute() { expanded } else { workspace.join(expanded) };
@@ -162,7 +172,9 @@ pub fn resolve(input: &str, workspace: &Path, grants: &HashSet<PathBuf>) -> Resu
     {
         return Err(format!("path denied by {rule_id}: {reason}"));
     }
-    let authority_root = if candidate.starts_with(&workspace) {
+    let authority_root = if let Some(roots) = roots {
+        scoped_root(&candidate, roots).ok_or_else(|| format!("path is outside Bot resource grants: {}", candidate.display()))?
+    } else if candidate.starts_with(&workspace) {
         workspace
     } else {
         grant_root(&candidate, grants)
@@ -174,6 +186,22 @@ pub fn resolve(input: &str, workspace: &Path, grants: &HashSet<PathBuf>) -> Resu
         .to_path_buf();
     let authority = open_verified_root(&authority_root)?;
     Ok(ResolvedPath { absolute: candidate, authority_root, relative, authority: Arc::new(authority) })
+}
+
+fn scoped_root(candidate: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
+    roots
+        .iter()
+        .filter_map(|root| canonicalize_lenient(root).ok())
+        .filter_map(|root| {
+            if root.is_dir() && candidate.starts_with(&root) {
+                Some(root)
+            } else if candidate == root {
+                root.parent().map(Path::to_path_buf)
+            } else {
+                None
+            }
+        })
+        .max_by_key(|root| root.components().count())
 }
 
 /// 规范化可能尚不存在的路径：已存在祖先走文件系统，再追加缺失的普通组件。
