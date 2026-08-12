@@ -1,0 +1,46 @@
+---
+title: Bot Build
+description: 使用受限 Builder Agent 生成、授权、测试和发布 Bot definition。
+status: canonical
+sidebar:
+  order: 2
+---
+
+`Bots -> Bot Build` 把自然语言需求转换为可验证的 Bot definition。Builder Agent 负责提出定义和修订建议，但不能替 Owner 获得权限或直接发布。
+
+## 创建流程
+
+1. 输入 Bot 名称，以及需要长期重复完成的工作、输入、输出和成功标准。
+2. Builder Agent 根据 runtime capability catalog 生成草稿。
+3. 检查 system prompt、输入输出契约、预算、工具、Connector、路径和 Bot-to-Bot policy。
+4. 由 Owner 对需要的 capability 和 resource grant 逐项授权。
+5. 运行 controlled test，保存结构化测试结果。
+6. 通过 deterministic validation 后发布 immutable revision。
+
+Builder Session 是 durable 的。切换页面或重启后，可以输入 Builder Session ID 继续，不需要重新生成一份无法对账的草稿。
+
+## Builder 的限制
+
+- 只能从当前 runtime catalog 选择真实存在的 capability。
+- 不能自行增加 Workspace path、Connector、MCP server 或审批豁免。
+- 不能把自身的工具权限继承给最终 Bot。
+- 不能绕过 controlled test、validation 或 Owner publish。
+- 不存在的 tool、Skill 或 Connector 会 validation `FAIL`，不会作为占位能力发布。
+
+## Evidence 绑定
+
+授权、controlled test 和 validation report 都绑定草稿的精确 content hash。任何会改变执行行为的草稿修改都会使旧 evidence 失效，必须重新授权、测试和验证。
+
+这条规则防止先测试低权限定义，再在发布前偷偷扩大路径、Connector、预算或 peer policy。
+
+## 发布前检查
+
+- 输入和输出 contract 能覆盖真实调用方。
+- required fields 与 controlled test 使用的数据一致。
+- capability 和路径是完成任务所需的最小集合。
+- Connector 属于当前 Workspace，并且 MCP server grant 精确匹配。
+- Approval policy 不把高风险副作用改成永久授权。
+- budget、turn、tool call 和协作深度上限足够但不过度放宽。
+- Bot-to-Bot direct policy 只包含确实需要协作的 peer。
+
+发布完成后，从 [Bot 管理](https://kxen.ai/bots/library) 手动运行，再按需要创建 [Routine](https://kxen.ai/bots/routines) 或 [Bot-to-Bot](https://kxen.ai/bots/collaboration) Conversation。

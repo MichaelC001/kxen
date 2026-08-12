@@ -2,7 +2,7 @@ export const homeTitle = "kxen";
 export const homeDescription =
   "面向复杂软件工程任务的本地 Coding Agent Harness，桌面覆盖 macOS、Windows、Linux，也可经浏览器访问。";
 
-export const homeBody = `kxen 是一个面向复杂软件工程任务的 Coding Agent Harness。它让用户在一个本地应用或浏览器中组织工作目录、会话、模型、目标和 Agent 执行过程。
+export const homeBody = `kxen 是一个面向复杂软件工程任务的 Coding Agent Harness。它让用户在一个本地应用或浏览器中组织工作目录、会话、模型、目标、Agent 执行过程和可重复运行的独立 Bot。
 
 当前版本是开发预览。安装包已在 GitHub Releases 公开，桌面应用内置自动更新。
 
@@ -33,6 +33,7 @@ kxen 无头 server（在服务器或本机运行后用浏览器访问全部功�
 - [Workspace](https://kxen.ai/workspace/workspace/)
 - [模型与 Provider](https://kxen.ai/models/)
 - [Agent 与任务](https://kxen.ai/agent/)
+- [Bots](https://kxen.ai/bots/)
 - [知识与定制](https://kxen.ai/knowledge/)
 - [集成能力](https://kxen.ai/integrations/)
 - [恢复与隔离](https://kxen.ai/recovery/)
@@ -46,6 +47,7 @@ kxen 无头 server（在服务器或本机运行后用浏览器访问全部功�
 - Rust 后端拥有运行状态，SolidJS 前端负责交互和呈现。
 - 所有模型调用进入统一资源管理层。
 - 高风险工具调用在执行层统一审批或拒绝。
+- Bot 使用独立 revision、permission snapshot、Run 和 Recovery；Bot-to-Bot 不合并成员权限。
 - 文件删除进入废纸篓，不直接执行不可恢复删除。`;
 
 export const homeSource = `---

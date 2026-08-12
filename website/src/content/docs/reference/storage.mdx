@@ -35,6 +35,7 @@ kxen 采用本地优先存储，当前没有 kxen 云同步服务。
 - `sessions/`: Session meta、消息、队列、compaction、artifact、删除 tombstone 和 recovery bundle。
 - `goals/`: Goal contract、状态和预算用量。
 - `teams/`: Team 配置、任务、inbox 和 member transcript。
+- `bots/`: Bot definition、immutable revision、Builder Session、BotRun、Conversation、Routine、Memory、Artifact 和 Recovery event stream。
 - `auth.json`: Provider 凭证。
 - `mcp-oauth.json`: MCP OAuth token、refresh token 和 client secret，按 scope + server 名 + canonical resource endpoint 绑定。
 - `trusted.json`: Workspace 信任记录。
@@ -78,6 +79,8 @@ Session 可以包含文本、隐藏上下文、工具调用、推理、图片和
 ## Goal 和 Team
 
 Goal 保存在应用数据的 goals 子目录。完成判定的 operation ID、contract/evidence identity、阶段、结果和 usage receipt 直接保存在对应 Goal JSON 中。Team 配置、共享任务、inbox 和 member transcript 保存在 teams 子目录。
+
+Bot 的所有 aggregate 和 Artifact 都位于应用数据的 `bots/` 子目录。Run、Conversation、Routine 和 Recovery 使用各自的 durable identity 和 event stream；这些文件不是普通缓存，不要通过手工删除来跳过 blocked 或 `UNKNOWN` 状态。使用应用中的 [Recovery Center](https://kxen.ai/bots/runs-and-recovery) 核对和处理。
 
 ## 凭证
 

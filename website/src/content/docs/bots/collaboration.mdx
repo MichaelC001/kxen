@@ -1,0 +1,48 @@
+---
+title: Bot-to-Bot
+description: 使用 Direct 和 Bot Group 让多个 Bot 在独立权限下异步协作。
+status: canonical
+sidebar:
+  order: 3
+---
+
+`Bots -> Bot-to-Bot` 提供 Bot Direct 和 Bot Group。Conversation 负责保存 Message、Delivery 和 CollaborationTask；接收方始终创建独立 BotRun，不在发送方的模型回合中同步嵌套执行另一个 Agent loop。
+
+## Direct
+
+Direct 只连接两个 active Bot，并且双方 definition 必须同时满足:
+
+- `allow_direct` 已开启。
+- 对方 Bot 已进入自己的 `allowed_peers`。
+
+这是 reciprocal allowlist。Owner 可以打开 Conversation 并提交任务，但不能伪装成某个 Bot 发送 Direct 消息。任何一方 Pause、Archive、Trash 或修改为不再互相允许后，新的派发都会 fail closed。
+
+## Bot Group
+
+Group 由 2 至 6 个 active Bot 组成，并指定一个 active moderator。
+
+- Owner 没有 mention 的指令交给 moderator 首轮编排。
+- 明确 `@Bot` 只派发给被 mention 的 active member。
+- `@everyone` 派发给全部 active member。
+- moderator 不能在仍担任该角色时被移除。
+- 每个成员继续使用自己的 revision、permission snapshot、budget 和 Approval policy，不会形成权限并集。
+
+Group 中的多个成员全部是 Bot。这里不是聊天软件，也不提供多真人身份、邀请、presence、已读状态或真人 ACL。
+
+## 异步协作闭环
+
+一次 peer request 按以下顺序持久化:
+
+1. 写入 Conversation Message。
+2. 为目标成员创建 Delivery 和可选 CollaborationTask。
+3. background dispatcher 为接收 Bot 创建独立 BotRun。
+4. 接收 Bot 结算 Task，并把结构化 response 写回 Conversation。
+5. response 关闭来源 Task，不自动再生成 response task，因此不会形成 request/response ping-pong。
+
+Timeline notice 只用于记录状态，不会触发新 Run。Message 和 Task identity 允许重试同一次请求而不重复派发；相同 identity 对应不同内容时会被拒绝。
+
+## 停止和限制
+
+停止 Conversation 会阻止新派发，并让未完成协作进入明确终态。它不能撤回外部系统已经发生的副作用；不确定副作用会进入 [Recovery](https://kxen.ai/bots/runs-and-recovery)，不会被当成普通失败自动重试。
+
+平台同时限制 child tasks、delegation depth 和 message hops，Bot definition 可以进一步收紧这些上限。ArtifactRef 只引用 immutable Artifact，不携带发送 Bot 的访问权限。

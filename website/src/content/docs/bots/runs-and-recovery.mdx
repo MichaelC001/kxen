@@ -1,0 +1,54 @@
+---
+title: Runs 与 Recovery
+description: 查看 BotRun、处理审批和输入、管理 Artifact，并核对 UNKNOWN 状态。
+status: canonical
+sidebar:
+  order: 5
+---
+
+`Bots -> Runs` 展示 BotRun 的 durable 状态。`Bots -> Recovery` 汇总无法安全判断为成功或失败的 Bot、Run、Conversation 和 Routine。
+
+## BotRun
+
+每个 Run 固定以下快照:
+
+- Bot identity 和 immutable revision。
+- capability、resource grant、Approval policy 和 budget。
+- trigger、输入 contract、Conversation 和 Task 关联。
+- provider-neutral context、turn、usage、tool journal、结果和 Artifact manifest。
+
+瞬态 stream delta 只用于界面刷新。应用重启后以 durable Run 和 event stream 为真源，不从前端缓存猜测执行结果。
+
+## 等待操作
+
+Run 可以进入两类显式等待:
+
+- Approval: 显示操作摘要，由 Owner Allow 或 Deny。副作用审批绑定精确 operation identity。
+- Input: 显示需要补充的信息，提交后以稳定 request identity 绑定到原 Run。
+
+Cancel 会先记录 durable cancellation request，再中断执行。模型或工具稍后返回的普通 success/failure 不能覆盖已经提交的取消请求。
+
+## Tool journal 与 UNKNOWN
+
+有副作用的工具调用按 Prepare -> Started -> OutcomeKnown 或 OutcomeUnknown -> Settled 记录。只有没有跨过副作用边界的纯操作，才可能按 Bot failure policy 自动重试。
+
+Started 后无法证明结果的操作是 `UNKNOWN`。系统不会把它改写成普通 Failed，也不会自动重放，因为外部系统可能已经完成了写入。
+
+## Artifact
+
+Bot 可以提交 immutable Artifact。Runs 页面显示名称、media type、大小和 content hash，并在读取时验证内容:
+
+- 文本和 JSON 可以在界面中预览。
+- 二进制只报告验证后的大小和类型，不在预览区执行或渲染。
+- Trash 和 Restore 只改变 Artifact lifecycle，不修改已提交内容。
+
+Conversation 共享的是 ArtifactRef，不是可变文件或发送 Bot 的权限。
+
+## Recovery Center
+
+Recovery Center 区分两种 Owner 决策:
+
+- `repair`: 已在外部核对并修复证据，使 aggregate 回到可继续管理的 paused 状态。
+- `clear`: 明确放弃未完成工作并关闭 recovery record，不伪造成功或失败，也不重试 UNKNOWN effect。
+
+先检查 reason、evidence、Run journal 和外部系统状态，再选择操作。不能证明外部副作用是否发生时，保持 `UNKNOWN` 比重复执行更安全。

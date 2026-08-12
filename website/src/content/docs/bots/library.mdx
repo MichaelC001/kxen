@@ -1,0 +1,57 @@
+---
+title: Bot 管理
+description: 管理 Bot 的草稿、发布版本、生命周期、手动运行和独立 Memory。
+status: canonical
+sidebar:
+  order: 1
+---
+
+`Bots -> Bot 管理` 是 Bot Library。这里展示每个 Bot 的当前生命周期、草稿和已发布 revision，并提供手动运行、复制和 Memory 管理。
+
+## Definition 与 revision
+
+Bot definition 包含:
+
+- 显示名称、目标和 system prompt。
+- `text/plain` 或 `application/json` 输入输出契约。
+- 允许使用的工具、Skill、Connector 和 Workspace 相对路径。
+- Approval policy、单次 Run 预算和 Bot-to-Bot policy。
+
+草稿可以继续修改。发布时生成 immutable revision；已存在的 revision 不会被后续草稿覆盖。BotRun 在排队时固定 revision 和 permission snapshot，因此运行中的任务不会因为同时发布新草稿而漂移。
+
+## 生命周期
+
+| 状态       | 行为                                     |
+| ---------- | ---------------------------------------- |
+| `active`   | 允许手动 Run、Routine 和 Bot-to-Bot 派发 |
+| `paused`   | 暂停新工作，保留定义、历史和恢复入口     |
+| `archived` | 从活跃使用中归档，不接受新工作           |
+| `trashed`  | 进入废纸篓视图，不接受新工作             |
+| `blocked`  | 存在需要人工核对的 durable 状态          |
+
+Restore 后 Bot 回到 `paused`，需要 Owner 明确 Resume 才能重新接收工作。Pause、Archive 或 Trash 会使待派发工作停止，并暂停关联 Routine，不会让旧队列继续静默执行。
+
+## 手动运行
+
+选择 active Bot，在运行输入中填写任务后创建 BotRun。界面按已发布 revision 的输入契约编码数据:
+
+- `text/plain` 接受非空文本。
+- `application/json` 要求 JSON object，并检查 definition 声明的 required fields。
+
+输入不符合契约时不会排队。成功排队后，在 [Runs 与 Recovery](https://kxen.ai/bots/runs-and-recovery) 查看执行、审批、结果和 Artifact。
+
+## Memory
+
+Bot Memory 独立于 Session history，用于保存需要跨 Run 复用的事实、偏好或受控工作状态。每条 Memory 有独立 identity 和 version，更新时检查并发版本。
+
+不要把 API key、OAuth token、密码或其他凭证写入 Memory。Secret-like 内容会被拒绝；Connector credential 仍由 kxen 的认证和 MCP 配置管理。
+
+## 权限边界
+
+- Workspace 路径必须由 Owner 以安全相对路径显式授权。
+- Connector 必须绑定同一 Workspace；MCP tool 只按 exact server grant 暴露。
+- Bot 当前不能使用 LSP，因为 cross-file location 结果尚未按 Bot path grant 过滤。
+- Message、Task、Memory 和 ArtifactRef 不会扩大 capability 或跳过 Approval。
+- 每个 Bot 在同一个 Conversation 中同时最多有一个 nonterminal Run。
+
+需要修改能力或契约时，进入 [Bot Build](https://kxen.ai/bots/build) 生成或更新草稿，再完成授权、测试和发布。

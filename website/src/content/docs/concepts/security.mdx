@@ -21,15 +21,16 @@ flowchart LR
 
 ## 信任边界
 
-| 边界      | 规则                                               |
-| --------- | -------------------------------------------------- |
-| Workspace | 统一解析相对、绝对和不存在的目标路径               |
-| 项目配置  | 未信任 Workspace 不加载项目 TOML                   |
-| 项目 MCP  | 未信任 Workspace 不加载；stdio 还需独立执行审批    |
-| 外部文件  | 需要原生文件选择器授权，授权按路径生效             |
-| 模型调用  | 统一经过 MRM 和 Auth store                         |
-| 工具调用  | 统一经过角色权限、Safety 和 Approval               |
-| 网络请求  | URL 与实际连接地址受检，Browser 全流量经过受控代理 |
+| 边界      | 规则                                                   |
+| --------- | ------------------------------------------------------ |
+| Workspace | 统一解析相对、绝对和不存在的目标路径                   |
+| 项目配置  | 未信任 Workspace 不加载项目 TOML                       |
+| 项目 MCP  | 未信任 Workspace 不加载；stdio 还需独立执行审批        |
+| 外部文件  | 需要原生文件选择器授权，授权按路径生效                 |
+| 模型调用  | 统一经过 MRM 和 Auth store                             |
+| 工具调用  | 统一经过角色权限、Safety 和 Approval                   |
+| Bot 执行  | 固定 revision 和 permission snapshot，不继承 peer 权限 |
+| 网络请求  | URL 与实际连接地址受检，Browser 全流量经过受控代理     |
 
 ## 凭证
 
@@ -42,6 +43,8 @@ Provider 凭证可以来自官方客户端的本地登录状态或用户显式�
 ## 最小权限
 
 研究和规划角色默认只读。写文件、执行命令和删除数据需要 execution 权限。MCP 工具还可以逐项配置 allow、ask 或 deny。
+
+Bot capability、Workspace path 和 Connector grant 在 publish 前由 Owner 明确授予。Builder Agent、Bot Message、CollaborationTask、Memory 和 ArtifactRef 都不能扩大权限。MCP tool 还需要 exact server grant 和 Connector 的 Workspace binding；Bot 当前不暴露无法按 path grant 完整过滤的 LSP。
 
 Shell 命令在宿主机执行，不宣称提供进程沙盒。kxen 不加载用户 Shell rc 或 alias 快照，并且每条命令和 background task start/restart 都需要显示完整 command 与 cwd 的当次 Approval。拒绝或没有可用 Approval channel 时执行失败关闭。
 
@@ -56,6 +59,7 @@ Safety 对系统路径、Credential 目录、Git 元数据、磁盘操作和大�
 - Worktree 隔离并行修改。
 - Session-scoped Approval 结果写入对应 Session；全局审批不伪造 Session 记录。
 - 用户停止 Session 会使未完成审批失效。
+- BotRun 的 cancellation、tool journal 和 `UNKNOWN` Recovery 写入独立 durable event stream。
 
 ## 已知边界
 

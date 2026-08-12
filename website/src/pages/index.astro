@@ -39,7 +39,7 @@ const dl = (asset: string) => `https://github.com/StringKe/kxen/releases/latest/
           一个本地、可控、面向复杂软件工程任务的 Coding Agent Harness。
         </p>
         <p class="mt-4 max-w-2xl text-base text-muted-foreground leading-relaxed sm:text-lg">
-          覆盖 macOS、Windows 和 Linux 桌面，也可以用浏览器访问。把 Workspace、Session、模型、目标和 Agent 执行过程放进一个本地应用。
+          覆盖 macOS、Windows 和 Linux 桌面，也可以用浏览器访问。把 Workspace、Session、模型、目标、Agent 执行过程和独立 Bot 放进一个本地应用。
         </p>
         <div class="mt-8 flex flex-wrap items-center gap-3">
           <a
@@ -144,6 +144,13 @@ const dl = (asset: string) => `https://github.com/StringKe/kxen/releases/latest/
         >
           <div class="font-semibold text-foreground">Goal</div>
           <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">用可验证的完成条件管理跨多轮的软件工程任务。</div>
+        </a>
+        <a
+          href="/bots"
+          class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/40 no-underline"
+        >
+          <div class="font-semibold text-foreground">Bots</div>
+          <div class="mt-1.5 text-sm leading-relaxed text-muted-foreground">构建可重复运行的独立 Bot，并让多个 Bot 在各自权限内协作。</div>
         </a>
         <a
           href="/models/model-routing"

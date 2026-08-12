@@ -44,9 +44,17 @@ Approval 显示具体命令或操作和请求原因。Session-scoped 决定会�
 
 允许只针对当前具体调用，不创建永久全局放行规则。命令、目标或参数变化后需要重新判定。
 
+## BotRun Approval
+
+BotRun 的 Approval 保存到对应 Run，并绑定当前 revision、permission snapshot 和精确 operation identity。Bot-to-Bot Message、Task 或 Routine trigger 不能替 Owner 预先同意副作用。MCP Connector 还要同时满足 Bot durable Approval 与该 server 的 local policy；任一侧 Deny 都不能被另一侧覆盖。
+
+协作流程本身需要 Owner 决策但尚未开始副作用时，可以形成不带伪造 operation identity 的 workflow Approval。允许后仍要在真正工具调用时通过对应执行边界。
+
 ## 取消和超时
 
 Composer 的「停止」动作优先于 Approval。正在等待的调用在 Session 取消后按拒绝处理，不会保持悬挂，也不会在后台恢复执行。
+
+BotRun Cancel 同样先记录 durable cancellation request，再结束等待。迟到的普通 success 或 failure 不能覆盖取消；已经 Started 但结果无法确认的副作用进入 `UNKNOWN` 和 [Bot Recovery](https://kxen.ai/bots/runs-and-recovery)。
 
 Approval 最长等待 5 分钟。可能等待全局审批的 RPC 客户端窗口还包含审批后的 Provider 探测或 MCP initialize 收尾时间，不会在后端仍等待或收尾时先按普通 30 秒 RPC 超时报失败。多个 Provider 来源、项目 stdio server 或已缓存 Workspace 的独立审批会先全部发布再并发等待，每项仍可分别允许或拒绝，整体不会串成多个 5 分钟窗口。
 

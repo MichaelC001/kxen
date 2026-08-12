@@ -1,0 +1,45 @@
+---
+title: Bots
+description: 使用独立 Bot 持续执行重复工作，并让多个 Bot 在受控边界内协作。
+status: canonical
+sidebar:
+  order: 6
+  group:
+    label: Bots
+    icon: ph:robot
+---
+
+Bot 是独立、持久化、可版本化的重复工作单元。每个 Bot 保存自己的目标、输入输出契约、工具能力、资源授权、审批策略和预算；每次执行形成可恢复的 BotRun。
+
+Bot 不依附于某个聊天 Session。用户可以手动运行 Bot、通过 Routine 定期触发，也可以让一个 Bot 向另一个 Bot 派发任务。
+
+## 产品入口
+
+从左侧栏打开 `Bots`，可以使用六个区域:
+
+- [Bot 管理](https://kxen.ai/bots/library): 查看 Bot、发布版本、生命周期、手动运行和 Memory。
+- [Bot Build](https://kxen.ai/bots/build): 让受限 Builder Agent 生成定义，并由 Owner 授权、测试和发布。
+- [Bot-to-Bot](https://kxen.ai/bots/collaboration): 创建 Direct 或 2 至 6 个 Bot 的 Group。
+- [Routine](https://kxen.ai/bots/routines): 使用 cron 和 IANA timezone 重复触发 BotRun。
+- [Runs 与 Recovery](https://kxen.ai/bots/runs-and-recovery): 处理审批、补充输入、取消、Artifact 和 UNKNOWN 恢复。
+
+## Bot 与其他执行单元
+
+| 单元                   | 适用场景                           | 上下文与生命周期                       |
+| ---------------------- | ---------------------------------- | -------------------------------------- |
+| Session Agent          | 围绕当前对话完成一次任务           | 使用 Session 历史，由用户持续交互      |
+| Subagent 或 Agent Team | 为当前任务拆分阶段、角色或并行工作 | 归属于发起任务和 Session               |
+| Bot                    | 长期复用同一工作定义               | 独立版本、权限、Memory、Run 和生命周期 |
+| Bot Group              | 多个 Bot 围绕一条指令协作          | 每个 Bot 保留自己的权限和执行上下文    |
+
+Bot 使用 kxen 的统一模型路由和资源管理，不在定义中固定某个 Provider model。模型、账号、并发、RPM、预算和 Circuit 仍由当前 MRM 配置决定。
+
+## 明确边界
+
+- Bot Group 中的成员都是 Bot，不是多人真人群聊，不提供联系人、已读回执、在线状态或真人 ACL。
+- Bot-to-Bot 是 kxen 内部的持久化协作协议，不开放 public Agent Card 或 external A2A endpoint。
+- Bot 不提供共享云电脑、共享浏览器 profile、共享凭据或远程桌面池。
+- 当前没有 Bot Marketplace、公共发现、安装、评分、计费或结算。
+- 一个 Bot 向另一个 Bot 发送 Message、Task 或 ArtifactRef，不会把自己的工具权限转交给接收方。
+
+先从 [Bot Build](https://kxen.ai/bots/build) 创建第一个 Bot，再回到 [Bot 管理](https://kxen.ai/bots/library) 手动运行。

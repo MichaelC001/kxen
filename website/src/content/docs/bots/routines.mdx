@@ -1,0 +1,48 @@
+---
+title: Bot Routine
+description: 使用 cron、timezone、revision 和上下文策略重复触发 BotRun。
+status: canonical
+sidebar:
+  order: 4
+---
+
+`Bots -> Routine` 用于重复运行一个 active Bot。Routine 只保存触发策略；每次 occurrence 都先解析并固定 Bot revision，再创建普通的 durable BotRun。
+
+## 创建
+
+创建 Routine 时指定:
+
+- active Bot 和 Routine 名称。
+- cron 表达式。
+- IANA timezone，例如 `Asia/Dubai`。
+- 每次运行的输入。
+- `isolated` 或 `continue_conversation` context mode。
+- `follow_current` 或 `pinned` revision mode。
+- 连续失败自动暂停阈值。
+
+创建完成后可以 Pause、Resume、编辑或 `Run now`。
+
+## Context mode
+
+`isolated` 为每次 occurrence 创建独立上下文，不读取 Conversation history，适合日报生成、定期检查和维护任务。
+
+`continue_conversation` 必须绑定一个 active Conversation，并且 Bot 必须仍是 active member。它适合需要延续 Bot-to-Bot 工作状态的周期任务；成员关系或 Conversation lifecycle 不满足时，Routine 不会绕过检查继续运行。
+
+## Revision mode
+
+- `follow_current` 在 occurrence 到期时解析 Bot 当前已发布 revision，再把结果固定到该 BotRun。
+- `pinned` 始终使用创建或更新 Routine 时选定的 revision。
+
+无论使用哪种模式，已经排队的 BotRun 都不会因后续 publish 改变 revision。
+
+## 调度与恢复
+
+occurrence identity 由 Routine 和 scheduled time 确定性生成。重复 tick 或应用重启不会为同一个 occurrence 创建第二个 Run。
+
+连续失败达到配置阈值时，Routine 自动 Pause，避免故障任务无限重复。Bot 进入 inactive lifecycle 时，关联 Routine 也会暂停。恢复前先在 [Runs 与 Recovery](https://kxen.ai/bots/runs-and-recovery) 核对失败或 UNKNOWN 证据。
+
+## 与 Session Schedule 的区别
+
+[Schedule](https://kxen.ai/integrations/schedule) 把一条消息定期送入指定 Session。Bot Routine 直接触发独立 Bot definition，使用 Bot revision、permission snapshot、Memory、contract 和 Bot-to-Bot Conversation 约束。
+
+两者都只在 kxen runtime 运行期间调度，不是操作系统级 cron，也不会在应用退出后自动启动共享云执行环境。

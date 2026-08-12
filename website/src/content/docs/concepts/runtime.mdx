@@ -14,7 +14,7 @@ kxen 是一个 Tauri 2 桌面应用，并提供 kxen 无头 server。SolidJS 前
 flowchart TB
   UI["SolidJS UI"]
   State["Rust AppState"]
-  Runtime["Session、Agent、MRM、Tools、Knowledge、MCP、LSP"]
+  Runtime["Session、Agent、Bots、MRM、Tools、Knowledge、MCP、LSP"]
   Host["本地文件、进程、Provider 和系统能力"]
   UI -->|"WebSocket（RPC 帧）"| State
   State -->|"同一 WebSocket（stream 事件帧）"| UI
@@ -32,7 +32,7 @@ AppState 持有跨 Session 的共享运行对象，包括:
 - Auth store 和 Provider catalog。
 - WorkspaceRuntime registry、每个 Workspace 的 MRM 视图以及进程共享的并发、RPM 和路由历史。
 - Approval broker。
-- Task、PendingQueue、Team、Browser 和 usage 运行状态。Goal、Schedule 和 Knowledge 等长期对象由各自的本地持久存储承载。
+- Task、PendingQueue、Team、BotSystem、Browser 和 usage 运行状态。Goal、Schedule、Bot 和 Knowledge 等长期对象由各自的本地持久存储承载。
 - Event bus。
 
 共享状态不会因为前端组件卸载而结束。界面重连后应从后端快照恢复，再使用事件流保持更新。
@@ -40,6 +40,8 @@ AppState 持有跨 Session 的共享运行对象，包括:
 ## Session
 
 Session 是用户工作的持久边界。一次 run 是 Session 中的一次执行，不是新的 Session。pending queue、Goal、Team 和 Schedule 都通过 Session ID 关联。
+
+Bot 是独立于 Session 的持久边界。BotRun 固定 definition revision、permission snapshot 和 provider-neutral context；Routine 与 Bot-to-Bot dispatcher 都只负责创建普通 BotRun，不建立绕过 MRM、Safety 或 Approval 的第二套执行路径。
 
 ## 终态
 

@@ -48,3 +48,5 @@ Schedule dispatcher 每 15 秒检查一次到期 occurrence，只在 kxen 应用
 ## 使用方式
 
 适合定期检查、汇总或维护任务。涉及外部发布、删除或其他重要写入时，仍应保留人工确认，不要把定时触发当成永久授权。
+
+需要定期运行独立 Bot definition，而不是把消息送入 Session 时，使用 [Bot Routine](https://kxen.ai/bots/routines)。Routine 会固定 Bot revision 和 permission snapshot，并可以使用 isolated 或 Bot Conversation context。

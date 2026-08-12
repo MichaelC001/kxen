@@ -15,6 +15,7 @@ kxen 是面向复杂软件工程任务的本地 Coding Agent Harness。它不是
 - Workspace 提供项目边界。
 - Session 保存对话和执行历史。
 - Goal 和 Workflow 管理长任务。
+- Bot 把重复工作固化为独立 revision、权限、Routine 和可恢复 Run。
 - Provider 和模型路由管理推理资源。
 - Safety 和 Approval 约束工具执行。
 - Knowledge Library 沉淀可复用的项目和个人知识。
@@ -35,4 +36,4 @@ kxen 面向需要让 Agent 直接参与真实代码库工作的开发者。典�
 | 数据     | 本地优先                                                               |
 | 发布     | 开发预览                                                               |
 
-除 `kxen` 无头 server 外，kxen 当前不提供其他 CLI、TUI、公开 HTTP API、云同步或插件市场。
+除 `kxen` 无头 server 外，kxen 当前不提供其他 CLI、TUI、公开 HTTP API、云同步或插件市场。Bot-to-Bot 只连接本机 kxen 中的 Bot，不是多真人聊天，也不提供共享云电脑或 external A2A endpoint。
