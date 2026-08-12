@@ -17,6 +17,7 @@ pnpm exec playwright install webkit
 rustup component add llvm-tools-preview
 cargo install --locked cargo-llvm-cov --version 0.8.7
 cargo install --locked cargo-audit --version 0.22.2
+cargo install --locked git-cliff --version 2.13.1
 ```
 
 启动桌面应用:
@@ -76,16 +77,25 @@ Pull Request 需要说明问题、实现边界和验证结果。不要提交 `.e
 - `src-tauri/Cargo.toml` 的 `package.version`。
 - `Cargo.lock` 中 `kxen-core`、`kxen-cli` 和 `kxen-gui` package 的 `version`。
 - `src-tauri/tauri.conf.json` 的 `version`。
-- `CHANGELOG.md` 的精确标题 `## [x.y.z]`。
+
+`CHANGELOG.md` 不手工编辑。完成版本号修改和本版本功能提交后，运行:
+
+```bash
+scripts/changelog.sh generate vx.y.z
+scripts/changelog.sh check vx.y.z
+```
+
+该脚本使用固定版本的 `git-cliff`、`cliff.toml`、Git tag 和 Conventional Commits 生成完整历史。将生成文件与版本号修改一起放入 `chore(release): prepare vx.y.z` commit；`chore(release)` 不进入最终 Changelog，commit 后再次运行 `check` 必须为 `PASS`。
 
 在版本 commit 已进入 `main` 后创建并推送稳定版 SemVer tag，例如 `v0.2.0`。当前更新通道不接受 prerelease 或 build metadata tag，避免 prerelease 进入稳定版 `latest.json`。不要从尚未进入 `main` 的分支 commit 创建发布 tag。推送 tag 后，在 GitHub Actions 中从 `main` 手动运行 `Release`，并输入该 tag。tag push 不会自动访问发布凭据，避免执行 tag commit 中的 workflow 定义。`.github/workflows/release.yml` 会依次执行:
 
 1. 从可信 `main` 固定 workflow 和校验器，校验 tag 格式与祖先关系，确认 tag commit 已进入远端 `main` 后才 checkout 目标代码。checkout 后仍执行已固定的校验器，并检查 checkout commit 与 tag 一致。
-2. 检查上述版本来源、changelog 和 Tauri updater 配置一致。
+2. 检查上述版本来源、生成后的 changelog 和 Tauri updater 配置一致。
 3. 对同一个不可变 commit 重新运行 frontend、Rust 和官网的完整 CI 门禁。
 4. 按发布矩阵在六个平台的 runner 上构建: macOS(arm64、x86_64）经 Developer ID 签名和 Apple 公证（桌面 App、DMG 和 `kxen` CLI 同一链路）,Linux(x86_64、arm64）产出 AppImage 和 deb,Windows(x86_64、arm64）产出 NSIS 安装包，同时构建各平台 `kxen` 无头 server 包并逐平台验证产物。发布矩阵的平台、runner、rust target 和稳定 asset 命名以 `scripts/release-manifest.sh` 为单一出处，`scripts/release-manifest.sh json` 可查看实际清单。
-5. 合并各平台 updater 签名生成并校验 `latest.json` 与 `SHA256SUMS`，将各平台验证过的 release 文件作为 workflow artifact 传递给独立 publish job。
-6. publish job 只接收已验证 artifact，不接收签名凭据。它先创建 draft，重新下载并逐字节核对全部远端 asset，全部一致后才公开 release。
+5. 使用固定的 `git-cliff` 2.13.1 和 tag 区间生成仅属于当前版本的 Release Notes；同一内容写入 `latest.json.notes`，并作为 GitHub Release body 的变更部分。
+6. 合并各平台 updater 签名生成并校验 `latest.json` 与 `SHA256SUMS`，将各平台验证过的 release 文件作为 workflow artifact 传递给独立 publish job。
+7. publish job 只接收已验证 artifact，不接收签名凭据。它先创建 draft，重新下载并逐字节核对全部远端 asset，全部一致后才公开 release。
 
 Release environment 必须配置 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_TEAM_ID`、`APPLE_API_ISSUER`、`APPLE_API_KEY`、`APPLE_API_PRIVATE_KEY`、`TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。这些值必须是 environment secret，不是 repository secret。`release` environment 的 deployment branch policy 必须只允许 `main`，仓库 tag ruleset 必须允许创建 `v*` 但禁止更新和删除已有发布 tag，仓库必须开启 GitHub Immutable Releases 以锁定公开 release 的 tag 和 asset。GitHub Actions policy 必须开启 full-length commit SHA pinning，并在不需要所有 action 时将 `allowed_actions` 收紧为经审核的列表。secret 只注入需要它们的单个 step。只有 publish job 具有 `contents: write` 权限。
 
