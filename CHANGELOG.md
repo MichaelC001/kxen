@@ -32,6 +32,10 @@
 - **bot:** Make Builder sessions conversational and bot-bound ([822b4fc](https://github.com/StringKe/kxen/commit/822b4fcf5222b5a24a1165aae18e69eda90cd356))
 - **ui:** Establish persistent workspace navigation ([fd0bc25](https://github.com/StringKe/kxen/commit/fd0bc25303c9784728062eb246de7a759c956064))
 
+### 架构与重构
+
+- **codebase:** Enforce bounded module responsibilities ([210347a](https://github.com/StringKe/kxen/commit/210347a71fcf10a4ff40230198dacada714042c8))
+
 ### 问题修复
 
 - **release:** Normalize generated changelog output ([9f5ac0b](https://github.com/StringKe/kxen/commit/9f5ac0b7394902fbf3b58f6c56fe26555a71c4b7))
@@ -45,6 +49,8 @@
 - **ui:** Normalize user-visible status language ([518d0a2](https://github.com/StringKe/kxen/commit/518d0a2d1bd510c4a08204746f5d9e06b803ac0a))
 - **runtime:** Treat first-start recovery as empty ([db4a720](https://github.com/StringKe/kxen/commit/db4a7205d19535b3f613820df8ac07775b2d8cd2))
 - **release:** Preserve product metadata for git-cliff ([594f9e3](https://github.com/StringKe/kxen/commit/594f9e363f113ef0ca047a254a9724219eac2253))
+- **release:** Harden shell validation paths ([09b2f15](https://github.com/StringKe/kxen/commit/09b2f15377ce3c8b950e9beed7d24d8ce822425a))
+- **website:** Remove vulnerable archive extractor ([0050ab1](https://github.com/StringKe/kxen/commit/0050ab1831824e055dd7baacfbde41468ce0c829))
 
 ## [0.1.4] - 2026-08-12
 
