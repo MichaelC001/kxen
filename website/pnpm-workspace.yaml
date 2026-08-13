@@ -1,5 +1,8 @@
 overrides:
   lodash-es: 4.18.1
+  # GHSA-jmr9-qjv8-65gv：astro-icon 的 @iconify/tools 4.x 仍依赖没有安全版本可升级的 extract-zip。
+  # @iconify/tools 5.x 已移除该依赖，并保留 astro-icon 使用的公开导出。
+  "astro-icon>@iconify/tools": 5.0.12
   # GHSA-4cwx-7wf7-3272：astro-icon 链的 undici 跨用户信息泄露，audit 门禁要求 >=7.29.0
   undici: ">=7.29.0"
   # GHSA-5p4m-2wfm-xmqj：@astrojs/internal-helpers 链的 js-yaml !!omap 二次方 CPU 消耗，audit 门禁要求 >=4.3.1。
