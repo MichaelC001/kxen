@@ -2,6 +2,25 @@
 
 此文件由 [git-cliff](https://github.com/orhun/git-cliff) 根据 Git tag 和 Conventional Commits 自动生成，请勿手动编辑。
 
+## [0.1.6] - 2026-08-13
+
+> **版本主题:** 持久对话分支与安全重试
+
+### 本次更新
+
+- 从任意消息创建持久对话分支，Sidebar 和 Session Header 会展示完整父子谱系，并支持同族切换与返回父分支。 ([e078eac](https://github.com/StringKe/kxen/commit/e078eacfa9d87299afbca90e1e8e627fdee77a3f))
+- 编辑重发和重新生成现在自动进入独立分支，原始输入、图片、Context 和既有回复都会保留。 ([e078eac](https://github.com/StringKe/kxen/commit/e078eacfa9d87299afbca90e1e8e627fdee77a3f))
+- 分支导出和界面明确标记对话历史独立但 Workspace 文件共享；需要文件隔离时可配合 Worktree，删除父分支也不会级联删除后代。 ([e078eac](https://github.com/StringKe/kxen/commit/e078eacfa9d87299afbca90e1e8e627fdee77a3f))
+
+### 文档
+
+- **session:** Document conversation branches ([a66746d](https://github.com/StringKe/kxen/commit/a66746d30c68524e8382e3bcd44ee9cc865aa437))
+
+### 新增功能
+
+- **session:** Persist conversation branch lineage ([a4f0776](https://github.com/StringKe/kxen/commit/a4f077660476fe9553b1c8bde113017bdb78be71))
+- **ui:** Add conversation branch navigation ([0a2e3ba](https://github.com/StringKe/kxen/commit/0a2e3bab520cca89555dba2829d49c8b3428ccc6))
+
 ## [0.1.5] - 2026-08-13
 
 > **版本主题:** Bot 自构建与工作区导航
