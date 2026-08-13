@@ -6,7 +6,7 @@
 //! WHY 扫不到 kanban scope：kanban run 的 owner（`kanban:<run_id>`）过不了 id 校验，
 //! spawn 时就不落日志（tools/task_journal.rs），这里天然没有它的行。
 
-use crate::agent::background::{RoutedNotice, deliver_late, kick_late};
+use crate::agent::background::{RoutedNotice, deliver_late, kick_late, recoverable_session_ids};
 use crate::core::pending_queue::PendingQueues;
 use crate::tools::task_journal::{self, TaskLine};
 use std::path::Path;
@@ -21,22 +21,14 @@ const MAX_REASONABLE_PID: u32 = 4_194_304;
 /// 幂等双锚：reaped 行（主）挡重复启动；确定性 delivery id 在队检查（副）挡队列未消费的重投。
 pub fn recover_interrupted_tasks(pending: &PendingQueues, sessions_dir: &Path) -> Vec<String> {
     let mut delivered = Vec::new();
-    let entries = match std::fs::read_dir(sessions_dir) {
-        Ok(entries) => entries,
+    let session_ids = match recoverable_session_ids(sessions_dir) {
+        Ok(session_ids) => session_ids,
         Err(error) => {
             tracing::warn!(%error, "interrupted background task recovery scan failed");
             return delivered;
         }
     };
-    for entry in entries.flatten() {
-        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            continue;
-        }
-        let Some(sid) = entry.file_name().to_str().map(str::to_owned) else { continue };
-        // 目录名即 session id：非法名（路径穿越/空格等）跳过不 panic
-        if crate::core::ids::validate_id(&sid).is_err() {
-            continue;
-        }
+    for sid in session_ids {
         for task in task_journal::read_open_tasks(&sessions_dir.join(&sid).join("tasks.jsonl")) {
             reap_task(pending, sessions_dir, &sid, &task, &mut delivered);
         }

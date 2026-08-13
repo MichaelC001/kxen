@@ -33,6 +33,16 @@ fn sorted_recovered(queues: &PendingQueues, dir: &Path) -> Vec<String> {
 }
 
 #[test]
+fn missing_sessions_directory_is_a_clean_first_start() {
+    let dir = temp("first-start");
+    assert!(!dir.exists());
+    let queues = PendingQueues::new(dir.clone());
+
+    assert!(recover_interrupted(&queues, &dir).is_empty());
+    assert!(!dir.exists(), "recovery scan must not create storage on a clean first start");
+}
+
+#[test]
 fn shutdown_agent_gets_interruption_notice_and_is_idempotent() {
     let dir = temp("shutdown");
     let session = kxen_core::core::session::create(&dir, "/tmp").unwrap();

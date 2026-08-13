@@ -9,7 +9,7 @@
 //! WHY 不考虑 kanban scope：notify 为 None 时 background 派发入口直接报错，
 //! kanban run 的后台派发不可能走到这条路径。
 
-use crate::agent::background::{RoutedNotice, deliver_late, kick_late};
+use crate::agent::background::{RoutedNotice, deliver_late, kick_late, recoverable_session_ids};
 use crate::core::pending_queue::PendingQueues;
 use std::path::{Path, PathBuf};
 
@@ -18,22 +18,14 @@ use std::path::{Path, PathBuf};
 /// 幂等双锚：marker 文件（主）挡重复启动；确定性 delivery id 在队检查（副）挡队列未消费的重投。
 pub fn recover_interrupted(pending: &PendingQueues, sessions_dir: &Path) -> Vec<String> {
     let mut delivered = Vec::new();
-    let entries = match std::fs::read_dir(sessions_dir) {
-        Ok(entries) => entries,
+    let session_ids = match recoverable_session_ids(sessions_dir) {
+        Ok(session_ids) => session_ids,
         Err(error) => {
             tracing::warn!(%error, "interrupted background agent recovery scan failed");
             return delivered;
         }
     };
-    for entry in entries.flatten() {
-        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            continue;
-        }
-        let Some(sid) = entry.file_name().to_str().map(str::to_owned) else { continue };
-        // 目录名即 session id：非法名（路径穿越/空格等）跳过不 panic
-        if crate::core::ids::validate_id(&sid).is_err() {
-            continue;
-        }
+    for sid in session_ids {
         delivered.extend(recover_session(pending, sessions_dir, &sid));
     }
     delivered

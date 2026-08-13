@@ -44,6 +44,16 @@ async fn spawn(registry: &Arc<TaskRegistry>, owner: &TaskOwner, command: &str) -
     id
 }
 
+#[test]
+fn missing_sessions_directory_has_no_interrupted_tasks() {
+    let dir = temp("first-start");
+    assert!(!dir.exists());
+    let queues = PendingQueues::new(dir.clone());
+
+    assert!(recover_interrupted_tasks(&queues, &dir).is_empty());
+    assert!(!dir.exists(), "recovery scan must not create storage on a clean first start");
+}
+
 #[tokio::test]
 async fn spawn_and_exit_persist_start_then_exit_before_notification() {
     let dir = temp("exit");

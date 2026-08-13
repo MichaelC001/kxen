@@ -15,6 +15,22 @@ pub use recovery::recover_interrupted;
 pub use router::{LateDelivery, NotifyPath, NotifyRouter, RoutedNotice, deliver_late, drain_to_session, drain_to_session_in};
 pub use task_recovery::recover_interrupted_tasks;
 
+/// 两类后台恢复共用同一份 session 目录发现语义：全新安装还没有目录时是空集合，
+/// 只有真实 I/O 故障才交给调用方记录 warning。
+fn recoverable_session_ids(sessions_dir: &Path) -> std::io::Result<Vec<String>> {
+    let entries = match std::fs::read_dir(sessions_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    Ok(entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
+        .filter(|session_id| crate::core::ids::validate_id(session_id).is_ok())
+        .collect())
+}
+
 /// 启动恢复聚合入口：子代理中断补投 + exec/task 后台进程中断补投，pending.rs 单点调用。
 /// 返回值为两边实际投递到的 session id 去重合并（调用方合并续跑清单与启动日志用）。
 pub fn recover_interrupted_all(pending: &crate::core::pending_queue::PendingQueues, sessions_dir: &Path) -> Vec<String> {
