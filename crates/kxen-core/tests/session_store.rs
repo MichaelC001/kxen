@@ -1,7 +1,7 @@
 //! 会话存储测试：生命周期 / 图片 / reasoning / tool 精确转录。
 
 use kxen_core::core::session as ses;
-use kxen_core::core::session::{Part, Role};
+use kxen_core::core::session::{ForkKind, ForkPosition, Part, Role};
 use kxen_core::core::session_export::{export_markdown, export_to_file};
 
 fn tmp_dir(tag: &str) -> std::path::PathBuf {
@@ -56,6 +56,11 @@ fn session_lifecycle() {
     assert!(md.contains("帮我改一下 README 的开头"));
     assert!(md.contains("tool `exec`"));
     assert!(md.contains("a.txt b.txt"));
+    let fork_md = export_markdown(&dir, &forked.id).unwrap();
+    assert!(fork_md.contains(&format!("- branch-root: {}", s.id)));
+    assert!(fork_md.contains(&format!("- parent-session: {}", s.id)));
+    assert!(fork_md.contains("- fork-point: after message"));
+    assert!(fork_md.contains("- workspace-state: shared-current"));
     // 导出落盘走显式路径：默认路径是 ~/Downloads，测试不该污染用户目录
     let out = export_to_file(&dir, &s.id, Some(&dir.join("out.md"))).unwrap();
     assert!(out.exists());
@@ -63,6 +68,38 @@ fn session_lifecycle() {
     ses::remove(&dir, &s.id);
     ses::remove(&dir, &forked.id);
     assert!(ses::list(&dir).is_empty());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn fork_lineage_records_exact_cursor_and_supports_empty_prefix() {
+    let dir = tmp_dir("branch-lineage");
+    let root = ses::create(&dir, "/tmp/work").unwrap();
+    let first = ses::new_message(&root.id, Role::User, vec![Part::Text { text: "first".into() }]);
+    ses::append_message(&dir, &first).unwrap();
+    let second = ses::new_message(&root.id, Role::Assistant, vec![Part::Text { text: "second".into() }]);
+    ses::append_message(&dir, &second).unwrap();
+
+    let empty = ses::fork_with_options(&dir, &root.id, &first.id, ForkPosition::Before, ForkKind::Edit).unwrap();
+    assert_eq!(empty.parent_id.as_deref(), Some(root.id.as_str()));
+    assert_eq!(empty.branch_root_id.as_deref(), Some(root.id.as_str()));
+    assert_eq!(empty.fork_kind, Some(ForkKind::Edit));
+    assert_eq!(empty.message_revision, 0);
+    assert!(ses::load_messages(&dir, &empty.id).is_empty());
+    let point = empty.fork_point.as_ref().unwrap();
+    assert_eq!(point.message_id, first.id);
+    assert_eq!(point.message_index, 1);
+    assert_eq!(point.message_created_at, first.created_at);
+    assert_eq!(point.position, ForkPosition::Before);
+
+    let branch = ses::fork_with_options(&dir, &root.id, &second.id, ForkPosition::After, ForkKind::Manual).unwrap();
+    let cloned = ses::load_messages(&dir, &branch.id);
+    assert_eq!(cloned.len(), 2);
+    let nested = ses::fork_with_options(&dir, &branch.id, &cloned[0].id, ForkPosition::Before, ForkKind::Rerun).unwrap();
+    assert_eq!(nested.parent_id.as_deref(), Some(branch.id.as_str()));
+    assert_eq!(nested.branch_root_id.as_deref(), Some(root.id.as_str()));
+    assert_eq!(nested.fork_kind, Some(ForkKind::Rerun));
+    assert!(ses::load_messages(&dir, &nested.id).is_empty());
     std::fs::remove_dir_all(&dir).ok();
 }
 

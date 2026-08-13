@@ -5,7 +5,7 @@ use kxen_core::agent::team::{SpawnDeps, TeamManager};
 use kxen_core::core::event::EventBus;
 use kxen_core::core::goal::{Goal, GoalContract, GoalStatus};
 use kxen_core::core::session as ses;
-use kxen_core::core::session::{Part, Role};
+use kxen_core::core::session::{ForkKind, ForkPosition, Part, Role};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -107,6 +107,24 @@ fn append_to_deleted_session_is_refused() {
     let m = ses::new_message(&s.id, Role::Assistant, vec![Part::Text { text: "收尾写入".into() }]);
     assert!(ses::append_message(&dir, &m).is_err(), "已删会话必须拒绝写入");
     assert!(!dir.join(format!("{}.jsonl", s.id)).exists(), "拒绝后不得重建孤儿 JSONL");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn deleting_parent_does_not_cascade_to_branch_descendants() {
+    let dir = tmp_dir("branch-parent");
+    let root = ses::create(&dir, "/tmp/work").unwrap();
+    let message = ses::new_message(&root.id, Role::User, vec![Part::Text { text: "root".into() }]);
+    ses::append_message(&dir, &message).unwrap();
+    let child = ses::fork_with_options(&dir, &root.id, &message.id, ForkPosition::After, ForkKind::Manual).unwrap();
+
+    ses::remove(&dir, &root.id);
+
+    assert!(ses::load_meta(&dir, &root.id).is_err());
+    let surviving = ses::load_meta(&dir, &child.id).expect("deleting a parent must not cascade to its branches");
+    assert_eq!(surviving.parent_id.as_deref(), Some(root.id.as_str()));
+    assert_eq!(surviving.branch_root_id.as_deref(), Some(root.id.as_str()));
+    assert_eq!(ses::load_messages(&dir, &child.id).len(), 1);
     std::fs::remove_dir_all(&dir).ok();
 }
 

@@ -170,6 +170,7 @@ fn optional_fields(method: &str) -> &'static [(&'static str, Kind)] {
         "session.delete" => &[("distill", B)],
         "session.update_meta" => &[("title", S), ("pinned", B), ("sort_order", U)],
         "session.set_model" => &[("provider", S), ("model", S)],
+        "session.fork" => &[("position", S), ("kind", S)],
         "session.rewind" => &[("confirm", B)],
         "session.export" => &[("path", S)],
         "send_message" => &[("text", S), ("context", A), ("images", A)],
@@ -233,6 +234,12 @@ fn validate_values(method: &str, params: &Value) -> Result<(), CallError> {
             if params.get("provider").and_then(Value::as_str).is_some() != params.get("model").and_then(Value::as_str).is_some() =>
         {
             Err(invalid("provider/model", "both present or both omitted"))
+        }
+        "session.fork"
+            if !matches!(params.get("position").and_then(Value::as_str), None | Some("before" | "after"))
+                || !matches!(params.get("kind").and_then(Value::as_str), None | Some("manual" | "edit" | "rerun")) =>
+        {
+            Err(invalid("position/kind", "before or after; manual, edit, or rerun"))
         }
         "provider.add_custom" if params.get("models").and_then(Value::as_array).is_none_or(Vec::is_empty) => {
             Err(invalid("models", "non-empty string array"))

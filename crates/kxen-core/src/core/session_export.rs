@@ -3,13 +3,34 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use crate::core::session::{Part, Role, load_messages_checked, load_meta, now_ms};
+use crate::core::session::{ForkKind, ForkPosition, Part, Role, load_messages_checked, load_meta, now_ms};
 
 /// 导出 markdown：user/assistant 正文 + 工具调用摘要（reasoning 略）。
 pub fn export_markdown(dir: &Path, id: &str) -> std::io::Result<String> {
     let session = load_meta(dir, id)?;
     let messages = load_messages_checked(dir, id)?;
-    let mut out = format!("# {}\n\n- session: {}\n- directory: {}\n\n", session.title, session.id, session.directory);
+    let mut out = format!("# {}\n\n- session: {}\n- directory: {}\n", session.title, session.id, session.directory);
+    if let Some(parent_id) = &session.parent_id {
+        let root_id = session.branch_root_id.as_deref().unwrap_or(parent_id);
+        writeln!(&mut out, "- branch-root: {root_id}").expect("writing to String cannot fail");
+        writeln!(&mut out, "- parent-session: {parent_id}").expect("writing to String cannot fail");
+        if let Some(point) = &session.fork_point {
+            let position = match point.position {
+                ForkPosition::Before => "before",
+                ForkPosition::After => "after",
+            };
+            writeln!(&mut out, "- fork-point: {position} message {} (index {})", point.message_id, point.message_index)
+                .expect("writing to String cannot fail");
+        }
+        let kind = match session.fork_kind.unwrap_or(ForkKind::Manual) {
+            ForkKind::Manual => "manual",
+            ForkKind::Edit => "edit",
+            ForkKind::Rerun => "rerun",
+        };
+        writeln!(&mut out, "- fork-kind: {kind}").expect("writing to String cannot fail");
+        out.push_str("- workspace-state: shared-current\n");
+    }
+    out.push('\n');
     for m in &messages {
         let role = match m.role {
             Role::User => "user",

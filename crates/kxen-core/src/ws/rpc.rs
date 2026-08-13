@@ -202,8 +202,32 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
         "session.fork" => {
             let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let message_id = params.get("message_id").and_then(Value::as_str).ok_or("missing message_id")?;
-            let session = kxen_core::core::session::fork(&kxen_core::core::paths::sessions_dir(), session_id, message_id)
-                .map_err(|e| e.to_string())?;
+            let position = params.get("position").and_then(Value::as_str).unwrap_or("after");
+            let position = if position == "before" {
+                kxen_core::core::session::ForkPosition::Before
+            } else if position == "after" {
+                kxen_core::core::session::ForkPosition::After
+            } else {
+                return Err("invalid fork position".into());
+            };
+            let kind = params.get("kind").and_then(Value::as_str).unwrap_or("manual");
+            let kind = if kind == "manual" {
+                kxen_core::core::session::ForkKind::Manual
+            } else if kind == "edit" {
+                kxen_core::core::session::ForkKind::Edit
+            } else if kind == "rerun" {
+                kxen_core::core::session::ForkKind::Rerun
+            } else {
+                return Err("invalid fork kind".into());
+            };
+            let session = kxen_core::core::session::fork_with_options(
+                &kxen_core::core::paths::sessions_dir(),
+                session_id,
+                message_id,
+                position,
+                kind,
+            )
+            .map_err(|e| e.to_string())?;
             Ok(json!(session))
         }
         "session.rewind" => super::session_ops::session_rewind(&params, state),

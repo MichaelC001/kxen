@@ -16,7 +16,7 @@ mod messages;
 pub use messages::{load_messages, load_messages_checked};
 #[path = "session/fork.rs"]
 mod fork_session;
-pub use fork_session::fork;
+pub use fork_session::{fork, fork_with_options};
 #[path = "session/cursor.rs"]
 mod cursor;
 pub use cursor::{current_message_cursor_checked, load_message_snapshot_checked, message_cursor};
@@ -43,6 +43,15 @@ pub struct Session {
     pub directory: String,
     #[serde(default)]
     pub parent_id: Option<String>,
+    /// 稳定分支族根。根 Session 为 None；分支即使父 Session 被删除仍可保持族归属。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch_root_id: Option<String>,
+    /// 创建分支时在父 Session 上使用的精确消息游标。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_point: Option<ForkPoint>,
+    /// 分支来源决定产品文案与行为，不靠标题反推。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_kind: Option<ForkKind>,
     pub created_at: u64,
     pub updated_at: u64,
     /// 消息内容的单调 revision。每次真实 append/rewrite 递增，meta/UI 变更不递增。
@@ -58,6 +67,30 @@ pub struct Session {
     /// 会话级模型覆盖（None = 跟随全局默认；旧 meta 文件无此字段，serde 缺省兼容）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ForkKind {
+    Manual,
+    Edit,
+    Rerun,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ForkPosition {
+    Before,
+    After,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ForkPoint {
+    pub message_id: String,
+    /// 父 Session 中从 1 开始的消息序号，父级缺失时仍能解释分叉位置。
+    pub message_index: u64,
+    pub message_created_at: u64,
+    pub position: ForkPosition,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +190,9 @@ pub fn create(dir: &Path, directory: &str) -> std::io::Result<Session> {
         title: "新会话".into(),
         directory: directory.into(),
         parent_id: None,
+        branch_root_id: None,
+        fork_point: None,
+        fork_kind: None,
         created_at: now,
         updated_at: now,
         message_revision: 0,

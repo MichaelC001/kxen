@@ -58,6 +58,7 @@ fn accepts_registered_contracts_and_rejects_every_value_constraint() {
         ("config.set_embedding", json!({ "provider": "ollama", "model": "nomic-embed-text", "base_url": "" })),
         ("knowledge.move", json!({ "scope": "project", "slug": "note", "to": "personal" })),
         ("knowledge.consolidation_acknowledge_unknown", json!({ "session_id": "ses_one", "confirm_unknown": true })),
+        ("session.fork", json!({ "session_id": "ses_one", "message_id": "msg_one", "position": "before", "kind": "edit" })),
     ] {
         assert!(validate_rpc(method, params).is_ok(), "{method} rejected");
     }
@@ -85,6 +86,8 @@ fn accepts_registered_contracts_and_rejects_every_value_constraint() {
         ("config.set_composer_suggestions", json!({ "key": "unknown", "enabled": true })),
         ("config.set_embedding", json!({ "provider": "unknown" })),
         ("session.set_model", json!({ "id": "ses_one", "provider": "xai" })),
+        ("session.fork", json!({ "session_id": "ses_one", "message_id": "msg_one", "position": "around", "kind": "manual" })),
+        ("session.fork", json!({ "session_id": "ses_one", "message_id": "msg_one", "position": "after", "kind": "copy" })),
         ("provider.add_custom", json!({ "name": "local", "base_url": "https://example.test", "models": [], "api_key": "secret" })),
         ("knowledge.remove", json!({ "scope": "bogus", "slug": "note" })),
         ("goal.create", json!({ "objective": "ship", "completion_criteria": "verified", "budget": { "turns": u64::from(u32::MAX) + 1 } })),

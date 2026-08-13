@@ -33,6 +33,9 @@ fn model_roundtrip_and_legacy_compat() {
     std::fs::write(dir.join(format!("{}.json", s.id)), legacy).unwrap();
     let legacy = ses::load_meta(&dir, &s.id).unwrap();
     assert!(legacy.model.is_none());
+    assert!(legacy.branch_root_id.is_none());
+    assert!(legacy.fork_point.is_none());
+    assert!(legacy.fork_kind.is_none());
     assert_eq!(legacy.title, "旧会话");
 
     std::fs::remove_dir_all(&dir).ok();
