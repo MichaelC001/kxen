@@ -271,7 +271,7 @@ export default function BotLibrary(
             each={visibleBots()}
             fallback={
               <p class="text-xs text-[var(--text-faint)]">
-                {bots().length ? "没有匹配的 Bot。" : "还没有 Bot，请从“创建 Bot”开始。"}
+                {bots().length ? "没有匹配的 Bot。" : "还没有 Bot，请从「创建 Bot」开始。"}
               </p>
             }
           >

@@ -1,4 +1,4 @@
-// ModelPicker：catalog 驱动（models.dev 快照）——显示名 + id + ctx + 能力徽章 + 搜索 + 方向键导航 + 角色分配。
+// ModelPicker：catalog 驱动（models.dev 快照），显示名 + id + ctx + 能力徽章 + 搜索 + 方向键导航 + 角色分配。
 import { createEffect, createSignal, createUniqueId, For, onMount, Show } from "solid-js";
 import { Check, ChevronDown, Search } from "lucide-solid";
 import { configSetRole } from "../../lib/chat";
@@ -164,7 +164,7 @@ export default function ModelPicker() {
     if (!cur().model) return;
     configSetRole(role, cur().provider, cur().model)
       .then(() => {
-        setRoleMsg(`${curLabel()} → ${label.replace("设为", "")} ✓`);
+        setRoleMsg(`${curLabel()} -> ${label.replace("设为", "")}: PASS`);
         // 连点多个角色时只留最后一次的消退计时，否则旧计时器提前清掉新提示
         if (roleMsgTimer) clearTimeout(roleMsgTimer);
         roleMsgTimer = setTimeout(() => setRoleMsg(""), 1800);

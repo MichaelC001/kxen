@@ -302,7 +302,7 @@ function Gate(props: { label: string; passed: boolean; detail: string }) {
   return (
     <div class="rounded border border-[var(--border)] p-2">
       <div class={props.passed ? "text-[var(--ok)]" : "text-[var(--warn)]"}>
-        {props.passed ? "PASS" : "WAIT"} {props.label}
+        {props.passed ? "PASS" : "UNKNOWN"} {props.label}
       </div>
       <div class="text-2xs text-[var(--text-faint)] mt-1">{props.detail}</div>
     </div>

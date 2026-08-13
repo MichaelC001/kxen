@@ -243,11 +243,11 @@ describe("ModelPicker 跟随全局默认 (webkit)", () => {
     await userEvent.click(chip);
     await new Promise((r) => setTimeout(r, 50));
     expect(chatMock.configSetRole).toHaveBeenCalledWith("chat", "xai", "grok-1");
-    expect(document.querySelector(".composer-popup")!.textContent).toContain("✓");
+    expect(document.querySelector(".composer-popup")!.textContent).toContain("PASS");
     // pill 旁（popover 外）不得有提示节点
     const root = document.querySelector(".model-pill")!.parentElement!;
     const outside = [...root.children].filter((el) => !el.classList.contains("composer-popup"));
-    expect(outside.every((el) => !el.textContent?.includes("✓"))).toBe(true);
+    expect(outside.every((el) => !el.textContent?.includes("PASS"))).toBe(true);
   });
 
   it("右下角打开时长列表完整留在 1280×800 viewport 内", async () => {
