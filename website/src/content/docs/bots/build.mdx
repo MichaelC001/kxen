@@ -1,30 +1,34 @@
 ---
-title: Bot Build
-description: 使用受限 Builder Agent 生成、授权、测试和发布 Bot definition。
+title: 创建与完善 Bot
+description: 与每个 Bot 自己的受限 self-builder 对话，生成、授权、测试和发布 Bot definition。
 status: canonical
 sidebar:
   order: 2
 ---
 
-`Bots -> Bot Build` 把自然语言需求转换为可验证的 Bot definition。Builder Agent 负责提出定义和修订建议，但不能替 Owner 获得权限或直接发布。
+`Bots -> 创建 Bot` 把自然语言需求转换为可验证的 Bot definition。这里不存在一个拥有固定人格的全局 Builder Bot。每个 Bot 从取得自己的 identity 开始，就拥有一项只服务于自身定义的受限 self-builder capability，并以自己的名称回复 Owner。
+
+self-builder 只运行在 design-time `BuilderSession` 中，不是已发布的 BotRun。它可以追问并提出完整草稿，但不能替 Owner 获得权限、执行工具或直接发布。
 
 ## 创建流程
 
-1. 输入 Bot 名称，以及需要长期重复完成的工作、输入、输出和成功标准。
-2. Builder Agent 根据 runtime capability catalog 生成草稿。
-3. 检查 system prompt、输入输出契约、预算、工具、Connector、路径和 Bot-to-Bot policy。
-4. 由 Owner 对需要的 capability 和 resource grant 逐项授权。
+1. 输入 Bot 名称，以及需要长期重复完成的工作、输入、输出和成功标准。系统先创建该 Bot 的稳定 identity 和 `BuilderSession`。
+2. Bot 通过自己的 self-builder capability，根据 runtime capability catalog 回复、追问并生成草稿。
+3. 继续与这个 Bot 对话，检查 system prompt、输入输出契约、预算、工具、Connector、路径和 Bot-to-Bot policy。
+4. 展开检查 capability、Workspace path、Connector、contract、budget、context、memory、approval 和 Bot-to-Bot policy；Owner 输入授权理由后，授权绑定当前草稿 hash 的完整权限快照。
 5. 运行 controlled test，保存结构化测试结果。
 6. 通过 deterministic validation 后发布 immutable revision。
 
-Builder Session 是 durable 的。切换页面或重启后，可以输入 Builder Session ID 继续，不需要重新生成一份无法对账的草稿。
+`BuilderSession` 是 durable 的。切换页面或重启后，从 `Bot 管理` 选择该 Bot 并点击「与 Bot 对话编辑」，应用会自动恢复它最近的 active 构建对话，不要求用户保存或输入内部 Session ID。需要分离新的调整上下文时，也可以为同一个 Bot 开始新一轮对话。
 
-## Builder 的限制
+## self-builder 的身份与限制
 
-- 只能从当前 runtime catalog 选择真实存在的 capability。
-- 不能自行增加 Workspace path、Connector、MCP server 或审批豁免。
-- 不能把自身的工具权限继承给最终 Bot。
-- 不能绕过 controlled test、validation 或 Owner publish。
+- 每条新回复和草稿变更都由目标 Bot identity 记录；其他 Bot 不能修改这个 `BuilderSession`。
+- self-builder 只能从当前 runtime catalog 选择真实存在的 capability。
+- self-builder 不能自行增加 Workspace path、Connector、MCP server 或审批豁免。
+- design-time 对话没有可继承给正式 BotRun 的工具权限。
+- self-builder 不能运行工具、创建 Routine 或 Group，也不能绕过 controlled test、validation 或 Owner publish。
+- grant、controlled test、validation 触发、publish 和 cancel 都是 Owner 或 Runtime 的独立命令，不是 Bot 自助操作。授权理由不能为空。
 - 不存在的 tool、Skill 或 Connector 会 validation `FAIL`，不会作为占位能力发布。
 
 ## Evidence 绑定

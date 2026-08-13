@@ -6,7 +6,7 @@ sidebar:
   order: 1
 ---
 
-`Bots -> Bot 管理` 是 Bot Library。这里展示每个 Bot 的当前生命周期、草稿和已发布 revision，并提供手动运行、复制和 Memory 管理。
+`Bots -> Bot 管理` 是 Bot Library。这里展示每个 Bot 的当前生命周期、草稿和已发布 revision，并提供手动运行、复制和 Memory 管理。列表支持按名称或 Bot ID 搜索、按生命周期筛选，并始终包含 `trashed` Bot，确保 Restore 入口不会因移入废纸篓而消失。
 
 ## Definition 与 revision
 
@@ -54,4 +54,4 @@ Bot Memory 独立于 Session history，用于保存需要跨 Run 复用的事实
 - Message、Task、Memory 和 ArtifactRef 不会扩大 capability 或跳过 Approval。
 - 每个 Bot 在同一个 Conversation 中同时最多有一个 nonterminal Run。
 
-需要修改能力或契约时，进入 [Bot Build](https://kxen.ai/bots/build) 生成或更新草稿，再完成授权、测试和发布。
+需要修改能力或契约时，点击「与 Bot 对话编辑」进入该 Bot 自己的 [构建对话](https://kxen.ai/bots/build)。应用自动恢复最近的 active `BuilderSession`，无需管理内部 Session ID；修改完成后再由 Owner 授权、测试和发布。

@@ -44,7 +44,7 @@ Provider 凭证可以来自官方客户端的本地登录状态或用户显式�
 
 研究和规划角色默认只读。写文件、执行命令和删除数据需要 execution 权限。MCP 工具还可以逐项配置 allow、ask 或 deny。
 
-Bot capability、Workspace path 和 Connector grant 在 publish 前由 Owner 明确授予。Builder Agent、Bot Message、CollaborationTask、Memory 和 ArtifactRef 都不能扩大权限。MCP tool 还需要 exact server grant 和 Connector 的 Workspace binding；Bot 当前不暴露无法按 path grant 完整过滤的 LSP。
+Bot capability、Workspace path 和 Connector grant 在 publish 前由 Owner 明确授予。每个 Bot 的 self-builder、Bot Message、CollaborationTask、Memory 和 ArtifactRef 都不能扩大权限。self-builder 只能修改所属 Bot 的 design-time draft，不能执行工具、授权或发布。MCP tool 还需要 exact server grant 和 Connector 的 Workspace binding；Bot 当前不暴露无法按 path grant 完整过滤的 LSP。
 
 Shell 命令在宿主机执行，不宣称提供进程沙盒。kxen 不加载用户 Shell rc 或 alias 快照，并且每条命令和 background task start/restart 都需要显示完整 command 与 cwd 的当次 Approval。拒绝或没有可用 Approval channel 时执行失败关闭。
 

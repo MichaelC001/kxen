@@ -47,7 +47,7 @@ kxen 无头 server（在服务器或本机运行后用浏览器访问全部功�
 - Rust 后端拥有运行状态，SolidJS 前端负责交互和呈现。
 - 所有模型调用进入统一资源管理层。
 - 高风险工具调用在执行层统一审批或拒绝。
-- Bot 使用独立 revision、permission snapshot、Run 和 Recovery；Bot-to-Bot 不合并成员权限。
+- 每个 Bot 使用自己的受限 self-builder 对话、独立 revision、permission snapshot、Run 和 Recovery；Bot-to-Bot 不合并成员权限。
 - 文件删除进入废纸篓，不直接执行不可恢复删除。`;
 
 export const homeSource = `---

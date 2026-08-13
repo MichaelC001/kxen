@@ -93,7 +93,7 @@ Release-Note: 用户能获得的第一项能力或改进
 Release-Note: 用户能获得的第二项能力或改进
 ```
 
-`Release-Title` 在一个版本内只能有一个，最多 80 个字符；`Release-Note` 可以有多个，应写用户可感知的结果，不复述文件名、测试名或内部实现步骤。git-cliff 会先生成“版本主题”和“本次更新”，再保留按 Conventional Commit 分类的完整技术明细；GitHub Release 标题也从同一份生成内容提取。发布校验会拒绝缺少主题或产品摘要的版本。
+`Release-Title` 在一个版本内只能有一个，最多 80 个字符；`Release-Note` 可以有多个，应写用户可感知的结果，不复述文件名、测试名或内部实现步骤。git-cliff 会先生成「版本主题」和「本次更新」，再保留按 Conventional Commit 分类的完整技术明细；GitHub Release 标题也从同一份生成内容提取。发布校验会拒绝缺少主题或产品摘要的版本。
 
 将生成文件与版本号修改一起放入 `chore(release): prepare vx.y.z` commit；`chore(release)` 不进入最终 Changelog，commit 后再次运行 `check` 必须为 `PASS`。
 
