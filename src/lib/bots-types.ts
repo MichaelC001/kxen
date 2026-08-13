@@ -57,6 +57,12 @@ export interface BuilderState {
   lifecycle: string;
   event_version: number;
   user_goal: string;
+  messages: Array<{
+    message_id: string;
+    actor: BotActor;
+    text: string;
+    created_at_ms: number;
+  }>;
   draft?: {
     version: number;
     source_message_id?: string;

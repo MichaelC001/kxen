@@ -18,6 +18,7 @@ pub(super) const METHODS: &[&str] = &[
     "bot.builder.cancel",
     "bot.builder.get",
     "bot.builder.grant",
+    "bot.builder.list",
     "bot.builder.message",
     "bot.builder.start",
     "bot.builder.test",

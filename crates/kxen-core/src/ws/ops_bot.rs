@@ -30,6 +30,7 @@ pub(super) const METHODS: &[&str] = &[
     "bot.archive",
     "bot.trash",
     "bot.restore",
+    "bot.builder.list",
     "bot.builder.start",
     "bot.builder.message",
     "bot.builder.get",

@@ -1,3 +1,4 @@
+use super::events::BuilderEvent;
 use super::*;
 use crate::agent::capability::CapabilityCatalog;
 use crate::core::identity::{ActorRef, IdempotencyKey, ResourceId, SystemActor, TraceContext};
@@ -53,6 +54,133 @@ fn builder_draft_without_source_message_remains_readable() {
     encoded.as_object_mut().unwrap().remove("source_message_id");
     let decoded: BuilderDraft = serde_json::from_value(encoded).unwrap();
     assert!(decoded.source_message_id.is_none());
+}
+
+#[test]
+fn builder_turn_atomically_records_reply_and_target_draft() {
+    let root = std::env::temp_dir().join(format!("kxen-builder-turn-{}", uuid::Uuid::new_v4()));
+    let repo = BuilderRepository::new(&root);
+    let session_id = id("builder_report");
+    let started = write(
+        &repo,
+        &session_id,
+        0,
+        "idem_turn_start",
+        ActorRef::Owner,
+        BuilderCommand::Start {
+            builder_session_id: session_id.clone(),
+            bot_id: id("bot_report"),
+            user_goal: "Build a report Bot".into(),
+            at_ms: 1,
+        },
+    );
+    let source_message_id = id("bmessage_owner");
+    let owner_message = write(
+        &repo,
+        &session_id,
+        started.event_version,
+        "idem_owner_message",
+        ActorRef::Owner,
+        BuilderCommand::AppendMessage {
+            message: BuilderMessage {
+                message_id: source_message_id.clone(),
+                actor: ActorRef::Owner,
+                text: "Create a verified report".into(),
+                created_at_ms: 2,
+            },
+            at_ms: 2,
+        },
+    );
+    let completed = write(
+        &repo,
+        &session_id,
+        owner_message.event_version,
+        "idem_builder_turn",
+        ActorRef::System { actor: SystemActor::Builder },
+        BuilderCommand::ApplyTurn {
+            source_message_id: source_message_id.clone(),
+            message: BuilderMessage {
+                message_id: id("bmessage_builder"),
+                actor: ActorRef::System { actor: SystemActor::Builder },
+                text: "The Report Bot draft is ready for review.".into(),
+                created_at_ms: 3,
+            },
+            expected_draft_version: 0,
+            definition: Some(Box::new(definition("Report Bot"))),
+            at_ms: 3,
+        },
+    );
+
+    assert_eq!(completed.event_version, owner_message.event_version + 2);
+    assert_eq!(completed.messages.len(), 2);
+    assert_eq!(completed.messages[1].actor, ActorRef::System { actor: SystemActor::Builder });
+    let draft = completed.draft.as_ref().unwrap();
+    assert_eq!(draft.source_message_id.as_ref(), Some(&source_message_id));
+    assert_eq!(draft.definition.display_name, "Report Bot");
+
+    let batches = crate::core::event_store::EventStore::<BuilderEvent>::new(
+        root.join("definitions/builder-sessions").join(session_id.as_str()),
+        crate::core::identity::AggregateRef { kind: crate::core::identity::AggregateKind::BuilderSession, id: session_id },
+        crate::core::identity::SchemaVersion::new(1).unwrap(),
+    )
+    .load()
+    .unwrap();
+    assert_eq!(batches.last().unwrap().events.len(), 2);
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn owner_cannot_append_another_message_before_builder_replies() {
+    let root = std::env::temp_dir().join(format!("kxen-builder-pending-{}", uuid::Uuid::new_v4()));
+    let repo = BuilderRepository::new(&root);
+    let session_id = id("builder_pending");
+    let started = write(
+        &repo,
+        &session_id,
+        0,
+        "idem_pending_start",
+        ActorRef::Owner,
+        BuilderCommand::Start {
+            builder_session_id: session_id.clone(),
+            bot_id: id("bot_pending"),
+            user_goal: "Build a Bot".into(),
+            at_ms: 1,
+        },
+    );
+    let pending = write(
+        &repo,
+        &session_id,
+        started.event_version,
+        "idem_pending_first",
+        ActorRef::Owner,
+        BuilderCommand::AppendMessage {
+            message: BuilderMessage {
+                message_id: id("bmessage_first"),
+                actor: ActorRef::Owner,
+                text: "First request".into(),
+                created_at_ms: 2,
+            },
+            at_ms: 2,
+        },
+    );
+    let rejected = repo.execute(BuilderWrite {
+        builder_session_id: session_id,
+        expected_version: pending.event_version,
+        idempotency_key: key("idem_pending_second"),
+        actor: ActorRef::Owner,
+        trace: TraceContext::default(),
+        command: BuilderCommand::AppendMessage {
+            message: BuilderMessage {
+                message_id: id("bmessage_second"),
+                actor: ActorRef::Owner,
+                text: "Second request".into(),
+                created_at_ms: 3,
+            },
+            at_ms: 3,
+        },
+    });
+    assert!(matches!(rejected, Err(BuilderError::Rejected(message)) if message.contains("awaiting a Builder reply")));
+    std::fs::remove_dir_all(root).ok();
 }
 
 #[test]

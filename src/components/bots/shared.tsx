@@ -6,6 +6,11 @@ export interface RefreshProps {
   onChanged: () => void;
 }
 
+export interface BotBuilderTarget {
+  bot_id: string;
+  display_name: string;
+}
+
 export const actionClass =
   "pressable px-2.5 py-1 rounded border border-[var(--border)] text-xs text-[var(--text-dim)] hover:text-[var(--text)] disabled:opacity-40";
 export const primaryClass =

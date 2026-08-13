@@ -10,6 +10,7 @@ import BotCollaboration from "../components/bots/BotCollaboration";
 import BotRoutines from "../components/bots/BotRoutines";
 import BotRuns from "../components/bots/BotRuns";
 import BotRecovery from "../components/bots/BotRecovery";
+import type { BotBuilderTarget } from "../components/bots/shared";
 
 type Tab = "library" | "build" | "collaboration" | "routines" | "runs" | "recovery";
 
@@ -25,6 +26,7 @@ const TABS: Array<{ id: Tab; label: string; icon: typeof Bot }> = [
 export default function Bots() {
   const [tab, setTab] = createSignal<Tab>("library");
   const [epoch, setEpoch] = createSignal(0);
+  const [builderTarget, setBuilderTarget] = createSignal<BotBuilderTarget>();
   let offStream: (() => void) | undefined;
   let offResync: (() => void) | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -85,10 +87,22 @@ export default function Bots() {
         </div>
         <Switch>
           <Match when={tab() === "library"}>
-            <BotLibrary epoch={epoch()} onChanged={refresh} />
+            <BotLibrary
+              epoch={epoch()}
+              onChanged={refresh}
+              onBuild={(target) => {
+                setBuilderTarget(target);
+                setTab("build");
+              }}
+            />
           </Match>
           <Match when={tab() === "build"}>
-            <BotBuilder epoch={epoch()} onChanged={refresh} />
+            <BotBuilder
+              epoch={epoch()}
+              onChanged={refresh}
+              target={builderTarget()}
+              onClearTarget={() => setBuilderTarget(undefined)}
+            />
           </Match>
           <Match when={tab() === "collaboration"}>
             <BotCollaboration epoch={epoch()} onChanged={refresh} />

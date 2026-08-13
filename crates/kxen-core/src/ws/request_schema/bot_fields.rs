@@ -71,6 +71,7 @@ pub(super) fn optional(method: &str) -> Option<&'static [(&'static str, Kind)]> 
         "bot.list" => &[("include_trashed", B)],
         "bot.create" => &[("display_name", S), ("definition", O)],
         "bot.duplicate" => &[("revision_id", S), ("display_name", S)],
+        "bot.builder.list" => &[("bot_id", S)],
         "bot.builder.start" => &[("display_name", S)],
         "bot.run.start" => &[("revision_id", S), ("conversation_id", S), ("budget", O)],
         "bot.run.list" => &[("bot_id", S), ("conversation_id", S), ("status", S)],

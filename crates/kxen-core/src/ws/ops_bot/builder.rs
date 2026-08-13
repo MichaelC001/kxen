@@ -10,6 +10,7 @@ use super::{RpcResult, idempotency, now, owner, resource_id, trace, value};
 
 pub(super) async fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
     match method {
+        "bot.builder.list" => list(params, state),
         "bot.builder.start" => start(params, state),
         "bot.builder.message" => message(params, state).await,
         "bot.builder.get" => value(state.bots.builder().get(&resource_id(params, "builder_session_id")?)?),
@@ -29,6 +30,18 @@ pub(super) async fn handle(method: &str, params: &Value, state: &Arc<AppState>) 
         }
         _ => Err(format!("unknown Bot Builder method: {method}").into()),
     }
+}
+
+fn list(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
+    let bot_id = params.get("bot_id").and_then(Value::as_str).map(crate::core::identity::ResourceId::parse).transpose()?;
+    let sessions = state
+        .bots
+        .builder()
+        .list()?
+        .into_iter()
+        .filter(|session| bot_id.as_ref().is_none_or(|bot_id| &session.bot_id == bot_id))
+        .collect::<Vec<_>>();
+    value(sessions)
 }
 
 fn grant(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
@@ -107,6 +120,9 @@ async fn message(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
             return Err(format!("Builder message id collision: {message_id}").into());
         }
         if index + 1 < current.messages.len() {
+            if current.draft.as_ref().and_then(|draft| draft.source_message_id.as_ref()) == Some(&message_id) {
+                sync_message_draft(state, &builder_id, &message_id, &current)?;
+            }
             return value(current);
         }
         current
@@ -127,38 +143,57 @@ async fn message(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
         sync_message_draft(state, &builder_id, &message_id, &appended)?;
         return value(appended);
     }
+    let target = state.bots.definitions().get(&appended.bot_id)?;
+    let current_definition = appended
+        .draft
+        .as_ref()
+        .map(|draft| draft.definition.clone())
+        .or_else(|| target.draft.as_ref().map(|draft| draft.definition.clone()))
+        .or_else(|| target.current_revision().map(|revision| revision.definition.clone()))
+        .ok_or("target Bot has no editable definition")?;
     let runtime = state.ready_active_runtime().await?;
     let workspace_id = crate::bot::executor::workspace_id(runtime.root())?;
     let connectors = runtime.mcp().status().into_iter().map(|status| status.name).collect::<Vec<_>>();
     let mrm = runtime.mrm();
     let store = crate::core::shared::lock(&state.auth_store).clone();
-    let definition = crate::bot::builder::agent::generate_draft(crate::bot::builder::agent::DraftGenerationInput {
+    let turn = crate::bot::builder::agent::generate_turn(crate::bot::builder::agent::DraftGenerationInput {
         mrm: &mrm,
         store: &store,
+        target_bot_id: &appended.bot_id,
         user_goal: &appended.user_goal,
         conversation: &appended.messages,
-        current: appended.draft.as_ref().map(|draft| &draft.definition),
+        current: &current_definition,
         capability_catalog: state.bots.capabilities(),
         workspace_id: &workspace_id,
         connectors: &connectors,
     })
     .await?;
-    let draft_key = crate::bot::deterministic_id("idem", &["builder_message_draft", builder_id.as_str(), message_id.as_str()])?;
-    let drafted = state.bots.builder().execute(BuilderWrite {
+    let response_id = crate::bot::deterministic_id("bmessage", &["builder_response", builder_id.as_str(), message_id.as_str()])?;
+    let turn_key = crate::bot::deterministic_id("idem", &["builder_message_turn", builder_id.as_str(), message_id.as_str()])?;
+    let at_ms = now();
+    let completed = state.bots.builder().execute(BuilderWrite {
         builder_session_id: builder_id.clone(),
         expected_version: appended.event_version,
-        idempotency_key: crate::core::identity::IdempotencyKey::parse(draft_key.to_string())?,
+        idempotency_key: crate::core::identity::IdempotencyKey::parse(turn_key.to_string())?,
         actor: ActorRef::System { actor: SystemActor::Builder },
         trace: trace(),
-        command: BuilderCommand::ReplaceDraft {
+        command: BuilderCommand::ApplyTurn {
+            source_message_id: message_id.clone(),
+            message: BuilderMessage {
+                message_id: response_id,
+                actor: ActorRef::System { actor: SystemActor::Builder },
+                text: turn.message,
+                created_at_ms: at_ms,
+            },
             expected_draft_version: appended.draft.as_ref().map_or(0, |draft| draft.version),
-            source_message_id: Some(message_id.clone()),
-            definition: Box::new(definition),
-            at_ms: now(),
+            definition: turn.draft.map(Box::new),
+            at_ms,
         },
     })?;
-    sync_message_draft(state, &builder_id, &message_id, &drafted)?;
-    value(drafted)
+    if completed.draft.as_ref().and_then(|draft| draft.source_message_id.as_ref()) == Some(&message_id) {
+        sync_message_draft(state, &builder_id, &message_id, &completed)?;
+    }
+    value(completed)
 }
 
 fn sync_message_draft(

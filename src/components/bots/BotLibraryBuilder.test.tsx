@@ -50,6 +50,20 @@ const builder = {
   lifecycle: "active",
   event_version: 8,
   user_goal: "Create reports",
+  messages: [
+    {
+      message_id: "message_1",
+      actor: { kind: "owner" },
+      text: "Create reports",
+      created_at_ms: 1,
+    },
+    {
+      message_id: "message_2",
+      actor: { kind: "system", actor: "builder" },
+      text: "I created a Report Bot draft and kept its requested identity.",
+      created_at_ms: 2,
+    },
+  ],
   draft: { version: 1, source_message_id: "message_1", content_hash: "draft_hash", definition },
   grants: [
     {
@@ -71,9 +85,9 @@ const builder = {
 };
 
 function button(text: string) {
-  return [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((item) =>
-    item.textContent?.includes(text),
-  )!;
+  const buttons = [...document.body.querySelectorAll<HTMLButtonElement>("button")];
+  return (buttons.find((item) => item.textContent?.trim() === text) ??
+    buttons.find((item) => item.textContent?.includes(text)))!;
 }
 function input(placeholder: string) {
   return [
@@ -124,6 +138,7 @@ beforeEach(() => {
           },
         },
       });
+    if (method === "bot.builder.list") return Promise.resolve([builder]);
     if (method === "bot.builder.get" || method.startsWith("bot.builder."))
       return Promise.resolve(builder);
     if (method === "bot.validate") return Promise.resolve(builder);
@@ -135,8 +150,23 @@ afterEach(() => {
 });
 
 describe("Bot Library and Builder", () => {
+  it("opens a Builder bound to the selected Bot", async () => {
+    const onBuild = vi.fn();
+    const dispose = render(
+      () => <BotLibrary epoch={0} onChanged={h.changed} onBuild={onBuild} />,
+      document.body,
+    );
+    await vi.waitFor(() => expect(document.body.textContent).toContain("Report Bot"));
+    await press("使用 Builder 编辑");
+    expect(onBuild).toHaveBeenCalledWith({ bot_id: "bot_report", display_name: "Report Bot" });
+    dispose();
+  });
+
   it("runs lifecycle and memory actions against the published definition", async () => {
-    const dispose = render(() => <BotLibrary epoch={0} onChanged={h.changed} />, document.body);
+    const dispose = render(
+      () => <BotLibrary epoch={0} onChanged={h.changed} onBuild={vi.fn()} />,
+      document.body,
+    );
     await vi.waitFor(() => expect(document.body.textContent).toContain("Report Bot"));
     expect(document.body.textContent).toContain("revision");
     fill(input("描述本次要完成的工作"), "weekly report");
@@ -163,12 +193,13 @@ describe("Bot Library and Builder", () => {
     const dispose = render(() => <BotBuilder epoch={0} onChanged={h.changed} />, document.body);
     fill(input("Bot 名称"), "Report Bot");
     fill(input("要长期重复完成什么工作，输入、输出和成功标准是什么"), "Create reports");
-    await press("生成 Bot 草稿");
+    await press("开始构建对话");
     await called("bot.builder.start");
     await called("bot.builder.message");
     await vi.waitFor(() => expect(document.body.textContent).toContain("发布门禁"));
-    fill(input("要求 Builder Agent 调整草稿"), "Use JSON output");
-    await press("更新");
+    expect(document.body.textContent).toContain("I created a Report Bot draft");
+    fill(input("回答 Builder，或继续调整这个 Bot"), "Use JSON output");
+    await press("发送");
     await called("bot.builder.message");
     await press("授权当前权限");
     await called("bot.builder.grant");
@@ -181,6 +212,82 @@ describe("Bot Library and Builder", () => {
     await press("取消 Build");
     await called("bot.builder.cancel");
     expect(h.err).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("opens the latest Builder Session for an existing Bot instead of a fixed New Bot identity", async () => {
+    const dispose = render(
+      () => (
+        <BotBuilder
+          epoch={0}
+          onChanged={h.changed}
+          target={{ bot_id: "bot_report", display_name: "Report Bot" }}
+        />
+      ),
+      document.body,
+    );
+    await vi.waitFor(() =>
+      expect(h.rpc).toHaveBeenCalledWith("bot.builder.list", { bot_id: "bot_report" }),
+    );
+    await vi.waitFor(() => expect(document.body.textContent).toContain("Builder 对话"));
+    expect(input("Bot 名称").value).toBe("Report Bot");
+    expect(input("Bot 名称").disabled).toBe(true);
+    expect(document.body.textContent).not.toContain("New Bot");
+    dispose();
+  });
+
+  it("reconciles an ambiguous Builder timeout without creating a second Owner message", async () => {
+    let submitted: { message_id: string; text: string } | undefined;
+    h.rpc.mockImplementation((method: string, params?: Record<string, string>) => {
+      if (method === "bot.builder.list") return Promise.resolve([builder]);
+      if (method === "bot.builder.message") {
+        submitted = { message_id: params!.message_id!, text: params!.text! };
+        return Promise.reject(new Error("request timed out"));
+      }
+      if (method === "bot.builder.get" && submitted) {
+        return Promise.resolve({
+          ...builder,
+          messages: [
+            ...builder.messages,
+            {
+              message_id: submitted.message_id,
+              actor: { kind: "owner" },
+              text: submitted.text,
+              created_at_ms: 3,
+            },
+            {
+              message_id: "message_reconciled_reply",
+              actor: { kind: "system", actor: "builder" },
+              text: "The durable Builder reply was committed.",
+              created_at_ms: 4,
+            },
+          ],
+        });
+      }
+      if (method === "bot.builder.get") return Promise.resolve(builder);
+      return Promise.resolve(state);
+    });
+    const dispose = render(
+      () => (
+        <BotBuilder
+          epoch={0}
+          onChanged={h.changed}
+          target={{ bot_id: "bot_report", display_name: "Report Bot" }}
+        />
+      ),
+      document.body,
+    );
+    await vi.waitFor(() => expect(document.body.textContent).toContain("Builder 对话"));
+    fill(input("回答 Builder，或继续调整这个 Bot"), "Add a JSON output contract");
+    await press("发送");
+    await vi.waitFor(() =>
+      expect(h.ok).toHaveBeenCalledWith("Builder 已回复，已从 durable state 确认"),
+    );
+    expect(h.err).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("The durable Builder reply was committed.");
+    expect(input("回答 Builder，或继续调整这个 Bot").value).toBe("");
+    const messageCalls = h.rpc.mock.calls.filter((call) => call[0] === "bot.builder.message");
+    expect(messageCalls).toHaveLength(1);
     dispose();
   });
 });

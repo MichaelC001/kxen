@@ -20,11 +20,13 @@ import {
 } from "../../lib/bots";
 import { flashErr, flashOk } from "../../lib/flash";
 import { formatError } from "../../lib/error-text";
-import { encodeBotInput, publishedBotDefinition } from "./bot-definition";
-import { Panel, shortId, statusClass, type RefreshProps } from "./shared";
+import { editableBotDefinition, encodeBotInput, publishedBotDefinition } from "./bot-definition";
+import { Panel, shortId, statusClass, type BotBuilderTarget, type RefreshProps } from "./shared";
 import BotLibraryDetail from "./BotLibraryDetail";
 
-export default function BotLibrary(props: RefreshProps) {
+export default function BotLibrary(
+  props: RefreshProps & { onBuild: (target: BotBuilderTarget) => void },
+) {
   const [bots, setBots] = createSignal<BotSummary[]>([]);
   const [selectedId, setSelectedId] = createSignal("");
   const [detail, setDetail] = createSignal<BotState | null>(null);
@@ -235,6 +237,12 @@ export default function BotLibrary(props: RefreshProps) {
               run={run}
               saveMemory={saveMemory}
               removeMemory={removeMemory}
+              build={() =>
+                props.onBuild({
+                  bot_id: state().bot_id,
+                  display_name: editableBotDefinition(state())?.display_name ?? state().bot_id,
+                })
+              }
               setPrompt={setPrompt}
               setMemoryText={setMemoryText}
               setMemoryKind={setMemoryKind}

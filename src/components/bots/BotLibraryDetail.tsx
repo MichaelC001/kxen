@@ -16,6 +16,7 @@ interface BotLibraryDetailProps {
   run: () => void;
   saveMemory: () => void;
   removeMemory: (itemId: string, version: number) => void;
+  build: () => void;
   setPrompt: (value: string) => void;
   setMemoryText: (value: string) => void;
   setMemoryKind: (value: string) => void;
@@ -58,6 +59,7 @@ export default function BotLibraryDetail(props: BotLibraryDetailProps) {
           acting={props.acting}
           lifecycle={props.lifecycle}
           duplicate={props.duplicate}
+          build={props.build}
         />
       </Panel>
 
@@ -168,6 +170,7 @@ function LifecycleActions(props: {
   acting: boolean;
   lifecycle: BotLibraryDetailProps["lifecycle"];
   duplicate: () => void;
+  build: () => void;
 }) {
   return (
     <div class="flex flex-wrap gap-2 mt-4">
@@ -216,6 +219,15 @@ function LifecycleActions(props: {
           Restore
         </button>
       </Show>
+      <button
+        class={actionClass}
+        disabled={
+          props.acting || props.state.lifecycle === "trashed" || props.state.lifecycle === "blocked"
+        }
+        onClick={props.build}
+      >
+        使用 Builder 编辑
+      </button>
       <button
         class={actionClass}
         disabled={props.acting || !props.state.current_revision_id}

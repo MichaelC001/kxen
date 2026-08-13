@@ -99,6 +99,12 @@ fn accepts_registered_contracts_and_rejects_every_value_constraint() {
 
 #[test]
 fn bot_contracts_are_closed_and_group_size_is_two_to_six() {
+    assert!(validate_rpc("bot.builder.list", json!({})).is_ok());
+    assert!(validate_rpc("bot.builder.list", json!({ "bot_id": "bot_a" })).is_ok());
+    let builder_unknown = validate_rpc("bot.builder.list", json!({ "bot_id": "bot_a", "workspace_id": "workspace_a" })).unwrap_err();
+    assert_eq!(builder_unknown.code, -32602);
+    assert_eq!(builder_unknown.data.unwrap()["field"], "workspace_id");
+
     for bot_ids in [vec!["bot_a", "bot_b"], vec!["bot_a", "bot_b", "bot_c", "bot_d", "bot_e", "bot_f"]] {
         assert!(
             validate_rpc(

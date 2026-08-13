@@ -1,6 +1,10 @@
 import { client } from "./client";
 import type { BotRun, BuilderState } from "./bots-types";
 
+export function botBuilderList(botId?: string) {
+  return client.rpc<BuilderState[]>("bot.builder.list", botId ? { bot_id: botId } : {});
+}
+
 export function botBuilderStart(
   botId: string,
   builderSessionId: string,

@@ -28,7 +28,40 @@ fn decide_existing(state: &BuilderState, actor: &ActorRef, command: BuilderComma
             if message.text.trim().is_empty() || &message.actor != actor || !is_owner_or_builder(actor) {
                 return Err(BuilderError::Rejected("Builder message actor or content is invalid".into()));
             }
+            if state.messages.last().is_some_and(|pending| {
+                pending.actor == ActorRef::Owner
+                    && state.draft.as_ref().and_then(|draft| draft.source_message_id.as_ref()) != Some(&pending.message_id)
+            }) {
+                return Err(BuilderError::Rejected("previous Owner message is still awaiting a Builder reply".into()));
+            }
             BuilderEvent::MessageAppended { message, at_ms }
+        }
+        BuilderCommand::ApplyTurn { source_message_id, message, expected_draft_version, definition, at_ms } => {
+            require_builder(actor)?;
+            if message.actor != *actor || message.text.trim().is_empty() {
+                return Err(BuilderError::Rejected("Builder reply actor or content is invalid".into()));
+            }
+            let source = state.messages.last().ok_or_else(|| BuilderError::Rejected("Builder turn source message is missing".into()))?;
+            if source.message_id != source_message_id || source.actor != ActorRef::Owner {
+                return Err(BuilderError::Rejected("Builder turn must answer the latest Owner message".into()));
+            }
+            let mut events = vec![BuilderEvent::MessageAppended { message, at_ms }];
+            if let Some(definition) = definition {
+                definition.validate_draft().map_err(|error| BuilderError::Rejected(error.to_string()))?;
+                let actual = state.draft.as_ref().map_or(0, |draft| draft.version);
+                if actual != expected_draft_version {
+                    return Err(BuilderError::VersionConflict { expected: expected_draft_version, actual });
+                }
+                let draft = BuilderDraft {
+                    version: actual.checked_add(1).ok_or_else(|| BuilderError::Rejected("draft version overflow".into()))?,
+                    source_message_id: Some(source_message_id),
+                    content_hash: definition.content_hash().map_err(|error| BuilderError::Rejected(error.to_string()))?,
+                    definition: *definition,
+                    updated_at_ms: at_ms,
+                };
+                events.push(BuilderEvent::DraftReplaced { draft: Box::new(draft), at_ms });
+            }
+            return Ok(events);
         }
         BuilderCommand::ReplaceDraft { expected_draft_version, source_message_id, definition, at_ms } => {
             if !is_owner_or_builder(actor) {
