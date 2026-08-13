@@ -45,6 +45,27 @@ assert_json_rejected() {
   fi
 }
 
+assert_ci_url() {
+  local expected="$1"
+  local commit="$2"
+  local workflow_runs_json="$3"
+  local actual
+  if ! actual="$(printf '%s\n' "$workflow_runs_json" | kxen_successful_main_ci_url_from_json "$commit" 2>/dev/null)"; then
+    fail "successful CI evidence for $commit returned an error"
+  elif [[ "$actual" != "$expected" ]]; then
+    fail "successful CI evidence for $commit expected $expected, got ${actual:-<empty>}"
+  fi
+}
+
+assert_ci_rejected() {
+  local label="$1"
+  local commit="$2"
+  local workflow_runs_json="$3"
+  if printf '%s\n' "$workflow_runs_json" | kxen_successful_main_ci_url_from_json "$commit" >/dev/null 2>&1; then
+    fail "$label was accepted as successful main CI evidence"
+  fi
+}
+
 assert_compare 0 v1.2.3 v1.2.3
 assert_compare 1 v2.0.0 v1.999.999
 assert_compare 1 v1.10.0 v1.9.999
@@ -73,6 +94,37 @@ if kxen_require_release_source_parity \
   v1.2.3 invalid origin/main "$commit_a" workflow "$commit_a" >/dev/null 2>&1; then
   fail 'invalid release source commit was accepted'
 fi
+
+ci_runs="$(jq -cn \
+  --arg commit "$commit_a" \
+  '{workflow_runs:[
+    {
+      head_sha:$commit,
+      head_branch:"main",
+      event:"push",
+      status:"completed",
+      conclusion:"success",
+      run_attempt:1,
+      run_number:40,
+      html_url:"https://github.com/example/project/actions/runs/40"
+    },
+    {
+      head_sha:$commit,
+      head_branch:"main",
+      event:"push",
+      status:"completed",
+      conclusion:"success",
+      run_attempt:2,
+      run_number:41,
+      html_url:"https://github.com/example/project/actions/runs/41"
+    }
+  ]}')"
+assert_ci_url 'https://github.com/example/project/actions/runs/41' "$commit_a" "$ci_runs"
+assert_ci_rejected 'failed CI run' "$commit_a" "$(printf '%s\n' "$ci_runs" | jq '.workflow_runs |= map(.conclusion = "failure")')"
+assert_ci_rejected 'pull request CI run' "$commit_a" "$(printf '%s\n' "$ci_runs" | jq '.workflow_runs |= map(.event = "pull_request")')"
+assert_ci_rejected 'different commit CI run' "$commit_b" "$ci_runs"
+assert_ci_rejected 'malformed CI response' "$commit_a" '{"workflow_runs":{}}'
+assert_ci_rejected 'untrusted CI URL' "$commit_a" "$(printf '%s\n' "$ci_runs" | jq '.workflow_runs |= map(.html_url = "https://example.com/actions/runs/41")')"
 
 releases='[
   [
@@ -103,6 +155,19 @@ gh() {
   fi
   printf '%s\n' "$mock_releases"
 }
+mock_releases="$ci_runs"
+if ! kxen_require_successful_main_ci example/project "$commit_a" >/dev/null 2>&1; then
+  fail 'successful API-backed exact-commit CI gate was rejected'
+fi
+if kxen_require_successful_main_ci example/project "$commit_b" >/dev/null 2>&1; then
+  fail 'API-backed CI gate accepted a different commit'
+fi
+mock_gh_mode='failure'
+if kxen_require_successful_main_ci example/project "$commit_a" >/dev/null 2>&1; then
+  fail 'GitHub workflow runs API failure was accepted'
+fi
+mock_gh_mode='success'
+mock_releases="$releases"
 if ! kxen_require_release_above_published_stable v2.0.0 example/project >/dev/null 2>&1; then
   fail 'newer release was rejected by the API-backed gate'
 fi

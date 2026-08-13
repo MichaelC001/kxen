@@ -23,6 +23,86 @@ kxen_require_github_repository() {
   fi
 }
 
+kxen_successful_main_ci_url_from_json() {
+  local release_commit="$1"
+  local commit_pattern='^[0-9a-f]{40}$'
+  local ci_url
+  if [[ ! "$release_commit" =~ $commit_pattern ]]; then
+    printf 'invalid release source commit: %s\n' "$release_commit" >&2
+    return 1
+  fi
+  ci_url="$({
+    jq -er \
+      --arg release_commit "$release_commit" \
+      '
+        if type != "object" or (.workflow_runs | type) != "array" then
+          error("GitHub workflow runs response must contain workflow_runs")
+        elif any(.workflow_runs[];
+          type != "object"
+          or (.head_sha | type) != "string"
+          or (.head_branch | type) != "string"
+          or (.event | type) != "string"
+          or (.status | type) != "string"
+          or (.conclusion | type) != "string"
+          or (.run_attempt | type) != "number"
+          or (.run_number | type) != "number"
+          or (.html_url | type) != "string")
+        then
+          error("GitHub workflow run entry has invalid evidence fields")
+        else
+          [
+            .workflow_runs[]
+            | select(
+                .head_sha == $release_commit
+                and .head_branch == "main"
+                and .event == "push"
+                and .status == "completed"
+                and .conclusion == "success"
+              )
+          ]
+          | sort_by(.run_number, .run_attempt)
+          | last
+          | .html_url
+          | select(test("^https://github\\.com/[^/]+/[^/]+/actions/runs/[0-9]+$"))
+        end
+      '
+  } 2>&1)" || {
+    if [[ -n "$ci_url" ]]; then
+      printf '%s\n' "$ci_url" >&2
+    fi
+    return 1
+  }
+  printf '%s\n' "$ci_url"
+}
+
+kxen_require_successful_main_ci() {
+  local repository="$1"
+  local release_commit="$2"
+  local response
+  local ci_url
+  kxen_require_github_repository "$repository" >/dev/null || return 1
+  if [[ ! "$release_commit" =~ ^[0-9a-f]{40}$ ]]; then
+    printf 'invalid release source commit: %s\n' "$release_commit" >&2
+    return 1
+  fi
+  if ! response="$(
+    gh api --method GET "repos/$repository/actions/workflows/ci.yml/runs" \
+      -f branch=main \
+      -f event=push \
+      -f head_sha="$release_commit" \
+      -f status=success \
+      -f per_page=100
+  )"; then
+    printf 'unable to query exact-commit main CI for %s\n' "$repository" >&2
+    return 1
+  fi
+  if ! ci_url="$(printf '%s\n' "$response" | kxen_successful_main_ci_url_from_json "$release_commit")"; then
+    printf 'no successful main push CI found for release commit %s\n' "$release_commit" >&2
+    return 1
+  fi
+  printf 'PASS exact-commit main CI: %s\n' "$ci_url"
+}
+
 kxen_require_release_source_parity() {
   local release_tag="$1"
   local tag_commit="$2"

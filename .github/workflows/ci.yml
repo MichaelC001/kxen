@@ -77,6 +77,10 @@ jobs:
         with:
           toolchain: stable
           components: clippy,rustfmt,llvm-tools-preview
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: matrix.os == 'macos-14'
+        with:
+          key: ci-${{ matrix.os }}
       # tauri/webkit 系统依赖（tray-icon 需要 libayatana-appindicator）：仅 Linux
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
