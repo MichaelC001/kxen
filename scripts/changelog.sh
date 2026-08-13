@@ -107,5 +107,8 @@ if [[ "$operation" == check ]]; then
   printf 'PASS generated changelog matches %s\n' "$release_tag"
 else
   generate "$output_path"
+  if [[ "$operation" == release-notes ]]; then
+    kxen_validate_release_notes_file "$release_tag" "$output_path"
+  fi
   printf 'PASS generated %s for %s: %s\n' "$operation" "$release_tag" "$output_path"
 fi

@@ -40,11 +40,13 @@ body = """
 {{ "\n" }}\
 {% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}\
+{% if group != "__release_metadata" %}\
 ### {{ group | striptags | trim }}
 
 {% for commit in commits %}\
 - {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/StringKe/kxen/commit/{{ commit.id }}))
 {% endfor %}
+{% endif %}\
 {% endfor %}\
 """
 trim = true
@@ -59,7 +61,8 @@ tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
 topo_order = false
 sort_commits = "oldest"
 commit_parsers = [
-  { message = "^chore\\(release\\)", skip = true },
+  # Release commit 必须保留在 template context 中读取产品 footer，但不进入技术明细。
+  { message = "^chore\\(release\\)", group = "__release_metadata" },
   { message = "^feat", group = "新增功能" },
   { message = "^fix", group = "问题修复" },
   { message = "^perf", group = "性能优化" },
