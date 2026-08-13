@@ -116,7 +116,7 @@ describe("chat RPC wrappers", () => {
       ["session.create", { directory: "/repo" }],
       ["session.messages", { id: "s1" }],
       ["session.update_meta", { id: "s1", title: "renamed", pinned: true, sort_order: 2 }],
-      ["session.fork", { session_id: "s1", message_id: "m1" }],
+      ["session.fork", { session_id: "s1", message_id: "m1", position: "after", kind: "manual" }],
       ["session.rewind", { session_id: "s1", message_id: "m1", confirm: false }],
       ["session.rewind", { session_id: "s1", message_id: "m1", confirm: true }],
       ["session.export", { session_id: "s1" }],

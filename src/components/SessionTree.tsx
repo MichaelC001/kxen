@@ -21,6 +21,7 @@ import EmptyLine from "./EmptyLine";
 import { errText } from "./err-text";
 import { reorderSessionGroup } from "../lib/session-reorder";
 import SessionTreeAddProject from "./SessionTreeAddProject";
+import { buildSessionBranchRows, visibleSessionBranchRows } from "../lib/session-branches";
 
 const MAX_PER_GROUP = 5;
 
@@ -237,8 +238,9 @@ export default function SessionTree() {
       <For each={groups()}>
         {(group) => {
           const isCollapsed = () => collapsed().has(group.path);
+          const allRows = () => buildSessionBranchRows(group.sessions);
           const visible = () =>
-            expanded().has(group.path) ? group.sessions : group.sessions.slice(0, MAX_PER_GROUP);
+            visibleSessionBranchRows(group.sessions, expanded().has(group.path), MAX_PER_GROUP);
           return (
             <div>
               <div
@@ -279,20 +281,24 @@ export default function SessionTree() {
               <Show when={!isCollapsed()}>
                 <div class="ml-4 space-y-0.5">
                   <For each={visible()}>
-                    {(s) => (
+                    {(row) => (
                       <SessionRow
-                        session={s}
-                        deleting={deleting().has(s.id)}
-                        onOpen={() => void open(s.id)}
-                        onDelete={(distill) => void remove(s.id, distill)}
+                        session={row.session}
+                        depth={row.depth}
+                        parentMissing={row.parentMissing}
+                        descendantCount={row.descendantCount}
+                        deleting={deleting().has(row.session.id)}
+                        onOpen={() => void open(row.session.id)}
+                        onDelete={(distill) => void remove(row.session.id, distill)}
                         onChanged={() => void refreshSessions()}
-                        draggable={!s.pinned && !reordering().has(group.path)}
-                        dropTarget={dropTarget() === s.id}
-                        onDragStart={() => (dragId = s.id)}
+                        draggable={!row.session.pinned && !reordering().has(group.path)}
+                        dropTarget={dropTarget() === row.session.id}
+                        onDragStart={() => (dragId = row.session.id)}
                         onDragOver={(e) => {
                           e.preventDefault();
                           // 拖到自身上不标落点
-                          if (!s.pinned && dragId && dragId !== s.id) setDropTarget(s.id);
+                          if (!row.session.pinned && dragId && dragId !== row.session.id)
+                            setDropTarget(row.session.id);
                         }}
                         onDragLeave={(e) => {
                           // 子元素间移动也触发 leave：真离开本行才清高亮
@@ -301,7 +307,7 @@ export default function SessionTree() {
                         }}
                         onDrop={() => {
                           setDropTarget("");
-                          if (!s.pinned) void dropOn(group, s.id);
+                          if (!row.session.pinned) void dropOn(group, row.session.id);
                         }}
                         onDragEnd={() => {
                           // 取消拖拽（Esc/落点非法）不触发 drop：dragend 兜底清状态
@@ -311,7 +317,7 @@ export default function SessionTree() {
                       />
                     )}
                   </For>
-                  <Show when={group.sessions.length > MAX_PER_GROUP}>
+                  <Show when={allRows().length > visible().length || expanded().has(group.path)}>
                     <button
                       class="px-2 py-0.5 text-2xs text-[var(--text-faint)] hover:text-[var(--text-dim)]"
                       onClick={() => toggleExpand(group.path)}

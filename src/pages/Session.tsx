@@ -5,7 +5,7 @@ import { createConverge } from "../lib/converge";
 import { createDeltaBatcher } from "../lib/delta-batch";
 import { respondApproval as respondApprovalImpl } from "../lib/approvals";
 import { applyStreamEvent, appendRawItem } from "../lib/session-events";
-import { editResend as editResendImpl, forkAt, rerun as rerunImpl } from "../lib/session-actions";
+import { editResend, forkAt, rerun, switchBranch } from "../lib/session-actions";
 import { createSendFlow } from "../lib/send";
 import { createSessionRewind } from "../lib/rewind";
 import { createStreamingReconcile } from "../lib/streaming-reconcile";
@@ -48,10 +48,8 @@ export default function Session() {
     activeSessionId() === ""
       ? "新会话"
       : (sessions().find((s) => s.id === activeSessionId())?.title ?? "会话");
-  const workdir = () => {
-    const sid = activeSessionId();
-    return sid ? (sessions().find((s) => s.id === sid)?.directory ?? "") : draftWorkdir();
-  };
+  const activeSession = () => sessions().find((session) => session.id === activeSessionId());
+  const workdir = () => (activeSessionId() ? (activeSession()?.directory ?? "") : draftWorkdir());
   const { pinned, onScroll: onListScroll, scroll } = createAutoScroll(() => listRef);
 
   // 有对话内容才驱动右 dock 滑入
@@ -257,7 +255,7 @@ export default function Session() {
   const sessionExportFlow = createSessionExport(activeSessionId);
   onCleanup(sessionExportFlow.dispose);
 
-  const rerun = (idx: number) => rerunImpl(send, items(), idx);
+  const rerunAt = (idx: number) => rerun(send, items(), idx, restoreFailedEdit);
 
   const rewind = createSessionRewind({
     sessionId: activeSessionId,
@@ -275,6 +273,9 @@ export default function Session() {
         exportNote={sessionExportFlow.note}
         canExport={() => activeSessionId() !== ""}
         onExport={() => void sessionExportFlow.run()}
+        session={activeSession}
+        sessions={sessions}
+        onSwitchSession={(id) => void switchBranch(id)}
       />
 
       <SessionTimeline
@@ -289,13 +290,11 @@ export default function Session() {
         scroll={scroll}
         retryLoad={retryLoad}
         onForkId={(id) => void forkAt(id)}
-        onEditResend={(index, text) =>
-          editResendImpl(send, items(), index, text, restoreFailedEdit)
-        }
+        onEditResend={(index, text) => editResend(send, items(), index, text, restoreFailedEdit)}
         onRewindId={rewindAt}
         onRetryItem={(item) => void retrySend(item)}
         isRetrying={retryingSend}
-        onRerun={(index) => void rerun(index)}
+        onRerun={(index) => void rerunAt(index)}
         onContinue={() => void send("继续", [], [])}
         onRespondApproval={respondApproval}
       />

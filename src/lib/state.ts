@@ -136,6 +136,13 @@ function sameSession(a: SessionMeta, b: SessionMeta): boolean {
   return (
     a.title === b.title &&
     a.directory === b.directory &&
+    a.parent_id === b.parent_id &&
+    a.branch_root_id === b.branch_root_id &&
+    a.fork_kind === b.fork_kind &&
+    a.fork_point?.message_id === b.fork_point?.message_id &&
+    a.fork_point?.message_index === b.fork_point?.message_index &&
+    a.fork_point?.message_created_at === b.fork_point?.message_created_at &&
+    a.fork_point?.position === b.fork_point?.position &&
     a.created_at === b.created_at &&
     a.updated_at === b.updated_at &&
     a.pinned === b.pinned &&

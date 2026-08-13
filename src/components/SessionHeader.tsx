@@ -4,6 +4,8 @@ import { onDragStart } from "../lib/drag";
 import { expandAllTools, toggleExpandAllTools } from "../lib/tool-ui";
 import type { OrbState } from "../lib/orb";
 import ThinkingOrb from "./ThinkingOrb";
+import type { SessionMeta } from "../lib/chat";
+import SessionBranchNav from "./SessionBranchNav";
 
 interface Props {
   title: Accessor<string>;
@@ -13,6 +15,9 @@ interface Props {
   exportNote: Accessor<string>;
   canExport: Accessor<boolean>;
   onExport: () => void;
+  session: Accessor<SessionMeta | undefined>;
+  sessions: Accessor<SessionMeta[]>;
+  onSwitchSession: (id: string) => void;
 }
 
 export default function SessionHeader(props: Props) {
@@ -30,6 +35,11 @@ export default function SessionHeader(props: Props) {
         <FolderOpen size={12} />
         <span class="truncate">{props.workdir()}</span>
       </span>
+      <SessionBranchNav
+        current={props.session}
+        sessions={props.sessions}
+        onSwitch={props.onSwitchSession}
+      />
       <Show when={props.streaming()}>
         <span class="inline-flex items-center gap-1.5 text-[var(--accent-hover)]">
           <ThinkingOrb state={props.orbPhase} size={20} />

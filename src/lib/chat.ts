@@ -207,6 +207,15 @@ export interface SessionMeta {
   id: string;
   title: string;
   directory: string;
+  parent_id?: string | null;
+  branch_root_id?: string | null;
+  fork_point?: {
+    message_id: string;
+    message_index: number;
+    message_created_at: number;
+    position: "before" | "after";
+  } | null;
+  fork_kind?: "manual" | "edit" | "rerun" | null;
   created_at: number;
   updated_at: number;
   pinned?: boolean;
@@ -273,8 +282,19 @@ export async function sessionDelete(id: string, distill = false): Promise<void> 
   return client.rpc("session.delete", distill ? { id, distill: true } : { id });
 }
 
-export async function sessionFork(sessionId: string, messageId: string): Promise<SessionMeta> {
-  return client.rpc<SessionMeta>("session.fork", { session_id: sessionId, message_id: messageId });
+export async function sessionFork(
+  sessionId: string,
+  messageId: string,
+  options: {
+    position: "before" | "after";
+    kind: "manual" | "edit" | "rerun";
+  } = { position: "after", kind: "manual" },
+): Promise<SessionMeta> {
+  return client.rpc<SessionMeta>("session.fork", {
+    session_id: sessionId,
+    message_id: messageId,
+    ...options,
+  });
 }
 
 export async function sessionRewind(

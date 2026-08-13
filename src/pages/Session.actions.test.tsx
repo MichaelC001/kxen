@@ -171,20 +171,27 @@ describe("Session 消息动作入口", () => {
     const dispose = await mount();
     clickButton("user fork");
     await flush();
-    expect(h.sessionFork).toHaveBeenCalledWith("s1", "m1");
+    expect(h.sessionFork).toHaveBeenCalledWith("s1", "m1", {
+      position: "after",
+      kind: "manual",
+    });
     expect(h.sessionMessages).toHaveBeenCalledWith("s9"); // 切入分叉会话重载时间线
     dispose();
   });
 
-  it("rerun：把该 assistant 之前最近一条 user 消息重发", async () => {
+  it("rerun：从关联 user 消息前创建分支并重发", async () => {
     const dispose = await mount();
     clickButton("assistant rerun");
     await flush();
-    expect(h.sendMessage).toHaveBeenCalledWith("s1", "历史一", [], []);
+    expect(h.sessionFork).toHaveBeenCalledWith("s1", "m1", {
+      position: "before",
+      kind: "rerun",
+    });
+    expect(h.sendMessage).toHaveBeenCalledWith("s9", "历史一", [], []);
     dispose();
   });
 
-  it("编辑重发：fork 到前一条带 messageId 的消息，再发编辑后文本", async () => {
+  it("编辑重发：从目标消息前创建分支，再发编辑后文本", async () => {
     h.history = [
       ...h.history,
       {
@@ -198,7 +205,10 @@ describe("Session 消息动作入口", () => {
     const dispose = await mount();
     clickInItem("历史三", "user edit");
     await flush();
-    expect(h.sessionFork).toHaveBeenCalledWith("s1", "m2"); // 排除本消息，fork 到 m2
+    expect(h.sessionFork).toHaveBeenCalledWith("s1", "m3", {
+      position: "before",
+      kind: "edit",
+    });
     expect(h.sendMessage).toHaveBeenCalledWith("s9", "编辑后文本", [], []);
     dispose();
   });

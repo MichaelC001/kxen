@@ -1,6 +1,15 @@
 // 会话行：活动点 / 标题(双击重命名) / 相对时间 / hover 操作（置顶、重命名、删除带确认）。
 import { createSignal, Show } from "solid-js";
-import { BookOpenCheck, Check, Pin, PinOff, RefreshCw, X } from "lucide-solid";
+import {
+  AlertTriangle,
+  BookOpenCheck,
+  Check,
+  GitFork,
+  Pin,
+  PinOff,
+  RefreshCw,
+  X,
+} from "lucide-solid";
 import { currentModel, sessionUpdateMeta, type SessionMeta } from "../lib/chat";
 import { openMenu } from "../lib/context-menu";
 import { relTime } from "../lib/time";
@@ -11,6 +20,9 @@ import { createSeqGuard } from "../lib/async-guard";
 
 export default function SessionRow(props: {
   session: SessionMeta;
+  depth?: number;
+  parentMissing?: boolean;
+  descendantCount?: number;
   deleting: boolean;
   onOpen: () => void;
   onDelete: (distill?: boolean) => void;
@@ -95,6 +107,7 @@ export default function SessionRow(props: {
         "opacity-50 pointer-events-none": props.deleting,
         "shadow-[inset_0_2px_0_var(--accent)]": props.dropTarget,
       }}
+      style={{ "margin-left": `${(props.depth ?? 0) * 10}px` }}
       draggable={props.draggable && !renaming() && !props.deleting}
       role="button"
       tabindex="0"
@@ -118,7 +131,11 @@ export default function SessionRow(props: {
             label: s().pinned ? "取消置顶" : "置顶",
             action: () => void togglePin(),
           },
-          { label: "删除会话...", danger: true, action: beginDeleteChoice },
+          {
+            label: s().parent_id ? "删除分支..." : "删除会话...",
+            danger: true,
+            action: beginDeleteChoice,
+          },
         ]);
       }}
       onDblClick={() => {
@@ -137,6 +154,16 @@ export default function SessionRow(props: {
       </Show>
       <Show when={s().pinned}>
         <Pin size={10} class="ml-0.5 text-[var(--accent-hover)] shrink-0" />
+      </Show>
+      <Show when={s().parent_id}>
+        <GitFork size={10} class="ml-0.5 shrink-0 text-[var(--accent-hover)]" />
+      </Show>
+      <Show when={props.parentMissing}>
+        <AlertTriangle
+          size={10}
+          class="ml-0.5 shrink-0 text-[var(--warn)]"
+          aria-label="父分支已删除"
+        />
       </Show>
       <Show
         when={!renaming()}
@@ -189,11 +216,15 @@ export default function SessionRow(props: {
               <>
                 <span
                   class="max-w-32 truncate text-2xs text-[var(--text-faint)]"
-                  title={
+                  title={`${
                     distillModelState() === "error"
                       ? "Provider UNKNOWN，不能安全沉淀；可直接删除或重试读取"
                       : `沉淀会把此 Session 最近文本发送给 ${distillProvider()}，并且只写个人知识`
-                  }
+                  }${
+                    props.descendantCount
+                      ? `；${props.descendantCount} 个后代分支会保留，不级联删除`
+                      : ""
+                  }`}
                 >
                   {distillModelState() === "loading"
                     ? "Provider 读取中…"
@@ -254,9 +285,13 @@ export default function SessionRow(props: {
           >
             <button
               class="px-1 text-[var(--text-faint)] hover:text-[var(--err)]"
-              title={
+              title={`${
                 s().running ? "删除会话（会话正在运行，删除将终止）" : "删除会话（再点一次确认）"
-              }
+              }${
+                props.descendantCount
+                  ? `；${props.descendantCount} 个后代分支会保留，不级联删除`
+                  : ""
+              }`}
               onClick={(e) => {
                 e.stopPropagation();
                 beginDeleteChoice();

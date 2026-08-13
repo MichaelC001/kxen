@@ -4,7 +4,6 @@ import {
   activeSessionId,
   captureSessionIntent,
   isSessionIntentCurrent,
-  newSession,
   refreshSessions,
   switchSession,
 } from "./state";
@@ -25,6 +24,15 @@ type RestoreFailedSend = (
   context: ContextItem[],
   images: Array<{ media_type: string; data: string }>,
 ) => void;
+
+export async function switchBranch(id: string): Promise<void> {
+  if (id === activeSessionId()) return;
+  try {
+    await switchSession(id);
+  } catch (error) {
+    flashErr(`切换分支失败：${formatError(error)}`);
+  }
+}
 
 async function activateFork(
   id: string,
@@ -85,7 +93,10 @@ async function performFork(
 ): Promise<void> {
   let forked: Awaited<ReturnType<typeof sessionFork>>;
   try {
-    forked = await sessionFork(originSessionId, messageId);
+    forked = await sessionFork(originSessionId, messageId, {
+      position: "after",
+      kind: "manual",
+    });
   } catch (e) {
     flashErr(`分叉失败：${formatError(e)}`);
     return;
@@ -93,24 +104,33 @@ async function performFork(
   await activateFork(forked.id, "分叉", originSessionId, originIntent);
 }
 
-/** 重新生成：把该 assistant 之前最近一条 user 消息重发一次（图片与 @ 引用随原消息带回）。
- *  不 fork 不替换；运行中触发即转后端排队——必须给用户反馈，否则以为没点上。 */
+/** 重新生成：从关联 user 消息之前创建独立分支，再原样发送该消息。原回复永久保留。 */
 const rerunFlights = new Map<string, Promise<void>>();
 
-export function rerun(send: Send, items: Item[], idx: number): Promise<void> {
+export function rerun(
+  send: Send,
+  items: Item[],
+  idx: number,
+  restoreFailedSend: RestoreFailedSend = () => {},
+): Promise<void> {
   const target = items[idx];
   const targetKey = target?.kind === "msg" ? (target.messageId ?? String(idx)) : String(idx);
   const key = `${activeSessionId()}\u0000${targetKey}`;
   const current = rerunFlights.get(key);
   if (current) return current;
-  const flight = performRerun(send, items, idx).finally(() => {
+  const flight = performRerun(send, items, idx, restoreFailedSend).finally(() => {
     if (rerunFlights.get(key) === flight) rerunFlights.delete(key);
   });
   rerunFlights.set(key, flight);
   return flight;
 }
 
-async function performRerun(send: Send, items: Item[], idx: number): Promise<void> {
+async function performRerun(
+  send: Send,
+  items: Item[],
+  idx: number,
+  restoreFailedSend: RestoreFailedSend,
+): Promise<void> {
   for (let j = idx - 1; j >= 0; j--) {
     const m = items[j];
     if (m?.kind === "msg" && m.role === "user") {
@@ -118,15 +138,42 @@ async function performRerun(send: Send, items: Item[], idx: number): Promise<voi
         flashErr("旧消息的 @ 引用不可恢复，无法安全重新生成；请手动重新选择引用");
         return;
       }
-      const result = await send(m.content, m.context ?? [], m.images ?? []);
-      if (result.queued) flashOk("已加入队列，当前回复完成后自动发送");
+      if (!m.messageId) {
+        flashErr("重新生成失败：原用户消息尚未持久化");
+        return;
+      }
+      const originSessionId = activeSessionId();
+      const originIntent = captureSessionIntent();
+      let forked: Awaited<ReturnType<typeof sessionFork>>;
+      try {
+        forked = await sessionFork(originSessionId, m.messageId, {
+          position: "before",
+          kind: "rerun",
+        });
+      } catch (e) {
+        flashErr(`重新生成失败：${formatError(e)}`);
+        return;
+      }
+      const context = m.context ?? [];
+      const images = m.images ?? [];
+      if (!(await activateFork(forked.id, "重新生成分支", originSessionId, originIntent))) {
+        restoreFailedSend(forked.id, m.content, context, images);
+        return;
+      }
+      try {
+        const result = await send(m.content, context, images);
+        if (!result.admitted) restoreFailedSend(forked.id, m.content, context, images);
+        if (result.queued) flashOk("已加入队列，当前回复完成后自动发送");
+      } catch (e) {
+        restoreFailedSend(forked.id, m.content, context, images);
+        flashErr(`重新生成失败：${formatError(e)}`);
+      }
       return;
     }
   }
 }
 
-/** 编辑重发：fork 到该消息前一条（排除本消息），再发编辑后的文本（图片与 @ 引用随原消息带回）。
- *  无更早消息可 fork（首条）则新开会话发送。 */
+/** 编辑重发：从该消息之前创建独立分支，再发送编辑文本；首条消息同样保留完整谱系与模型设置。 */
 export async function editResend(
   send: Send,
   items: Item[],
@@ -141,45 +188,36 @@ export async function editResend(
   }
   const images = target?.kind === "msg" ? (target.images ?? []) : [];
   const context = target?.kind === "msg" ? (target.context ?? []) : [];
-  for (let j = idx - 1; j >= 0; j--) {
-    const m = items[j];
-    if (m?.kind === "msg" && m.messageId) {
-      const originSessionId = activeSessionId();
-      const originIntent = captureSessionIntent();
-      let forked: Awaited<ReturnType<typeof sessionFork>>;
-      try {
-        forked = await sessionFork(originSessionId, m.messageId);
-      } catch (e) {
-        // fork 失败不再继续往更早消息退避：那会静默丢失比用户预期更多的上下文。
-        // 等待期间若已离开原会话，原编辑器会卸载，必须把完整输入留回原会话 Composer。
-        if (!isSessionIntentCurrent(originIntent, originSessionId)) {
-          restoreFailedSend(originSessionId, text, context, images);
-        }
-        flashErr(`编辑重发失败：${formatError(e)}`);
-        return false;
-      }
-      if (!(await activateFork(forked.id, "编辑分支", originSessionId, originIntent))) {
-        // 分支已经持久化，未能切入时把输入归属到该分支，稍后打开仍可继续发送。
-        restoreFailedSend(forked.id, text, context, images);
-        return false;
-      }
-      try {
-        const result = await send(text, context, images);
-        if (!result.admitted) {
-          restoreFailedSend(result.restoreSessionId ?? forked.id, text, context, images);
-        }
-        return result.admitted;
-      } catch (e) {
-        restoreFailedSend(forked.id, text, context, images);
-        flashErr(`编辑重发失败：${formatError(e)}`);
-        return false;
-      }
+  if (target?.kind !== "msg" || !target.messageId) {
+    flashErr("编辑重发失败：原消息尚未持久化");
+    return false;
+  }
+  const originSessionId = activeSessionId();
+  const originIntent = captureSessionIntent();
+  let forked: Awaited<ReturnType<typeof sessionFork>>;
+  try {
+    forked = await sessionFork(originSessionId, target.messageId, {
+      position: "before",
+      kind: "edit",
+    });
+  } catch (e) {
+    if (!isSessionIntentCurrent(originIntent, originSessionId)) {
+      restoreFailedSend(originSessionId, text, context, images);
     }
+    flashErr(`编辑重发失败：${formatError(e)}`);
+    return false;
   }
-  await newSession();
-  const result = await send(text, context, images);
-  if (!result.admitted) {
-    restoreFailedSend(result.restoreSessionId ?? activeSessionId(), text, context, images);
+  if (!(await activateFork(forked.id, "编辑分支", originSessionId, originIntent))) {
+    restoreFailedSend(forked.id, text, context, images);
+    return false;
   }
-  return result.admitted;
+  try {
+    const result = await send(text, context, images);
+    if (!result.admitted) restoreFailedSend(forked.id, text, context, images);
+    return result.admitted;
+  } catch (e) {
+    restoreFailedSend(forked.id, text, context, images);
+    flashErr(`编辑重发失败：${formatError(e)}`);
+    return false;
+  }
 }

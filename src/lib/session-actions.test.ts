@@ -8,7 +8,6 @@ const h = vi.hoisted(() => ({
   sessionFork: vi.fn(),
   refreshSessions: vi.fn(async () => {}),
   switchSession: vi.fn(),
-  newSession: vi.fn(async () => {}),
   flashErr: vi.fn(),
   flashOk: vi.fn(),
   sid: "s1",
@@ -20,7 +19,6 @@ vi.mock("./state", () => ({
   activeSessionId: () => h.sid,
   refreshSessions: h.refreshSessions,
   switchSession: h.switchSession,
-  newSession: h.newSession,
   captureSessionIntent: () => h.intent,
   isSessionIntentCurrent: (intent: number, sid: string) => intent === h.intent && sid === h.sid,
 }));
@@ -47,6 +45,7 @@ const assistant = (id: string): Item => ({
 
 beforeEach(() => {
   h.sessionFork.mockReset();
+  h.sessionFork.mockResolvedValue({ id: "s2" });
   h.refreshSessions.mockReset();
   h.refreshSessions.mockResolvedValue(undefined);
   h.switchSession.mockReset();
@@ -54,7 +53,6 @@ beforeEach(() => {
     h.sid = id;
     h.intent++;
   });
-  h.newSession.mockClear();
   h.flashErr.mockClear();
   h.flashOk.mockClear();
   h.sid = "s1";
@@ -70,7 +68,7 @@ describe("rerun 重新生成", () => {
     const items = [user("u1", "第一条"), assistant("a1")];
     const first = rerun(send, items, 1);
     const second = rerun(send, items, 1);
-    expect(send).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
     finish({ admitted: true, queued: false });
     await Promise.all([first, second]);
   });
@@ -84,6 +82,10 @@ describe("rerun 重新生成", () => {
       assistant("a2"),
     ];
     await rerun(send, items, 3); // 对 a2 重新生成 -> 重发 u2
+    expect(h.sessionFork).toHaveBeenCalledWith("s1", "u2", {
+      position: "before",
+      kind: "rerun",
+    });
     expect(send).toHaveBeenCalledWith("第二条", ctx, imgs);
   });
 
@@ -106,6 +108,7 @@ describe("rerun 重新生成", () => {
     await rerun(send, [legacy, assistant("a1")], 1);
     expect(send).not.toHaveBeenCalled();
     expect(h.flashErr).toHaveBeenCalledWith(expect.stringContaining("@ 引用不可恢复"));
+    expect(h.sessionFork).not.toHaveBeenCalled();
   });
 });
 
@@ -118,6 +121,10 @@ describe("forkAt 分叉", () => {
     const first = forkAt("m1");
     const second = forkAt("m1");
     expect(h.sessionFork).toHaveBeenCalledTimes(1);
+    expect(h.sessionFork).toHaveBeenCalledWith("s1", "m1", {
+      position: "after",
+      kind: "manual",
+    });
     finish({ id: "s2" });
     await Promise.all([first, second]);
     expect(h.switchSession).toHaveBeenCalledTimes(1);
@@ -154,16 +161,18 @@ describe("editResend 编辑重发", () => {
     const legacy = { ...user("u1", "旧消息"), contextUnavailable: true } as Item;
     expect(await editResend(send, [legacy], 0, "编辑")).toBe(false);
     expect(send).not.toHaveBeenCalled();
-    expect(h.newSession).not.toHaveBeenCalled();
     expect(h.flashErr).toHaveBeenCalledWith(expect.stringContaining("@ 引用不可恢复"));
   });
 
-  it("fork 到前一条后发送：原文 images 与 @context 带回", async () => {
+  it("从目标消息前创建编辑分支：原文 images 与 @context 带回", async () => {
     h.sessionFork.mockResolvedValueOnce({ id: "s2" });
     const send = vi.fn(async () => ({ admitted: true, queued: false }));
     const items = [user("u1", "第一条"), user("u2", "第二条", true), assistant("a2")];
     await editResend(send, items, 1, "改过的第二条");
-    expect(h.sessionFork).toHaveBeenCalledWith("s1", "u1");
+    expect(h.sessionFork).toHaveBeenCalledWith("s1", "u2", {
+      position: "before",
+      kind: "edit",
+    });
     expect(h.switchSession).toHaveBeenCalledWith("s2");
     expect(send).toHaveBeenCalledWith("改过的第二条", ctx, imgs);
   });
@@ -181,7 +190,7 @@ describe("editResend 编辑重发", () => {
     expect(restore).toHaveBeenCalledWith("s2", "改", [], []);
   });
 
-  it("首条编辑新建会话准入失败时恢复到发送链指定的会话", async () => {
+  it("首条编辑也创建有谱系的分支，准入失败时恢复到该分支", async () => {
     const send = vi.fn(async () => ({
       admitted: false,
       queued: false,
@@ -190,15 +199,11 @@ describe("editResend 编辑重发", () => {
     const restore = vi.fn();
     const result = await editResend(send, [user("u1", "唯一", true)], 0, "改", restore);
     expect(result).toBe(false);
-    expect(restore).toHaveBeenCalledWith("s-created", "改", ctx, imgs);
-  });
-
-  it("无更早消息可 fork（首条）：新开会话发送且附件不丢", async () => {
-    const send = vi.fn(async () => ({ admitted: true, queued: false }));
-    await editResend(send, [user("u1", "唯一", true)], 0, "改过的唯一");
-    expect(h.sessionFork).not.toHaveBeenCalled();
-    expect(h.newSession).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith("改过的唯一", ctx, imgs);
+    expect(h.sessionFork).toHaveBeenCalledWith("s1", "u1", {
+      position: "before",
+      kind: "edit",
+    });
+    expect(restore).toHaveBeenCalledWith("s2", "改", ctx, imgs);
   });
 
   it("fork 失败：flash 错误，不向更早消息退避也不发送", async () => {
