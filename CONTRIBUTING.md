@@ -95,7 +95,13 @@ Release-Note: 用户能获得的第二项能力或改进
 
 `Release-Title` 在一个版本内只能有一个，最多 80 个字符；`Release-Note` 可以有多个，应写用户可感知的结果，不复述文件名、测试名或内部实现步骤。git-cliff 会先生成「版本主题」和「本次更新」，再保留按 Conventional Commit 分类的完整技术明细；GitHub Release 标题也从同一份生成内容提取。发布校验会拒绝缺少主题或产品摘要的版本。
 
-将生成文件与版本号修改一起放入 `chore(release): prepare vx.y.z` commit；`chore(release)` 不进入最终 Changelog，commit 后再次运行 `check` 必须为 `PASS`。
+发布准备使用两个 append-only commit，避免生成内容引用尚未稳定的自身 commit SHA:
+
+1. 修改版本真源并提交 `chore(release): prepare vx.y.z`，在该 commit 写入唯一的 `Release-Title` 和全部 `Release-Note` footer。
+2. 运行 `scripts/changelog.sh generate vx.y.z`，仅提交生成后的 `CHANGELOG.md`，commit 使用 `chore(release): regenerate changelog`。
+3. 第二个 commit 完成后再次运行 `scripts/changelog.sh check vx.y.z`，结果必须为 `PASS`。
+
+这两个 `chore(release)` commit 都不会进入最终技术明细，但第一个 commit 会保留在 git-cliff context 中作为产品介绍的单一出处。不要 amend 第一个 commit 来加入 `CHANGELOG.md`，否则其中指向该 commit 的链接会因 SHA 变化而立刻过期。
 
 在版本 commit 已进入 `main` 后创建并推送稳定版 SemVer tag，例如 `v0.2.0`。当前更新通道不接受 prerelease 或 build metadata tag，避免 prerelease 进入稳定版 `latest.json`。不要从尚未进入 `main` 的分支 commit 创建发布 tag。推送 tag 后，在 GitHub Actions 中从 `main` 手动运行 `Release`，并输入该 tag。tag push 不会自动访问发布凭据，避免执行 tag commit 中的 workflow 定义。`.github/workflows/release.yml` 会依次执行:
 
