@@ -27,6 +27,6 @@ Rewind 会删除目标消息之后的 Session 历史，并恢复 Checkpoint 记�
 
 ## 与 Fork 的区别
 
-Fork 从历史消息创建新的 Session，保留原 Session 和当前文件状态。Rewind 修改当前 Session 和文件状态。
+Fork 从历史消息前或后创建有谱系的新 Session，保留原 Session 和原回复。编辑重发与重新生成也使用 Fork 语义，因此不会覆盖既有时间线。分支拥有独立对话、队列、运行和草稿，但仍读取同一 Workspace 的当前文件状态。
 
-只想从旧对话继续探索时使用 Fork。明确需要撤回 Agent 文件修改时才使用 Rewind。
+只想从旧对话继续探索时使用 Fork。需要隔离两个方向的文件修改时使用独立 Worktree。明确需要撤回当前 Session 的 Agent 文件修改时才使用 Rewind。

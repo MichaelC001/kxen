@@ -18,7 +18,7 @@ Session 是用户与 Agent 协作的基本单位。它绑定一个工作目录�
 - 用户消息和 Assistant 消息。
 - 工具调用、工具结果和 Approval 结果。
 - 推理、图片和隐藏上下文。
-- 父 Session、Goal、Team、Schedule 和恢复点关联。
+- 分支根、直接父 Session、精确分叉点、Goal、Team、Schedule 和恢复点关联。
 
 Session 消息使用追加写历史。模型输入、append、fork、rewind、compaction、export 和知识沉淀使用严格读取；JSONL 出现坏行时 fail closed，避免在残缺历史上继续写入。诊断视图可以保留已经解析的消息，但会明确记录坏行。meta 中的 `message_revision` 只在真实 append 或 rewrite 后单调推进，用于识别同一毫秒内的变化；完全相同的幂等 append 不推进 revision。
 
@@ -44,7 +44,27 @@ Session 消息使用追加写历史。模型输入、append、fork、rewind、co
 
 ## 时间线操作
 
-用户可以编辑并重新发送消息，从指定消息创建分叉，重新运行 Assistant 回合，以及导出当前 Session。分叉保留原 Session，不会把两个后续执行混进同一条时间线。
+用户可以编辑并重新发送消息，从指定消息创建分支，重新生成 Assistant 回合，以及导出当前 Session。每个分支本身都是完整 Session，独立拥有消息历史、模型覆盖、待发送队列、运行状态和 Composer 草稿。原 Session 和原回复保持不变，不会把两个后续执行混进同一条时间线。
+
+### 创建分支
+
+- 「从此消息分叉」复制到目标消息之后，创建手动分支并切入。
+- 编辑 User 消息时，从目标消息之前创建编辑分支，再发送修改后的文本、原始图片和可逆 Context。第一条消息也使用相同谱系，不会变成无关的新 Session。
+- 重新生成 Assistant 回合时，从关联 User 消息之前创建重新生成分支，再原样发送该消息。原 Assistant 回复永久保留在原分支。
+
+每个新分支记录稳定分支根、直接父级、父级消息 ID、从 1 开始的消息序号、消息时间、`before` 或 `after` 位置，以及 `manual`、`edit` 或 `rerun` 来源。旧版分支缺少精确分叉点时仍可沿父链导航，并明确标记为存量数据。
+
+### 导航和删除
+
+Sidebar 在 Workspace 项目下按父子层级展示 Session。Session Header 的分支选择器用于切换同一分支族、返回直接父级，并显示当前分支位置和创建来源。
+
+删除只作用于当前选择的 Session，不级联删除后代。父分支被删除后，后代继续可用，Sidebar 和 Header 会显示父级缺失；从系统废纸篓恢复父级后，既有 `parent_id` 会重新连通谱系。
+
+### 文件状态边界
+
+对话分支不是 Git branch，也不是文件快照。同一 Workspace 下的分支共享当前文件状态：一个分支中的工具修改可能被其他分支随后读取。Header 和 Markdown 导出都会标记这一边界。
+
+只需独立探索对话时使用分支。需要隔离文件修改时，先创建[独立 Worktree](https://kxen.ai/recovery/worktree) 再开始 Session；需要把当前 Session 和文件共同回退到恢复点时使用 [Rewind](https://kxen.ai/recovery/rewind)。
 
 ## 状态边界
 

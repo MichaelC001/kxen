@@ -12,7 +12,7 @@ macOS、Windows 和 Linux 上的 Coding Agent 工作台，也可以用浏览器�
 
 ## 主要能力
 
-- **Workspace 与 Session**: 以本地项目为边界组织会话、配置和执行状态，中断后原子续跑，存储损坏可恢复。
+- **Workspace 与 Session**: 以本地项目为边界组织会话、配置和执行状态；对话可形成持久分支树，编辑重发和重新生成保留原时间线，中断后原子续跑，存储损坏可恢复。
 - **多模型**: 44 个内置 Provider 条目、多账号管理、订阅 OAuth 和 API key 登录，按角色路由模型与降级。
 - **目标与编排**: Goal、Subagent、Dynamic Workflow、Agent Teams 和 Kanban 流水线，后台任务完成逐路回执。
 - **Bots**: 独立、可版本化的重复工作单元。每个 Bot 都能通过自己的受限 self-builder 对话创建和完善定义，并支持 Routine、可恢复 BotRun，以及 Direct 和 2 至 6 Bot Group 的 Bot-to-Bot 协作。
@@ -22,6 +22,8 @@ macOS、Windows 和 Linux 上的 Coding Agent 工作台，也可以用浏览器�
 - **日常效率**: Voice、Schedule、Usage 统计、通知和诊断。
 
 Bot Group 的成员都是 Bot，不是多人真人聊天。kxen 不提供共享云电脑、共享浏览器凭据或 Bot Marketplace。完整使用说明见 [Bots 文档](https://kxen.ai/bots/)。
+
+对话分支隔离 Session 历史、队列、运行和草稿，但不会复制 Workspace 文件。需要隔离文件实验时使用独立 Worktree；需要回退文件和对话时使用 Rewind。完整语义见 [Session 文档](https://kxen.ai/workspace/session/)。
 
 ## 开发
 

@@ -31,6 +31,7 @@ kxen 无头 server（在服务器或本机运行后用浏览器访问全部功�
 - [开始使用](https://kxen.ai/getting-started/)
 - [Web 模式](https://kxen.ai/getting-started/web-mode)
 - [Workspace](https://kxen.ai/workspace/workspace/)
+- [Session 与对话分支](https://kxen.ai/workspace/session/)
 - [模型与 Provider](https://kxen.ai/models/)
 - [Agent 与任务](https://kxen.ai/agent/)
 - [Bots](https://kxen.ai/bots/)
@@ -48,6 +49,7 @@ kxen 无头 server（在服务器或本机运行后用浏览器访问全部功�
 - 所有模型调用进入统一资源管理层。
 - 高风险工具调用在执行层统一审批或拒绝。
 - 每个 Bot 使用自己的受限 self-builder 对话、独立 revision、permission snapshot、Run 和 Recovery；Bot-to-Bot 不合并成员权限。
+- 对话分支隔离 Session 历史、队列、运行和草稿，但共享 Workspace 当前文件；文件实验使用 Worktree 隔离。
 - 文件删除进入废纸篓，不直接执行不可恢复删除。`;
 
 export const homeSource = `---

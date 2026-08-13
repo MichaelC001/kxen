@@ -59,7 +59,11 @@ kxen 采用本地优先存储，当前没有 kxen 云同步服务。
 
 每个 Session 使用 `<id>.json` meta 和 `<id>.jsonl` 消息文件，并可以包含 `<id>.compact.json`、`<id>.queue.json` 与 `<id>/` artifact 目录。消息追加写入，meta 和需要重写的状态使用临时文件、fsync 和 rename。meta 中的单调 `message_revision` 在真实 append 或 rewrite 后推进；同 ID、同内容的幂等 append 不会虚增 revision。
 
-Session 可以包含文本、隐藏上下文、工具调用、推理、图片和 Approval 结果。图片以内联数据保存，使 fork、导出、rewind 和删除保持自包含。Queue delivery 同时持久化稳定 ID 和原始 `created_at`；一旦用户消息写入 JSONL，重放直接复用该消息中的文本、已解析上下文和图片，不重新读取可能变化的文件或 URL。
+分支 Session 的 meta 还保存 `parent_id`、稳定的 `branch_root_id`、`fork_kind` 和 `fork_point`。`fork_point` 包含父 Session 的 Message ID、从 1 开始的序号、创建时间，以及 `before` 或 `after` 位置。根 Session 和旧格式可以缺少这些字段。删除父级不会改写或级联删除后代，后代保留原谱系 ID，等待父级从系统废纸篓恢复。
+
+Session 可以包含文本、隐藏上下文、工具调用、推理、图片和 Approval 结果。图片以内联数据保存，使 fork、导出、rewind 和删除保持自包含。Fork 使用严格读取和 staging，复制的消息拥有新 ID，meta 最后发布为 admission marker，因此部分写入不会进入 Session catalog。Queue delivery 同时持久化稳定 ID 和原始 `created_at`；一旦用户消息写入 JSONL，重放直接复用该消息中的文本、已解析上下文和图片，不重新读取可能变化的文件或 URL。
+
+Markdown 分支导出包含 branch root、parent、fork point、fork kind 和 `workspace-state: shared-current`。该标记说明分支只隔离对话状态，不保存或复制 Workspace 文件。
 
 `sessions/.deleted/` 保存删除 tombstone、本地 recovery bundle 和传输 backup。进入系统废纸篓的 `<id>.kxen-session` bundle 可从废纸篓恢复，再由启动扫描导入。
 
