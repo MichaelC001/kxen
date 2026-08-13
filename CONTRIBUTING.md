@@ -85,11 +85,21 @@ scripts/changelog.sh generate vx.y.z
 scripts/changelog.sh check vx.y.z
 ```
 
-该脚本使用固定版本的 `git-cliff`、`cliff.toml`、Git tag 和 Conventional Commits 生成完整历史。将生成文件与版本号修改一起放入 `chore(release): prepare vx.y.z` commit；`chore(release)` 不进入最终 Changelog，commit 后再次运行 `check` 必须为 `PASS`。
+该脚本使用固定版本的 `git-cliff`、`cliff.toml`、Git tag 和 Conventional Commits 生成完整历史。每个版本必须至少有一个 Conventional Commit 提供以下 footer，作为产品级 Release 介绍的单一出处:
+
+```text
+Release-Title: 简短、可识别的版本主题
+Release-Note: 用户能获得的第一项能力或改进
+Release-Note: 用户能获得的第二项能力或改进
+```
+
+`Release-Title` 在一个版本内只能有一个，最多 80 个字符；`Release-Note` 可以有多个，应写用户可感知的结果，不复述文件名、测试名或内部实现步骤。git-cliff 会先生成“版本主题”和“本次更新”，再保留按 Conventional Commit 分类的完整技术明细；GitHub Release 标题也从同一份生成内容提取。发布校验会拒绝缺少主题或产品摘要的版本。
+
+将生成文件与版本号修改一起放入 `chore(release): prepare vx.y.z` commit；`chore(release)` 不进入最终 Changelog，commit 后再次运行 `check` 必须为 `PASS`。
 
 在版本 commit 已进入 `main` 后创建并推送稳定版 SemVer tag，例如 `v0.2.0`。当前更新通道不接受 prerelease 或 build metadata tag，避免 prerelease 进入稳定版 `latest.json`。不要从尚未进入 `main` 的分支 commit 创建发布 tag。推送 tag 后，在 GitHub Actions 中从 `main` 手动运行 `Release`，并输入该 tag。tag push 不会自动访问发布凭据，避免执行 tag commit 中的 workflow 定义。`.github/workflows/release.yml` 会依次执行:
 
-1. 从可信 `main` 固定 workflow 和校验器，校验 tag 格式与祖先关系，确认 tag commit 已进入远端 `main` 后才 checkout 目标代码。checkout 后仍执行已固定的校验器，并检查 checkout commit 与 tag 一致。
+1. 从可信 `main` 固定 workflow 和校验器，要求 tag、远端 `main`、本次 workflow source 和 checkout 四者是完全相同的 commit。任一不一致会在质量门禁和六平台构建前直接失败，禁止较新发布逻辑与较旧 tag 源码混用。
 2. 检查上述版本来源、生成后的 changelog 和 Tauri updater 配置一致。
 3. 对同一个不可变 commit 重新运行 frontend、Rust 和官网的完整 CI 门禁。
 4. 按发布矩阵在六个平台的 runner 上构建: macOS(arm64、x86_64）经 Developer ID 签名和 Apple 公证（桌面 App、DMG 和 `kxen` CLI 同一链路）,Linux(x86_64、arm64）产出 AppImage 和 deb,Windows(x86_64、arm64）产出 NSIS 安装包，同时构建各平台 `kxen` 无头 server 包并逐平台验证产物。发布矩阵的平台、runner、rust target 和稳定 asset 命名以 `scripts/release-manifest.sh` 为单一出处，`scripts/release-manifest.sh json` 可查看实际清单。

@@ -55,6 +55,25 @@ if kxen_compare_stable_release_tags v01.2.3 v1.2.3 >/dev/null 2>&1; then
   fail 'invalid comparison operand was accepted'
 fi
 
+commit_a='0123456789abcdef0123456789abcdef01234567'
+commit_b='89abcdef0123456789abcdef0123456789abcdef'
+if ! kxen_require_release_source_parity \
+  v1.2.3 "$commit_a" origin/main "$commit_a" workflow "$commit_a" >/dev/null; then
+  fail 'exact release source parity was rejected'
+fi
+if kxen_require_release_source_parity \
+  v1.2.3 "$commit_a" origin/main "$commit_b" workflow "$commit_a" >/dev/null 2>&1; then
+  fail 'tag and main source mismatch was accepted'
+fi
+if kxen_require_release_source_parity \
+  v1.2.3 "$commit_a" origin/main "$commit_a" workflow "$commit_b" >/dev/null 2>&1; then
+  fail 'tag and workflow source mismatch was accepted'
+fi
+if kxen_require_release_source_parity \
+  v1.2.3 invalid origin/main "$commit_a" workflow "$commit_a" >/dev/null 2>&1; then
+  fail 'invalid release source commit was accepted'
+fi
+
 releases='[
   [
     {"tag_name":"v1.2.3","draft":false,"prerelease":false},
@@ -104,6 +123,13 @@ notes_dir="$(mktemp -d "${TMPDIR:-/tmp}/kxen-release-notes-test.XXXXXX")"
 cat > "$notes_dir/v1.2.0.md" <<'EOF'
 ## [1.2.0]
 
+> **版本主题:** Bot 自动化与可靠协作
+
+### 本次更新
+
+- 每个 Bot 都能通过自己的 Builder 会话持续完善定义。 ([1234567](https://github.com/example/project/commit/1234567890))
+- Bot-to-Bot 会话支持可靠恢复。 ([abcdef0](https://github.com/example/project/commit/abcdef0123))
+
 ### 新增功能
 
 - **bot:** Add release-specific capability ([1234567](https://github.com/example/project/commit/1234567890))
@@ -115,8 +141,11 @@ EOF
 if ! kxen_validate_release_notes_file v1.2.0 "$notes_dir/v1.2.0.md"; then
   fail 'valid generated release notes were rejected'
 fi
+if [[ "$(kxen_release_title_from_notes v1.2.0 "$notes_dir/v1.2.0.md")" != 'Kxen v1.2.0: Bot 自动化与可靠协作' ]]; then
+  fail 'release title was not derived from the generated version theme'
+fi
 rendered_notes="$(kxen_render_release_body v1.2.0 example/project "$notes_dir/v1.2.0.md" '<!-- workflow-marker -->')" || fail 'release body renderer returned an error'
-for expected in '## [1.2.0]' 'Add release-specific capability' '## 下载与安装' 'SHA256SUMS' '<!-- workflow-marker -->'; do
+for expected in '## [1.2.0]' '版本主题' '每个 Bot 都能通过自己的 Builder' 'Add release-specific capability' '## 下载与安装' 'SHA256SUMS' '<!-- workflow-marker -->'; do
   if [[ "$rendered_notes" != *"$expected"* ]]; then
     fail "release body renderer omitted $expected"
   fi
@@ -135,6 +164,15 @@ fi
 printf 'Kxen v1.2.0 development preview.\n' > "$notes_dir/generic.md"
 if kxen_validate_release_notes_file v1.2.0 "$notes_dir/generic.md" >/dev/null 2>&1; then
   fail 'retired generic release notes were accepted'
+fi
+sed '/^> \*\*版本主题:\*\*/d' "$notes_dir/v1.2.0.md" > "$notes_dir/no-theme.md"
+if kxen_validate_release_notes_file v1.2.0 "$notes_dir/no-theme.md" >/dev/null 2>&1; then
+  fail 'release notes without a version theme were accepted'
+fi
+awk '/^### 本次更新$/ { skip = 1; next } skip && /^### / { skip = 0 } !skip { print }' \
+  "$notes_dir/v1.2.0.md" > "$notes_dir/no-summary.md"
+if kxen_validate_release_notes_file v1.2.0 "$notes_dir/no-summary.md" >/dev/null 2>&1; then
+  fail 'release notes without a product summary were accepted'
 fi
 
 # kxen_merge_updater_manifest fixture:多平台 sig 合并、无 sig 平台跳过、异常输入拒绝。

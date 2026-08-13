@@ -88,6 +88,7 @@ require_current_draft() {
 create_draft() {
   local existing
   local release_notes
+  local release_title
   assert_remote_source
   kxen_require_release_above_published_stable "$release_tag" "$repository"
   existing="$(find_release)"
@@ -108,12 +109,13 @@ create_draft() {
     kxen_render_release_body \
       "$release_tag" "$repository" "$release_notes_path" "$draft_marker"
   )"
+  release_title="$(kxen_release_title_from_notes "$release_tag" "$release_notes_path")"
   gh release create "$release_tag" \
     --repo "$repository" \
     --verify-tag \
     --target "$release_commit" \
     --draft \
-    --title "Kxen $release_tag" \
+    --title "$release_title" \
     --notes "$release_notes" \
     "$asset_dir"/*
   require_current_draft "$(find_release)"

@@ -8,6 +8,7 @@ source "$script_dir/release-lib.sh"
 release_tag="${1:-}"
 main_ref="${2:-origin/main}"
 repository="${3:-StringKe/kxen}"
+workflow_ref="${4:-$main_ref}"
 
 kxen_require_release_tag "$release_tag"
 kxen_require_github_repository "$repository"
@@ -22,15 +23,14 @@ fi
 tag_commit="$(git rev-parse --verify "$release_tag^{commit}")"
 head_commit="$(git rev-parse --verify HEAD)"
 main_commit="$(git rev-parse --verify "$main_ref^{commit}")"
+workflow_commit="$(git rev-parse --verify "$workflow_ref^{commit}")"
 
 if [[ "$head_commit" != "$tag_commit" ]]; then
   printf 'checked out commit %s does not match tag %s at %s\n' "$head_commit" "$release_tag" "$tag_commit"
   exit 1
 fi
-if ! git merge-base --is-ancestor "$tag_commit" "$main_commit"; then
-  printf 'tag %s at %s is not an ancestor of %s at %s\n' "$release_tag" "$tag_commit" "$main_ref" "$main_commit"
-  exit 1
-fi
+kxen_require_release_source_parity \
+  "$release_tag" "$tag_commit" "$main_ref" "$main_commit" "$workflow_ref" "$workflow_commit"
 
 versions="$({
   KXEN_RELEASE_REPOSITORY="$repository" python3 - <<'PY'
@@ -146,6 +146,6 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
 fi
 
 printf 'PASS release tag: %s\n' "$release_tag"
-printf 'PASS release commit: %s is an ancestor of %s\n' "$tag_commit" "$main_ref"
+printf 'PASS release checkout: HEAD is %s\n' "$tag_commit"
 printf 'PASS release version: %s\n' "$version"
 printf 'PASS updater configuration\n'

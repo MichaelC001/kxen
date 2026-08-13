@@ -11,6 +11,34 @@ body = """
 {% else %}\
 ## [Unreleased]
 {% endif %}
+{% for commit in commits %}\
+{% for footer in commit.footers %}\
+{% if footer.token == "Release-Title" %}\
+> **版本主题:** {{ footer.value }}
+
+{% endif %}\
+{% endfor %}\
+{% endfor %}\
+{% set_global has_release_notes = false %}\
+{% for commit in commits %}\
+{% for footer in commit.footers %}\
+{% if footer.token == "Release-Note" %}\
+{% set_global has_release_notes = true %}\
+{% endif %}\
+{% endfor %}\
+{% endfor %}\
+{% if has_release_notes %}\
+### 本次更新
+
+{% for commit in commits %}\
+{% for footer in commit.footers %}\
+{% if footer.token == "Release-Note" %}\
+- {{ footer.value }} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/StringKe/kxen/commit/{{ commit.id }}))
+{% endif %}\
+{% endfor %}\
+{% endfor %}\
+{{ "\n" }}\
+{% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}\
 ### {{ group | striptags | trim }}
 

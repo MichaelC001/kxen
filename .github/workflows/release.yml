@@ -33,7 +33,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Validate tag, ancestry, version, changelog, and updater config
+      - name: Validate exact tag, main, workflow, and product metadata parity
         id: release
         shell: bash
         env:
@@ -53,14 +53,13 @@ jobs:
           release_revision="${RELEASE_TAG}^{commit}"
           release_commit="$(git rev-parse --verify "$release_revision")"
           main_commit="$(git rev-parse --verify 'origin/main^{commit}')"
-          if ! git merge-base --is-ancestor "$release_commit" "$main_commit"; then
-            printf 'tag %s at %s is not an ancestor of origin/main at %s\n' \
-              "$RELEASE_TAG" "$release_commit" "$main_commit"
-            exit 1
-          fi
+          workflow_commit="$(git rev-parse --verify "$GITHUB_SHA^{commit}")"
+          kxen_require_release_source_parity \
+            "$RELEASE_TAG" "$release_commit" origin/main "$main_commit" \
+            workflow "$workflow_commit"
           git checkout --detach "$release_commit"
           bash "$RUNNER_TEMP/release-tools/validate-release.sh" \
-            "$RELEASE_TAG" origin/main "$GITHUB_REPOSITORY"
+            "$RELEASE_TAG" origin/main "$GITHUB_REPOSITORY" "$GITHUB_SHA"
 
   quality:
     name: Quality gates
@@ -407,7 +406,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
-        run: bash "$RUNNER_TEMP/trusted-release-tools/validate-release.sh" "$RELEASE_TAG" origin/main "$GITHUB_REPOSITORY"
+        run: bash "$RUNNER_TEMP/trusted-release-tools/validate-release.sh" "$RELEASE_TAG" origin/main "$GITHUB_REPOSITORY" "$GITHUB_SHA"
       - name: Generate version-specific release notes
         uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4.8.0
         with:

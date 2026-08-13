@@ -23,6 +23,32 @@ kxen_require_github_repository() {
   fi
 }
 
+kxen_require_release_source_parity() {
+  local release_tag="$1"
+  local tag_commit="$2"
+  local main_label="$3"
+  local main_commit="$4"
+  local workflow_label="$5"
+  local workflow_commit="$6"
+  local commit
+  local commit_pattern='^[0-9a-f]{40}$'
+  kxen_require_release_tag "$release_tag" >/dev/null || return 1
+  for commit in "$tag_commit" "$main_commit" "$workflow_commit"; do
+    if [[ ! "$commit" =~ $commit_pattern ]]; then
+      printf 'invalid release source commit: %s\n' "$commit" >&2
+      return 1
+    fi
+  done
+  if [[ "$tag_commit" != "$main_commit" || "$tag_commit" != "$workflow_commit" ]]; then
+    printf 'release source mismatch: tag %s=%s %s=%s %s=%s\n' \
+      "$release_tag" "$tag_commit" "$main_label" "$main_commit" \
+      "$workflow_label" "$workflow_commit" >&2
+    return 1
+  fi
+  printf 'PASS release source parity: tag %s, %s, and %s are %s\n' \
+    "$release_tag" "$main_label" "$workflow_label" "$tag_commit"
+}
+
 kxen_compare_decimal_release_components() {
   local left="$1"
   local right="$2"
@@ -163,10 +189,46 @@ kxen_validate_release_notes_file() {
     printf 'release notes must describe exactly one version: %s\n' "$release_tag" >&2
     return 1
   fi
+  if [[ "$(grep -Fxc '> **版本主题:** ' "$release_notes_path" || true)" != 0 ]]; then
+    printf 'release notes contain an empty version theme: %s\n' "$release_notes_path" >&2
+    return 1
+  fi
+  local release_theme
+  release_theme="$(sed -n 's/^> \*\*版本主题:\*\* //p' "$release_notes_path")"
+  if [[ "$(printf '%s\n' "$release_theme" | awk 'NF { count += 1 } END { print count + 0 }')" != 1 ]]; then
+    printf 'release notes must contain exactly one version theme: %s\n' "$release_notes_path" >&2
+    return 1
+  fi
+  if [[ "${#release_theme}" -gt 80 ]]; then
+    printf 'release notes version theme exceeds 80 characters: %s\n' "$release_notes_path" >&2
+    return 1
+  fi
+  if [[ "$(grep -Fxc '### 本次更新' "$release_notes_path" || true)" != 1 ]]; then
+    printf 'release notes must contain exactly one product summary section: %s\n' "$release_notes_path" >&2
+    return 1
+  fi
+  if ! awk '
+    /^### 本次更新$/ { capture = 1; next }
+    capture && /^### / { exit }
+    capture && /^- .+/ { found = 1 }
+    END { exit found != 1 }
+  ' "$release_notes_path"; then
+    printf 'release notes product summary does not contain any entries: %s\n' "$release_notes_path" >&2
+    return 1
+  fi
   if ! grep -Eq '^- .+' "$release_notes_path"; then
     printf 'release notes do not contain any change entries: %s\n' "$release_notes_path" >&2
     return 1
   fi
+}
+
+kxen_release_title_from_notes() {
+  local release_tag="$1"
+  local release_notes_path="$2"
+  local release_theme
+  kxen_validate_release_notes_file "$release_tag" "$release_notes_path" || return 1
+  release_theme="$(sed -n 's/^> \*\*版本主题:\*\* //p' "$release_notes_path")"
+  printf 'Kxen %s: %s\n' "$release_tag" "$release_theme"
 }
 
 kxen_render_release_body() {
