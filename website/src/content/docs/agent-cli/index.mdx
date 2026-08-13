@@ -49,14 +49,14 @@ kxen-agent run \
 
 ## Command surface
 
-| 命令 | 作用 |
-| ---- | ---- |
-| `kxen-agent run ...` | 创建 Session 并执行 task；`run` 可以省略。 |
-| `kxen-agent --resume SESSION_ID [--task ...]` | 恢复未完成 run，或在 terminal run 后开始连续 task。 |
-| `kxen-agent agent validate FILE` | 只做 deterministic DCPAgent YAML validation，不调用 provider。 |
-| `kxen-agent session list/show/fork/export/import` | 查看、分叉和迁移 durable Session。 |
-| `kxen-agent run show` | 查看 DCPRun 与 tool journal。 |
-| `kxen-agent run resolve` | 对 UNKNOWN operation 提交人工核实结果。 |
+| 命令                                              | 作用                                                           |
+| ------------------------------------------------- | -------------------------------------------------------------- |
+| `kxen-agent run ...`                              | 创建 Session 并执行 task；`run` 可以省略。                     |
+| `kxen-agent --resume SESSION_ID [--task ...]`     | 恢复未完成 run，或在 terminal run 后开始连续 task。            |
+| `kxen-agent agent validate FILE`                  | 只做 deterministic DCPAgent YAML validation，不调用 provider。 |
+| `kxen-agent session list/show/fork/export/import` | 查看、分叉和迁移 durable Session。                             |
+| `kxen-agent run show`                             | 查看 DCPRun 与 tool journal。                                  |
+| `kxen-agent run resolve`                          | 对 UNKNOWN operation 提交人工核实结果。                        |
 
 `kxen-agent --help` 以及任意命令后的 `--help` 会输出完整参数契约。task 必须且只能来自 `--task`、`--task-file` 或 `--stdin` 之一；只恢复当前未完成 run 时不传 task。
 
