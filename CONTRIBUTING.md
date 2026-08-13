@@ -106,10 +106,10 @@ Release-Note: 用户能获得的第二项能力或改进
 
 在版本 commit 已进入 `main` 后创建并推送稳定版 SemVer tag，例如 `v0.2.0`。当前更新通道不接受 prerelease 或 build metadata tag，避免 prerelease 进入稳定版 `latest.json`。不要从尚未进入 `main` 的分支 commit 创建发布 tag。推送 tag 后，在 GitHub Actions 中从 `main` 手动运行 `Release`，并输入该 tag。tag push 不会自动访问发布凭据，避免执行 tag commit 中的 workflow 定义。`.github/workflows/release.yml` 会依次执行:
 
-1. 从可信 `main` 固定 workflow 和校验器，要求 tag、远端 `main`、本次 workflow source 和 checkout 四者是完全相同的 commit。任一不一致会在质量门禁和六平台构建前直接失败，禁止较新发布逻辑与较旧 tag 源码混用。
-2. 检查上述版本来源、生成后的 changelog 和 Tauri updater 配置一致。
-3. 对同一个不可变 commit 重新运行 frontend、Rust 和官网的完整 CI 门禁。
-4. 按发布矩阵在六个平台的 runner 上构建: macOS(arm64、x86_64）经 Developer ID 签名和 Apple 公证（桌面 App、DMG、`kxen` 与 `kxen-agent` 同一链路）,Linux(x86_64、arm64）产出 AppImage 和 deb,Windows(x86_64、arm64）产出 NSIS 安装包，同时分别构建 `kxen-<platform>` server 和 `kxen-agent-<platform>` CLI asset，并让它们参与同一个版本发布。发布矩阵的平台、runner、rust target 和稳定 asset 命名以 `scripts/release-manifest.sh` 为单一出处，`scripts/release-manifest.sh json` 可查看实际清单。
+1. 从可信 `main` 固定 workflow 和校验器，要求 tag、远端 `main`、本次 workflow source 和 checkout 四者是完全相同的 commit。任一不一致会在六平台构建前直接失败，禁止较新发布逻辑与较旧 tag 源码混用。
+2. 要求该 exact commit 已有一次 `main` push 触发且完整成功的 `CI` workflow。Release 通过 GitHub Actions API 核对 SHA、branch、event、status 和 conclusion，不重复运行 frontend、Rust 与官网门禁，也不接受 PR、其他分支、其他 commit 或失败 run 作为证据。
+3. 检查上述版本来源、生成后的 changelog 和 Tauri updater 配置一致。
+4. 按发布矩阵在六个平台的 runner 上构建: macOS(arm64、x86_64）经 Developer ID 签名和 Apple 公证（桌面 App、DMG、`kxen` 与 `kxen-agent` 同一链路）,Linux(x86_64、arm64）产出 AppImage 和 deb,Windows(x86_64、arm64）产出 NSIS 安装包，同时分别构建 `kxen-<platform>` server 和 `kxen-agent-<platform>` CLI asset，并让它们参与同一个版本发布。主线 CI 的 macOS gate 与 release 的 macOS Intel、Windows 两条较慢路径使用 Rust dependency cache；cache 按 toolchain、runner、target、Cargo 配置和 lockfile 隔离，只保存依赖构建结果，不缓存 workspace binary、签名结果或 release asset，并控制在仓库 cache quota 内。发布矩阵的平台、runner、rust target 和稳定 asset 命名以 `scripts/release-manifest.sh` 为单一出处，`scripts/release-manifest.sh json` 可查看实际清单。
 5. 使用固定的 `git-cliff` 2.13.1 和 tag 区间生成仅属于当前版本的 Release Notes；同一内容写入 `latest.json.notes`，并作为 GitHub Release body 的变更部分。
 6. 合并各平台 updater 签名生成并校验 `latest.json` 与 `SHA256SUMS`，将各平台验证过的 release 文件作为 workflow artifact 传递给独立 publish job。
 7. publish job 只接收已验证 artifact，不接收签名凭据。它先创建 draft，重新下载并逐字节核对全部远端 asset，全部一致后才公开 release。
