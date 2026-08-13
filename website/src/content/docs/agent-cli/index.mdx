@@ -1,0 +1,91 @@
+---
+title: kxen-agent
+description: 独立、非交互、可恢复的 DCPAgent CLI，可在 CI、queue worker、本地终端和轻量运行环境中执行完整任务。
+status: canonical
+sidebar:
+  order: 1
+---
+
+`kxen-agent` 是一个新的独立 CLI，不是 `kxen` server 的替代品，也不要求 server 正在运行。它复用 Kxen 的 model routing、Agent loop、工具、MCP、LSP 和 Session 存储能力，从一项自然语言任务构建或加载一个 `DCPAgent`，然后自主检查 Workspace、实施修改、运行验证并返回结果。
+
+它适合任何非交互执行环境，例如本地 shell、GitHub Actions、GitLab CI、Webhook consumer、queue worker、容器或由 `kxen` server 启动的外部 worker。GitHub 只是其中一个场景，不是 DCPAgent 协议的一部分。
+
+## 安装
+
+每个 GitHub Release 都提供独立的 `kxen-agent-<platform>.tar.gz`，Windows 使用 `.zip`。它与桌面安装包和 `kxen-<platform>` server asset 参与同一个 SemVer 版本发布，但下载与安装互不依赖。
+
+从源码只构建 agent CLI:
+
+```bash
+cargo build --release -p kxen-agent
+./target/release/kxen-agent --version
+```
+
+运行时只需要 `kxen-agent` 可执行文件、一个 Workspace、Kxen provider 配置和相应 credential。DCPAgent 定义不写 provider 或 model 名，而是使用 `modelRole`，实际模型由当前 MRM 配置决定。
+
+## 第一次运行
+
+动态 Builder 模式会先理解任务，再从当前 runtime capability catalog 生成受限 DCPAgent definition，锁定 definition、capability 和 policy 后执行:
+
+```bash
+kxen-agent run \
+  --workspace /workspace/project \
+  --task "定位当前失败的检查，修复根因并运行相关验证"
+```
+
+预定义模式跳过 Builder，直接加载可审计的 YAML:
+
+```bash
+kxen-agent agent validate ./dcpagent.yaml
+
+kxen-agent run \
+  --workspace /workspace/project \
+  --agent ./dcpagent.yaml \
+  --task-file ./task.md \
+  --policy ./kxen-agent-policy.json
+```
+
+默认输出是 JSONL。每一行是一个完整 JSON event，适合日志采集和机器解析。`--format text` 只输出面向人的主要文本。
+
+## Command surface
+
+| 命令 | 作用 |
+| ---- | ---- |
+| `kxen-agent run ...` | 创建 Session 并执行 task；`run` 可以省略。 |
+| `kxen-agent --resume SESSION_ID [--task ...]` | 恢复未完成 run，或在 terminal run 后开始连续 task。 |
+| `kxen-agent agent validate FILE` | 只做 deterministic DCPAgent YAML validation，不调用 provider。 |
+| `kxen-agent session list/show/fork/export/import` | 查看、分叉和迁移 durable Session。 |
+| `kxen-agent run show` | 查看 DCPRun 与 tool journal。 |
+| `kxen-agent run resolve` | 对 UNKNOWN operation 提交人工核实结果。 |
+
+`kxen-agent --help` 以及任意命令后的 `--help` 会输出完整参数契约。task 必须且只能来自 `--task`、`--task-file` 或 `--stdin` 之一；只恢复当前未完成 run 时不传 task。
+
+## 权限默认值
+
+文件 capability 受 Workspace path scope 约束。Shell 和 MCP 默认关闭，即使 DCPAgent 请求了 `exec`、`task` 或 `mcp__*` 也不会获得它们:
+
+```bash
+kxen-agent run --allow-shell --allow-mcp ...
+```
+
+`--allow-shell` 不把 Shell 声明为 OS sandbox。命令仍先经过不可绕过的 Safety deny，然后在宿主机执行。只有明确接受这一边界的受控 worker 才应启用。
+
+provider credential 只进入 LLM client，不会写入 Session、bundle 或普通工具子进程。`exec` 和 `task` 使用过滤后的环境及独立 tool home。token、secret、password、API key 等环境变量默认移除。需要让 `gh` 等工具使用某个外部系统 token 时必须逐项显式声明:
+
+```bash
+kxen-agent run --allow-shell --pass-env GH_TOKEN ...
+```
+
+provider API key 永远不能通过 `--pass-env` 暴露给工具子进程。
+
+## 设计边界
+
+`DCPAgent` 只描述目标、通用执行指令、成功标准、capability 请求、预算和输出契约。GitHub、GitLab、Issue、PR、branch、comment、Webhook 和 queue 都不进入核心协议。
+
+这些系统能力由普通 runtime tool 提供。例如，agent 可以调用项目 MCP tool，也可以在显式 Shell policy 下执行 `gh`、`git` 或其他 CLI。它们是 capability，不需要被强制抽象成一种固定的 adapter 类型。
+
+继续阅读:
+
+- [DCPAgent definition](https://kxen.ai/agent-cli/dcpagent/)
+- [Session、branch 与 recovery](https://kxen.ai/agent-cli/sessions-and-recovery/)
+- [自动化与 GitHub 场景](https://kxen.ai/agent-cli/automation/)

@@ -1,24 +1,28 @@
 ---
 title: Runtime
-description: kxen 桌面运行时的前端、Rust 后端、通信和持久化边界。
+description: kxen 桌面、server 与独立 agent CLI 的 Rust 执行、通信和持久化边界。
 status: canonical
 sidebar:
   order: 1
 ---
 
-kxen 是一个 Tauri 2 桌面应用，并提供 kxen 无头 server。SolidJS 前端负责交互，Rust 后端负责长期状态、模型调用、工具执行和持久化。桌面 webview 和浏览器是同一内嵌服务的两个平等客户端，经同一个 `/ws` 端点通信。
+kxen 提供 Tauri 2 桌面应用、无头 server 和独立的 `kxen-agent` CLI。三者复用 Rust 中的 model routing、Agent loop、工具和持久化能力，但拥有不同的进程入口与交互契约。桌面 webview 和浏览器是同一内嵌服务的两个平等客户端，经同一个 `/ws` 端点通信；`kxen-agent` 不经过 WebSocket 或 `AppState`，通过 task、JSONL event、exit code 和 durable Session 独立运行。
 
 ## 分层
 
 <pre class="mermaid">{`
 flowchart TB
   UI["SolidJS UI"]
+  CLI["kxen-agent CLI"]
   State["Rust AppState"]
-  Runtime["Session、Agent、Bots、MRM、Tools、Knowledge、MCP、LSP"]
+  DCP["DCPRuntime"]
+  Runtime["Agent loop、MRM、Tools、MCP、LSP、durable stores"]
   Host["本地文件、进程、Provider 和系统能力"]
   UI -->|"WebSocket（RPC 帧）"| State
   State -->|"同一 WebSocket（stream 事件帧）"| UI
+  CLI -->|"task、JSONL、exit code"| DCP
   State --> Runtime
+  DCP --> Runtime
   Runtime --> Host
 `}</pre>
 
@@ -37,6 +41,10 @@ AppState 持有跨 Session 的共享运行对象，包括:
 
 共享状态不会因为前端组件卸载而结束。界面重连后应从后端快照恢复，再使用事件流保持更新。
 
+## DCPRuntime
+
+`kxen-agent` 为每个 Session 固定 DCPAgent definition、effective capability 和 runtime policy hash。它不创建 `AppState`，也不要求 server 存活。任务作为 DCPRun 写入独立 state root，工具副作用通过 durable journal 结算，进程退出后可用 `--resume` 继续。GitHub、GitLab、Issue、PR、branch 和 comment 不进入 DCPAgent 核心协议；需要时由 MCP tool 或普通 CLI capability 提供。
+
 ## Session
 
 Session 是用户工作的持久边界。一次 run 是 Session 中的一次执行，不是新的 Session。pending queue、Goal、Team 和 Schedule 都通过 Session ID 关联。
@@ -49,4 +57,4 @@ Bot 是独立于 Session 的持久边界。BotRun 固定 definition revision、p
 
 ## 平台边界
 
-当前 Runtime 覆盖 macOS 14 及以上版本（Apple Silicon 和 Intel），Windows（x64 和 ARM64）和 Linux（x86_64 和 ARM64），kxen 覆盖同样的六个平台。kxen 仍处于开发预览阶段，安装包和更新通道已经开放，安装方式以 [可用性](https://kxen.ai/overview/availability) 为准。
+当前 Runtime 覆盖 macOS 14 及以上版本（Apple Silicon 和 Intel），Windows（x64 和 ARM64）和 Linux（x86_64 和 ARM64），桌面、server 与 `kxen-agent` 覆盖同样的六个平台。kxen 仍处于开发预览阶段，安装包和更新通道已经开放，安装方式以 [可用性](https://kxen.ai/overview/availability) 为准。

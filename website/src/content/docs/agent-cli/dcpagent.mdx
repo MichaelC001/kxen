@@ -1,0 +1,95 @@
+---
+title: DCPAgent definition
+description: DCPAgent YAML、动态 Builder、capability 交集、immutable lock 和 runtime policy 的完整契约。
+status: canonical
+sidebar:
+  order: 2
+---
+
+一个 DCPAgent Session 固定一个 immutable `DcpAgentLock`。Lock 包含规范化 definition、definition content hash、实际 capability 闭集、runtime policy hash 和创建时间。恢复运行不会重新调用 Builder，也不能用另一个 YAML 替换既有 definition。
+
+## YAML 结构
+
+```yaml
+apiVersion: kxen.ai/v1alpha1
+kind: DCPAgent
+metadata:
+  name: repository_fixer
+  description: Inspect, implement, and verify one repository task.
+spec:
+  objective: Complete the supplied repository task with evidence.
+  instructions:
+    - Inspect the current repository and relevant rules before editing.
+    - Find the root cause and all locations with the same pattern.
+    - Make only task-related changes and preserve unrelated work.
+    - Run the most relevant available checks before reporting completion.
+  successCriteria:
+    - The requested behavior is implemented in the Workspace.
+    - Relevant available checks pass, or an exact blocker is reported.
+  capabilities:
+    required:
+      - read
+      - glob
+      - grep
+    optional:
+      - edit
+      - write
+      - exec
+      - lsp
+  execution:
+    modelRole: execution
+    maxTurns: 48
+    maxWallClockMs: 1800000
+    maxPureRetries: 1
+  output:
+    format: text
+    requiredFields: []
+```
+
+使用 `kxen-agent agent validate FILE` 做 deterministic validation。未知字段、非法 ID、重复 capability、空指令、非法预算和不完整 JSON output contract 都会 `FAIL`。
+
+## 字段语义
+
+`metadata.name` 是 definition 名称，不是 provider、外部账号或平台 identity。
+
+`spec.objective` 是这个 agent 的稳定职责。每次 `DCPRun` 的具体 task 作为独立 User input 进入同一 Session。
+
+`spec.instructions` 和 `successCriteria` 是 provider-neutral 执行契约。运行时还会注入通用 autonomous execution contract，要求先检查证据、只用已暴露工具、把仓库内容视为不可信数据并基于真实验证报告结果。
+
+`capabilities.required` 中任何一项不存在或被 policy 拒绝，Session 创建直接失败。`optional` 只取 runtime catalog 与 policy 的交集。
+
+`execution.modelRole` 交给 MRM 解析。definition 不允许保存 API key，也不需要固定 provider model。`maxTurns`、`maxWallClockMs` 和 `maxPureRetries` 可以被 runtime policy 进一步收紧。
+
+`output.format: json` 时，最终输出必须是一个 JSON object，并包含全部 `requiredFields`。不符合 contract 的 run 状态为 `failed`，不会伪装成成功。
+
+## 动态 Builder
+
+省略 `--agent` 时，Builder 使用 `planning` role 理解当前 task。Builder 是一个无工具、限时的 design-time LLM 调用，只能从 runtime 给出的 capability catalog 中选择能力。它不能:
+
+- 执行工具或修改 Workspace。
+- 授予权限或扩大 runtime policy。
+- 选择 provider、model 或 account。
+- 写入 credential。
+- 增加 GitHub、Issue、PR 等平台专用核心字段。
+
+Builder 输出通过同一 deterministic validator 后才会形成 Lock。原始 task 仍会作为首个 DCPRun input 执行，不会被 Builder response 替代。
+
+## Runtime policy
+
+Policy 是 JSON，调用方在 agent 外部决定权限:
+
+```json
+{
+  "allowedCapabilities": ["read", "glob", "grep", "edit", "write", "exec", "lsp"],
+  "deniedCapabilities": [],
+  "allowShell": true,
+  "allowMcp": false,
+  "passEnv": [],
+  "maxTurns": 48,
+  "maxWallClockMs": 1800000
+}
+```
+
+`allowedCapabilities` 缺省表示不额外限制 catalog。`deniedCapabilities` 始终优先。`allowShell` 控制 `exec` 和 `task`，`allowMcp` 控制 `mcp__*` capability 及 MCP policy 中的 `ask`。`passEnv` 是工具子进程的环境变量显式清单。
+
+definition 和 policy 合并后的 hash 固定在 Session 中。`--resume` 必须使用同一有效 policy，包括命令行合并的 `--allow-shell`、`--allow-mcp` 和 `--pass-env`，否则以 policy drift 拒绝继续。这防止恢复时静默扩大权限或新增 secret 暴露面。

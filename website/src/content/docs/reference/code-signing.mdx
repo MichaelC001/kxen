@@ -12,7 +12,7 @@ kxen 的安装包按平台采用不同的签名机制，本页说明各平台状
 
 | 平台    | 签名机制                                                               |
 | ------- | ---------------------------------------------------------------------- |
-| macOS   | Apple Developer ID 签名 + Apple 公证，桌面 App、DMG 和 `kxen` CLI 一致 |
+| macOS   | Apple Developer ID 签名 + Apple 公证，桌面 App、DMG、`kxen` 和 `kxen-agent` 一致 |
 | Windows | 无 Authenticode 签名                                                   |
 | Linux   | 无 OS 级签名                                                           |
 
@@ -22,6 +22,6 @@ Windows 安装包当前未做 Authenticode 签名,SmartScreen 首次启动会提
 
 ## 验证下载产物
 
-- macOS: `codesign --verify --deep --strict Kxen.app` 与 `xcrun stapler validate Kxen.app` 校验桌面 App;`kxen` CLI 用 `codesign --verify --strict kxen` 校验。
+- macOS: `codesign --verify --deep --strict Kxen.app` 与 `xcrun stapler validate Kxen.app` 校验桌面 App；headless 包中的 `kxen` 和 `kxen-agent` 分别用 `codesign --verify --strict BINARY` 校验。
 - 全平台: 用发布附带的 `SHA256SUMS` 逐文件核对 sha256(`shasum -a 256 -c SHA256SUMS` 或 `sha256sum -c SHA256SUMS`)。
 - updater 签名: `.sig` 文件与 [Tauri updater 公钥](https://github.com/StringKe/kxen/blob/main/src-tauri/tauri.conf.json)可用 minisign 兼容工具验证。

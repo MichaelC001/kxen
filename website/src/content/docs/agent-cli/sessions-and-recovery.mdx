@@ -1,0 +1,119 @@
+---
+title: Session、branch 与 recovery
+description: DCP Session、DCPRun、Conversation branch、Git worktree、跨进程 lease、resume、bundle 和 UNKNOWN 语义。
+status: canonical
+sidebar:
+  order: 3
+---
+
+`kxen-agent` 使用独立持久状态，不依赖 `kxen` server 进程。设置 `KXEN_AGENT_STATE_DIR` 可以把它固定到 CI volume、worker volume 或指定目录:
+
+```bash
+export KXEN_AGENT_STATE_DIR=/var/lib/kxen-agent
+```
+
+## 三层 identity
+
+- `DCPAgent`: 不可变的 definition revision 和 capability/policy lock。
+- `Session`: durable Conversation，绑定一个 Workspace identity，可以包含多个连续 DCPRun。
+- `DCPRun`: 一次具体 task 的状态、model、turn、最终结果和 durable tool journal。
+
+新建 Session:
+
+```bash
+kxen-agent run --workspace /workspace/repo --task-file task.md
+```
+
+继续未完成 run，或者在上一个 terminal run 后提交一个新的连续 task:
+
+```bash
+kxen-agent --resume ses_xxx
+kxen-agent --resume ses_xxx --task "继续检查并处理刚发现的第二个问题"
+```
+
+只提供 `session_id` 的前提是当前进程能访问创建它的同一 state directory。Session ID 不是远程 locator，不包含 Workspace 或历史数据。
+
+## Conversation branch 与 Git worktree
+
+Conversation branch 是一个新的完整 Session，记录 `parentId`、稳定 `branchRootId`、精确 `forkPoint` 和 `forkKind`。它复制分叉点之前的消息历史，但默认继续使用同一个 Workspace，因此不会自动复制文件状态。
+
+```bash
+kxen-agent session fork ses_xxx --at msg_xxx
+```
+
+需要让对话分支同时拥有独立文件实验空间时，显式创建 Git worktree:
+
+```bash
+kxen-agent session fork ses_xxx \
+  --at msg_xxx \
+  --worktree alternative_fix
+```
+
+这会复用 Kxen 的 worktree 能力，创建独立路径和 `kxen/alternative_fix` Git branch，并把新 Session 的 Workspace binding 指向该 worktree。Git branch 是 Workspace 能力，不是 DCPAgent 协议字段。
+
+## Workspace binding
+
+Session 保存 canonical root、identity hash，以及可用时的 Git repository root、已清理 credential 的 remote hash、branch 和创建时 HEAD。恢复允许 HEAD 前进，但 repository identity 和 branch 必须一致。
+
+Workspace 被复制或移动到另一个 runner 后，显式验证并更新路径:
+
+```bash
+kxen-agent --resume ses_xxx \
+  --workspace /new/path/repo \
+  --rebind-workspace
+```
+
+只有 identity 校验通过才会 rebind。普通路径变化不会绕过 repository 或 branch 检查。
+
+## Ephemeral runner 迁移
+
+在 runner 销毁前导出一个不含 credential 的自包含 bundle:
+
+```bash
+kxen-agent session export ses_xxx --output session.bundle.json
+```
+
+在新的空 state directory 中导入，并绑定新 checkout:
+
+```bash
+kxen-agent session import session.bundle.json --workspace /workspace/repo
+kxen-agent --resume ses_xxx --workspace /workspace/repo
+```
+
+Bundle 包含 core Session metadata、messages、DCPAgent lock、DCPRun state 和 tool journal，不包含 auth store、provider API key、外部 CLI token、后台进程或 OS credential。
+
+## Durable tool boundary
+
+每个工具调用按以下状态落盘:
+
+```text
+Started -> OutcomeKnown -> Settled
+       \-> OutcomeUnknown
+```
+
+`Started` 在副作用执行前 durable commit。工具返回后先 durable commit `OutcomeKnown`，再把整轮消息写入 Session，最后 `Settled`。如果进程在结果已知但 turn 尚未写入时退出，恢复会把结果补进历史，不重复执行。
+
+如果进程在 `Started` 后退出且没有 durable outcome，结果是 `UNKNOWN`。Run 进入 `input_required`，自动恢复停止，因为外部副作用可能已经发生。先查看 run:
+
+```bash
+kxen-agent run show ses_xxx run_xxx
+```
+
+核对 Workspace 或外部系统后，提交人工确定的结果:
+
+```bash
+kxen-agent run resolve ses_xxx run_xxx op_xxx \
+  --output "verified: branch already pushed"
+
+kxen-agent --resume ses_xxx
+```
+
+如果确认操作失败，增加 `--is-error`。Resolution 绑定精确 operation ID，不会重新执行 UNKNOWN operation。
+
+Run 的最终输出也使用两阶段 settlement。runtime 先保存 terminal DCPRun result，再幂等写入 Session final message，最后标记 `settled`。如果进程在这三个步骤之间退出，`--resume` 只补齐 settlement，不会再次调用 provider 或工具。
+
+## 并发和中断
+
+同一 Session 同时只允许一个活动 run。`kxen-agent` 与 `kxen` server 共用跨进程 Session run lease 和跨进程 mutation lock，因此两个进程不能同时修改或执行同一 Session。
+
+Ctrl-C 会请求 cooperative cancellation。无悬而未决副作用时 run 进入 `canceled`。工具超过取消清理窗口且结果无法证明时仍按 `UNKNOWN` 处理，而不是把不确定副作用写成普通取消。

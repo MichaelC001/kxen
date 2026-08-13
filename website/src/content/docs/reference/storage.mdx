@@ -21,6 +21,8 @@ kxen 采用本地优先存储，当前没有 kxen 云同步服务。
 
 `kxen` 可以用环境变量 `KXEN_DATA_DIR` 覆盖应用数据目录。当前命名缓存不一定写入缓存根。模型目录和 embedding cache 位于应用数据目录，不能把缓存根当成清理它们的唯一入口。
 
+`kxen-agent` 默认使用应用数据目录下的 `agent/` 作为独立 state root，可以用 `KXEN_AGENT_STATE_DIR` 或每次调用的 `--state-dir` 覆盖。它复用用户配置和 auth store 的默认位置，但不会把 provider credential 复制到 agent state。
+
 ## 用户配置
 
 - `config.toml`: 路由、限制、实验开关和一般设置。
@@ -54,6 +56,12 @@ kxen 采用本地优先存储，当前没有 kxen 云同步服务。
 - `consolidation-attempts/`: Knowledge 蒸馏的 Provider attempt、消息 revision、cursor、候选 Note 和写入进度。每个 attempt 同时保存可解释的 `status` 和 `reason`；`provider_result_unknown` 会阻止自动重试，直到用户显式确认 UNKNOWN。
 - `knowledge-moves/`: 项目与个人 scope 移动的私有 transaction claim；项目内容不能提供或修改该 claim。
 - `instance.lock`: 单实例持有的进程锁。
+
+## Agent state
+
+`kxen-agent` state root 的 `sessions/` 保存 core Session meta 与 JSONL、`<session_id>/dcp/session.json`、每个 `<run_id>/run.json` 和 `tools.json`。`.locks/` 保护跨进程 Session mutation，`.run-locks/` 保证同一 Session 只有一个执行者。`usage-attempts/`、`tool-home/`、`mcp-launch-audit.jsonl` 和每个 run 的 Shell audit 分别保存 provider attempt、隔离工具 home 和非交互授权审计。
+
+`session export` 生成自包含 JSON bundle，包含消息、DCPAgent lock、DCPRun 与 tool journal，不包含 auth store、API key、外部 CLI token 或 OS credential。state 和 bundle 仍可能包含任务正文、代码上下文及工具输出，应作为私有数据保存。
 
 ## Session
 

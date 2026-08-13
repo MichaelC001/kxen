@@ -1,0 +1,35 @@
+apiVersion: kxen.ai/v1alpha1
+kind: DCPAgent
+metadata:
+  name: repository_fixer
+  description: Inspect, implement, and verify one repository task.
+spec:
+  objective: Complete the supplied repository task with concrete evidence.
+  instructions:
+    - Inspect the current repository and relevant rules before editing.
+    - Find the root cause and all locations with the same pattern.
+    - Make only task-related changes and preserve unrelated work.
+    - Run the most relevant available checks before reporting completion.
+  successCriteria:
+    - The requested behavior is implemented in the Workspace.
+    - Relevant available checks pass, or an exact blocker is reported.
+  capabilities:
+    required:
+      - read
+      - glob
+      - grep
+    optional:
+      - edit
+      - write
+      - exec
+      - lsp
+      - webfetch
+      - websearch
+  execution:
+    modelRole: execution
+    maxTurns: 48
+    maxWallClockMs: 1800000
+    maxPureRetries: 1
+  output:
+    format: text
+    requiredFields: []

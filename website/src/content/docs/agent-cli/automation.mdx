@@ -1,0 +1,129 @@
+---
+title: 自动化与 GitHub 场景
+description: 在任意 worker 中运行 kxen-agent，以及用普通 MCP 或 CLI capability 完成 GitHub Issue 到 PR 的示例。
+status: canonical
+sidebar:
+  order: 4
+---
+
+`kxen-agent` 不绑定某一种 trigger 或托管平台。调用方只负责准备 Workspace、task、credential、runtime policy 和 durable state，然后读取 JSONL event 与 exit code。
+
+```text
+trigger or queue -> prepare Workspace/task -> kxen-agent -> JSONL/result
+                                             |
+                                             +-> file, shell, MCP, LSP, web tools
+```
+
+GitHub Actions、GitLab CI、Webhook handler、queue worker 和 `kxen` server 都可以是调用方，但这些名称和对象模型不进入 DCPAgent definition。
+
+## 通用 worker contract
+
+1. 使用独立 checkout 或 worktree，避免两个 run 共享可变文件。
+2. 为每个并发工作单元选择独立 state directory，或用 Session run lease 串行化同一 Session。
+3. 通过 Kxen config 配置 MRM roles，通过 auth file 或受支持的 provider API key 环境变量提供 LLM credential。
+4. 使用 policy 限制 capability、turn、wall clock、Shell、MCP 和工具可见 env。
+5. 保存 JSONL 日志。需要跨 ephemeral runner 恢复时同时保存 Session bundle。
+6. 只把显式需要的外部 token 传给工具，provider credential 不进入工具环境。
+
+进程 exit code 为 0 只表示 DCPRun `completed`。`failed`、`canceled`、`input_required`、policy drift、Workspace mismatch 和存储错误都返回非零。
+
+## GitHub Issue 到 PR 示例
+
+下面是一个场景示例，不是核心架构。它让 GitHub 提供 trigger 和 checkout，让 `gh`/`git` 作为普通 Shell capability 使用。DCPAgent 本身仍是平台无关的 repository fixer。
+
+```yaml
+name: Kxen issue worker
+
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: write
+
+concurrency:
+  group: kxen-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  solve:
+    if: github.event.action == 'labeled' && github.event.label.name == 'kxen'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Install verified kxen-agent release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download \
+            --repo StringKe/kxen \
+            --pattern kxen-agent-linux-x86_64.tar.gz \
+            --pattern SHA256SUMS
+          grep ' kxen-agent-linux-x86_64.tar.gz$' SHA256SUMS | sha256sum -c -
+          tar -xzf kxen-agent-linux-x86_64.tar.gz kxen-agent
+          sudo install -m 0755 kxen-agent /usr/local/bin/kxen-agent
+
+      - name: Prepare task
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          {
+            printf '%s\n' \
+              'Solve the GitHub issue below in the current repository.' \
+              'Inspect the repository, implement the fix, and run relevant checks.' \
+              'Create a topic branch, commit only task-related files, push it, and create or continue a PR linked to the issue.' \
+              'Do not rewrite protected branch history. Report the PR URL and verification evidence.' \
+              ''
+            gh issue view "$ISSUE_NUMBER" \
+              --json number,title,body,url,labels
+          } > issue-task.md
+
+      - name: Solve issue
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          KXEN_AGENT_STATE_DIR: ${{ runner.temp }}/kxen-agent-state
+        run: |
+          kxen-agent run \
+            --workspace "$GITHUB_WORKSPACE" \
+            --agent .kxen/repository-fixer.dcpagent.yaml \
+            --task-file issue-task.md \
+            --policy .kxen/agent-policy.json \
+            --pass-env GH_TOKEN \
+            --format jsonl \
+            | tee kxen-agent.jsonl
+
+      - name: Preserve recovery evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: kxen-agent-${{ github.event.issue.number }}-${{ github.run_id }}
+          path: |
+            kxen-agent.jsonl
+            ${{ runner.temp }}/kxen-agent-state
+          include-hidden-files: true
+```
+
+这里的 `.kxen/repository-fixer.dcpagent.yaml` 可以使用 [DCPAgent definition](https://kxen.ai/agent-cli/dcpagent/) 中的平台无关示例。`.kxen/agent-policy.json` 决定是否允许 `exec`。task 可以要求 agent 创建 topic branch、提交、push、创建或继续 PR、关联 Issue 并留言；这些动作由 `gh` 和 `git` 完成，不会改变 DCPAgent schema。
+
+真实仓库还应按组织策略选择 provider role、secret、分支保护、允许的 label 和审查门。上例上传完整 state 作为恢复证据，state 中不包含 provider credential，但可能包含 issue 内容、工具输出和代码上下文，应按私有构建产物管理。
+
+## MCP 场景
+
+启用 `--allow-mcp` 后，agent 可以使用当前 Workspace 的 `mcp__server__tool` capability。项目 `.mcp.json` 的 stdio server 在启动前必须通过:
+
+- 项目配置解析和 tool name 校验。
+- absolute、canonical、可执行 command 校验。
+- runtime code injection env 拒绝。
+- 完整 command、args、cwd、脱敏 env 指纹的 durable audit。
+- DCPAgent capability 与 runtime policy 交集。
+- MCP `toolPolicies`，其中 `deny` 始终不可绕过。
+
+因此 MCP 和普通 CLI 是两种并列的 capability 提供方式。调用方可以按环境选择其中任意一种，不需要先把外部系统改造成某个统一 adapter。

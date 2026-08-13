@@ -10,7 +10,7 @@ kxen 是面向复杂软件工程任务的本地 Coding Agent Harness。它不是
 
 ## 解决的问题
 
-普通聊天界面可以生成代码，但难以持续管理真实项目中的工作目录、长任务、工具调用、模型账号、风险审批和恢复状态。kxen 把这些运行责任放进一个桌面应用:
+普通聊天界面可以生成代码，但难以持续管理真实项目中的工作目录、长任务、工具调用、模型账号、风险审批和恢复状态。kxen 把这些运行责任放进共享的 Rust 执行核心，并提供桌面、Web、server 和独立 agent CLI 入口:
 
 - Workspace 提供项目边界。
 - Session 保存对话和执行历史。
@@ -19,6 +19,7 @@ kxen 是面向复杂软件工程任务的本地 Coding Agent Harness。它不是
 - Provider 和模型路由管理推理资源。
 - Safety 和 Approval 约束工具执行。
 - Knowledge Library 沉淀可复用的项目和个人知识。
+- DCPAgent 把非交互任务固化为 provider-neutral definition、capability/policy lock、Session 和可恢复 DCPRun。
 
 ## 面向谁
 
@@ -29,11 +30,11 @@ kxen 面向需要让 Agent 直接参与真实代码库工作的开发者。典�
 | 维度     | 当前边界                                                               |
 | -------- | ---------------------------------------------------------------------- |
 | 平台     | macOS(Apple Silicon、Intel)、Windows(x64、ARM64)、Linux(x86_64、ARM64) |
-| 形态     | Tauri 2 桌面应用、kxen 无头 server、浏览器客户端                       |
+| 形态     | Tauri 2 桌面应用、kxen 无头 server、浏览器客户端、kxen-agent CLI       |
 | 运行核心 | Rust                                                                   |
 | 用户界面 | SolidJS（桌面 webview 与浏览器）                                       |
 | 模型     | 多 Provider、多账号和角色路由                                          |
 | 数据     | 本地优先                                                               |
 | 发布     | 开发预览                                                               |
 
-除 `kxen` 无头 server 外，kxen 当前不提供其他 CLI、TUI、公开 HTTP API、云同步或插件市场。Bot-to-Bot 只连接本机 kxen 中的 Bot，不是多真人聊天，也不提供共享云电脑或 external A2A endpoint。
+`kxen-agent` 是独立 autonomous CLI，不是 server 的替代品，也不是公开 HTTP API。kxen 当前不提供 TUI、云同步或插件市场。Bot-to-Bot 只连接本机 kxen 中的 Bot，不是多真人聊天，也不提供共享云电脑或 external A2A endpoint。

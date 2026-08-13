@@ -53,7 +53,7 @@ cargo audit --file Cargo.lock
 
 `pnpm check` 已包含 `pnpm typecheck`，CI 使用同一入口；单列命令用于本地快速复现 TypeScript strict 类型错误。
 
-仓库根是 Cargo workspace，包含 `crates/kxen-core`（全部产品逻辑，lib `kxen_core`）、`crates/kxen-cli`（无头 server bin `kxen`）和 `src-tauri`（`kxen-gui` Tauri 桌面壳 crate），cargo 门禁必须使用 `--workspace` 覆盖三者。rust-embed 在编译期读取仓库根 `dist/`,cargo 命令前必须先执行 `pnpm build`，否则 Rust 编译失败。
+仓库根是 Cargo workspace，包含 `crates/kxen-core`（共享产品逻辑，lib `kxen_core`）、`crates/kxen-cli`（无头 server bin `kxen`）、`crates/kxen-agent`（独立 autonomous CLI）和 `src-tauri`（`kxen-gui` Tauri 桌面壳 crate），cargo 门禁必须使用 `--workspace` 覆盖四者。rust-embed 在编译期读取仓库根 `dist/`,cargo 命令前必须先执行 `pnpm build`，否则 Rust 编译失败。
 
 官网变更还必须运行:
 
@@ -74,8 +74,9 @@ Pull Request 需要说明问题、实现边界和验证结果。不要提交 `.e
 
 - `crates/kxen-core/Cargo.toml` 的 `package.version`。
 - `crates/kxen-cli/Cargo.toml` 的 `package.version`。
+- `crates/kxen-agent/Cargo.toml` 的 `package.version`。
 - `src-tauri/Cargo.toml` 的 `package.version`。
-- `Cargo.lock` 中 `kxen-core`、`kxen-cli` 和 `kxen-gui` package 的 `version`。
+- `Cargo.lock` 中 `kxen-core`、`kxen-cli`、`kxen-agent` 和 `kxen-gui` package 的 `version`。
 - `src-tauri/tauri.conf.json` 的 `version`。
 
 `CHANGELOG.md` 不手工编辑。完成版本号修改和本版本功能提交后，运行:
@@ -108,7 +109,7 @@ Release-Note: 用户能获得的第二项能力或改进
 1. 从可信 `main` 固定 workflow 和校验器，要求 tag、远端 `main`、本次 workflow source 和 checkout 四者是完全相同的 commit。任一不一致会在质量门禁和六平台构建前直接失败，禁止较新发布逻辑与较旧 tag 源码混用。
 2. 检查上述版本来源、生成后的 changelog 和 Tauri updater 配置一致。
 3. 对同一个不可变 commit 重新运行 frontend、Rust 和官网的完整 CI 门禁。
-4. 按发布矩阵在六个平台的 runner 上构建: macOS(arm64、x86_64）经 Developer ID 签名和 Apple 公证（桌面 App、DMG 和 `kxen` CLI 同一链路）,Linux(x86_64、arm64）产出 AppImage 和 deb,Windows(x86_64、arm64）产出 NSIS 安装包，同时构建各平台 `kxen` 无头 server 包并逐平台验证产物。发布矩阵的平台、runner、rust target 和稳定 asset 命名以 `scripts/release-manifest.sh` 为单一出处，`scripts/release-manifest.sh json` 可查看实际清单。
+4. 按发布矩阵在六个平台的 runner 上构建: macOS(arm64、x86_64）经 Developer ID 签名和 Apple 公证（桌面 App、DMG、`kxen` 与 `kxen-agent` 同一链路）,Linux(x86_64、arm64）产出 AppImage 和 deb,Windows(x86_64、arm64）产出 NSIS 安装包，同时分别构建 `kxen-<platform>` server 和 `kxen-agent-<platform>` CLI asset，并让它们参与同一个版本发布。发布矩阵的平台、runner、rust target 和稳定 asset 命名以 `scripts/release-manifest.sh` 为单一出处，`scripts/release-manifest.sh json` 可查看实际清单。
 5. 使用固定的 `git-cliff` 2.13.1 和 tag 区间生成仅属于当前版本的 Release Notes；同一内容写入 `latest.json.notes`，并作为 GitHub Release body 的变更部分。
 6. 合并各平台 updater 签名生成并校验 `latest.json` 与 `SHA256SUMS`，将各平台验证过的 release 文件作为 workflow artifact 传递给独立 publish job。
 7. publish job 只接收已验证 artifact，不接收签名凭据。它先创建 draft，重新下载并逐字节核对全部远端 asset，全部一致后才公开 release。

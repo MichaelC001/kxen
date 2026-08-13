@@ -30,6 +30,12 @@ kxen 当前是开发预览，安装包已公开发布。
 
 `kxen` 无头 server 面向没有显示器的环境，六个平台都提供 tar.gz 或 zip 包；macOS 包与桌面 App 一样经过 Developer ID 签名和 Apple 公证。启动后打印带 token 的访问 URL，浏览器打开即用；远程访问推荐经 tailscale 终结 TLS。用法和安全模型见 [Web 模式](https://kxen.ai/getting-started/web-mode)。
 
+## Agent CLI
+
+每个平台在同一个版本中提供两个并列的 headless 资源：`kxen-<platform>.tar.gz|zip` 是 server，`kxen-agent-<platform>.tar.gz|zip` 是 autonomous CLI。`kxen-agent` 不启动 Web 服务，可在本地终端、CI、queue worker、Webhook consumer 和轻量容器中直接执行非交互任务。macOS 的两个二进制都经过 Developer ID 签名和 Apple 公证。
+
+安装、DCPAgent definition、Session recovery 和 automation 示例见 [kxen-agent](https://kxen.ai/agent-cli/)。
+
 ## 不应推断的承诺
 
 仓库中出现的平台代码、构建配置或实验实现，不代表对应能力已经可用。Provider 出现在注册表中，也不代表用户账号已经获得对应模型权限。
