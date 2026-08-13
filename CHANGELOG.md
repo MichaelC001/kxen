@@ -2,19 +2,49 @@
 
 此文件由 [git-cliff](https://github.com/orhun/git-cliff) 根据 Git tag 和 Conventional Commits 自动生成，请勿手动编辑。
 
-## [Unreleased]
+## [0.1.5] - 2026-08-13
+
+> **版本主题:** Bot 自构建与工作区导航
+
+### 本次更新
+
+- 每个 Bot 都拥有与自身身份绑定的交互式 Builder，可通过持续对话创建或完善定义，并由 Owner 审阅授权、测试和发布。 ([acdcb38](https://github.com/StringKe/kxen/commit/acdcb385b0ddc7f0c4fbd8b0a1b5ce46909c0494))
+- Bot 管理、Bot-to-Bot Direct 与 Group、持久化恢复和 Workspace 模型路由现在具有更一致的状态、权限与失败语义。 ([acdcb38](https://github.com/StringKe/kxen/commit/acdcb385b0ddc7f0c4fbd8b0a1b5ce46909c0494))
+- 应用采用稳定的 Logo、Search、工作区、Bots、项目区和底部 Settings 侧边栏，主内容与右侧上下文详情不再挤入 footer。 ([acdcb38](https://github.com/StringKe/kxen/commit/acdcb385b0ddc7f0c4fbd8b0a1b5ce46909c0494))
 
 ### 工程
 
 - **release:** Generate version-specific notes with git-cliff ([15195b2](https://github.com/StringKe/kxen/commit/15195b264733666d851794915d573a911d09aa55))
+- **release:** Require product notes and exact source parity ([1fbc939](https://github.com/StringKe/kxen/commit/1fbc939a487fb6bd960850dd1748dfa0e80bc28d))
+
+### 性能优化
+
+- **web:** Defer Mermaid from startup bundles ([7c38193](https://github.com/StringKe/kxen/commit/7c3819387eb295822692d6d713eae9e37126fb40))
 
 ### 文档
 
 - **release:** Document generated changelog workflow ([38233ca](https://github.com/StringKe/kxen/commit/38233ca5e0a97c8b2c94c2f68e5ee1e95618589d))
+- **bot:** Document per-bot self-building ([ca13da5](https://github.com/StringKe/kxen/commit/ca13da5c65dd49995f7f6c66b4c4ea0f173a3853))
+- **release:** Document stable changelog commits ([f66446e](https://github.com/StringKe/kxen/commit/f66446e3e04b195f6aa9c457d08015b4926a88be))
+
+### 新增功能
+
+- **bot:** Make Builder sessions conversational and bot-bound ([822b4fc](https://github.com/StringKe/kxen/commit/822b4fcf5222b5a24a1165aae18e69eda90cd356))
+- **ui:** Establish persistent workspace navigation ([fd0bc25](https://github.com/StringKe/kxen/commit/fd0bc25303c9784728062eb246de7a759c956064))
 
 ### 问题修复
 
 - **release:** Normalize generated changelog output ([9f5ac0b](https://github.com/StringKe/kxen/commit/9f5ac0b7394902fbf3b58f6c56fe26555a71c4b7))
+- **bot:** Reconcile mutations against durable state ([39280e2](https://github.com/StringKe/kxen/commit/39280e29b0911ae2a66cb8a4aa7f10dcbb7ea797))
+- **settings:** Report workspace routing readiness ([4a4d225](https://github.com/StringKe/kxen/commit/4a4d2251066c326a063ef5cdb52c8c57a742a1c7))
+- **bot:** Reopen archived direct conversations safely ([460d7e3](https://github.com/StringKe/kxen/commit/460d7e34fd5a3e985fd081615fe8549a629867b5))
+- **bot:** Scope self-builder identity to each Bot ([7006491](https://github.com/StringKe/kxen/commit/700649100a4dfc69152d8ca97b7e796fe2c436c3))
+- **ui:** Unify accessible selection navigation ([e070d69](https://github.com/StringKe/kxen/commit/e070d699595395de18c1aaffbd635b71a499499a))
+- **bot:** Reserve controlled tests for owners ([003b2fa](https://github.com/StringKe/kxen/commit/003b2fa20349691b9ebabdb6e69e49741b531268))
+- **bot:** Make management and grants reviewable ([0b609f4](https://github.com/StringKe/kxen/commit/0b609f434c13da32b0856625f599463b1caa20e6))
+- **ui:** Normalize user-visible status language ([518d0a2](https://github.com/StringKe/kxen/commit/518d0a2d1bd510c4a08204746f5d9e06b803ac0a))
+- **runtime:** Treat first-start recovery as empty ([db4a720](https://github.com/StringKe/kxen/commit/db4a7205d19535b3f613820df8ac07775b2d8cd2))
+- **release:** Preserve product metadata for git-cliff ([594f9e3](https://github.com/StringKe/kxen/commit/594f9e363f113ef0ca047a254a9724219eac2253))
 
 ## [0.1.4] - 2026-08-12
 
