@@ -322,11 +322,13 @@ describe("组合组件", () => {
     dispose();
   });
 
-  it("Sidebar 初始化订阅、创建会话和切换主题", async () => {
+  it("Sidebar 初始化订阅、通过项目区入口创建会话并切换主题", async () => {
     const dispose = render(() => <Sidebar />, document.body);
     await vi.waitFor(() => expect(h.initSessions).toHaveBeenCalledTimes(1));
     expect(h.mountSessionEvents).toHaveBeenCalledTimes(1);
-    clickButton("新会话");
+    document.body
+      .querySelector<HTMLButtonElement>("button[aria-label='新建会话']")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await vi.waitFor(() => expect(h.newSession).toHaveBeenCalledTimes(1));
     document.body
       .querySelector<HTMLButtonElement>("button[title='切换明暗主题']")
