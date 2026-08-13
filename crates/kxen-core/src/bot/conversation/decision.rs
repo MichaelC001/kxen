@@ -103,6 +103,40 @@ fn decide_existing(
             }
             Ok(vec![ConversationEvent::Archived { at_ms }])
         }
+        ConversationCommand::Reopen { at_ms } => {
+            require_owner(actor)?;
+            if state.kind != ConversationKind::BotDirect || state.lifecycle != ConversationLifecycle::Archived {
+                return Err(ConversationError::Rejected("only an archived Bot Direct Conversation can be reopened".into()));
+            }
+            let mut events = vec![ConversationEvent::Reopened { at_ms }];
+            let mut deliveries = state.deliveries.clone();
+            let delivery_ids = deliveries.records.keys().cloned().collect::<Vec<_>>();
+            for delivery_id in delivery_ids {
+                let generation = deliveries
+                    .in_flight
+                    .as_ref()
+                    .filter(|token| token.delivery_ids.contains(&delivery_id))
+                    .map(|token| token.generation.clone());
+                let decision = deliveries.decide(DeliveryCommand::Reject {
+                    delivery_id,
+                    generation,
+                    reason: "Conversation was archived before this Delivery completed".into(),
+                })?;
+                for event in decision.events {
+                    deliveries.apply(event.clone())?;
+                    events.push(ConversationEvent::Delivery { event, at_ms });
+                }
+            }
+            events.extend(state.tasks.values().filter(|task| !task.status.is_terminal()).map(|task| {
+                ConversationEvent::TaskStatusChanged {
+                    task_id: task.task_id.clone(),
+                    status: TaskStatus::Canceled,
+                    result: Vec::new(),
+                    at_ms,
+                }
+            }));
+            Ok(events)
+        }
         ConversationCommand::Block { reason, at_ms } => {
             if reason.trim().is_empty() {
                 return Err(ConversationError::Rejected("blocked reason cannot be empty".into()));

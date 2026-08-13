@@ -70,6 +70,9 @@ pub enum ConversationCommand {
     Archive {
         at_ms: u64,
     },
+    Reopen {
+        at_ms: u64,
+    },
     Block {
         reason: String,
         at_ms: u64,

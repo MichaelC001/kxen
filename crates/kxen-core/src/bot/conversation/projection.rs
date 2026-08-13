@@ -33,7 +33,10 @@ pub fn apply(state: &mut Option<ConversationState>, event: &ConversationEvent) -
         _ => {}
     }
     let state = state.as_mut().expect("checked above");
-    if matches!(state.lifecycle, ConversationLifecycle::Archived | ConversationLifecycle::Blocked) {
+    if state.lifecycle == ConversationLifecycle::Archived && !matches!(event, ConversationEvent::Reopened { .. }) {
+        return Err(ConversationError::InvalidEvent(format!("event after {:?}", state.lifecycle)));
+    }
+    if state.lifecycle == ConversationLifecycle::Blocked {
         return Err(ConversationError::InvalidEvent(format!("event after {:?}", state.lifecycle)));
     }
     match event {
@@ -100,6 +103,13 @@ pub fn apply(state: &mut Option<ConversationState>, event: &ConversationEvent) -
         ConversationEvent::Paused { .. } => set_lifecycle(state, ConversationLifecycle::Active, ConversationLifecycle::Paused)?,
         ConversationEvent::Resumed { .. } => set_lifecycle(state, ConversationLifecycle::Paused, ConversationLifecycle::Active)?,
         ConversationEvent::Archived { .. } => state.lifecycle = ConversationLifecycle::Archived,
+        ConversationEvent::Reopened { .. } => {
+            if state.kind != crate::bot::conversation::ConversationKind::BotDirect {
+                return Err(ConversationError::InvalidEvent("only Bot Direct Conversation can be reopened".into()));
+            }
+            set_lifecycle(state, ConversationLifecycle::Archived, ConversationLifecycle::Active)?;
+            state.blocked_reason = None;
+        }
         ConversationEvent::Blocked { reason, .. } => {
             state.lifecycle = ConversationLifecycle::Blocked;
             state.blocked_reason = Some(reason.clone());

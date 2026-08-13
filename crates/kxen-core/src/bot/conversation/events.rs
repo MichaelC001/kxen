@@ -64,6 +64,9 @@ pub enum ConversationEvent {
     Archived {
         at_ms: u64,
     },
+    Reopened {
+        at_ms: u64,
+    },
     Blocked {
         reason: String,
         at_ms: u64,
@@ -86,6 +89,7 @@ impl ConversationEvent {
             | Self::Paused { at_ms }
             | Self::Resumed { at_ms }
             | Self::Archived { at_ms }
+            | Self::Reopened { at_ms }
             | Self::Blocked { at_ms, .. } => *at_ms,
         }
     }

@@ -170,6 +170,72 @@ fn bot_notice_is_timeline_only_and_everyone_is_rejected() {
 }
 
 #[test]
+fn reopening_archived_direct_preserves_history_and_discards_stale_work() {
+    let repo = repository("direct-reopen");
+    let conversation_id = direct_conversation_id(&id("bot_a"), &id("bot_b")).unwrap();
+    let mut state = write(
+        &repo,
+        &conversation_id,
+        0,
+        "idem_direct_reopen_create",
+        ActorRef::Owner,
+        ConversationCommand::Create {
+            conversation_id: conversation_id.clone(),
+            kind: ConversationKind::BotDirect,
+            members: vec![participant("bot_a"), participant("bot_b")],
+            moderator_bot_id: None,
+            at_ms: 10,
+        },
+    );
+    let mut request = message(&conversation_id, "bmsg_reopen_request", ActorRef::Bot { id: id("bot_a") }, MessageKind::Request);
+    request.target_bot_id = Some(id("bot_b"));
+    request.task_id = Some(id("btask_reopen"));
+    state = write(
+        &repo,
+        &conversation_id,
+        state.event_version,
+        "idem_direct_reopen_request",
+        ActorRef::Bot { id: id("bot_a") },
+        ConversationCommand::Post {
+            message: Box::new(request),
+            task: Some(NewTask {
+                task_id: id("btask_reopen"),
+                owner_bot_id: id("bot_b"),
+                title: "stale work".into(),
+                input: vec![MessagePart::Text { text: "facts".into() }],
+                expected_output: "answer".into(),
+                parent_task_id: None,
+                budget: Default::default(),
+            }),
+            at_ms: 20,
+        },
+    );
+    state = write(
+        &repo,
+        &conversation_id,
+        state.event_version,
+        "idem_direct_reopen_archive",
+        ActorRef::Owner,
+        ConversationCommand::Archive { at_ms: 30 },
+    );
+
+    let reopened = write(
+        &repo,
+        &conversation_id,
+        state.event_version,
+        "idem_direct_reopen",
+        ActorRef::Owner,
+        ConversationCommand::Reopen { at_ms: 40 },
+    );
+
+    assert_eq!(reopened.lifecycle, ConversationLifecycle::Active);
+    assert_eq!(reopened.messages.len(), 1, "reopening must preserve the Direct timeline");
+    assert!(reopened.deliveries.records.is_empty(), "archived Deliveries must not restart");
+    assert_eq!(reopened.tasks[&id("btask_reopen")].status, TaskStatus::Canceled);
+    std::fs::remove_dir_all(repo.root()).ok();
+}
+
+#[test]
 fn direct_request_delivery_run_task_and_response_complete_async_loop() {
     let repo = repository("direct-loop");
     let conversation_id = direct_conversation_id(&id("bot_a"), &id("bot_b")).unwrap();

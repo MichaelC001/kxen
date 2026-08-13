@@ -167,7 +167,7 @@ impl BotSystem {
     }
 
     pub fn mutate_conversation(&self, request: ConversationMutation) -> Result<ConversationState, BotSystemError> {
-        self.admit_conversation_command(&request.command, &request.actor)?;
+        self.admit_conversation_command(&request.conversation_id, &request.command, &request.actor)?;
         Ok(self.conversations.execute(ConversationWrite {
             conversation_id: request.conversation_id,
             expected_version: request.expected_version,

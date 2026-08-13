@@ -5,7 +5,12 @@ use crate::core::identity::{ActorRef, ResourceId};
 use super::{BotSystem, BotSystemError};
 
 impl BotSystem {
-    pub(super) fn admit_conversation_command(&self, command: &ConversationCommand, actor: &ActorRef) -> Result<(), BotSystemError> {
+    pub(super) fn admit_conversation_command(
+        &self,
+        conversation_id: &ResourceId,
+        command: &ConversationCommand,
+        actor: &ActorRef,
+    ) -> Result<(), BotSystemError> {
         match command {
             ConversationCommand::Create { kind, members, moderator_bot_id, .. } => {
                 if actor != &ActorRef::Owner {
@@ -18,19 +23,7 @@ impl BotSystem {
                     }
                 }
                 if *kind == ConversationKind::BotDirect && members.len() == 2 {
-                    let left = self.active_bot(&members[0].bot_id)?;
-                    let right = self.active_bot(&members[1].bot_id)?;
-                    let left_policy = &left.current_revision().unwrap().definition.communication;
-                    let right_policy = &right.current_revision().unwrap().definition.communication;
-                    if !left_policy.allow_direct
-                        || !right_policy.allow_direct
-                        || !left_policy.allowed_peers.contains(&right.bot_id)
-                        || !right_policy.allowed_peers.contains(&left.bot_id)
-                    {
-                        return Err(BotSystemError::Rejected(
-                            "direct Conversation requires reciprocal allow_direct and peer allowlists".into(),
-                        ));
-                    }
+                    self.admit_direct_pair(&members[0].bot_id, &members[1].bot_id)?;
                 }
                 if *kind == ConversationKind::BotGroup && moderator_bot_id.is_none() {
                     return Err(BotSystemError::Rejected("Group moderator is required".into()));
@@ -48,7 +41,33 @@ impl BotSystem {
                     return Err(BotSystemError::Rejected("Bot does not allow Groups".into()));
                 }
             }
+            ConversationCommand::Reopen { .. } => {
+                if actor != &ActorRef::Owner {
+                    return Err(BotSystemError::Rejected("only owner can reopen Conversation".into()));
+                }
+                let conversation = self.conversations.get(conversation_id)?;
+                let members = conversation.active_members().collect::<Vec<_>>();
+                if conversation.kind != ConversationKind::BotDirect || members.len() != 2 {
+                    return Err(BotSystemError::Rejected("only Bot Direct Conversation can be reopened".into()));
+                }
+                self.admit_direct_pair(members[0], members[1])?;
+            }
             _ => {}
+        }
+        Ok(())
+    }
+
+    fn admit_direct_pair(&self, left_id: &ResourceId, right_id: &ResourceId) -> Result<(), BotSystemError> {
+        let left = self.active_bot(left_id)?;
+        let right = self.active_bot(right_id)?;
+        let left_policy = &left.current_revision().unwrap().definition.communication;
+        let right_policy = &right.current_revision().unwrap().definition.communication;
+        if !left_policy.allow_direct
+            || !right_policy.allow_direct
+            || !left_policy.allowed_peers.contains(&right.bot_id)
+            || !right_policy.allowed_peers.contains(&left.bot_id)
+        {
+            return Err(BotSystemError::Rejected("direct Conversation requires reciprocal allow_direct and peer allowlists".into()));
         }
         Ok(())
     }

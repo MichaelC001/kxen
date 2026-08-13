@@ -88,12 +88,28 @@ fn direct_open(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
     if params.get("conversation_id").and_then(Value::as_str).is_some_and(|supplied| supplied != conversation_id.as_str()) {
         return Err("direct Conversation id must be derived from the two Bot ids".into());
     }
-    if let Some(existing) = state.bots.conversations().list()?.into_iter().find(|conversation| {
-        conversation.kind == ConversationKind::BotDirect
-            && conversation.active_members().cloned().collect::<BTreeSet<_>>() == [left.clone(), right.clone()].into_iter().collect()
-            && conversation.lifecycle != ConversationLifecycle::Archived
-    }) {
-        return value(existing);
+    if let Some(existing) =
+        state.bots.conversations().list()?.into_iter().find(|conversation| conversation.conversation_id == conversation_id)
+    {
+        let expected_members = [left.clone(), right.clone()].into_iter().collect::<BTreeSet<_>>();
+        if existing.kind != ConversationKind::BotDirect || existing.active_members().cloned().collect::<BTreeSet<_>>() != expected_members {
+            return Err("derived direct Conversation id collides with another Conversation".into());
+        }
+        return match existing.lifecycle {
+            ConversationLifecycle::Active | ConversationLifecycle::Paused => value(existing),
+            ConversationLifecycle::Archived => {
+                cancel_conversation_runs(state, &conversation_id, "direct_reopen_run", "Bot Direct was archived before the Run completed")?;
+                value(state.bots.mutate_conversation(ConversationMutation {
+                    conversation_id,
+                    expected_version: existing.event_version,
+                    actor: owner(),
+                    command: ConversationCommand::Reopen { at_ms: now() },
+                    trace: trace(),
+                    idempotency_key: idempotency(params)?,
+                })?)
+            }
+            ConversationLifecycle::Blocked => Err("blocked Bot Direct Conversation cannot be reopened".into()),
+        };
     }
     create_conversation(params, state, conversation_id, ConversationKind::BotDirect, vec![left, right], None)
 }
@@ -196,24 +212,34 @@ fn stop_group(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
         state.bots.reject_delivery(&conversation, &delivery_id, &bot_id, generation, "Bot Group stopped by owner".into(), now())?;
         conversation = state.bots.conversations().get(&conversation_id)?;
     }
+    cancel_conversation_runs(state, &conversation_id, "group_stop_run", "Bot Group stopped by owner")?;
+    value(conversation)
+}
+
+fn cancel_conversation_runs(
+    state: &Arc<AppState>,
+    conversation_id: &crate::core::identity::ResourceId,
+    operation: &str,
+    reason: &str,
+) -> RpcResult<()> {
     for run in state
         .bots
         .runs()
         .list()?
         .into_iter()
-        .filter(|run| run.spec.conversation_id.as_ref() == Some(&conversation_id) && !run.status.is_terminal())
+        .filter(|run| run.spec.conversation_id.as_ref() == Some(conversation_id) && !run.status.is_terminal())
     {
         state.bots.runs().execute(crate::bot::run::RunWrite {
             run_id: run.spec.run_id.clone(),
             expected_version: run.event_version,
-            idempotency_key: crate::bot::system::stable_idempotency("group_stop_run", &[run.spec.run_id.as_str()])?,
+            idempotency_key: crate::bot::system::stable_idempotency(operation, &[run.spec.run_id.as_str()])?,
             actor: owner(),
             trace: trace(),
-            command: crate::bot::run::RunCommand::RequestCancel { reason: "Bot Group stopped by owner".into(), at_ms: now() },
+            command: crate::bot::run::RunCommand::RequestCancel { reason: reason.into(), at_ms: now() },
         })?;
         state.bot_executor.cancel(&run.spec.run_id);
     }
-    value(conversation)
+    Ok(())
 }
 
 fn task_list(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
