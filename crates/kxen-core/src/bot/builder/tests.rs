@@ -305,6 +305,15 @@ fn builder_cannot_grant_and_draft_change_invalidates_review_state() {
         },
     );
     let draft = drafted.draft.as_ref().unwrap();
+    let denied_test = repo.execute(BuilderWrite {
+        builder_session_id: session_id.clone(),
+        expected_version: drafted.event_version,
+        idempotency_key: key("idem_builder_test"),
+        actor: ActorRef::Bot { id: id("bot_builder_target") },
+        trace: TraceContext::default(),
+        command: BuilderCommand::LinkTestRun { run_id: id("brun_builder_denied"), draft_hash: draft.content_hash.clone(), at_ms: 3 },
+    });
+    assert!(matches!(denied_test, Err(BuilderError::Rejected(_))));
     let grant = PermissionGrant {
         grant_id: id("grant_one"),
         draft_hash: draft.content_hash.clone(),

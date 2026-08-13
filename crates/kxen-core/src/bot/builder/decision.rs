@@ -97,7 +97,8 @@ fn decide_existing(state: &BuilderState, actor: &ActorRef, command: BuilderComma
             BuilderEvent::ValidationRecorded { report, at_ms }
         }
         BuilderCommand::LinkTestRun { run_id, draft_hash, at_ms } => {
-            if !is_owner_or_self_builder(state, actor) || state.active_test_run_id.is_some() {
+            require_owner(actor)?;
+            if state.active_test_run_id.is_some() {
                 return Err(BuilderError::Rejected("test run cannot be linked".into()));
             }
             if state.draft.as_ref().map(|draft| &draft.content_hash) != Some(&draft_hash) {
