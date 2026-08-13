@@ -109,6 +109,14 @@ kxen_release_web_asset() {
   esac
 }
 
+kxen_release_agent_asset() {
+  case "$1" in
+    windows-*) printf 'kxen-agent-%s.zip\n' "$1" ;;
+    macos-* | linux-*) printf 'kxen-agent-%s.tar.gz\n' "$1" ;;
+    *) return 1 ;;
+  esac
+}
+
 # tauri bundle 产物 -> 稳定 asset 名,每行 `bundle 子目录|find pattern|目标名`。
 kxen_release_asset_map() {
   case "$1" in
@@ -144,11 +152,12 @@ kxen_release_asset_map() {
   esac
 }
 
-# 一个平台的全部稳定 asset 名(桌面 bundle + kxen 包),每行一个。
+# 一个平台的全部稳定 asset 名(桌面 bundle + kxen server + kxen-agent CLI),每行一个。
 kxen_release_assets() {
   local platform="$1"
   kxen_release_asset_map "$platform" | cut -d'|' -f3
   kxen_release_web_asset "$platform"
+  kxen_release_agent_asset "$platform"
 }
 
 kxen_release_manifest_json() {
@@ -173,7 +182,7 @@ kxen_release_manifest_main() {
   case "$command" in
     json) kxen_release_manifest_json ;;
     platforms) printf '%s\n' "${KXEN_RELEASE_PLATFORMS[@]}" ;;
-    runner | target | os | signed | updater-key | updater-asset | web-asset)
+    runner | target | os | signed | updater-key | updater-asset | web-asset | agent-asset)
       kxen_release_platform_exists "$platform" || return 1
       "kxen_release_${command//-/_}" "$platform"
       ;;
@@ -186,7 +195,7 @@ kxen_release_manifest_main() {
       kxen_release_assets "$platform"
       ;;
     *)
-      printf 'usage: release-manifest.sh <json|platforms|runner|target|os|signed|updater-key|updater-asset|updater-original|web-asset|assets> [platform] [version]\n' >&2
+      printf 'usage: release-manifest.sh <json|platforms|runner|target|os|signed|updater-key|updater-asset|updater-original|web-asset|agent-asset|assets> [platform] [version]\n' >&2
       return 1
       ;;
   esac

@@ -129,15 +129,20 @@ build_assets() {
   # 与 release.yml 的 Sign and notarize kxen CLI 步骤一致:同一 Developer ID 身份签名,
   # zip 提交公证后丢弃,ticket 在线生效;prepare-release-assets.sh 会再做 codesign --verify。
   cargo build --release \
-    -p kxen-cli --target aarch64-apple-darwin
+    -p kxen-cli -p kxen-agent --target aarch64-apple-darwin
   local identity
   identity="$(awk '{ print $2 }' <<< "$identity_line")"
-  local cli_path cli_zip_dir
-  cli_path="target/aarch64-apple-darwin/release/kxen"
-  codesign --sign "$identity" --options runtime --timestamp "$cli_path"
-  codesign --verify --strict --verbose=2 "$cli_path"
+  local cli_path cli_zip_dir cli_bundle_dir cli_name
   cli_zip_dir="$(mktemp -d "${TMPDIR:-/tmp}/kxen-notarize.XXXXXX")"
-  ditto -c -k --keepParent "$cli_path" "$cli_zip_dir/kxen.zip"
+  cli_bundle_dir="$cli_zip_dir/bin"
+  mkdir -p "$cli_bundle_dir"
+  for cli_name in kxen kxen-agent; do
+    cli_path="target/aarch64-apple-darwin/release/$cli_name"
+    codesign --sign "$identity" --options runtime --timestamp "$cli_path"
+    codesign --verify --strict --verbose=2 "$cli_path"
+    cp -p "$cli_path" "$cli_bundle_dir/$cli_name"
+  done
+  ditto -c -k --keepParent "$cli_bundle_dir" "$cli_zip_dir/kxen.zip"
   xcrun notarytool submit "$cli_zip_dir/kxen.zip" \
     --key "$APPLE_API_KEY_PATH" \
     --key-id "$APPLE_API_KEY" \

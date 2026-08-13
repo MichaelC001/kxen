@@ -300,13 +300,13 @@ jobs:
         run: >-
           bash "$RUNNER_TEMP/trusted-release-tools/verify-macos-release.sh"
           "target/${{ matrix.target }}/release/bundle"
-      - name: Build kxen headless server
+      - name: Build kxen headless server and agent CLI
         shell: bash
         # rust-embed 编译期读取 dist/,tauri build 已产出前端产物,kxen 编译排在它后面。
         run: >-
           cargo build --release
-          -p kxen-cli --target ${{ matrix.target }}
-      # kxen 是裸 Mach-O,不签名会被 Gatekeeper 拦截;与 .app/DMG 共用同一证书和公证链。
+          -p kxen-cli -p kxen-agent --target ${{ matrix.target }}
+      # kxen 与 kxen-agent 是裸 Mach-O,不签名会被 Gatekeeper 拦截;与 .app/DMG 共用同一证书和公证链。
       # 必须在 Clear temporary signing material 之前完成签名和公证。
       - name: Sign and notarize kxen CLI
         if: matrix.signed
@@ -316,25 +316,32 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: |
           set -euo pipefail
-          cli_path="target/${{ matrix.target }}/release/kxen"
-          if [[ ! -f "$cli_path" ]]; then
-            printf 'kxen binary not found: %s\n' "$cli_path"
-            exit 1
-          fi
-          codesign --sign "$APPLE_SIGNING_IDENTITY" \
-            --options runtime --timestamp \
-            "$cli_path"
-          codesign --verify --strict --verbose=2 "$cli_path"
+          cli_dir="target/${{ matrix.target }}/release"
+          notarize_dir="$RUNNER_TEMP/kxen-cli-notarize-${{ matrix.platform }}"
+          mkdir -p "$notarize_dir"
+          for cli_name in kxen kxen-agent; do
+            cli_path="$cli_dir/$cli_name"
+            if [[ ! -f "$cli_path" ]]; then
+              printf '%s binary not found: %s\n' "$cli_name" "$cli_path"
+              exit 1
+            fi
+            codesign --sign "$APPLE_SIGNING_IDENTITY" \
+              --options runtime --timestamp \
+              "$cli_path"
+            codesign --verify --strict --verbose=2 "$cli_path"
+            cp -p "$cli_path" "$notarize_dir/$cli_name"
+          done
           # 裸二进制无法 staple ticket;公证提交 zip,ticket 在线生效,
           # zip 仅用于提交,已签名二进制照常打进 tar.gz。
           cli_zip="$RUNNER_TEMP/kxen-notarize-${{ matrix.platform }}.zip"
-          ditto -c -k --keepParent "$cli_path" "$cli_zip"
+          ditto -c -k --keepParent "$notarize_dir" "$cli_zip"
           xcrun notarytool submit "$cli_zip" \
             --key "$APPLE_API_KEY_PATH" \
             --key-id "$APPLE_API_KEY" \
             --issuer "$APPLE_API_ISSUER" \
             --wait
           rm -f "$cli_zip"
+          rm -rf "$notarize_dir"
       - name: Clear temporary signing material
         if: ${{ always() && matrix.signed }}
         shell: bash

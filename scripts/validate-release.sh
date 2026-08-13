@@ -52,6 +52,7 @@ manifest_versions = {}
 for package_name, path in (
     ("kxen-core", "crates/kxen-core/Cargo.toml"),
     ("kxen-cli", "crates/kxen-cli/Cargo.toml"),
+    ("kxen-agent", "crates/kxen-agent/Cargo.toml"),
     ("kxen-gui", "src-tauri/Cargo.toml"),
 ):
     with open(path, "rb") as handle:
@@ -91,10 +92,12 @@ if endpoints != [expected_endpoint]:
 print(
     manifest_versions["kxen-core"],
     manifest_versions["kxen-cli"],
+    manifest_versions["kxen-agent"],
     manifest_versions["kxen-gui"],
     tauri["version"],
     lock_versions["kxen-core"],
     lock_versions["kxen-cli"],
+    lock_versions["kxen-agent"],
     lock_versions["kxen-gui"],
 )
 PY
@@ -102,15 +105,17 @@ PY
   printf '%s\n' "$versions"
   exit 1
 }
-IFS=' ' read -r core_version cli_version gui_version tauri_version core_lock_version cli_lock_version gui_lock_version <<< "$versions"
+IFS=' ' read -r core_version cli_version agent_version gui_version tauri_version core_lock_version cli_lock_version agent_lock_version gui_lock_version <<< "$versions"
 
 for pair in \
   "crates/kxen-core/Cargo.toml:$core_version" \
   "crates/kxen-cli/Cargo.toml:$cli_version" \
+  "crates/kxen-agent/Cargo.toml:$agent_version" \
   "src-tauri/Cargo.toml:$gui_version" \
   "src-tauri/tauri.conf.json:$tauri_version" \
   "Cargo.lock kxen-core:$core_lock_version" \
   "Cargo.lock kxen-cli:$cli_lock_version" \
+  "Cargo.lock kxen-agent:$agent_lock_version" \
   "Cargo.lock kxen-gui:$gui_lock_version"; do
   source_name="${pair%%:*}"
   source_version="${pair#*:}"

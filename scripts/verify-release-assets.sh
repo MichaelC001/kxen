@@ -92,13 +92,32 @@ for platform in "${platforms[@]}"; do
   fi
   updater_original="$(kxen_release_updater_original_name "$platform" "$version")"
   kxen_verify_updater_signature "$updater_path" "$signature_path" "$updater_original"
-  # macOS 的 kxen tar.gz 内必须是 Developer ID 签名的二进制。
+  web_asset="$(kxen_release_web_asset "$platform")"
+  agent_asset="$(kxen_release_agent_asset "$platform")"
+  if [[ "$(kxen_release_os "$platform")" == windows ]]; then
+    packaged_server="$(unzip -Z1 "$asset_dir/$web_asset" | sed 's#^\./##' | LC_ALL=C sort)"
+    packaged_agent="$(unzip -Z1 "$asset_dir/$agent_asset" | sed 's#^\./##' | LC_ALL=C sort)"
+    expected_server='kxen.exe'
+    expected_agent='kxen-agent.exe'
+  else
+    packaged_server="$(tar -tzf "$asset_dir/$web_asset" | sed 's#^\./##' | LC_ALL=C sort)"
+    packaged_agent="$(tar -tzf "$asset_dir/$agent_asset" | sed 's#^\./##' | LC_ALL=C sort)"
+    expected_server='kxen'
+    expected_agent='kxen-agent'
+  fi
+  if [[ "$packaged_server" != "$expected_server" || "$packaged_agent" != "$expected_agent" ]]; then
+    printf 'headless package content mismatch for %s\nexpected server: %s\nactual server: %s\nexpected agent: %s\nactual agent: %s\n' \
+      "$platform" "$expected_server" "$packaged_server" "$expected_agent" "$packaged_agent"
+    exit 1
+  fi
+  # macOS 的两个独立 CLI asset 都必须包含 Developer ID 签名的二进制。
   # publish 段在 Linux runner 上做全平台核对,无 codesign 时跳过(release.yml 构建腿与本地路径都会执行)。
   if [[ "$(kxen_release_os "$platform")" == macos ]] && command -v codesign >/dev/null 2>&1; then
-    web_asset="$(kxen_release_web_asset "$platform")"
     cli_verify_dir="$(mktemp -d "${TMPDIR:-/tmp}/kxen-cli-verify.XXXXXX")"
     tar -xzf "$asset_dir/$web_asset" -C "$cli_verify_dir"
+    tar -xzf "$asset_dir/$agent_asset" -C "$cli_verify_dir"
     codesign --verify --deep --strict --verbose=2 "$cli_verify_dir/kxen"
+    codesign --verify --deep --strict --verbose=2 "$cli_verify_dir/kxen-agent"
     rm -rf "$cli_verify_dir"
   fi
 done

@@ -261,7 +261,7 @@ kxen_render_release_body() {
       '- macOS: DMG 与 updater archive 均经 Developer ID 签名和 Apple 公证。' \
       '- Windows: 提供 NSIS installer；当前未做 Authenticode 签名，首次启动可能出现 SmartScreen reputation warning，可选择 `More info` -> `Run anyway`。' \
       '- Linux: 提供 AppImage 与 deb。' \
-      '- Headless server: `kxen-<platform>.tar.gz`，Windows 为 `.zip`。运行 `kxen` 后会打印带 token 的访问 URL；远程访问建议使用 `tailscale serve`，并通过 `--allow-host` 放行 tailnet hostname。' \
+      '- Headless: `kxen-<platform>.tar.gz` 是 server，`kxen-agent-<platform>.tar.gz` 是独立 autonomous CLI；Windows 对应 `.zip`。两类资源参与同一版本发布。' \
       '- 完整性: 使用 `SHA256SUMS` 校验下载文件；`latest.json` 和对应 `.sig` 供自动更新使用。'
   else
     printf 'unknown release distribution profile: %s\n' "$distribution_profile" >&2
