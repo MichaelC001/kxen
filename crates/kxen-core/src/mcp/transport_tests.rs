@@ -46,13 +46,28 @@ fn stdio_environment_inherits_only_allowlisted_keys() {
     ];
     let configured =
         HashMap::from([("PATH".to_string(), "/configured/bin".to_string()), ("MCP_TOKEN".to_string(), "explicit".to_string())]);
-    let environment = child_environment(inherited, &configured);
+    let environment = child_environment(inherited, &configured, None);
 
     assert_eq!(environment.get(std::ffi::OsStr::new("PATH")), Some(&std::ffi::OsString::from("/configured/bin")));
     assert_eq!(environment.get(std::ffi::OsStr::new("HOME")), Some(&std::ffi::OsString::from("/host/home")));
     assert_eq!(environment.get(std::ffi::OsStr::new("MCP_TOKEN")), Some(&std::ffi::OsString::from("explicit")));
     assert!(!environment.contains_key(std::ffi::OsStr::new("AWS_SECRET_ACCESS_KEY")));
     assert!(!environment.contains_key(std::ffi::OsStr::new("HTTPS_PROXY")));
+}
+
+#[test]
+fn stdio_closed_environment_does_not_reopen_host_credentials_or_home() {
+    let inherited = [("HOME".into(), "/host/home".into()), ("OPENAI_API_KEY".into(), "host-secret".into())];
+    let closed = std::collections::BTreeMap::from([("HOME".into(), "/isolated/home".into()), ("PATH".into(), "/usr/bin".into())]);
+    let configured = HashMap::from([
+        ("HOME".to_string(), "/configured/home".to_string()),
+        ("MCP_TOKEN".to_string(), "explicit-service-token".to_string()),
+    ]);
+    let environment = child_environment(inherited, &configured, Some(&closed));
+
+    assert_eq!(environment.get(std::ffi::OsStr::new("HOME")), Some(&std::ffi::OsString::from("/isolated/home")));
+    assert_eq!(environment.get(std::ffi::OsStr::new("MCP_TOKEN")), Some(&std::ffi::OsString::from("explicit-service-token")));
+    assert!(!environment.contains_key(std::ffi::OsStr::new("OPENAI_API_KEY")));
 }
 
 #[tokio::test]
@@ -70,6 +85,7 @@ async fn stdio_timeout_and_future_abort_release_pending_sender() {
         &HashMap::new(),
         &std::env::current_dir().unwrap(),
         serde_json::json!([]),
+        None,
     )
     .expect("spawn test transport");
 
@@ -113,6 +129,7 @@ async fn stdio_close_terminates_process_group_and_waits_for_child() {
         &HashMap::new(),
         &dir,
         serde_json::json!([]),
+        None,
     )
     .expect("spawn process group fixture");
     let child_path = dir.join("child.pid");
@@ -146,7 +163,7 @@ async fn stdio_close_terminates_process_group_and_waits_for_child() {
 async fn oversized_stdio_frame_closes_transport_and_kills_process_group() {
     let script = format!(r#"BEGIN {{ for (i = 0; i < {}; i++) printf "x"; fflush(); system("sleep 30") }}"#, line::LIMIT + 1);
     let transport =
-        StdioTransport::spawn("/usr/bin/awk", &[script], &HashMap::new(), &std::env::current_dir().unwrap(), serde_json::json!([]))
+        StdioTransport::spawn("/usr/bin/awk", &[script], &HashMap::new(), &std::env::current_dir().unwrap(), serde_json::json!([]), None)
             .expect("spawn oversized frame fixture");
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);

@@ -89,7 +89,9 @@ impl McpManager {
         guard: super::remote::Guard,
     ) -> Result<Arc<McpClient>, String> {
         let connected = match guard {
-            super::remote::Guard::Enforced => McpClient::connect(server, config, roots).await,
+            super::remote::Guard::Enforced => {
+                McpClient::connect_with_stdio_environment(server, config, roots, self.stdio_environment.as_ref()).await
+            }
             super::remote::Guard::Bypassed => McpClient::connect_bypassing_guard_for_test(server, config, roots).await,
         };
         let client = match connected {

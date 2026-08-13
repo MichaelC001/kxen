@@ -16,5 +16,10 @@ pub(in crate::ws) struct RunInput {
 
 /// async run 收尾续跑的普通函数断路器，避免 future 类型递归自嵌套。
 pub(in crate::ws) fn spawn_claimed_run(input: RunInput, cancel: kxen_core::agent::cancel::CancelToken) {
-    tokio::spawn(super::run_llm_inner(input, Some(cancel)));
+    tokio::spawn(async move {
+        // Queue handoff occurs before the previous future drops its cross-process Session lease.
+        // Yield once so the owner can return and release that lease before the successor claims it.
+        tokio::task::yield_now().await;
+        super::run_llm_inner(input, Some(cancel)).await;
+    });
 }

@@ -1,7 +1,7 @@
 //! task 工具：后台任务统一管理（dev server 是带 ready 门的 start）。
 //! task start 与 exec 同过 safety 闸门。
 
-use crate::tools::dev_server::{DevServerParams, ReadySpec, dev_server, restart_task};
+use crate::tools::dev_server::{DevServerParams, ReadySpec, dev_server_with_env, restart_task};
 use serde_json::Value;
 
 use super::context::AgentContext;
@@ -30,10 +30,10 @@ pub async fn execute_task_tool(args: &Value, ctx: &AgentContext) -> Result<Strin
                 ctx.bus.as_ref(),
                 ctx.cancel.as_ref(),
                 ctx.session_id.as_deref(),
-                None,
+                ctx.kanban_auto.as_deref(),
             );
             crate::tools::exec::safety_gate(&params.command, &params.workdir, appr.as_ref()).await.map_err(|e| e.to_string())?;
-            dev_server(params, &ctx.registry, &owner)
+            dev_server_with_env(params, &ctx.registry, &owner, ctx.child_env.clone())
                 .await
                 .map(|s| {
                     // dev server 崩溃感知：进程自己退出时通知主 loop（主动 kill/restart 不通知）
@@ -69,7 +69,7 @@ pub async fn execute_task_tool(args: &Value, ctx: &AgentContext) -> Result<Strin
                 ctx.bus.as_ref(),
                 ctx.cancel.as_ref(),
                 ctx.session_id.as_deref(),
-                None,
+                ctx.kanban_auto.as_deref(),
             );
             crate::tools::exec::safety_gate(&command, &workdir, appr.as_ref()).await.map_err(|e| e.to_string())?;
             restart_task(id, &owner, &ctx.registry)

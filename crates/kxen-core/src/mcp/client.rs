@@ -148,16 +148,31 @@ fn roots_value(roots: &[String]) -> Result<Value, String> {
 impl McpClient {
     /// 生产建连：remote 一律过 net_guard（SSRF 守卫拦 loopback/内网/metadata）。
     pub async fn connect(server: &str, config: &ServerConfig, roots: &[String]) -> Result<Self, String> {
-        Self::connect_inner(server, config, roots, super::remote::Guard::Enforced).await
+        Self::connect_inner(server, config, roots, super::remote::Guard::Enforced, None).await
+    }
+
+    pub(crate) async fn connect_with_stdio_environment(
+        server: &str,
+        config: &ServerConfig,
+        roots: &[String],
+        stdio_environment: Option<&crate::agent::agent_loop::ChildEnvironment>,
+    ) -> Result<Self, String> {
+        Self::connect_inner(server, config, roots, super::remote::Guard::Enforced, stdio_environment).await
     }
 
     /// 测试放行钩子：集成测试的 mock server 监听 127.0.0.1，必被生产守卫拦，只能旁路。
     pub async fn connect_bypassing_guard_for_test(server: &str, config: &ServerConfig, roots: &[String]) -> Result<Self, String> {
-        Self::connect_inner(server, config, roots, super::remote::Guard::Bypassed).await
+        Self::connect_inner(server, config, roots, super::remote::Guard::Bypassed, None).await
     }
 
     /// spawn/建连 + initialize + initialized + tools/list + resources/prompts 清单全握手。
-    async fn connect_inner(server: &str, config: &ServerConfig, roots: &[String], guard: super::remote::Guard) -> Result<Self, String> {
+    async fn connect_inner(
+        server: &str,
+        config: &ServerConfig,
+        roots: &[String],
+        guard: super::remote::Guard,
+        stdio_environment: Option<&crate::agent::agent_loop::ChildEnvironment>,
+    ) -> Result<Self, String> {
         super::config::validate_server_key(config.name())?;
         if server != config.name() {
             return Err("MCP lifecycle server key does not match its configuration".into());
@@ -167,7 +182,7 @@ impl McpClient {
         let roots = if local_stdio { roots_value(roots)? } else { json!([]) };
         let capabilities = if local_stdio { json!({ "roots": { "listChanged": false } }) } else { json!({}) };
         let transport: Arc<dyn Transport> = match config {
-            ServerConfig::Stdio(c) => StdioTransport::spawn(&c.command, &c.args, &c.env, &c.cwd, roots)?,
+            ServerConfig::Stdio(c) => StdioTransport::spawn(&c.command, &c.args, &c.env, &c.cwd, roots, stdio_environment)?,
             ServerConfig::Remote(c) => {
                 // config 显式配了 Authorization 就不挂 OAuth（显式配置优先，被拒只报失败）
                 let explicit_auth = c.headers.keys().any(|k| k.eq_ignore_ascii_case("authorization"));

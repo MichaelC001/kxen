@@ -1,6 +1,7 @@
 //! 后台进程 spawn 漏斗：exec background / task start / dev_server / restart 全部经此收口。
 //! DCP 落盘点：注册成功先落 start 行（intent），退出收割先落 exit 行再公开 exit_code。
 
+use crate::agent::agent_loop::ChildEnvironment;
 use crate::core::shared::{SharedStr, lock};
 use crate::tools::exec::ExecError;
 use crate::tools::task::{TaskHandle, TaskOwner, TaskRegistry, append_capped};
@@ -22,12 +23,39 @@ pub async fn spawn_task(
     owner: &TaskOwner,
     port: Option<u16>,
 ) -> Result<Arc<TaskHandle>, ExecError> {
-    spawn_task_inner(id, argv, display_command, workdir, registry, owner, SpawnRegistration { port, expected_generation: None }).await
+    spawn_task_with_env(id, argv, display_command, workdir, registry, owner, SpawnOptions { port, child_env: None }).await
+}
+
+pub struct SpawnOptions {
+    pub port: Option<u16>,
+    pub child_env: Option<ChildEnvironment>,
+}
+
+pub async fn spawn_task_with_env(
+    id: &str,
+    argv: Vec<String>,
+    display_command: &str,
+    workdir: &str,
+    registry: &Arc<TaskRegistry>,
+    owner: &TaskOwner,
+    options: SpawnOptions,
+) -> Result<Arc<TaskHandle>, ExecError> {
+    spawn_task_inner(
+        id,
+        argv,
+        display_command,
+        workdir,
+        registry,
+        owner,
+        SpawnRegistration { port: options.port, expected_generation: None, child_env: options.child_env },
+    )
+    .await
 }
 
 pub(crate) struct RespawnOptions {
     pub port: Option<u16>,
     pub expected_generation: u64,
+    pub child_env: Option<ChildEnvironment>,
 }
 
 /// restart 专用：发布新进程前以旧 generation 做 CAS，失败时立即回收新进程。
@@ -47,7 +75,7 @@ pub(crate) async fn respawn_task(
         workdir,
         registry,
         owner,
-        SpawnRegistration { port: options.port, expected_generation: Some(options.expected_generation) },
+        SpawnRegistration { port: options.port, expected_generation: Some(options.expected_generation), child_env: options.child_env },
     )
     .await
 }
@@ -55,6 +83,7 @@ pub(crate) async fn respawn_task(
 struct SpawnRegistration {
     port: Option<u16>,
     expected_generation: Option<u64>,
+    child_env: Option<ChildEnvironment>,
 }
 
 async fn spawn_task_inner(
@@ -70,6 +99,9 @@ async fn spawn_task_inner(
     let generation = registry.allocate_generation().map_err(ExecError::Spawn)?;
     let mut cmd = Command::new(bin);
     cmd.args(args).current_dir(workdir).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    if let Some(child_env) = registration.child_env.as_ref() {
+        cmd.env_clear().envs(child_env.iter());
+    }
     // 独立进程组组长:kill 走 killpg 才能覆盖 shell 的孙进程（dev server 子进程不泄漏）。
     // 仅 unix 有进程组语义与外部 kill 命令，支持范围即 unix
     #[cfg(unix)]
@@ -91,6 +123,7 @@ async fn spawn_task_inner(
         generation,
         command: SharedStr::from(display_command),
         workdir: SharedStr::from(workdir),
+        child_env: registration.child_env.clone(),
         output: output.clone(),
         output_revision: output_revision.clone(),
         truncated: truncated.clone(),

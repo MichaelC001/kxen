@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 mod config_update;
+mod constructors;
 use config_update::ConfigUpdateGate;
 pub use config_update::RuntimeConfigUpdate;
 
@@ -31,15 +32,19 @@ impl WorkspaceRuntime {
         user_config: Arc<Path>,
         config_update_gate: Arc<ConfigUpdateGate>,
         mcp_approval: Option<(Arc<crate::agent::approval::ApprovalBroker>, crate::core::event::EventBus)>,
+        mcp_auto: Option<(Arc<dyn crate::tools::auto_approve::AutoApprove>, bool, crate::agent::agent_loop::ChildEnvironment)>,
         base_mrm: &std::sync::RwLock<Arc<crate::llm::mrm::ModelResourceManager>>,
     ) -> Result<Arc<Self>, String> {
         #[cfg(unix)]
         let root_identity = workspace_identity(&root)?;
         let config = Arc::new(workspace_config_from(&root, &user_config, crate::core::trust::is_trusted(&root))?);
         let mrm = Arc::new(crate::core::shared::read(base_mrm).scoped(workspace_scope(&root), config.clone()));
-        let mcp = match mcp_approval {
-            Some((broker, bus)) => crate::mcp::McpManager::new_with_execution_approval(broker, bus),
-            None => crate::mcp::McpManager::new(),
+        let mcp = match (mcp_approval, mcp_auto) {
+            (_, Some((auto, remote_mcp_enabled, environment))) => {
+                crate::mcp::McpManager::new_with_execution_auto(auto, remote_mcp_enabled, environment)
+            }
+            (Some((broker, bus)), None) => crate::mcp::McpManager::new_with_execution_approval(broker, bus),
+            (None, None) => crate::mcp::McpManager::new(),
         };
         Ok(Arc::new(Self {
             lsp: crate::lsp::LspManager::new(root.clone()),
@@ -138,6 +143,7 @@ pub struct WorkspaceRuntimeRegistry {
     runtimes: Arc<std::sync::Mutex<HashMap<PathBuf, Arc<WorkspaceRuntime>>>>,
     runtime_generation: Arc<std::sync::atomic::AtomicU64>,
     mcp_approval: Option<(Arc<crate::agent::approval::ApprovalBroker>, crate::core::event::EventBus)>,
+    mcp_auto: Option<(Arc<dyn crate::tools::auto_approve::AutoApprove>, bool, crate::agent::agent_loop::ChildEnvironment)>,
     base_mrm: Arc<std::sync::RwLock<Arc<crate::llm::mrm::ModelResourceManager>>>,
     user_config: Arc<Path>,
     config_update_gate: Arc<ConfigUpdateGate>,
@@ -150,6 +156,7 @@ impl Default for WorkspaceRuntimeRegistry {
             runtimes: Arc::new(std::sync::Mutex::new(HashMap::new())),
             runtime_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             mcp_approval: None,
+            mcp_auto: None,
             base_mrm: Arc::new(std::sync::RwLock::new(Arc::new(mrm))),
             user_config: Arc::from(crate::core::paths::config_dir().join("config.toml")),
             config_update_gate: Arc::new(ConfigUpdateGate::default()),
@@ -158,33 +165,6 @@ impl Default for WorkspaceRuntimeRegistry {
 }
 
 impl WorkspaceRuntimeRegistry {
-    pub fn with_mcp_execution_approval(
-        broker: Arc<crate::agent::approval::ApprovalBroker>,
-        bus: crate::core::event::EventBus,
-        base_mrm: Arc<std::sync::RwLock<Arc<crate::llm::mrm::ModelResourceManager>>>,
-    ) -> Self {
-        Self {
-            runtimes: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            runtime_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            mcp_approval: Some((broker, bus)),
-            base_mrm,
-            user_config: Arc::from(crate::core::paths::config_dir().join("config.toml")),
-            config_update_gate: Arc::new(ConfigUpdateGate::default()),
-        }
-    }
-
-    pub fn with_user_config(user_config: PathBuf) -> Result<Self, String> {
-        let config = crate::core::config::Config::load(&user_config, None).map_err(|error| error.to_string())?;
-        Ok(Self {
-            runtimes: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            runtime_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            mcp_approval: None,
-            base_mrm: Arc::new(std::sync::RwLock::new(Arc::new(crate::llm::mrm::ModelResourceManager::new(config)))),
-            user_config: Arc::from(user_config),
-            config_update_gate: Arc::new(ConfigUpdateGate::default()),
-        })
-    }
-
     pub fn runtime(&self, root: &Path) -> Result<Arc<WorkspaceRuntime>, String> {
         let _permit = self.config_update_gate.read();
         #[cfg(unix)]
@@ -216,6 +196,7 @@ impl WorkspaceRuntimeRegistry {
             self.user_config.clone(),
             self.config_update_gate.clone(),
             self.mcp_approval.clone(),
+            self.mcp_auto.clone(),
             &self.base_mrm,
         )?;
         let mut runtimes = crate::core::shared::lock(&self.runtimes);

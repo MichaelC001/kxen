@@ -198,6 +198,7 @@ impl BotExecutor {
             registry: self.deps.registry.clone(),
             tracker: crate::tools::fs_tool::FileTracker::default(),
             workdir: Arc::from(workdir),
+            child_env: None,
             path_grants: Arc::new(Default::default()),
             path_scope: Some(Arc::new(path_scope)),
             model,

@@ -14,6 +14,7 @@ fn ctx(workspace: &Path) -> AgentContext {
         registry: Arc::new(crate::tools::task::TaskRegistry::new()),
         tracker: crate::tools::fs_tool::FileTracker::default(),
         workdir: Arc::from(workspace),
+        child_env: None,
         path_grants: Arc::new(Default::default()),
         path_scope: None,
         model: crate::llm::ModelRef::new("p", "m"),

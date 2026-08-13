@@ -42,6 +42,7 @@ pub(super) fn build_ctx(
         registry: state.deps.registry.clone(),
         tracker: crate::tools::fs_tool::FileTracker::default(),
         workdir: state.workdir.clone(),
+        child_env: None,
         path_grants: Arc::new(std::collections::HashSet::new()),
         path_scope: None,
         model: model.clone(),

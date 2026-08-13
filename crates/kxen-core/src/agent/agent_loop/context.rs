@@ -3,7 +3,8 @@
 use crate::llm::ModelRef;
 use crate::tools::fs_tool::FileTracker;
 use crate::tools::task::TaskRegistry;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -15,6 +16,9 @@ pub type PersistCompaction = Arc<dyn Fn(&str, &[crate::llm::Message]) -> Result<
 /// 失败必须 fail-closed 终止 run，不得静默吞（durable 缺口的副作用无记录）。
 pub type PersistTurn = Arc<dyn Fn(u32, Vec<crate::core::session::Part>) -> Result<(), String> + Send + Sync>;
 pub use super::usage::UsageReporter;
+/// 子进程环境快照。`None` 保留普通交互 Session 的继承语义；DCP runtime
+/// 必须挂载经过 credential 过滤的 `Some`，使 exec/task/restart 使用同一闭集。
+pub type ChildEnvironment = Arc<BTreeMap<OsString, OsString>>;
 
 #[derive(Clone, Debug, Default)]
 pub struct ResourcePathScope {
@@ -67,6 +71,7 @@ pub struct AgentContext {
     pub registry: Arc<TaskRegistry>,
     pub tracker: FileTracker,
     pub workdir: Arc<Path>,
+    pub child_env: Option<ChildEnvironment>,
     /// run 开始时捕获的原生选择器授权；凭证路径即使在集合中仍拒绝。
     pub path_grants: Arc<HashSet<PathBuf>>,
     /// None keeps Session semantics. Some closes resource access to the given

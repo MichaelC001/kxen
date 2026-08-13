@@ -12,7 +12,9 @@ use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
 
+mod environment;
 mod line;
+use environment::child_environment;
 
 pub(crate) type CancelRequest = Box<dyn FnOnce(u64) + Send + 'static>;
 
@@ -86,18 +88,6 @@ pub(crate) fn answer_server_request(msg: &Value, id: &Value, roots: &Value) -> V
     }
 }
 
-const INHERITED_ENV_ALLOWLIST: &[&str] = &["HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "SHELL", "TMPDIR", "USER"];
-
-fn child_environment<I>(inherited: I, configured: &HashMap<String, String>) -> HashMap<std::ffi::OsString, std::ffi::OsString>
-where
-    I: IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
-{
-    let mut environment: HashMap<_, _> =
-        inherited.into_iter().filter(|(key, _)| key.to_str().is_some_and(|key| INHERITED_ENV_ALLOWLIST.contains(&key))).collect();
-    environment.extend(configured.iter().map(|(key, value)| (key.into(), value.into())));
-    environment
-}
-
 #[cfg(unix)]
 struct ProcessGroupGuard {
     pid: u32,
@@ -152,12 +142,19 @@ pub struct StdioTransport {
 }
 
 impl StdioTransport {
-    pub fn spawn(command: &str, args: &[String], env: &HashMap<String, String>, cwd: &Path, roots: Value) -> Result<Arc<Self>, String> {
+    pub fn spawn(
+        command: &str,
+        args: &[String],
+        env: &HashMap<String, String>,
+        cwd: &Path,
+        roots: Value,
+        closed_environment: Option<&crate::agent::agent_loop::ChildEnvironment>,
+    ) -> Result<Arc<Self>, String> {
         let mut cmd = tokio::process::Command::new(command);
         cmd.args(args)
             .current_dir(cwd)
             .env_clear()
-            .envs(child_environment(std::env::vars_os(), env))
+            .envs(child_environment(std::env::vars_os(), env, closed_environment.map(AsRef::as_ref)))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())

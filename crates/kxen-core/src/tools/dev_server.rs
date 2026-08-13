@@ -1,7 +1,8 @@
 //! dev_server 管理：就绪等待（pattern/端口）、restart、list、健康检查。
 
+use crate::agent::agent_loop::ChildEnvironment;
 use crate::core::shared::lock;
-use crate::tools::exec::{ExecError, RespawnOptions, respawn_task, spawn_task};
+use crate::tools::exec::{ExecError, RespawnOptions, SpawnOptions, respawn_task, spawn_task_with_env};
 use crate::tools::shell::{ShellKind, default_shell, wrap_command};
 use crate::tools::task::{RestartMeta, TaskOwner, TaskRegistry, task_id};
 use serde::{Deserialize, Serialize};
@@ -39,6 +40,15 @@ pub struct DevServerStarted {
 
 /// 启动 dev server 并阻塞等待就绪。
 pub async fn dev_server(params: DevServerParams, registry: &Arc<TaskRegistry>, owner: &TaskOwner) -> Result<DevServerStarted, ExecError> {
+    dev_server_with_env(params, registry, owner, None).await
+}
+
+pub async fn dev_server_with_env(
+    params: DevServerParams,
+    registry: &Arc<TaskRegistry>,
+    owner: &TaskOwner,
+    child_env: Option<ChildEnvironment>,
+) -> Result<DevServerStarted, ExecError> {
     let shell = params.shell.unwrap_or_else(default_shell);
     let ready = params.ready.unwrap_or(ReadySpec { pattern: None, port: None, timeout_ms: None });
 
@@ -47,7 +57,16 @@ pub async fn dev_server(params: DevServerParams, registry: &Arc<TaskRegistry>, o
     // 注册与 restart 元数据发布在同一 per-id 临界区，UI 不会撞上尚无重启配置的半初始化 handle。
     let serial = registry.operation_lock(&task_id);
     let guard = serial.lock().await;
-    let task = spawn_task(&task_id, argv, &params.command, &params.workdir, registry, owner, ready.port).await?;
+    let task = spawn_task_with_env(
+        &task_id,
+        argv,
+        &params.command,
+        &params.workdir,
+        registry,
+        owner,
+        SpawnOptions { port: ready.port, child_env },
+    )
+    .await?;
     // 重启元数据：restart 要同配置（shell/ready）复活，spawn 时就得存下
     *lock(&task.restart) = Some(RestartMeta { shell, pattern: ready.pattern.clone(), port: ready.port, timeout_ms: ready.timeout_ms });
     drop(guard);
@@ -192,7 +211,16 @@ pub async fn restart_task(id: &str, owner: &TaskOwner, registry: &Arc<TaskRegist
     // 优先用启动时配置的 port；没有配置才沿用上次解析出的（exec 背景任务无 meta 的情形）
     let port = meta.as_ref().and_then(|m| m.port).or(*lock(&task.port));
     let argv = wrap_command(shell, &workdir, &command);
-    let task = respawn_task(id, argv, &command, &workdir, registry, owner, RespawnOptions { port, expected_generation }).await?;
+    let task = respawn_task(
+        id,
+        argv,
+        &command,
+        &workdir,
+        registry,
+        owner,
+        RespawnOptions { port, expected_generation, child_env: task.child_env.clone() },
+    )
+    .await?;
     if let Some(meta) = meta {
         *lock(&task.restart) = Some(meta.clone());
         spawn_health_check(task.clone(), registry.clone());

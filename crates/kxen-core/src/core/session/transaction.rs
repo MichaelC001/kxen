@@ -20,16 +20,24 @@ impl SessionWriteLock {
         }
         *held = true;
         drop(held);
-        SessionTransaction { lock: self.clone() }
+        SessionTransaction { lock: self.clone(), _process_lock: None }
     }
 }
 
 pub(crate) struct SessionTransaction {
     lock: Arc<SessionWriteLock>,
+    _process_lock: Option<std::fs::File>,
 }
 
 impl Drop for SessionTransaction {
     fn drop(&mut self) {
+        // Release the OS lease before waking another local waiter. Field drop
+        // happens after this method, which would otherwise create a window in
+        // which the awakened writer owns the memory lock but still loses the
+        // process lock to this transaction.
+        if let Some(file) = self._process_lock.take() {
+            let _ = file.unlock();
+        }
         let mut held = crate::core::shared::lock(&self.lock.held);
         *held = false;
         self.lock.available.notify_one();
@@ -55,10 +63,27 @@ pub(crate) fn acquire_transaction(id: &str) -> SessionTransaction {
     lock.acquire()
 }
 
+pub(crate) fn acquire_transaction_at(dir: &Path, id: &str) -> std::io::Result<SessionTransaction> {
+    crate::core::ids::validate_id_io(id)?;
+    let mut transaction = acquire_transaction(id);
+    let lock_dir = dir.join(".locks");
+    std::fs::create_dir_all(&lock_dir)?;
+    let path = lock_dir.join(format!("{id}.lock"));
+    let file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path)?;
+    file.try_lock().map_err(|error| match error {
+        std::fs::TryLockError::WouldBlock => {
+            std::io::Error::new(std::io::ErrorKind::WouldBlock, format!("Session mutation is active: {id}"))
+        }
+        std::fs::TryLockError::Error(error) => error,
+    })?;
+    transaction._process_lock = Some(file);
+    Ok(transaction)
+}
+
 pub(super) fn mutation_transaction(dir: &Path, id: &str) -> std::io::Result<SessionTransaction> {
     crate::core::ids::validate_id_io(id)?;
     ensure_available(dir, id)?;
-    let transaction = acquire_transaction(id);
+    let transaction = acquire_transaction_at(dir, id)?;
     ensure_available(dir, id)?;
     Ok(transaction)
 }

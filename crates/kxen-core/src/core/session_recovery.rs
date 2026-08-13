@@ -162,7 +162,7 @@ pub fn lock_deletion_transaction(sessions_dir: &Path, session_id: &str) -> Resul
     if !is_tombstoned(sessions_dir, session_id)? {
         return Err(format!("session deletion tombstone missing: {session_id}"));
     }
-    let transaction = crate::core::session::acquire_transaction(session_id);
+    let transaction = crate::core::session::acquire_transaction_at(sessions_dir, session_id).map_err(|error| error.to_string())?;
     if !is_tombstoned(sessions_dir, session_id)? {
         return Err(format!("session deletion tombstone disappeared: {session_id}"));
     }

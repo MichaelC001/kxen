@@ -193,6 +193,34 @@ async fn project_stdio_requires_exact_independent_approval_and_reapproves_change
     assert!(!changed.await.unwrap());
 }
 
+struct RecordingAuto(std::sync::Mutex<Vec<String>>);
+
+impl crate::tools::auto_approve::AutoApprove for RecordingAuto {
+    fn try_auto_allow(&self, command: &str) -> Result<(), String> {
+        self.0.lock().expect("record").push(command.into());
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn headless_project_stdio_uses_exact_audited_approval() {
+    let auto = Arc::new(RecordingAuto(std::sync::Mutex::new(Vec::new())));
+    let manager = McpManager::new_with_execution_auto(auto.clone(), false, Arc::new(Default::default()));
+    let project = std::path::PathBuf::from("/tmp/project");
+    let config = config::StdioConfig {
+        name: "headless".into(),
+        command: "/usr/bin/true".into(),
+        args: vec!["--version".into()],
+        env: HashMap::new(),
+        cwd: project.clone(),
+        scope: config::ConfigScope::Project(project),
+    };
+    assert!(manager.approve_project_stdio(&config).await);
+    assert_eq!(auto.0.lock().unwrap().len(), 1);
+    assert!(manager.approve_project_stdio(&config).await);
+    assert_eq!(auto.0.lock().unwrap().len(), 1, "same fingerprint reuses the audited decision");
+}
+
 #[tokio::test]
 async fn unsafe_project_stdio_is_rejected_before_approval_is_published() {
     let bus = crate::core::event::EventBus::new(8);

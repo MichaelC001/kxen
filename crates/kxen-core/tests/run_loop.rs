@@ -44,6 +44,7 @@ fn test_ctx(stream: StreamFn, session_id: &str) -> AgentContext {
         registry: Arc::new(kxen_core::tools::task::TaskRegistry::new()),
         tracker: kxen_core::tools::fs_tool::FileTracker::default(),
         workdir: Arc::from(Path::new("/tmp")),
+        child_env: None,
         path_grants: Arc::new(Default::default()),
         path_scope: None,
         model: ModelRef::new("p", "m"),

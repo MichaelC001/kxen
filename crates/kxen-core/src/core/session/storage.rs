@@ -17,7 +17,7 @@ pub fn repair_message_durability(dir: &Path, message: &super::Message, original:
     crate::core::ids::validate_id_io(&message.session_id).map_err(CommitFailure::before)?;
     crate::core::ids::validate_id_io(&message.id).map_err(CommitFailure::before)?;
     let cause = original.to_string();
-    let _transaction = super::transaction::acquire_transaction(&message.session_id);
+    let _transaction = super::transaction::acquire_transaction_at(dir, &message.session_id).map_err(CommitFailure::after)?;
     if crate::core::session_recovery::is_tombstoned(dir, &message.session_id)
         .map_err(|error| CommitFailure::after(std::io::Error::other(error)))?
     {

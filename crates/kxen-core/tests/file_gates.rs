@@ -1,5 +1,5 @@
 //! 工程门禁（cargo test 硬检查）：单文件 <= 350 行 + cargo fmt --check。
-//! 覆盖 crates/kxen-core/src 与 crates/kxen-cli/src（rs）、仓库根 src/（ts/tsx，前端）；违规即测试失败。
+//! 覆盖 kxen-core、kxen-cli、kxen-agent（rs）与仓库根 src/（ts/tsx，前端）；违规即测试失败。
 
 use std::path::Path;
 
@@ -12,6 +12,8 @@ fn file_size_gate() {
     visit(&root.join("src"), &["rs"], MAX_LINES, &mut offenders);
     // 无头 server bin（crates/kxen-cli/src）同门禁
     visit(&root.join("../kxen-cli/src"), &["rs"], MAX_LINES, &mut offenders);
+    // 独立 autonomous CLI 与 server/core 使用同一工程约束。
+    visit(&root.join("../kxen-agent/src"), &["rs"], MAX_LINES, &mut offenders);
     // 前端在仓库根的 src/
     visit(&root.join("../../src"), &["ts", "tsx"], MAX_LINES, &mut offenders);
     assert!(offenders.is_empty(), "超 {MAX_LINES} 行门禁的文件:\n{}", offenders.join("\n"));

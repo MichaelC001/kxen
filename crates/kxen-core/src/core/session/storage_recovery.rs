@@ -25,7 +25,7 @@ pub struct RecoveryReport {
 
 pub fn inspect_storage(dir: &Path, id: &str) -> Result<RecoveryReport, String> {
     crate::core::ids::validate_id(id)?;
-    let _transaction = acquire_transaction(id);
+    let _transaction = transaction::acquire_transaction_at(dir, id).map_err(|error| error.to_string())?;
     inspect_unlocked(dir, id, None)
 }
 
@@ -43,7 +43,7 @@ pub fn repair_storage(dir: &Path, id: &str) -> Result<RecoveryReport, String> {
         repair_message_durability(dir, expected, &original).map_err(|error| error.to_string())?;
     }
 
-    let _transaction = acquire_transaction(id);
+    let _transaction = transaction::acquire_transaction_at(dir, id).map_err(|error| error.to_string())?;
     if crate::core::session_recovery::is_tombstoned(dir, id)? {
         return Err(format!("session deletion in progress: {id}"));
     }

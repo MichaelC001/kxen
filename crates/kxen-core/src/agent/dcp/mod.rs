@@ -1,7 +1,29 @@
 //! Provider-neutral deterministic context protocol shared by execution domains.
 
+mod agent_builder;
+mod agent_definition;
+#[cfg(test)]
+mod agent_definition_tests;
+mod agent_journal;
+mod agent_store;
+mod runner;
+mod runner_support;
+#[cfg(test)]
+mod runner_tests;
+mod runner_types;
+mod runtime_policy;
 mod types;
+mod workspace_binding;
 
+pub use agent_builder::build_agent_definition;
+pub use agent_definition::{
+    DCP_AGENT_API_VERSION, DcpAgentCapabilities, DcpAgentDefinition, DcpAgentExecution, DcpAgentLock, DcpAgentMetadata, DcpAgentOutput,
+    DcpAgentOutputFormat, DcpAgentSpec, DcpRunState, DcpRunStatus, DcpRuntimePolicy, DcpSessionState, GitWorkspaceBinding,
+    WorkspaceBinding,
+};
+pub use agent_journal::{DcpRunToolJournal, DcpToolJournalSnapshot, DcpToolOperation, DcpToolPhase};
+pub use agent_store::{DcpRunBundle, DcpSessionBundle, DcpStore, SessionRunLease};
+pub use runner_types::{DcpEventFormat, DcpEventSink, DcpRunRequest, DcpRunResult, DcpRuntime, DcpRuntimeEvent, DcpRuntimeOptions};
 pub use types::{
     ContextCursor, ContextFrame, ContextLayer, ContextSegment, ProviderNeutralPart, TurnCursor, TurnReceipt, TurnRecord, TurnRecordKind,
     VisibilityRef,
@@ -20,7 +42,7 @@ pub trait TurnJournal: Send + Sync {
     fn load(&self, from: TurnCursor) -> Result<Vec<TurnRecord>, DcpError>;
 }
 
-/// Tool side-effect boundary used by every Agent execution adapter.
+/// Tool side-effect boundary used by every Agent execution runtime.
 /// `before` must durably commit intent and start before execution. `after`
 /// must durably commit the observed result. An UNKNOWN result permanently
 /// blocks automatic continuation until an owner recovery decision exists.

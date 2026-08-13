@@ -23,7 +23,7 @@ pub use cursor::{current_message_cursor_checked, load_message_snapshot_checked, 
 #[path = "session/transaction.rs"]
 mod transaction;
 use transaction::mutation_transaction;
-pub(crate) use transaction::{SessionTransaction, acquire_transaction};
+pub(crate) use transaction::{SessionTransaction, acquire_transaction, acquire_transaction_at};
 #[path = "session/storage.rs"]
 pub(crate) mod storage;
 pub use storage::{CommitFailure, CommitPhase, repair_message_durability};

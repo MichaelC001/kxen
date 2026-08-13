@@ -43,8 +43,8 @@ pub enum ExecError {
 mod dialect;
 pub use dialect::validate_dialect;
 mod spawn;
-pub use spawn::spawn_task;
 pub(crate) use spawn::{RespawnOptions, respawn_task};
+pub use spawn::{SpawnOptions, spawn_task, spawn_task_with_env};
 
 /// 审批上下文（Ask 档挂起等待用户决定所需的全部句柄）。
 pub struct ApprovalCtx<'a> {
@@ -121,6 +121,17 @@ pub async fn exec(
     owner: &TaskOwner,
     approval: Option<&ApprovalCtx<'_>>,
 ) -> Result<ExecOutcome, ExecError> {
+    exec_with_env(params, registry, cwd, owner, approval, None).await
+}
+
+pub async fn exec_with_env(
+    params: ExecParams,
+    registry: &Arc<TaskRegistry>,
+    cwd: &str,
+    owner: &TaskOwner,
+    approval: Option<&ApprovalCtx<'_>>,
+    child_env: Option<crate::agent::agent_loop::ChildEnvironment>,
+) -> Result<ExecOutcome, ExecError> {
     validate_dialect(params.shell_type, &params.command)?;
 
     let workdir: std::borrow::Cow<'_, str> = if params.path.starts_with('/') {
@@ -133,7 +144,16 @@ pub async fn exec(
 
     if params.background {
         let id = task_id();
-        let task = spawn_task(&id, argv, &params.command, &workdir, registry, owner, None).await?;
+        let task = spawn_task_with_env(
+            &id,
+            argv,
+            &params.command,
+            &workdir,
+            registry,
+            owner,
+            SpawnOptions { port: None, child_env: child_env.clone() },
+        )
+        .await?;
         // 显式 background 给了 timeout_ms 也要挂看门狗：与 auto-bg 同规约，失控长跑进程不能无限存活
         if let Some(timeout_ms) = params.timeout_ms {
             spawn_timeout_watchdog(registry, &id, task.generation, timeout_ms);
@@ -146,7 +166,8 @@ pub async fn exec(
     let hard_timeout = params.timeout_ms.unwrap_or(120_000);
 
     let out_id = task_id();
-    let task = spawn_task(&out_id, argv, &params.command, &workdir, registry, owner, None).await?;
+    let task =
+        spawn_task_with_env(&out_id, argv, &params.command, &workdir, registry, owner, SpawnOptions { port: None, child_env }).await?;
 
     let wait = wait_task(task.clone());
     let sleep = tokio::time::sleep(Duration::from_millis(budget));

@@ -9,6 +9,7 @@ mod checkpoint;
 #[path = "llm_task/early.rs"]
 mod early;
 mod persistence;
+mod run_lease;
 #[path = "llm_task/spawn.rs"]
 mod spawn;
 #[path = "llm_task/turn_persistence.rs"]
@@ -27,6 +28,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
 
     let sessions_dir = kxen_core::core::paths::sessions_dir();
 
+    let queue_handoff = preclaimed.is_some();
     let cancel = match preclaimed {
         Some(cancel) if super::run_slot::is_current(&state.active_runs, &session_id, &cancel) => cancel,
         Some(_) => {
@@ -57,6 +59,13 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
         },
     };
     let _run_slot = super::run_slot::RunSlot { state: state.clone(), session_id: session_id.clone(), cancel: cancel.clone() };
+    let _cross_process_run = match run_lease::acquire(&sessions_dir, &session_id, queue_handoff).await {
+        Ok(lease) => lease,
+        Err(error) => {
+            finish_direct(&state, &session_id, &stream_id, kxen_core::agent::agent_loop::AgentEvent::Error { message: error });
+            return;
+        }
+    };
     let early = early::EarlyEnd {
         state: &state,
         sessions_dir: &sessions_dir,
@@ -276,6 +285,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
             t
         },
         workdir,
+        child_env: None,
         path_grants: Arc::new(picked),
         path_scope: None,
         model,

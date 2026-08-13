@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/kxen-core", "crates/kxen-cli", "src-tauri"]
+members = ["crates/kxen-agent", "crates/kxen-core", "crates/kxen-cli", "src-tauri"]
 resolver = "3"
 
 [profile.release]

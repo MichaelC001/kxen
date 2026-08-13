@@ -128,6 +128,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         registry: deps.registry.clone(),
         tracker: crate::tools::fs_tool::FileTracker::default(),
         workdir: deps.workdir.clone(),
+        child_env: None,
         path_grants: deps.path_grants.clone(),
         path_scope: None,
         model: model.clone(),

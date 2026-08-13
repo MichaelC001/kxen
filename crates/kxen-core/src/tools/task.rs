@@ -1,5 +1,6 @@
 //! 后台任务注册表（任务三件套的后端 + dev_server 健康检查）。
 
+use crate::agent::agent_loop::ChildEnvironment;
 use crate::core::shared::{SharedStr, lock, now_ms};
 use crate::tools::shell::ShellKind;
 use crate::tools::task_journal::{self, TaskLine};
@@ -57,6 +58,8 @@ pub struct TaskHandle {
     pub generation: u64,
     pub command: SharedStr,
     pub workdir: SharedStr,
+    /// 启动时冻结的子进程环境；restart 必须复用，不能退回继承宿主进程环境。
+    pub child_env: Option<ChildEnvironment>,
     pub output: Arc<Mutex<String>>,
     /// 输出泵每次 append 后递增，readiness 只扫描新增尾部，不轮询复制整个 64KB buffer。
     pub output_revision: Arc<std::sync::atomic::AtomicU64>,

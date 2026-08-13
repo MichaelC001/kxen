@@ -82,6 +82,7 @@ fn session_ctx(session_id: &str) -> AgentContext {
         registry: Arc::new(crate::tools::task::TaskRegistry::new()),
         tracker: crate::tools::fs_tool::FileTracker::default(),
         workdir: Arc::from(std::path::Path::new("/tmp")),
+        child_env: None,
         path_grants: Arc::new(Default::default()),
         model: crate::llm::ModelRef::new("p", "m"),
         path_scope: None,

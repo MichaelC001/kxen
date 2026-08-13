@@ -6,6 +6,7 @@
 pub mod client;
 pub mod config;
 mod lifecycle;
+mod manager_constructors;
 pub mod oauth;
 pub mod oauth_flow;
 pub mod oauth_store;
@@ -91,35 +92,18 @@ pub struct McpManager {
     next_generation: std::sync::atomic::AtomicU64,
     /// 项目 stdio 的执行审批与 generic workspace trust 相互独立。
     execution_approval: Option<(Arc<crate::agent::approval::ApprovalBroker>, crate::core::event::EventBus)>,
+    /// Headless runtime 的显式项目 MCP 授权。仍先经过 project stdio 静态校验，
+    /// 每个完整配置指纹必须由实现方 durable 审计后才放行。
+    execution_auto: Option<Arc<dyn crate::tools::auto_approve::AutoApprove>>,
+    /// Headless runtimes provide an exact closed environment for every stdio
+    /// MCP child. Interactive runtimes retain the existing allowlisted inherit.
+    stdio_environment: Option<crate::agent::agent_loop::ChildEnvironment>,
+    remote_mcp_override: Option<bool>,
     /// 本进程内按完整配置指纹缓存 Allow；command/args/cwd/env 任一变化都会重新审批。
     approved_project_stdio: Mutex<HashSet<String>>,
 }
 
 impl McpManager {
-    pub fn new() -> Arc<Self> {
-        Self::new_inner(None)
-    }
-
-    pub fn new_with_execution_approval(
-        broker: Arc<crate::agent::approval::ApprovalBroker>,
-        bus: crate::core::event::EventBus,
-    ) -> Arc<Self> {
-        Self::new_inner(Some((broker, bus)))
-    }
-
-    fn new_inner(execution_approval: Option<(Arc<crate::agent::approval::ApprovalBroker>, crate::core::event::EventBus)>) -> Arc<Self> {
-        Arc::new(Self {
-            servers: Mutex::new(HashMap::new()),
-            policies: Mutex::new(PolicySet::default()),
-            roots: Mutex::new(Arc::new(Vec::new())),
-            reload_lock: tokio::sync::Mutex::new(()),
-            lifecycle: Mutex::new(HashMap::new()),
-            next_generation: std::sync::atomic::AtomicU64::new(1),
-            execution_approval,
-            approved_project_stdio: Mutex::new(HashSet::new()),
-        })
-    }
-
     async fn approve_project_stdio(&self, config: &StdioConfig) -> bool {
         if !config.scope.is_project() {
             return true;
@@ -136,10 +120,6 @@ impl McpManager {
         if crate::core::shared::lock(&self.approved_project_stdio).contains(&fingerprint) {
             return true;
         }
-        let Some((broker, bus)) = &self.execution_approval else {
-            tracing::warn!(server = config.name, "project stdio MCP skipped: no independent execution approval channel");
-            return false;
-        };
         let exact = serde_json::json!({
             "command": config.command,
             "args": config.args,
@@ -147,6 +127,22 @@ impl McpManager {
             "env": stdio_approval::visible_env(&config.env),
         });
         let command = serde_json::to_string_pretty(&exact).unwrap_or_else(|_| exact.to_string());
+        if let Some(auto) = &self.execution_auto {
+            match auto.try_auto_allow(&command) {
+                Ok(()) => {
+                    crate::core::shared::lock(&self.approved_project_stdio).insert(fingerprint);
+                    return true;
+                }
+                Err(error) => {
+                    tracing::warn!(server = config.name, %error, "project stdio MCP skipped: headless approval audit failed");
+                    return false;
+                }
+            }
+        }
+        let Some((broker, bus)) = &self.execution_approval else {
+            tracing::warn!(server = config.name, "project stdio MCP skipped: no independent execution approval channel");
+            return false;
+        };
         let reason = format!(
             "项目级 stdio MCP '{}' 将在宿主机执行进程。此审批独立于项目信任；仅上述 canonical command、args、cwd 与 env 获批，敏感 env 值仅显示 SHA-256 摘要",
             config.name
@@ -161,6 +157,14 @@ impl McpManager {
             crate::core::shared::lock(&self.approved_project_stdio).insert(fingerprint);
         }
         allowed
+    }
+
+    fn project_scope_authorized(&self) -> bool {
+        self.execution_auto.is_some()
+    }
+
+    fn remote_mcp_enabled(&self) -> bool {
+        self.remote_mcp_override.unwrap_or_else(|| crate::core::config::experimental_config().remote_mcp)
     }
 
     /// 交互授权结果落状态：新一次发起/成功传 None 清除，失败传原因（status 透出给设置页）。
@@ -267,7 +271,7 @@ impl McpManager {
         let remote = crate::core::shared::lock(&self.servers)
             .get(server)
             .is_some_and(|entry| matches!(entry.config.as_ref(), ServerConfig::Remote(_)));
-        if remote && !crate::core::config::experimental_config().remote_mcp {
+        if remote && !self.remote_mcp_enabled() {
             return Err(format!("remote MCP tool {prefixed} is experimental and disabled; enable it explicitly in Settings > Advanced"));
         }
         match self.policy_for(server, tool) {
@@ -293,7 +297,7 @@ impl McpManager {
 /// 启动与 workspace switch 共用的重载入口：信任门 + 双 scope 加载 + 整批换。
 /// roots 取 workdir：roots/list 反向请求答的就是当前 workspace 根。
 pub async fn reload_for_workspace(workdir: &std::path::Path, mcp: &Arc<McpManager>) -> Result<(), String> {
-    let trusted = crate::core::trust::is_trusted(workdir);
+    let trusted = crate::core::trust::is_trusted(workdir) || mcp.project_scope_authorized();
     let (personal, (project_configs, project_policies)) = config::load_scoped(workdir, trusted)?;
     let mut approved_project = Vec::with_capacity(project_configs.len());
     let decisions = futures::future::join_all(project_configs.into_iter().map(|config| async {
@@ -314,7 +318,7 @@ pub async fn reload_for_workspace(workdir: &std::path::Path, mcp: &Arc<McpManage
         }
     }
     let (mut configs, policies) = config::merge_scoped(personal, (approved_project, project_policies));
-    if !crate::core::config::experimental_config().remote_mcp {
+    if !mcp.remote_mcp_enabled() {
         configs.retain(|config| matches!(config, ServerConfig::Stdio(_)));
     }
     let roots = vec![workdir.to_string_lossy().into_owned()];

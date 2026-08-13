@@ -93,6 +93,34 @@ async fn foreground_cancel_terminates_the_process_group() {
     assert_eq!(tasks[0].status, crate::tools::task::TaskStatus::Killed);
 }
 
+#[tokio::test]
+async fn explicit_child_environment_is_closed() {
+    let registry = Arc::new(TaskRegistry::new());
+    let broker = Arc::new(crate::agent::approval::ApprovalBroker::new());
+    let bus = crate::core::event::EventBus::new(8);
+    let auto = StubAuto { consulted: false.into(), verdict: Ok(()) };
+    let approval = ApprovalCtx::new(Some(&broker), Some(&bus), None, Some("s1"), Some(&auto)).expect("approval context");
+    let owner = TaskOwner::new("s1", "/tmp").expect("owner");
+    let env = Arc::new(std::collections::BTreeMap::from([
+        (std::ffi::OsString::from("PATH"), std::ffi::OsString::from("/usr/bin:/bin")),
+        (std::ffi::OsString::from("DCP_VISIBLE"), std::ffi::OsString::from("yes")),
+    ]));
+    let params = ExecParams {
+        shell_type: default_shell(),
+        path: std::env::temp_dir().to_string_lossy().into_owned(),
+        command: "printf '%s:%s' \"$DCP_VISIBLE\" \"${OPENAI_API_KEY-unset}\"".into(),
+        timeout_ms: Some(2_000),
+        background: false,
+    };
+    let ExecOutcome::Foreground { output, exit_code, .. } =
+        super::exec_with_env(params, &registry, "/tmp", &owner, Some(&approval), Some(env)).await.unwrap()
+    else {
+        panic!("foreground")
+    };
+    assert_eq!(exit_code, 0);
+    assert_eq!(output, "yes:unset");
+}
+
 /// 测试桩：记录是否被咨询，返回预置判定（Deny 不可绕过的行为断言依赖 consulted 标记）。
 struct StubAuto {
     consulted: std::sync::atomic::AtomicBool,

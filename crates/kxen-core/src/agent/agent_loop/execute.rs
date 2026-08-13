@@ -3,7 +3,7 @@ use super::context::AgentContext;
 use super::helpers::{parse_shell, resolve_authorized_execute_path, resolve_authorized_path, resolve_authorized_write_path, resolve_path};
 use super::knowledge_tool::execute_knowledge_tool;
 use super::task_tool::execute_task_tool;
-use crate::tools::exec::{ExecOutcome, ExecParams, exec};
+use crate::tools::exec::{ExecOutcome, ExecParams};
 use crate::tools::fs_tool::{EditSpec, delete_resolved, edit_resolved, read_resolved, write_resolved};
 use serde::Deserialize as _;
 use serde_json::{Value, json};
@@ -69,7 +69,7 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
                 background: args.get("background").and_then(Value::as_bool).unwrap_or(false),
             };
             let approval = approval_ctx(ctx);
-            match exec(params, &ctx.registry, cwd, &owner, approval.as_ref()).await {
+            match crate::tools::exec::exec_with_env(params, &ctx.registry, cwd, &owner, approval.as_ref(), ctx.child_env.clone()).await {
                 Ok(ExecOutcome::Foreground { output, exit_code, truncated }) => {
                     Ok(format!("exit {exit_code}{}\n{output}", if truncated { " (truncated)" } else { "" }))
                 }

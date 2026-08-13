@@ -13,6 +13,7 @@ name = "kxen_core"
 serde = { version = "1", features = ["derive", "rc"] }
 similar = "3"
 serde_json = { version = "1", features = ["raw_value"] }
+serde_yaml_ng = "0.10"
 tokio = { version = "1.53", features = [
   "rt-multi-thread",
   "macros",

@@ -140,6 +140,7 @@ fn bare_ctx(goal_id: Option<&str>) -> AgentContext {
         registry: std::sync::Arc::new(crate::tools::task::TaskRegistry::new()),
         tracker: crate::tools::fs_tool::FileTracker::default(),
         workdir: std::sync::Arc::from(std::path::Path::new("/tmp")),
+        child_env: None,
         path_grants: std::sync::Arc::new(Default::default()),
         path_scope: None,
         model: crate::llm::ModelRef::new("p", "m"),

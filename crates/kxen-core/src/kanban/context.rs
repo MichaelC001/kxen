@@ -44,6 +44,7 @@ pub(super) fn base_context(
         registry: deps.registry.clone(),
         tracker: crate::tools::fs_tool::FileTracker::default(),
         workdir: deps.workdir.clone(),
+        child_env: None,
         path_grants: Arc::new(Default::default()),
         path_scope: None,
         model,
