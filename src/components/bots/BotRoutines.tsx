@@ -17,11 +17,17 @@ import {
   type BotSummary,
   type RoutineDefinition,
 } from "../../lib/bots";
-import { flashErr, flashOk } from "../../lib/flash";
+import { createReconciledMutation } from "../../lib/async-guard";
 import { formatError } from "../../lib/error-text";
 import { encodeBotInput, publishedBotDefinition } from "./bot-definition";
 import { actionClass, Panel, shortId, statusClass, type RefreshProps } from "./shared";
 import BotRoutineForm from "./BotRoutineForm";
+import {
+  editableRoutineCron,
+  editableRoutineInput,
+  routineDefinitionApplied,
+  routineMutationApplied,
+} from "./mutation-state";
 
 export default function BotRoutines(props: RefreshProps) {
   const [routines, setRoutines] = createSignal<BotRoutine[]>([]);
@@ -44,7 +50,6 @@ export default function BotRoutines(props: RefreshProps) {
   );
   const [failureThreshold, setFailureThreshold] = createSignal(3);
   const [selectedBot, setSelectedBot] = createSignal<BotState | null>(null);
-  const [acting, setActing] = createSignal(false);
   const [loadErr, setLoadErr] = createSignal("");
   let loadSeq = 0;
 
@@ -88,20 +93,8 @@ export default function BotRoutines(props: RefreshProps) {
         if (seq === botLoadSeq) setSelectedBot(null);
       });
   });
-  const act = async (job: () => Promise<unknown>, label: string) => {
-    if (acting()) return;
-    setActing(true);
-    try {
-      await job();
-      await reload();
-      props.onChanged();
-      flashOk(label);
-    } catch (error) {
-      flashErr(`${label}失败：${formatError(error)}`);
-    } finally {
-      setActing(false);
-    }
-  };
+  const mutation = createReconciledMutation({ refresh: reload, onChanged: props.onChanged });
+  const acting = mutation.pending;
   const definition = (): RoutineDefinition | null => {
     const text = input().trim();
     const summary = bots().find((bot) => bot.bot_id === botId());
@@ -148,37 +141,39 @@ export default function BotRoutines(props: RefreshProps) {
     const value = definition();
     if (!value) return;
     const current = editing();
-    void act(
-      async () => {
-        if (current)
-          await botRoutineUpdate(
-            current.routine_id,
-            value,
-            current.event_version,
-            newBotId("idem"),
-          );
-        else await botRoutineCreate(newBotId("routine"), value, newBotId("idem"));
-        reset();
+    const definitionKey = JSON.stringify(value);
+    void mutation.run({
+      key: current
+        ? `routine:${current.routine_id}:update:${definitionKey}`
+        : `routine:create:${definitionKey}`,
+      prepare: () => ({
+        routineId: current?.routine_id ?? newBotId("routine"),
+        idempotencyKey: newBotId("idem"),
+      }),
+      execute: ({ routineId, idempotencyKey }) => {
+        const persisted = routines().find((routine) => routine.routine_id === routineId);
+        return current
+          ? botRoutineUpdate(
+              routineId,
+              value,
+              persisted?.event_version ?? current.event_version,
+              idempotencyKey,
+            )
+          : botRoutineCreate(routineId, value, idempotencyKey);
       },
-      current ? "Routine 已更新" : "Routine 已创建",
-    );
+      applied: ({ routineId }) => routineDefinitionApplied(routines(), routineId, definitionKey),
+      onApplied: reset,
+      okText: current ? "Routine 已更新" : "Routine 已创建",
+    });
   };
   const edit = (routine: BotRoutine) => {
     const definition = routine.definition;
     setEditing(routine);
     setBotId(definition.bot_id);
     setName(definition.name);
-    setCron(
-      definition.schedule.expression.kind === "cron"
-        ? definition.schedule.expression.expression
-        : "0 9 * * *",
-    );
+    setCron(editableRoutineCron(routine));
     setTimezone(definition.schedule.timezone);
-    setInput(
-      definition.input
-        .map((part) => (part.kind === "text" ? part.text : JSON.stringify(part.fields, null, 2)))
-        .join("\n"),
-    );
+    setInput(editableRoutineInput(routine));
     setContextMode(definition.context_mode);
     setConversationId(definition.target_conversation_id || "");
     setRevisionMode(definition.revision_policy.kind);
@@ -194,15 +189,27 @@ export default function BotRoutines(props: RefreshProps) {
     setRevisionMode("follow_current");
   };
   const mutate = (routine: BotRoutine, kind: "pause" | "resume" | "run" | "trash") => {
-    const key = newBotId("idem");
-    const jobs = {
-      pause: () =>
-        botRoutinePause(routine.routine_id, routine.event_version, key, "paused by owner"),
-      resume: () => botRoutineResume(routine.routine_id, routine.event_version, key),
-      run: () => botRoutineRunNow(routine.routine_id, newBotId("occ"), routine.event_version, key),
-      trash: () => botRoutineTrash(routine.routine_id, routine.event_version, key),
-    };
-    void act(jobs[kind], kind === "run" ? "Routine occurrence 已记录" : `Routine ${kind} 已提交`);
+    const routineId = routine.routine_id;
+    void mutation.run({
+      key: `routine:${routineId}:${kind}`,
+      prepare: () => ({ occurrenceId: newBotId("occ"), idempotencyKey: newBotId("idem") }),
+      execute: ({ occurrenceId, idempotencyKey }) => {
+        const current = routines().find((item) => item.routine_id === routineId);
+        if (!current) throw new Error("Routine state is unavailable");
+        const jobs = {
+          pause: () =>
+            botRoutinePause(routineId, current.event_version, idempotencyKey, "paused by owner"),
+          resume: () => botRoutineResume(routineId, current.event_version, idempotencyKey),
+          run: () =>
+            botRoutineRunNow(routineId, occurrenceId, current.event_version, idempotencyKey),
+          trash: () => botRoutineTrash(routineId, current.event_version, idempotencyKey),
+        };
+        return jobs[kind]();
+      },
+      applied: ({ occurrenceId }) =>
+        routineMutationApplied(routines(), routineId, kind, occurrenceId),
+      okText: kind === "run" ? "Routine occurrence 已记录" : `Routine ${kind} 已提交`,
+    });
   };
 
   return (

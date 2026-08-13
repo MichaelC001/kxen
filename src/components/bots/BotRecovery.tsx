@@ -6,13 +6,12 @@ import {
   newBotId,
   type BotRecoverySnapshot,
 } from "../../lib/bots";
-import { flashErr, flashOk } from "../../lib/flash";
+import { createReconciledMutation } from "../../lib/async-guard";
 import { formatError } from "../../lib/error-text";
 import { actionClass, Panel, shortId, statusClass, type RefreshProps } from "./shared";
 
 export default function BotRecovery(props: RefreshProps) {
   const [snapshot, setSnapshot] = createSignal<BotRecoverySnapshot | null>(null);
-  const [acting, setActing] = createSignal(false);
   const [loadErr, setLoadErr] = createSignal("");
   let loadSeq = 0;
   const reload = async () => {
@@ -30,28 +29,44 @@ export default function BotRecovery(props: RefreshProps) {
     void props.epoch;
     void reload();
   });
-  const resolve = async (kind: "bot" | "bot_run", id: string, mode: "repair" | "clear") => {
+  const mutation = createReconciledMutation({ refresh: reload, onChanged: props.onChanged });
+  const acting = mutation.pending;
+  const resolve = (kind: "bot" | "bot_run", id: string, mode: "repair" | "clear") => {
     const version =
       kind === "bot"
         ? snapshot()?.bots.find((item) => item.bot_id === id)?.event_version
         : snapshot()?.runs.find((item) => item.spec.run_id === id)?.event_version;
     if (version === undefined || acting()) return;
-    setActing(true);
-    try {
-      if (mode === "repair") await botRecoveryRepair(kind, id, version, newBotId("idem"));
-      else await botRecoveryClear(kind, id, version, newBotId("idem"));
-      await reload();
-      props.onChanged();
-      flashOk(
+    void mutation.run({
+      key: `recovery:${kind}:${id}:${mode}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => {
+        const currentVersion =
+          kind === "bot"
+            ? snapshot()?.bots.find((item) => item.bot_id === id)?.event_version
+            : snapshot()?.runs.find((item) => item.spec.run_id === id)?.event_version;
+        if (currentVersion === undefined) throw new Error("Recovery target is unavailable");
+        return mode === "repair"
+          ? botRecoveryRepair(kind, id, currentVersion, idempotencyKey)
+          : botRecoveryClear(kind, id, currentVersion, idempotencyKey);
+      },
+      applied: () => {
+        const current = snapshot();
+        if (!current) return false;
+        const registryClosed = !current.registry.some(
+          (record) => record.aggregate.kind === kind && record.aggregate.id === id,
+        );
+        return mode === "repair"
+          ? registryClosed &&
+              current.bots.some((bot) => bot.bot_id === id && bot.lifecycle === "paused")
+          : registryClosed;
+      },
+      okText:
         mode === "repair"
           ? "修复证据已确认，Bot 转为 paused"
           : "未完成工作已明确放弃，Recovery record 已关闭",
-      );
-    } catch (error) {
-      flashErr(`Recovery 操作失败：${formatError(error)}`);
-    } finally {
-      setActing(false);
-    }
+      errPrefix: "Recovery 操作失败",
+    });
   };
   const count = () => {
     const value = snapshot();

@@ -8,12 +8,12 @@ import {
   newBotId,
   type BuilderState,
 } from "../../lib/bots";
+import type { ReconciledMutationController } from "../../lib/async-guard";
 import { actionClass, fieldClass, Panel, primaryClass, shortId, statusClass } from "./shared";
 
 export default function BotBuilderReview(props: {
   state: BuilderState;
-  acting: boolean;
-  act: (job: () => Promise<unknown>, label: string) => Promise<void>;
+  mutation: ReconciledMutationController;
 }) {
   const [grantReason, setGrantReason] = createSignal(
     "Owner reviewed the exact permission snapshot",
@@ -33,44 +33,63 @@ export default function BotBuilderReview(props: {
   const grant = () => {
     const draft = props.state.draft;
     if (!draft) return;
-    void props.act(
-      () =>
-        botBuilderGrant(
-          props.state.builder_session_id,
-          draft.content_hash,
-          grantReason().trim(),
-          newBotId("idem"),
-        ),
-      "权限快照已授权",
-    );
+    const sessionId = props.state.builder_session_id;
+    const reason = grantReason().trim();
+    void props.mutation.run({
+      key: `builder:${sessionId}:grant:${draft.content_hash}:${reason}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) =>
+        botBuilderGrant(sessionId, draft.content_hash, reason, idempotencyKey),
+      applied: () => props.state.grants.some((grant) => grant.draft_hash === draft.content_hash),
+      okText: "权限快照已授权",
+    });
   };
   const test = () => {
-    if (!props.state.draft) return;
-    void props.act(
-      () => botBuilderTest(props.state.builder_session_id, newBotId("brun"), newBotId("idem")),
-      "受控测试已排队",
-    );
+    const draft = props.state.draft;
+    if (!draft) return;
+    const sessionId = props.state.builder_session_id;
+    void props.mutation.run({
+      key: `builder:${sessionId}:test:${draft.content_hash}`,
+      prepare: () => ({ runId: newBotId("brun"), idempotencyKey: newBotId("idem") }),
+      execute: ({ runId, idempotencyKey }) => botBuilderTest(sessionId, runId, idempotencyKey),
+      applied: ({ runId }) =>
+        props.state.active_test_run_id === runId ||
+        props.state.tests.some((test) => test.run_id === runId),
+      okText: "受控测试已排队",
+    });
   };
   const validate = () => {
-    if (!props.state.draft) return;
-    void props.act(
-      () => botValidate(props.state.builder_session_id, newBotId("idem")),
-      "确定性验证已完成",
-    );
+    const draft = props.state.draft;
+    if (!draft) return;
+    const sessionId = props.state.builder_session_id;
+    void props.mutation.run({
+      key: `builder:${sessionId}:validate:${draft.content_hash}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => botValidate(sessionId, idempotencyKey),
+      applied: () => props.state.reports.some((report) => report.draft_hash === draft.content_hash),
+      okText: "确定性验证已完成",
+    });
   };
   const publish = () => {
     const draft = props.state.draft;
     if (!draft) return;
-    void props.act(
-      () => botPublish(props.state.builder_session_id, draft.content_hash, newBotId("idem")),
-      "Bot 已发布",
-    );
+    const sessionId = props.state.builder_session_id;
+    void props.mutation.run({
+      key: `builder:${sessionId}:publish:${draft.content_hash}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => botPublish(sessionId, draft.content_hash, idempotencyKey),
+      okText: "Bot 已发布",
+    });
   };
   const cancel = () => {
-    void props.act(
-      () => botBuilderCancel(props.state.builder_session_id, newBotId("idem")),
-      "Bot Build 已取消",
-    );
+    const sessionId = props.state.builder_session_id;
+    void props.mutation.run({
+      key: `builder:${sessionId}:cancel`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => botBuilderCancel(sessionId, idempotencyKey),
+      applied: () => props.state.lifecycle === "canceled",
+      okText: "Bot Build 已取消",
+    });
   };
 
   return (
@@ -149,7 +168,7 @@ export default function BotBuilderReview(props: {
           />
           <button
             class={actionClass}
-            disabled={props.acting || !props.state.draft || !grantReason().trim()}
+            disabled={props.mutation.pending() || !props.state.draft || !grantReason().trim()}
             onClick={grant}
           >
             授权当前权限
@@ -158,28 +177,32 @@ export default function BotBuilderReview(props: {
         <div class="flex flex-wrap gap-2">
           <button
             class={actionClass}
-            disabled={props.acting || !props.state.draft || Boolean(props.state.active_test_run_id)}
+            disabled={
+              props.mutation.pending() ||
+              !props.state.draft ||
+              Boolean(props.state.active_test_run_id)
+            }
             onClick={test}
           >
             运行受控测试
           </button>
           <button
             class={actionClass}
-            disabled={props.acting || !props.state.draft}
+            disabled={props.mutation.pending() || !props.state.draft}
             onClick={validate}
           >
             执行验证
           </button>
           <button
             class={primaryClass}
-            disabled={props.acting || !currentReport()?.publish_eligible}
+            disabled={props.mutation.pending() || !currentReport()?.publish_eligible}
             onClick={publish}
           >
             发布 Bot
           </button>
           <button
             class={actionClass}
-            disabled={props.acting || props.state.lifecycle !== "active"}
+            disabled={props.mutation.pending() || props.state.lifecycle !== "active"}
             onClick={cancel}
           >
             取消 Build

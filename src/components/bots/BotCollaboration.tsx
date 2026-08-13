@@ -18,10 +18,11 @@ import {
   type BotConversation,
   type BotSummary,
 } from "../../lib/bots";
-import { flashErr, flashOk } from "../../lib/flash";
+import { createReconciledMutation } from "../../lib/async-guard";
 import { formatError } from "../../lib/error-text";
 import BotCollaborationCreate from "./BotCollaborationCreate";
 import BotConversationDetail from "./BotConversationDetail";
+import { conversationLifecycleAfter, findDirectConversation } from "./mutation-state";
 import { Panel, shortId, statusClass, type RefreshProps } from "./shared";
 
 export default function BotCollaboration(props: RefreshProps) {
@@ -37,7 +38,6 @@ export default function BotCollaboration(props: RefreshProps) {
   const [mentions, setMentions] = createSignal<string[]>([]);
   const [everyone, setEveryone] = createSignal(false);
   const [addBotId, setAddBotId] = createSignal("");
-  const [acting, setActing] = createSignal(false);
   const [loadErr, setLoadErr] = createSignal("");
   let loadSeq = 0;
 
@@ -54,9 +54,15 @@ export default function BotCollaboration(props: RefreshProps) {
         ["bot_group", "bot_direct"].includes(conversation.kind),
       );
       setConversations(visible);
-      const wanted = selectedId() || visible[0]?.conversation_id || "";
+      const selected = selectedId();
+      const wanted = visible.some((conversation) => conversation.conversation_id === selected)
+        ? selected
+        : visible[0]?.conversation_id || "";
       setSelectedId(wanted);
-      setDetail(wanted ? await botConversationGet(wanted) : null);
+      if (detail()?.conversation_id !== wanted) setDetail(null);
+      const state = wanted ? await botConversationGet(wanted) : null;
+      if (seq !== loadSeq) return;
+      setDetail(state);
       setLoadErr("");
     } catch (error) {
       if (seq === loadSeq) setLoadErr(formatError(error));
@@ -68,24 +74,13 @@ export default function BotCollaboration(props: RefreshProps) {
   });
   const select = (id: string) => {
     setSelectedId(id);
+    setDetail(null);
     setMentions([]);
     setEveryone(false);
     void reload();
   };
-  const act = async (job: () => Promise<unknown>, label: string) => {
-    if (acting()) return;
-    setActing(true);
-    try {
-      await job();
-      await reload();
-      props.onChanged();
-      flashOk(label);
-    } catch (error) {
-      flashErr(`${label}失败：${formatError(error)}`);
-    } finally {
-      setActing(false);
-    }
-  };
+  const mutation = createReconciledMutation({ refresh: reload, onChanged: props.onChanged });
+  const acting = mutation.pending;
   const toggleMember = (botId: string) => {
     const current = members();
     if (current.includes(botId)) {
@@ -97,107 +92,175 @@ export default function BotCollaboration(props: RefreshProps) {
   };
   const createGroup = () => {
     if (!(members().length >= 2 && members().length <= 6) || !moderator()) return;
-    const id = newBotId("bconv");
-    void act(async () => {
-      await botGroupCreate(id, members(), moderator(), newBotId("idem"));
-      setSelectedId(id);
-      setMembers([]);
-      setModerator("");
-    }, "Bot Group 已创建");
+    const botIds = [...members()];
+    const moderatorId = moderator();
+    void mutation.run({
+      key: `group:create:${botIds.join(",")}:${moderatorId}`,
+      prepare: () => ({ conversationId: newBotId("bconv"), idempotencyKey: newBotId("idem") }),
+      execute: ({ conversationId, idempotencyKey }) =>
+        botGroupCreate(conversationId, botIds, moderatorId, idempotencyKey),
+      applied: ({ conversationId }) =>
+        conversations().some((conversation) => conversation.conversation_id === conversationId),
+      onApplied: ({ conversationId }) => {
+        setSelectedId(conversationId);
+        setDetail(null);
+        setMembers([]);
+        setModerator("");
+      },
+      okText: "Bot Group 已创建",
+    });
   };
   const openDirect = () => {
     if (!left() || !right() || left() === right()) return;
-    void act(async () => {
-      const conversation = await botDirectOpen(left(), right(), newBotId("idem"));
-      setSelectedId(conversation.conversation_id);
-    }, "Bot Direct 已打开");
+    const leftBotId = left();
+    const rightBotId = right();
+    void mutation.run({
+      key: `direct:open:${leftBotId}:${rightBotId}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => botDirectOpen(leftBotId, rightBotId, idempotencyKey),
+      applied: () => Boolean(findDirectConversation(conversations(), leftBotId, rightBotId)),
+      onApplied: () => {
+        const opened = findDirectConversation(conversations(), leftBotId, rightBotId);
+        if (opened) setSelectedId(opened.conversation_id);
+        setDetail(null);
+      },
+      okText: "Bot Direct 已打开",
+    });
   };
   const post = () => {
     const conversation = detail();
     const text = instruction().trim();
     if (!conversation || conversation.kind !== "bot_group" || !text) return;
-    void act(async () => {
-      await botConversationPost(
-        conversation.conversation_id,
-        newBotId("bmsg"),
-        [{ kind: "text", text }],
-        conversation.event_version,
-        newBotId("idem"),
-        { ...(everyone() ? {} : { mentions: mentions() }), everyone: everyone() },
-      );
-      setInstruction("");
-    }, "Group 指令已投递");
+    const conversationId = conversation.conversation_id;
+    const targetMentions = [...mentions()];
+    const targetEveryone = everyone();
+    void mutation.run({
+      key: `conversation:${conversationId}:post:${targetEveryone}:${targetMentions.join(",")}:${text}`,
+      prepare: () => ({ messageId: newBotId("bmsg"), idempotencyKey: newBotId("idem") }),
+      execute: ({ messageId, idempotencyKey }) => {
+        const current = detail();
+        if (!current || current.conversation_id !== conversationId)
+          throw new Error("selected Conversation changed");
+        return botConversationPost(
+          conversationId,
+          messageId,
+          [{ kind: "text", text }],
+          current.event_version,
+          idempotencyKey,
+          {
+            ...(targetEveryone ? {} : { mentions: targetMentions }),
+            everyone: targetEveryone,
+          },
+        );
+      },
+      applied: ({ messageId }) =>
+        detail()?.conversation_id === conversationId &&
+        Boolean(detail()?.messages.some((message) => message.message_id === messageId)),
+      onApplied: () => setInstruction(""),
+      okText: "Group 指令已投递",
+    });
   };
   const mutateConversation = (kind: "pause" | "resume" | "archive" | "stop") => {
     const conversation = detail();
     if (!conversation) return;
-    const key = newBotId("idem");
-    const jobs = {
-      pause: () =>
-        botConversationPause(conversation.conversation_id, conversation.event_version, key),
-      resume: () =>
-        botConversationResume(conversation.conversation_id, conversation.event_version, key),
-      archive: () =>
-        botConversationArchive(conversation.conversation_id, conversation.event_version, key),
-      stop: () => botGroupStop(conversation.conversation_id, conversation.event_version, key),
-    };
-    void act(jobs[kind], kind === "stop" ? "Bot Group 已停止" : `Conversation ${kind} 已提交`);
+    const conversationId = conversation.conversation_id;
+    const expectedLifecycle = conversationLifecycleAfter(kind);
+    void mutation.run({
+      key: `conversation:${conversationId}:lifecycle:${kind}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => {
+        const current = detail();
+        if (!current || current.conversation_id !== conversationId)
+          throw new Error("selected Conversation changed");
+        const jobs = {
+          pause: () => botConversationPause(conversationId, current.event_version, idempotencyKey),
+          resume: () =>
+            botConversationResume(conversationId, current.event_version, idempotencyKey),
+          archive: () =>
+            botConversationArchive(conversationId, current.event_version, idempotencyKey),
+          stop: () => botGroupStop(conversationId, current.event_version, idempotencyKey),
+        };
+        return jobs[kind]();
+      },
+      applied: () =>
+        detail()?.conversation_id === conversationId && detail()?.lifecycle === expectedLifecycle,
+      okText: kind === "stop" ? "Bot Group 已停止" : `Conversation ${kind} 已提交`,
+    });
   };
   const addMember = () => {
     const conversation = detail();
-    if (!conversation || !addBotId()) return;
-    void act(
-      () =>
-        botGroupAddMember(
-          conversation.conversation_id,
-          addBotId(),
-          conversation.event_version,
-          newBotId("idem"),
-        ),
-      "成员已加入",
-    );
+    const botId = addBotId();
+    if (!conversation || !botId) return;
+    const conversationId = conversation.conversation_id;
+    void mutation.run({
+      key: `conversation:${conversationId}:member:add:${botId}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => {
+        const current = detail();
+        if (!current || current.conversation_id !== conversationId)
+          throw new Error("selected Conversation changed");
+        return botGroupAddMember(conversationId, botId, current.event_version, idempotencyKey);
+      },
+      applied: () =>
+        detail()?.conversation_id === conversationId && detail()?.members[botId]?.active === true,
+      onApplied: () => setAddBotId(""),
+      okText: "成员已加入",
+    });
   };
   const removeMember = (botId: string) => {
     const conversation = detail();
     if (!conversation) return;
-    void act(
-      () =>
-        botGroupRemoveMember(
-          conversation.conversation_id,
-          botId,
-          conversation.event_version,
-          newBotId("idem"),
-        ),
-      "成员已移除",
-    );
+    const conversationId = conversation.conversation_id;
+    void mutation.run({
+      key: `conversation:${conversationId}:member:remove:${botId}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => {
+        const current = detail();
+        if (!current || current.conversation_id !== conversationId)
+          throw new Error("selected Conversation changed");
+        return botGroupRemoveMember(conversationId, botId, current.event_version, idempotencyKey);
+      },
+      applied: () =>
+        detail()?.conversation_id === conversationId && detail()?.members[botId]?.active === false,
+      okText: "成员已移除",
+    });
   };
   const setGroupModerator = (botId: string) => {
     const conversation = detail();
     if (!conversation) return;
-    void act(
-      () =>
-        botGroupSetModerator(
-          conversation.conversation_id,
-          botId,
-          conversation.event_version,
-          newBotId("idem"),
-        ),
-      "Moderator 已更新",
-    );
+    const conversationId = conversation.conversation_id;
+    void mutation.run({
+      key: `conversation:${conversationId}:moderator:${botId}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => {
+        const current = detail();
+        if (!current || current.conversation_id !== conversationId)
+          throw new Error("selected Conversation changed");
+        return botGroupSetModerator(conversationId, botId, current.event_version, idempotencyKey);
+      },
+      applied: () =>
+        detail()?.conversation_id === conversationId && detail()?.moderator_bot_id === botId,
+      okText: "Moderator 已更新",
+    });
   };
   const cancelTask = (taskId: string) => {
     const conversation = detail();
     if (!conversation) return;
-    void act(
-      () =>
-        botTaskCancel(
-          conversation.conversation_id,
-          taskId,
-          conversation.event_version,
-          newBotId("idem"),
-        ),
-      "Task 已取消",
-    );
+    const conversationId = conversation.conversation_id;
+    void mutation.run({
+      key: `conversation:${conversationId}:task:cancel:${taskId}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => {
+        const current = detail();
+        if (!current || current.conversation_id !== conversationId)
+          throw new Error("selected Conversation changed");
+        return botTaskCancel(conversationId, taskId, current.event_version, idempotencyKey);
+      },
+      applied: () =>
+        detail()?.conversation_id === conversationId &&
+        detail()?.tasks[taskId]?.status === "canceled",
+      okText: "Task 已取消",
+    });
   };
 
   return (

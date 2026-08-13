@@ -100,6 +100,13 @@ function fill(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
     new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }),
   );
 }
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 async function called(method: string) {
   await vi.waitFor(() => expect(h.rpc.mock.calls.map((call) => call[0])).toContain(method));
 }
@@ -159,6 +166,67 @@ describe("Bot Library and Builder", () => {
     await vi.waitFor(() => expect(document.body.textContent).toContain("Report Bot"));
     await press("使用 Builder 编辑");
     expect(onBuild).toHaveBeenCalledWith({ bot_id: "bot_report", display_name: "Report Bot" });
+    dispose();
+  });
+
+  it("clears the old Bot detail while a new identity is loading", async () => {
+    const secondState = {
+      ...state,
+      bot_id: "bot_second",
+      draft: {
+        ...state.draft,
+        definition: { ...definition, display_name: "Second Bot", objective: "Second objective" },
+      },
+      revisions: {
+        revision_report_1: {
+          ...state.revisions.revision_report_1,
+          definition: { ...definition, display_name: "Second Bot", objective: "Second objective" },
+        },
+      },
+    };
+    const loading = deferred<typeof secondState>();
+    h.rpc.mockImplementation((method: string, params?: { bot_id?: string }) => {
+      if (method === "bot.list")
+        return Promise.resolve([
+          {
+            bot_id: "bot_report",
+            display_name: "Report Bot",
+            lifecycle: "active",
+            current_revision_id: "revision_report_1",
+            updated_at_ms: 2,
+          },
+          {
+            bot_id: "bot_second",
+            display_name: "Second Bot",
+            lifecycle: "active",
+            current_revision_id: "revision_report_1",
+            updated_at_ms: 1,
+          },
+        ]);
+      if (method === "bot.get")
+        return params?.bot_id === "bot_second" ? loading.promise : Promise.resolve(state);
+      if (method === "bot.memory.list") return Promise.resolve({ event_version: 0, items: {} });
+      return Promise.resolve(state);
+    });
+    const dispose = render(
+      () => <BotLibrary epoch={0} onChanged={h.changed} onBuild={vi.fn()} />,
+      document.body,
+    );
+    await vi.waitFor(() =>
+      expect(
+        [...document.body.querySelectorAll("h2")].some((item) => item.textContent === "Report Bot"),
+      ).toBe(true),
+    );
+    button("Second Bot").click();
+    expect(
+      [...document.body.querySelectorAll("h2")].some((item) => item.textContent === "Report Bot"),
+    ).toBe(false);
+    loading.resolve(secondState);
+    await vi.waitFor(() =>
+      expect(
+        [...document.body.querySelectorAll("h2")].some((item) => item.textContent === "Second Bot"),
+      ).toBe(true),
+    );
     dispose();
   });
 

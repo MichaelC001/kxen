@@ -7,7 +7,7 @@ import {
   newBotId,
   type BuilderState,
 } from "../../lib/bots";
-import { flashErr, flashOk } from "../../lib/flash";
+import { createReconciledMutation } from "../../lib/async-guard";
 import { formatError } from "../../lib/error-text";
 import { Panel, type BotBuilderTarget, type RefreshProps } from "./shared";
 import BotBuilderConversation from "./BotBuilderConversation";
@@ -42,7 +42,6 @@ export default function BotBuilder(
   const [name, setName] = createSignal("");
   const [goal, setGoal] = createSignal("");
   const [message, setMessage] = createSignal("");
-  const [acting, setActing] = createSignal(false);
   const [loadErr, setLoadErr] = createSignal("");
   const [targetLoading, setTargetLoading] = createSignal(false);
   const [pendingStart, setPendingStart] = createSignal<PendingStart | null>(null);
@@ -101,33 +100,8 @@ export default function BotBuilder(
       });
   });
 
-  const act = async (
-    job: () => Promise<unknown>,
-    label: string,
-    options: { reconciled?: () => boolean; onApplied?: () => void } = {},
-  ) => {
-    if (acting()) return;
-    setActing(true);
-    try {
-      await job();
-      await reload();
-      options.onApplied?.();
-      props.onChanged();
-      flashOk(label);
-    } catch (error) {
-      const original = formatError(error);
-      await reload();
-      if (options.reconciled?.()) {
-        options.onApplied?.();
-        props.onChanged();
-        flashOk(`${label}，已从 durable state 确认`);
-      } else {
-        flashErr(`${label}失败：${original}`);
-      }
-    } finally {
-      setActing(false);
-    }
-  };
+  const mutation = createReconciledMutation({ refresh: reload, onChanged: props.onChanged });
+  const acting = mutation.pending;
   const start = () => {
     const existing = pendingStart();
     const cleanGoal = goal().trim();
@@ -144,8 +118,10 @@ export default function BotBuilder(
     };
     setPendingStart(operation);
     setBuilderId(operation.sessionId);
-    void act(
-      async () => {
+    void mutation.run({
+      key: `builder:${operation.sessionId}:start`,
+      prepare: () => operation,
+      execute: async () => {
         await botBuilderStart(
           operation.botId,
           operation.sessionId,
@@ -161,15 +137,13 @@ export default function BotBuilder(
         );
         setBuilder(state);
       },
-      "Builder 已回复",
-      {
-        reconciled: () => hasBuilderReply(builder(), operation.messageId),
-        onApplied: () => {
-          setPendingStart(null);
-          setGoal("");
-        },
+      applied: () => hasBuilderReply(builder(), operation.messageId),
+      onApplied: () => {
+        setPendingStart(null);
+        setGoal("");
       },
-    );
+      okText: "Builder 已回复",
+    });
   };
   const send = () => {
     if (pendingStart()) {
@@ -197,8 +171,10 @@ export default function BotBuilder(
             idempotencyKey: newBotId("idem"),
           });
     setPendingTurn(operation);
-    void act(
-      async () => {
+    void mutation.run({
+      key: `builder:${operation.builderId}:message:${operation.messageId}`,
+      prepare: () => operation,
+      execute: async () => {
         const state = await botBuilderMessage(
           operation.builderId,
           operation.messageId,
@@ -207,15 +183,13 @@ export default function BotBuilder(
         );
         setBuilder(state);
       },
-      "Builder 已回复",
-      {
-        reconciled: () => hasBuilderReply(builder(), operation.messageId),
-        onApplied: () => {
-          setPendingTurn(null);
-          setMessage("");
-        },
+      applied: () => hasBuilderReply(builder(), operation.messageId),
+      onApplied: () => {
+        setPendingTurn(null);
+        setMessage("");
       },
-    );
+      okText: "Builder 已回复",
+    });
   };
   const clearTarget = () => {
     if (acting()) return;
@@ -272,7 +246,7 @@ export default function BotBuilder(
                 setMessage={setMessage}
                 send={send}
               />
-              <BotBuilderReview state={state()} acting={acting()} act={act} />
+              <BotBuilderReview state={state()} mutation={mutation} />
             </>
           )}
         </Show>

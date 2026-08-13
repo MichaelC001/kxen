@@ -10,7 +10,8 @@ import {
   newBotId,
   type BotRun,
 } from "../../lib/bots";
-import { flashErr, flashOk } from "../../lib/flash";
+import { createReconciledMutation } from "../../lib/async-guard";
+import { flashErr } from "../../lib/flash";
 import { formatError } from "../../lib/error-text";
 import {
   actionClass,
@@ -21,12 +22,14 @@ import {
   statusClass,
   type RefreshProps,
 } from "./shared";
+import { runCancellationApplied } from "./mutation-state";
+import { decodeArtifactPreview } from "./artifact-preview";
 
 export default function BotRuns(props: RefreshProps) {
   const [runs, setRuns] = createSignal<BotRun[]>([]);
   const [selectedId, setSelectedId] = createSignal("");
   const [input, setInput] = createSignal("");
-  const [acting, setActing] = createSignal(false);
+  const [previewing, setPreviewing] = createSignal(false);
   const [artifactPreview, setArtifactPreview] = createSignal<{
     id: string;
     name: string;
@@ -41,7 +44,9 @@ export default function BotRuns(props: RefreshProps) {
       if (seq !== loadSeq) return;
       items.sort((left, right) => right.updated_at_ms - left.updated_at_ms);
       setRuns(items);
-      if (!selectedId() && items[0]) setSelectedId(items[0].spec.run_id);
+      const selected = selectedId();
+      if (!items.some((run) => run.spec.run_id === selected))
+        setSelectedId(items[0]?.spec.run_id ?? "");
       setLoadErr("");
     } catch (error) {
       if (seq === loadSeq) setLoadErr(formatError(error));
@@ -52,85 +57,100 @@ export default function BotRuns(props: RefreshProps) {
     void reload();
   });
   const selected = () => runs().find((run) => run.spec.run_id === selectedId()) || null;
-  const act = async (job: () => Promise<unknown>, label: string) => {
-    if (acting()) return;
-    setActing(true);
-    try {
-      await job();
-      await reload();
-      props.onChanged();
-      flashOk(label);
-    } catch (error) {
-      flashErr(`${label}失败：${formatError(error)}`);
-    } finally {
-      setActing(false);
-    }
-  };
+  const mutation = createReconciledMutation({ refresh: reload, onChanged: props.onChanged });
+  const acting = () => mutation.pending() || previewing();
   const approval = (allow: boolean) => {
     const run = selected();
     if (!run?.approval) return;
-    void act(
-      () =>
-        botRunApproval(
-          run.spec.run_id,
-          run.approval!.approval_id,
-          allow,
-          run.event_version,
-          newBotId("idem"),
-        ),
-      allow ? "审批已允许" : "审批已拒绝",
-    );
+    const runId = run.spec.run_id;
+    const approvalId = run.approval.approval_id;
+    void mutation.run({
+      key: `run:${runId}:approval:${approvalId}:${allow}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => {
+        const current = selected();
+        if (!current || current.spec.run_id !== runId || !current.approval)
+          throw new Error("Run approval is no longer available");
+        return botRunApproval(runId, approvalId, allow, current.event_version, idempotencyKey);
+      },
+      applied: () => selected()?.spec.run_id === runId && !selected()?.approval,
+      okText: allow ? "审批已允许" : "审批已拒绝",
+    });
   };
   const provideInput = () => {
     const run = selected();
     const text = input().trim();
     if (!run?.input_request || !text) return;
-    void act(async () => {
-      await botRunInput(
-        run.spec.run_id,
-        run.input_request!.request_id,
-        [{ kind: "text", text }],
-        run.event_version,
-        newBotId("idem"),
-      );
-      setInput("");
-    }, "输入已绑定");
+    const runId = run.spec.run_id;
+    const requestId = run.input_request.request_id;
+    void mutation.run({
+      key: `run:${runId}:input:${requestId}:${text}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => {
+        const current = selected();
+        if (!current || current.spec.run_id !== runId || !current.input_request)
+          throw new Error("Run input request is no longer available");
+        return botRunInput(
+          runId,
+          requestId,
+          [{ kind: "text", text }],
+          current.event_version,
+          idempotencyKey,
+        );
+      },
+      applied: () =>
+        selected()?.spec.run_id === runId && selected()?.input_request?.request_id !== requestId,
+      onApplied: () => setInput(""),
+      okText: "输入已绑定",
+    });
   };
   const cancel = () => {
     const run = selected();
     if (!run || terminal(run.status)) return;
-    void act(
-      () => botRunCancel(run.spec.run_id, run.event_version, newBotId("idem"), "canceled by owner"),
-      "BotRun 取消请求已记录",
-    );
+    const runId = run.spec.run_id;
+    void mutation.run({
+      key: `run:${runId}:cancel`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => {
+        const current = selected();
+        if (!current || current.spec.run_id !== runId) throw new Error("selected BotRun changed");
+        return botRunCancel(runId, current.event_version, idempotencyKey, "canceled by owner");
+      },
+      applied: () => runCancellationApplied(selected(), runId),
+      okText: "BotRun 取消请求已记录",
+    });
   };
   const inspectArtifact = async (artifactId: string, displayName: string, mediaType: string) => {
     if (acting()) return;
-    setActing(true);
+    setPreviewing(true);
     try {
       const payload = (await botArtifactGet(artifactId)) as { content_base64: string };
-      const bytes = Uint8Array.from(atob(payload.content_base64), (character) =>
-        character.charCodeAt(0),
-      );
-      const content =
-        mediaType.startsWith("text/") || mediaType.includes("json")
-          ? new TextDecoder().decode(bytes)
-          : `已验证 ${bytes.byteLength} bytes 的 ${mediaType} 内容。二进制内容不在预览区渲染。`;
+      const content = decodeArtifactPreview(payload.content_base64, mediaType);
       setArtifactPreview({ id: artifactId, name: displayName, content });
     } catch (error) {
       flashErr(`读取 Artifact 失败：${formatError(error)}`);
     } finally {
-      setActing(false);
+      setPreviewing(false);
     }
   };
   const trashArtifact = (artifactId: string) => {
-    void act(async () => {
-      await botArtifactTrash(artifactId);
-      if (artifactPreview()?.id === artifactId) setArtifactPreview(null);
-    }, "Artifact 已移到废纸篓");
+    void mutation.run({
+      key: `artifact:${artifactId}:trash`,
+      prepare: () => ({}),
+      execute: () => botArtifactTrash(artifactId),
+      onApplied: () => {
+        if (artifactPreview()?.id === artifactId) setArtifactPreview(null);
+      },
+      okText: "Artifact 已移到废纸篓",
+    });
   };
   const restoreArtifact = (artifactId: string) => {
-    void act(() => botArtifactRestore(artifactId), "Artifact 已恢复");
+    void mutation.run({
+      key: `artifact:${artifactId}:restore`,
+      prepare: () => ({}),
+      execute: () => botArtifactRestore(artifactId),
+      okText: "Artifact 已恢复",
+    });
   };
 
   return (

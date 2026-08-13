@@ -18,7 +18,8 @@ import {
   type BotState,
   type BotSummary,
 } from "../../lib/bots";
-import { flashErr, flashOk } from "../../lib/flash";
+import { createReconciledMutation } from "../../lib/async-guard";
+import { flashErr } from "../../lib/flash";
 import { formatError } from "../../lib/error-text";
 import { editableBotDefinition, encodeBotInput, publishedBotDefinition } from "./bot-definition";
 import { Panel, shortId, statusClass, type BotBuilderTarget, type RefreshProps } from "./shared";
@@ -32,7 +33,6 @@ export default function BotLibrary(
   const [detail, setDetail] = createSignal<BotState | null>(null);
   const [memory, setMemory] = createSignal<BotMemoryState | null>(null);
   const [loadErr, setLoadErr] = createSignal("");
-  const [acting, setActing] = createSignal(false);
   const [prompt, setPrompt] = createSignal("");
   const [memoryText, setMemoryText] = createSignal("");
   const [memoryKind, setMemoryKind] = createSignal("fact");
@@ -45,7 +45,8 @@ export default function BotLibrary(
       const list = await botList();
       if (seq !== loadSeq) return;
       setBots(list);
-      const wanted = selectedId() || list[0]?.bot_id || "";
+      const selected = selectedId();
+      const wanted = list.some((bot) => bot.bot_id === selected) ? selected : list[0]?.bot_id || "";
       if (!wanted) {
         setDetail(null);
         setMemory(null);
@@ -53,6 +54,10 @@ export default function BotLibrary(
         return;
       }
       setSelectedId(wanted);
+      if (detail()?.bot_id !== wanted) {
+        setDetail(null);
+        setMemory(null);
+      }
       const [state, items] = await Promise.all([botGet(wanted), botMemoryList(wanted)]);
       if (seq !== loadSeq) return;
       setDetail(state);
@@ -69,36 +74,43 @@ export default function BotLibrary(
 
   const select = (id: string) => {
     setSelectedId(id);
+    setDetail(null);
+    setMemory(null);
     setEditingMemory("");
     setMemoryText("");
     void reload();
   };
-  const act = async (job: () => Promise<unknown>, label: string) => {
-    if (acting()) return;
-    setActing(true);
-    try {
-      await job();
-      await reload();
-      props.onChanged();
-      flashOk(label);
-    } catch (error) {
-      flashErr(`${label}失败：${formatError(error)}`);
-    } finally {
-      setActing(false);
-    }
-  };
+  const mutation = createReconciledMutation({ refresh: reload, onChanged: props.onChanged });
+  const acting = mutation.pending;
   const lifecycle = (kind: "pause" | "resume" | "archive" | "trash" | "restore") => {
     const state = detail();
     if (!state) return;
-    const key = newBotId("idem");
-    const jobs = {
-      pause: () => botPause(state.bot_id, state.event_version, key),
-      resume: () => botResume(state.bot_id, state.event_version, key),
-      archive: () => botArchive(state.bot_id, state.event_version, key),
-      trash: () => botTrash(state.bot_id, state.event_version, key),
-      restore: () => botRestore(state.bot_id, state.event_version, key),
-    };
-    void act(jobs[kind], `${kind} 已提交`);
+    const botId = state.bot_id;
+    const expectedLifecycle = {
+      pause: "paused",
+      resume: "active",
+      archive: "archived",
+      trash: "trashed",
+      restore: "paused",
+    }[kind];
+    void mutation.run({
+      key: `bot:${botId}:lifecycle:${kind}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => {
+        const current = detail();
+        if (!current || current.bot_id !== botId) throw new Error("selected Bot changed");
+        const jobs = {
+          pause: () => botPause(botId, current.event_version, idempotencyKey),
+          resume: () => botResume(botId, current.event_version, idempotencyKey),
+          archive: () => botArchive(botId, current.event_version, idempotencyKey),
+          trash: () => botTrash(botId, current.event_version, idempotencyKey),
+          restore: () => botRestore(botId, current.event_version, idempotencyKey),
+        };
+        return jobs[kind]();
+      },
+      applied: () => detail()?.bot_id === botId && detail()?.lifecycle === expectedLifecycle,
+      okText: `${kind} 已提交`,
+    });
   };
   const run = () => {
     const state = detail();
@@ -111,26 +123,29 @@ export default function BotLibrary(
       flashErr(`输入契约校验失败：${formatError(error)}`);
       return;
     }
-    void act(
-      () => botRunStart(newBotId("brun"), state.bot_id, input, newBotId("idem")),
-      "BotRun 已排队",
-    );
+    const botId = state.bot_id;
+    void mutation.run({
+      key: `bot:${botId}:run:${text}`,
+      prepare: () => ({ runId: newBotId("brun"), idempotencyKey: newBotId("idem") }),
+      execute: ({ runId, idempotencyKey }) => botRunStart(runId, botId, input, idempotencyKey),
+      onApplied: () => setPrompt(""),
+      okText: "BotRun 已排队",
+    });
   };
   const duplicate = () => {
     const state = detail();
     if (!state?.current_revision_id) return;
     const definition = publishedBotDefinition(state);
-    const id = newBotId("bot");
-    void act(
-      () =>
-        botDuplicate(
-          state.bot_id,
-          id,
-          `${definition?.display_name ?? "Bot"} Copy`,
-          newBotId("idem"),
-        ),
-      "Bot 已复制",
-    );
+    const sourceBotId = state.bot_id;
+    const displayName = `${definition?.display_name ?? "Bot"} Copy`;
+    void mutation.run({
+      key: `bot:${sourceBotId}:duplicate:${state.current_revision_id}:${displayName}`,
+      prepare: () => ({ botId: newBotId("bot"), idempotencyKey: newBotId("idem") }),
+      execute: ({ botId, idempotencyKey }) =>
+        botDuplicate(sourceBotId, botId, displayName, idempotencyKey),
+      applied: ({ botId }) => bots().some((bot) => bot.bot_id === botId),
+      okText: "Bot 已复制",
+    });
   };
   const saveMemory = () => {
     const state = detail();
@@ -138,43 +153,66 @@ export default function BotLibrary(
     const content = memoryText().trim();
     if (!state || !memoryState || !content) return;
     const item = editingMemory() ? memoryState.items[editingMemory()] : undefined;
-    const job = item
-      ? () =>
-          botMemoryRevise(
-            state.bot_id,
-            item.item_id,
-            item.version,
-            content,
-            memoryState.event_version,
-            newBotId("idem"),
-          )
-      : () =>
-          botMemoryCreate(
-            state.bot_id,
-            newBotId("memory"),
-            memoryKind(),
-            content,
-            memoryState.event_version,
-            newBotId("idem"),
-          );
-    void act(
-      async () => {
-        await job();
+    const botId = state.bot_id;
+    const kind = memoryKind();
+    const operationKey = item
+      ? `bot:${botId}:memory:revise:${item.item_id}:${content}`
+      : `bot:${botId}:memory:create:${kind}:${content}`;
+    void mutation.run({
+      key: operationKey,
+      prepare: () => ({
+        itemId: item?.item_id ?? newBotId("memory"),
+        idempotencyKey: newBotId("idem"),
+      }),
+      execute: ({ itemId, idempotencyKey }) => {
+        const current = memory();
+        if (!current) throw new Error("Bot Memory state is unavailable");
+        const currentItem = current.items[itemId];
+        return item
+          ? botMemoryRevise(
+              botId,
+              itemId,
+              currentItem?.version ?? item.version,
+              content,
+              current.event_version,
+              idempotencyKey,
+            )
+          : botMemoryCreate(botId, itemId, kind, content, current.event_version, idempotencyKey);
+      },
+      applied: ({ itemId }) => memory()?.items[itemId]?.content === content,
+      onApplied: () => {
         setEditingMemory("");
         setMemoryText("");
       },
-      item ? "Memory 已更新" : "Memory 已创建",
-    );
+      okText: item ? "Memory 已更新" : "Memory 已创建",
+    });
   };
   const removeMemory = (itemId: string, version: number) => {
     const state = detail();
     const memoryState = memory();
     if (!state || !memoryState) return;
-    void act(
-      () =>
-        botMemoryRemove(state.bot_id, itemId, version, memoryState.event_version, newBotId("idem")),
-      "Memory 已删除",
-    );
+    const botId = state.bot_id;
+    void mutation.run({
+      key: `bot:${botId}:memory:remove:${itemId}:${version}`,
+      prepare: () => ({ idempotencyKey: newBotId("idem") }),
+      execute: ({ idempotencyKey }) => {
+        const current = memory();
+        if (!current) throw new Error("Bot Memory state is unavailable");
+        const currentItem = current.items[itemId];
+        return botMemoryRemove(
+          botId,
+          itemId,
+          currentItem?.version ?? version,
+          current.event_version,
+          idempotencyKey,
+        );
+      },
+      applied: () => {
+        const current = memory();
+        return Boolean(current && !current.items[itemId]);
+      },
+      okText: "Memory 已删除",
+    });
   };
 
   return (

@@ -1,5 +1,6 @@
 // 统一异步守卫：seq 过期丢弃与 in-flight 去重。
 import { createSignal } from "solid-js";
+import { formatError } from "./error-text";
 import { flashErr, flashOk } from "./flash";
 
 /** seq 过期守卫：只有最后一次发起的结果允许落地（RPC 慢响应覆盖新弹层/新查询的通病的解药）。 */
@@ -50,3 +51,88 @@ export function createAction(): {
   };
   return { pending, run };
 }
+
+export interface ReconciledMutation<T> {
+  key: string;
+  prepare: () => T;
+  execute: (token: T) => Promise<unknown>;
+  applied?: (token: T) => boolean;
+  onApplied?: (token: T) => void;
+  okText: string;
+  errPrefix?: string;
+}
+
+/**
+ * Durable mutation controller. A semantic operation key keeps generated resource and
+ * idempotency IDs stable across retries, then an authoritative refresh decides whether
+ * an ambiguous error was already committed.
+ */
+export function createReconciledMutation(options: {
+  refresh: () => Promise<unknown>;
+  onChanged: () => void;
+}) {
+  const [pending, setPending] = createSignal(false);
+  const retryTokens = new Map<string, unknown>();
+
+  const run = async <T>(
+    mutation: ReconciledMutation<T>,
+  ): Promise<"applied" | "failed" | "busy"> => {
+    if (pending()) return "busy";
+    setPending(true);
+    let token: T;
+    try {
+      token = retryTokens.has(mutation.key)
+        ? (retryTokens.get(mutation.key) as T)
+        : mutation.prepare();
+    } catch (error) {
+      setPending(false);
+      flashErr(`${mutation.errPrefix ?? `${mutation.okText}失败`}：${formatError(error)}`);
+      return "failed";
+    }
+    retryTokens.set(mutation.key, token);
+    let mutationFailed = false;
+    let mutationError: unknown;
+    let refreshError: unknown;
+    try {
+      await mutation.execute(token);
+    } catch (error) {
+      mutationFailed = true;
+      mutationError = error;
+    }
+    try {
+      await options.refresh();
+    } catch (error) {
+      refreshError = error;
+    }
+    let reconciled = false;
+    if (mutationFailed && mutation.applied) {
+      try {
+        reconciled = mutation.applied(token);
+      } catch (error) {
+        refreshError ??= error;
+      }
+    }
+    const applied = !mutationFailed || reconciled;
+    try {
+      if (applied) {
+        retryTokens.delete(mutation.key);
+        mutation.onApplied?.(token);
+        options.onChanged();
+        flashOk(reconciled ? `${mutation.okText}，已从 durable state 确认` : mutation.okText);
+        return "applied";
+      }
+      const refreshDetail = refreshError ? `；状态重新读取失败：${formatError(refreshError)}` : "";
+      flashErr(
+        `${mutation.errPrefix ?? `${mutation.okText}失败`}：${formatError(mutationError)}${refreshDetail}`,
+      );
+      return "failed";
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const reset = () => retryTokens.clear();
+  return { pending, run, reset, hasRetry: (key: string) => retryTokens.has(key) };
+}
+
+export type ReconciledMutationController = ReturnType<typeof createReconciledMutation>;

@@ -1,7 +1,12 @@
 // flash / async-guard 单测：timer 用假时钟（vitest fake timers）。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFlash } from "./flash";
-import { createAction, createInFlight, createSeqGuard } from "./async-guard";
+import {
+  createAction,
+  createInFlight,
+  createReconciledMutation,
+  createSeqGuard,
+} from "./async-guard";
 
 describe("flash", () => {
   beforeEach(() => vi.useFakeTimers());
@@ -74,5 +79,96 @@ describe("async-guard", () => {
       throw new Error("boom");
     });
     expect(r).toBeUndefined(); // 失败不外抛
+  });
+
+  it("reconciled mutation 在失败重试时复用业务 ID 和 idempotency token", async () => {
+    let prepared = 0;
+    let attempts = 0;
+    let changed = 0;
+    const seen: Array<{ resourceId: string; idempotencyKey: string }> = [];
+    const action = createReconciledMutation({
+      refresh: async () => undefined,
+      onChanged: () => changed++,
+    });
+    const mutation = {
+      key: "create:report",
+      prepare: () => {
+        prepared++;
+        return { resourceId: "bot_stable", idempotencyKey: "idem_stable" };
+      },
+      execute: async (token: { resourceId: string; idempotencyKey: string }) => {
+        seen.push(token);
+        attempts++;
+        if (attempts === 1) throw new Error("transport timeout");
+      },
+      okText: "created",
+    };
+
+    expect(await action.run(mutation)).toBe("failed");
+    expect(action.hasRetry(mutation.key)).toBe(true);
+    expect(await action.run(mutation)).toBe("applied");
+    expect(prepared).toBe(1);
+    expect(seen).toEqual([
+      { resourceId: "bot_stable", idempotencyKey: "idem_stable" },
+      { resourceId: "bot_stable", idempotencyKey: "idem_stable" },
+    ]);
+    expect(changed).toBe(1);
+    expect(action.hasRetry(mutation.key)).toBe(false);
+  });
+
+  it("reconciled mutation 将 timeout 后已持久化的状态确认为 applied", async () => {
+    let durable = false;
+    let refreshed = 0;
+    let applied = 0;
+    const action = createReconciledMutation({
+      refresh: async () => {
+        refreshed++;
+      },
+      onChanged: () => applied++,
+    });
+    const result = await action.run({
+      key: "message:one",
+      prepare: () => ({ messageId: "message_stable" }),
+      execute: async () => {
+        durable = true;
+        throw new Error("response lost");
+      },
+      applied: () => durable,
+      okText: "sent",
+    });
+
+    expect(result).toBe("applied");
+    expect(refreshed).toBe(1);
+    expect(applied).toBe(1);
+    expect(action.hasRetry("message:one")).toBe(false);
+  });
+
+  it("reconciled mutation 在 token 准备失败或 throw undefined 后仍解除 pending", async () => {
+    const action = createReconciledMutation({
+      refresh: async () => undefined,
+      onChanged: vi.fn(),
+    });
+    expect(
+      await action.run({
+        key: "prepare-failure",
+        prepare: () => {
+          throw new Error("cannot prepare");
+        },
+        execute: async () => undefined,
+        okText: "prepared",
+      }),
+    ).toBe("failed");
+    expect(action.pending()).toBe(false);
+    expect(
+      await action.run({
+        key: "undefined-error",
+        prepare: () => ({}),
+        execute: async () => {
+          throw undefined;
+        },
+        okText: "executed",
+      }),
+    ).toBe("failed");
+    expect(action.pending()).toBe(false);
   });
 });
