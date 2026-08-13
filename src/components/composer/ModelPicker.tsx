@@ -1,5 +1,5 @@
 // ModelPicker：catalog 驱动（models.dev 快照）——显示名 + id + ctx + 能力徽章 + 搜索 + 方向键导航 + 角色分配。
-import { createEffect, createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createSignal, createUniqueId, For, onMount, Show } from "solid-js";
 import { Check, ChevronDown, Search } from "lucide-solid";
 import { configSetRole } from "../../lib/chat";
 import { sessionFollowGlobalModel, sessionSetModel } from "../../lib/session-model";
@@ -33,6 +33,9 @@ interface Row {
 }
 
 export default function ModelPicker() {
+  const controlId = createUniqueId();
+  const popupId = `${controlId}-popup`;
+  const listId = `${controlId}-options`;
   const { cur, setCur, curErr, globalDef, globalErr, reloadCurrent, reloadGlobal } =
     createModelStatus();
   const [cat, setCat] = createSignal<ProviderCatalog[]>([]);
@@ -42,7 +45,7 @@ export default function ModelPicker() {
   const [query, setQuery] = createSignal("");
   const [roleMsg, setRoleMsg] = createSignal("");
   const [modelSaving, setModelSaving] = createSignal(false);
-  // 键盘导航选中位：-1 = 未导航（Enter 落首行）；与 filtered() 同步失效（query 变即复位）
+  // 键盘导航选中位：0 = 跟随全局，1...n = 模型；-1 时 Enter 保持落首个模型。
   const [nav, setNav] = createSignal(-1);
   // 本地选择优先于 sessions 列表推导（set_model 不触发列表刷新，meta 是旧值）
   const [followOverride, setFollowOverride] = createSignal<boolean | null>(null);
@@ -171,17 +174,21 @@ export default function ModelPicker() {
 
   function onSearchKey(e: KeyboardEvent) {
     const list = filtered();
+    const optionCount = list.length + 1;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      if (list.length === 0) return;
       const d = e.key === "ArrowDown" ? 1 : -1;
-      setNav((n) => (n + d + list.length) % list.length);
+      setNav((n) => (n + d + optionCount) % optionCount);
     } else if (e.key === "Enter") {
       // IME 组字中的 Enter 是上屏键，不得当成选中（同 TextComposer 的守卫）
       if (e.isComposing || e.keyCode === 229) return;
       e.preventDefault();
-      const r = list[nav() < 0 ? 0 : nav()];
-      if (r) pick(r);
+      const selected = nav();
+      if (selected === 0 || (selected < 0 && list.length === 0)) followGlobal();
+      else {
+        const r = list[selected < 0 ? 0 : selected - 1];
+        if (r) pick(r);
+      }
     } else if (e.key === "Escape") {
       setOpen(false);
     }
@@ -193,7 +200,9 @@ export default function ModelPicker() {
         class="pressable model-pill"
         disabled={modelSaving()}
         aria-expanded={open()}
-        aria-haspopup="listbox"
+        aria-haspopup="dialog"
+        aria-controls={popupId}
+        aria-label={`选择模型，当前 ${curLabel()}`}
         onClick={toggle}
       >
         <span class="text-2xs text-[var(--text-faint)]">{curInfo()?.family ?? cur().provider}</span>
@@ -206,13 +215,21 @@ export default function ModelPicker() {
 
       <Show when={open()}>
         <div
-          role="listbox"
+          id={popupId}
+          role="dialog"
+          aria-label="模型与角色设置"
           class="composer-popup absolute bottom-full right-0 mb-1.5 w-80 max-w-[calc(100vw-16px)] rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] overflow-hidden z-20"
         >
           <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-[var(--border)]">
             <Search size={12} class="text-[var(--text-faint)]" />
             <input
               ref={(el) => (searchInput = el)}
+              role="combobox"
+              aria-label="搜索模型"
+              aria-autocomplete="list"
+              aria-expanded="true"
+              aria-controls={listId}
+              aria-activedescendant={nav() >= 0 ? `${controlId}-option-${nav()}` : undefined}
               class="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-[var(--text-faint)]"
               placeholder="搜索模型（名称 / id）…"
               value={query()}
@@ -230,30 +247,87 @@ export default function ModelPicker() {
             onRetryGlobal={() => void reloadGlobal()}
           />
           <div class="max-h-72 overflow-y-auto py-1" ref={(el) => (listEl = el)}>
-            <div
-              class="model-row"
-              classList={{ "model-row-active": following() }}
-              onClick={followGlobal}
-              onContextMenu={(e) => e.preventDefault()}
-            >
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-1.5">
-                  <span class="text-xs font-medium truncate">跟随全局默认</span>
-                  <Show when={following()}>
-                    <Check size={12} class="text-[var(--accent-hover)]" />
-                  </Show>
-                </div>
-                <div class="text-2xs text-[var(--text-faint)] truncate">
-                  当前全局：{globalLabel()}
+            <div id={listId} role="listbox" aria-label="可用模型">
+              <div
+                id={`${controlId}-option-0`}
+                role="option"
+                aria-selected={following()}
+                data-nav="0"
+                class="model-row"
+                classList={{
+                  "model-row-active": following(),
+                  "bg-[var(--bg-overlay)]": nav() === 0,
+                }}
+                onClick={followGlobal}
+                onContextMenu={(e) => e.preventDefault()}
+              >
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-xs font-medium truncate">跟随全局默认</span>
+                    <Show when={following()}>
+                      <Check size={12} class="text-[var(--accent-hover)]" />
+                    </Show>
+                  </div>
+                  <div class="text-2xs text-[var(--text-faint)] truncate">
+                    当前全局：{globalLabel()}
+                  </div>
                 </div>
               </div>
+              <div role="presentation" class="mx-2 my-1 border-t border-[var(--border)]" />
+              <Show when={!catLoading() && !catErr()}>
+                <For each={filtered()}>
+                  {(r, i) => {
+                    const optionIndex = () => i() + 1;
+                    const selected = () =>
+                      !following() && r.model.id === cur().model && r.provider === cur().provider;
+                    return (
+                      <div
+                        id={`${controlId}-option-${optionIndex()}`}
+                        role="option"
+                        aria-selected={selected()}
+                        class="model-row"
+                        data-nav={optionIndex()}
+                        classList={{
+                          "model-row-active": selected(),
+                          "bg-[var(--bg-overlay)]": optionIndex() === nav(),
+                        }}
+                        onClick={() => pick(r)}
+                        onContextMenu={(e) => e.preventDefault()}
+                      >
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-1.5">
+                            <span class="text-xs font-medium truncate">{r.model.name}</span>
+                            <Show when={r.model.reasoning}>
+                              <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
+                                推理
+                              </span>
+                            </Show>
+                            <Show when={r.model.modalities_in.some((m) => m !== "text")}>
+                              <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
+                                {r.model.modalities_in.filter((m) => m !== "text").join("/")}
+                              </span>
+                            </Show>
+                            <Show when={selected()}>
+                              <Check size={12} class="text-[var(--accent-hover)]" />
+                            </Show>
+                          </div>
+                          <div class="text-2xs text-[var(--text-faint)] truncate">
+                            {r.providerName} · {r.model.id} · ctx {fmtCtx(r.model.context)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }}
+                </For>
+              </Show>
             </div>
-            <div class="mx-2 my-1 border-t border-[var(--border)]" />
             <Show when={catLoading()}>
-              <div class="px-3 py-2 text-2xs text-[var(--text-faint)]">加载模型目录中…</div>
+              <div role="status" class="px-3 py-2 text-2xs text-[var(--text-faint)]">
+                加载模型目录中…
+              </div>
             </Show>
             <Show when={catErr()}>
-              <div class="px-3 py-2 text-2xs text-[var(--err)]">
+              <div role="alert" class="px-3 py-2 text-2xs text-[var(--err)]">
                 加载模型目录失败：{catErr()}
                 <button
                   class="ml-2 text-[var(--accent-hover)] hover:underline"
@@ -263,47 +337,10 @@ export default function ModelPicker() {
                 </button>
               </div>
             </Show>
-            <Show when={!catLoading() && !catErr()}>
-              <For each={filtered()}>
-                {(r, i) => (
-                  <div
-                    class="model-row"
-                    data-nav={i()}
-                    classList={{
-                      "model-row-active":
-                        r.model.id === cur().model && r.provider === cur().provider,
-                      "bg-[var(--bg-overlay)]": i() === nav(),
-                    }}
-                    onClick={() => pick(r)}
-                    onContextMenu={(e) => e.preventDefault()}
-                  >
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-center gap-1.5">
-                        <span class="text-xs font-medium truncate">{r.model.name}</span>
-                        <Show when={r.model.reasoning}>
-                          <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
-                            推理
-                          </span>
-                        </Show>
-                        <Show when={r.model.modalities_in.some((m) => m !== "text")}>
-                          <span class="text-2xs px-1 rounded border border-[var(--border)] text-[var(--text-faint)]">
-                            {r.model.modalities_in.filter((m) => m !== "text").join("/")}
-                          </span>
-                        </Show>
-                        <Show when={r.model.id === cur().model && r.provider === cur().provider}>
-                          <Check size={12} class="text-[var(--accent-hover)]" />
-                        </Show>
-                      </div>
-                      <div class="text-2xs text-[var(--text-faint)] truncate">
-                        {r.providerName} · {r.model.id} · ctx {fmtCtx(r.model.context)}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </For>
-              <Show when={filtered().length === 0}>
-                <div class="px-3 py-2 text-2xs text-[var(--text-faint)]">无匹配模型</div>
-              </Show>
+            <Show when={!catLoading() && !catErr() && filtered().length === 0}>
+              <div role="status" class="px-3 py-2 text-2xs text-[var(--text-faint)]">
+                无匹配模型
+              </div>
             </Show>
           </div>
           <div class="border-t border-[var(--border)] px-2.5 py-1.5">

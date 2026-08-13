@@ -18,6 +18,7 @@ import { flashErr, flashOk } from "../lib/flash";
 import { formatError } from "../lib/error-text";
 import { onDragStart } from "../lib/drag";
 import { isTauri, isWeb } from "../lib/runtime";
+import { onTabKeyDown } from "../lib/tabs";
 
 const SECTIONS = [
   "通用",
@@ -179,7 +180,7 @@ export default function Settings() {
         <div class="h-8" data-tauri-drag-region onMouseDown={onDragStart} />
       </Show>
       <div class="px-8 py-6 pt-2 flex gap-8">
-        <nav class="w-36 shrink-0 space-y-0.5">
+        <nav class="w-36 shrink-0 space-y-0.5" aria-label="设置导航">
           <A
             href="/"
             class="flex items-center gap-1.5 text-xs text-[var(--text-dim)] hover:text-[var(--text)] mb-3"
@@ -187,21 +188,36 @@ export default function Settings() {
             <ArrowLeft size={13} />
             返回会话
           </A>
-          {SECTIONS.map((s) => (
-            <button
-              class="w-full text-left px-2.5 py-1.5 rounded-md text-sm"
-              classList={{
-                "bg-[var(--bg-overlay)] text-[var(--text)]": section() === s,
-                "text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60": section() !== s,
-              }}
-              onClick={() => setSection(s)}
-            >
-              {s}
-            </button>
-          ))}
+          <div role="tablist" aria-label="设置分类" aria-orientation="vertical">
+            <For each={SECTIONS}>
+              {(s, index) => (
+                <button
+                  id={`settings-tab-${index()}`}
+                  role="tab"
+                  aria-selected={section() === s}
+                  aria-controls={`settings-panel-${index()}`}
+                  tabIndex={section() === s ? 0 : -1}
+                  class="w-full text-left px-2.5 py-1.5 rounded-md text-sm"
+                  classList={{
+                    "bg-[var(--bg-overlay)] text-[var(--text)]": section() === s,
+                    "text-[var(--text-dim)] hover:bg-[var(--bg-overlay)]/60": section() !== s,
+                  }}
+                  onClick={() => setSection(s)}
+                  onKeyDown={onTabKeyDown}
+                >
+                  {s}
+                </button>
+              )}
+            </For>
+          </div>
         </nav>
 
-        <div class="flex-1 min-w-0 space-y-4">
+        <div
+          id={`settings-panel-${SECTIONS.indexOf(section())}`}
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${SECTIONS.indexOf(section())}`}
+          class="flex-1 min-w-0 space-y-4"
+        >
           <Show when={configErr()}>
             <div class="rounded-md border border-[var(--err)]/50 px-3 py-2 text-xs text-[var(--err)]">
               配置读取失败，当前值为 UNKNOWN：{configErr()}

@@ -135,7 +135,7 @@ describe("ModelPicker 跟随全局默认 (webkit)", () => {
     await openPicker();
     expect(row("跟随全局默认").className).not.toContain("model-row-active");
     // 精确点第一条模型行：跟随行的「当前全局：Grok 1」也含同名文本
-    await userEvent.click(document.querySelector<HTMLElement>("[data-nav='0']")!);
+    await userEvent.click(document.querySelector<HTMLElement>("[data-nav='1']")!);
     expect(smMock.sessionSetModel).toHaveBeenCalledWith("s1", "xai", "grok-1");
   });
 
@@ -196,11 +196,14 @@ describe("ModelPicker 跟随全局默认 (webkit)", () => {
     expect(document.querySelector(".model-pill")?.textContent).toContain("Grok 1");
   });
 
-  it("方向键导航高亮 + Enter 选中", async () => {
+  it("combobox/listbox 保持唯一选中，方向键可经过全局项并选择模型", async () => {
     setActiveSessionId("s1");
     setSessions([{ ...SESSION }]);
     await openPicker();
     const input = document.querySelector<HTMLElement>(".composer-popup input")!;
+    expect(input.getAttribute("role")).toBe("combobox");
+    expect(document.querySelectorAll("[role='listbox']")).toHaveLength(1);
+    expect(document.querySelectorAll("[role='option'][aria-selected='true']")).toHaveLength(1);
     const key = (k: string) =>
       input.dispatchEvent(
         new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }),
@@ -208,7 +211,11 @@ describe("ModelPicker 跟随全局默认 (webkit)", () => {
     key("ArrowDown");
     await new Promise((r) => setTimeout(r, 30));
     expect(document.querySelector("[data-nav='0']")!.className).toContain("bg-[var(--bg-overlay)]");
-    key("ArrowDown"); // nav=1 -> grok-2
+    expect(input.getAttribute("aria-activedescendant")).toBe(
+      document.querySelector("[data-nav='0']")?.id,
+    );
+    key("ArrowDown"); // nav=1 -> grok-1
+    key("ArrowDown"); // nav=2 -> grok-2
     key("Enter");
     await new Promise((r) => setTimeout(r, 30));
     expect(smMock.sessionSetModel).toHaveBeenCalledWith("s1", "xai", "grok-2");

@@ -4,6 +4,7 @@ import { For, Match, Switch, createSignal, onCleanup, onMount } from "solid-js";
 import { client } from "../lib/client";
 import { isTauri } from "../lib/runtime";
 import { onDragStart } from "../lib/drag";
+import { onTabKeyDown } from "../lib/tabs";
 import BotLibrary from "../components/bots/BotLibrary";
 import BotBuilder from "../components/bots/BotBuilder";
 import BotCollaboration from "../components/bots/BotCollaboration";
@@ -68,16 +69,27 @@ export default function Bots() {
             </p>
           </div>
         </div>
-        <div class="flex flex-wrap gap-1 border-b border-[var(--border)] mb-5">
+        <div
+          class="flex flex-wrap gap-1 border-b border-[var(--border)] mb-5"
+          role="tablist"
+          aria-label="Bot 功能"
+          aria-orientation="horizontal"
+        >
           <For each={TABS}>
             {(item) => (
               <button
+                id={`bots-tab-${item.id}`}
+                role="tab"
+                aria-selected={tab() === item.id}
+                aria-controls={`bots-panel-${item.id}`}
+                tabIndex={tab() === item.id ? 0 : -1}
                 class="pressable px-3 py-2 text-xs flex items-center gap-1.5 border-b-2 -mb-px"
                 classList={{
                   "border-[var(--accent)] text-[var(--text)]": tab() === item.id,
                   "border-transparent text-[var(--text-dim)]": tab() !== item.id,
                 }}
                 onClick={() => setTab(item.id)}
+                onKeyDown={onTabKeyDown}
               >
                 <item.icon size={13} />
                 {item.label}
@@ -85,38 +97,40 @@ export default function Bots() {
             )}
           </For>
         </div>
-        <Switch>
-          <Match when={tab() === "library"}>
-            <BotLibrary
-              epoch={epoch()}
-              onChanged={refresh}
-              onBuild={(target) => {
-                setBuilderTarget(target);
-                setTab("build");
-              }}
-            />
-          </Match>
-          <Match when={tab() === "build"}>
-            <BotBuilder
-              epoch={epoch()}
-              onChanged={refresh}
-              target={builderTarget()}
-              onClearTarget={() => setBuilderTarget(undefined)}
-            />
-          </Match>
-          <Match when={tab() === "collaboration"}>
-            <BotCollaboration epoch={epoch()} onChanged={refresh} />
-          </Match>
-          <Match when={tab() === "routines"}>
-            <BotRoutines epoch={epoch()} onChanged={refresh} />
-          </Match>
-          <Match when={tab() === "runs"}>
-            <BotRuns epoch={epoch()} onChanged={refresh} />
-          </Match>
-          <Match when={tab() === "recovery"}>
-            <BotRecovery epoch={epoch()} onChanged={refresh} />
-          </Match>
-        </Switch>
+        <div id={`bots-panel-${tab()}`} role="tabpanel" aria-labelledby={`bots-tab-${tab()}`}>
+          <Switch>
+            <Match when={tab() === "library"}>
+              <BotLibrary
+                epoch={epoch()}
+                onChanged={refresh}
+                onBuild={(target) => {
+                  setBuilderTarget(target);
+                  setTab("build");
+                }}
+              />
+            </Match>
+            <Match when={tab() === "build"}>
+              <BotBuilder
+                epoch={epoch()}
+                onChanged={refresh}
+                target={builderTarget()}
+                onClearTarget={() => setBuilderTarget(undefined)}
+              />
+            </Match>
+            <Match when={tab() === "collaboration"}>
+              <BotCollaboration epoch={epoch()} onChanged={refresh} />
+            </Match>
+            <Match when={tab() === "routines"}>
+              <BotRoutines epoch={epoch()} onChanged={refresh} />
+            </Match>
+            <Match when={tab() === "runs"}>
+              <BotRuns epoch={epoch()} onChanged={refresh} />
+            </Match>
+            <Match when={tab() === "recovery"}>
+              <BotRecovery epoch={epoch()} onChanged={refresh} />
+            </Match>
+          </Switch>
+        </div>
       </div>
     </div>
   );

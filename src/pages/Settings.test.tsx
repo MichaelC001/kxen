@@ -32,6 +32,9 @@ vi.mock("@solidjs/router", () => ({
     </a>
   ),
 }));
+vi.mock("../components/settings/ProvidersSection", () => ({
+  default: () => <div>providers-content</div>,
+}));
 
 import Settings from "./Settings";
 import { flash } from "../lib/flash";
@@ -71,6 +74,22 @@ afterEach(() => {
 });
 
 describe("Settings 运行中发送", () => {
+  it("设置分类使用垂直页签语义和键盘导航", () => {
+    const dispose = render(() => <Settings />, document.body);
+    const general = btnByText("通用");
+    general.focus();
+    general.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    const providers = btnByText("提供商");
+    expect(document.activeElement).toBe(providers);
+    expect(providers.getAttribute("aria-selected")).toBe("true");
+    expect(document.querySelector("[role='tabpanel']")?.getAttribute("aria-labelledby")).toBe(
+      providers.id,
+    );
+    dispose();
+  });
+
   it("配置读取失败：显示 UNKNOWN，禁止提交默认值", async () => {
     h.cfg.mockRejectedValue(new Error("config unavailable"));
     const dispose = render(() => <Settings />, document.body);

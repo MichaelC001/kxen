@@ -54,6 +54,24 @@ describe("Bots product block", () => {
     );
     collaboration?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(document.body.textContent).toContain("collaboration-content");
+    expect(collaboration?.getAttribute("aria-selected")).toBe("true");
+    expect(document.querySelector("[role='tabpanel']")?.getAttribute("aria-labelledby")).toBe(
+      collaboration?.id,
+    );
+    dispose();
+  });
+
+  it("页签支持水平键盘导航并自动切换面板", () => {
+    const dispose = render(() => <Bots />, document.body);
+    const library = document.querySelector<HTMLButtonElement>("[role='tab'][aria-selected='true']");
+    library?.focus();
+    library?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }),
+    );
+    const build = document.querySelector<HTMLButtonElement>("#bots-tab-build");
+    expect(document.activeElement).toBe(build);
+    expect(build?.getAttribute("aria-selected")).toBe("true");
+    expect(document.body.textContent).toContain("builder-content");
     dispose();
   });
 
