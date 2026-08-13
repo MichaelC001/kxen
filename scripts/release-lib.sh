@@ -39,14 +39,15 @@ kxen_require_release_source_parity() {
       return 1
     fi
   done
-  if [[ "$tag_commit" != "$main_commit" || "$tag_commit" != "$workflow_commit" ]]; then
-    printf 'release source mismatch: tag %s=%s %s=%s %s=%s\n' \
-      "$release_tag" "$tag_commit" "$main_label" "$main_commit" \
-      "$workflow_label" "$workflow_commit" >&2
-    return 1
+  if [[ "$tag_commit" == "$main_commit" && "$tag_commit" == "$workflow_commit" ]]; then
+    printf 'PASS release source parity: tag %s, %s, and %s are %s\n' \
+      "$release_tag" "$main_label" "$workflow_label" "$tag_commit"
+    return 0
   fi
-  printf 'PASS release source parity: tag %s, %s, and %s are %s\n' \
-    "$release_tag" "$main_label" "$workflow_label" "$tag_commit"
+  printf 'release source mismatch: tag %s=%s %s=%s %s=%s\n' \
+    "$release_tag" "$tag_commit" "$main_label" "$main_commit" \
+    "$workflow_label" "$workflow_commit" >&2
+  return 1
 }
 
 kxen_compare_decimal_release_components() {
@@ -246,11 +247,15 @@ kxen_render_release_body() {
     "$repository"
   printf '## 下载与安装\n\n'
   if [[ "$distribution_profile" == macos-aarch64-only ]]; then
+    # Markdown code spans are intentionally literal, not shell expressions.
+    # shellcheck disable=SC2016
     printf '%s\n' \
       '- 桌面版: macOS 14+ Apple Silicon，Developer ID 签名并经 Apple 公证。' \
       '- 自动更新: `Kxen.app.tar.gz` 与签名文件。' \
       '- 手动安装: 下载 DMG，打开后将 Kxen 拖入 Applications。'
   elif [[ "$distribution_profile" == six-platform ]]; then
+    # Markdown code spans are intentionally literal, not shell expressions.
+    # shellcheck disable=SC2016
     printf '%s\n' \
       '- 桌面版: macOS Apple Silicon/Intel、Windows x64/ARM64、Linux x86_64/ARM64。' \
       '- macOS: DMG 与 updater archive 均经 Developer ID 签名和 Apple 公证。' \
