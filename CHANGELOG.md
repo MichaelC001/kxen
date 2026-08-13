@@ -36,6 +36,10 @@
 
 - **codebase:** Enforce bounded module responsibilities ([210347a](https://github.com/StringKe/kxen/commit/210347a71fcf10a4ff40230198dacada714042c8))
 
+### 测试
+
+- **ui:** Align sidebar interaction contract ([eace4b4](https://github.com/StringKe/kxen/commit/eace4b489c4fa71212e6d8d9c9cc5c41ba61cf44))
+
 ### 问题修复
 
 - **release:** Normalize generated changelog output ([9f5ac0b](https://github.com/StringKe/kxen/commit/9f5ac0b7394902fbf3b58f6c56fe26555a71c4b7))
