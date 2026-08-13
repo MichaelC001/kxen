@@ -15,9 +15,7 @@ export default function BotBuilderReview(props: {
   state: BuilderState;
   mutation: ReconciledMutationController;
 }) {
-  const [grantReason, setGrantReason] = createSignal(
-    "Owner reviewed the exact permission snapshot",
-  );
+  const [grantReason, setGrantReason] = createSignal("");
   const currentReport = () => {
     const hash = props.state.draft?.content_hash;
     return props.state.reports.findLast((report) => report.draft_hash === hash);
@@ -88,14 +86,14 @@ export default function BotBuilderReview(props: {
       prepare: () => ({ idempotencyKey: newBotId("idem") }),
       execute: ({ idempotencyKey }) => botBuilderCancel(sessionId, idempotencyKey),
       applied: () => props.state.lifecycle === "canceled",
-      okText: "Bot Build 已取消",
+      okText: "构建对话已取消",
     });
   };
 
   return (
     <>
       <Panel
-        title={props.state.draft?.definition.display_name || "Bot Build"}
+        title={props.state.draft?.definition.display_name || "Bot 构建"}
         detail={`Session ${shortId(props.state.builder_session_id)}，状态 ${props.state.lifecycle}`}
       >
         <Show when={props.state.draft}>
@@ -122,6 +120,60 @@ export default function BotBuilderReview(props: {
               <div>
                 <span class="text-[var(--text-faint)]">Capabilities</span>
                 <p>{draft().definition.capabilities.join(", ") || "无"}</p>
+              </div>
+              <div>
+                <span class="text-[var(--text-faint)]">Workspace grants</span>
+                <div class="space-y-1">
+                  <For each={draft().definition.resources.workspaces} fallback={<p>无</p>}>
+                    {(workspace) => (
+                      <div class="rounded border border-[var(--border)] p-2">
+                        <div class="font-mono break-all">{workspace.workspace_id}</div>
+                        <For
+                          each={workspace.paths}
+                          fallback={<div class="text-[var(--text-faint)]">无路径授权</div>}
+                        >
+                          {(path) => (
+                            <div class="font-mono text-2xs">
+                              {path.access} {path.relative_path}
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </div>
+              <div>
+                <span class="text-[var(--text-faint)]">Connectors</span>
+                <p>{draft().definition.resources.connectors.join(", ") || "无"}</p>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <DefinitionValues
+                  label="Input contract"
+                  values={draft().definition.input_contract}
+                />
+                <DefinitionValues
+                  label="Output contract"
+                  values={draft().definition.output_contract}
+                />
+                <DefinitionValues label="Budget" values={draft().definition.budget} />
+                <DefinitionValues label="Context" values={draft().definition.context} />
+                <DefinitionValues label="Memory" values={draft().definition.memory} />
+                <DefinitionValues label="Failure policy" values={draft().definition.failure} />
+              </div>
+              <div>
+                <span class="text-[var(--text-faint)]">Execution policy</span>
+                <p>
+                  MRM role {draft().definition.mrm_role}，Approval {draft().definition.approval}
+                </p>
+              </div>
+              <div>
+                <span class="text-[var(--text-faint)]">Bot-to-Bot policy</span>
+                <p>
+                  Direct {draft().definition.communication.allow_direct ? "允许" : "禁止"}，Group{" "}
+                  {draft().definition.communication.allow_groups ? "允许" : "禁止"}，Peers{" "}
+                  {draft().definition.communication.allowed_peers.join(", ") || "无"}
+                </p>
               </div>
               <div>
                 <span class="text-[var(--text-faint)]">Draft hash</span>
@@ -164,7 +216,7 @@ export default function BotBuilderReview(props: {
             class={fieldClass}
             value={grantReason()}
             onInput={(event) => setGrantReason(event.currentTarget.value)}
-            placeholder="授权理由"
+            placeholder="说明为何授权这组能力和资源"
           />
           <button
             class={actionClass}
@@ -205,7 +257,7 @@ export default function BotBuilderReview(props: {
             disabled={props.mutation.pending() || props.state.lifecycle !== "active"}
             onClick={cancel}
           >
-            取消 Build
+            取消构建对话
           </button>
         </div>
         <Show when={currentReport()}>
@@ -225,6 +277,24 @@ export default function BotBuilderReview(props: {
         </Show>
       </Panel>
     </>
+  );
+}
+
+function DefinitionValues(props: { label: string; values: object }) {
+  const entries = () =>
+    Object.entries(props.values).filter(([, value]) => value !== null && value !== undefined);
+  return (
+    <div>
+      <span class="text-[var(--text-faint)]">{props.label}</span>
+      <div class="font-mono text-2xs break-words">
+        {entries()
+          .map(
+            ([key, value]) =>
+              `${key}=${Array.isArray(value) ? value.join(",") || "无" : String(value)}`,
+          )
+          .join("，") || "无"}
+      </div>
+    </div>
   );
 }
 

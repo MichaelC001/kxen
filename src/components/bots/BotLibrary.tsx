@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import {
   botArchive,
   botDuplicate,
@@ -22,7 +22,14 @@ import { createReconciledMutation } from "../../lib/async-guard";
 import { flashErr } from "../../lib/flash";
 import { formatError } from "../../lib/error-text";
 import { editableBotDefinition, encodeBotInput, publishedBotDefinition } from "./bot-definition";
-import { Panel, shortId, statusClass, type BotBuilderTarget, type RefreshProps } from "./shared";
+import {
+  fieldClass,
+  Panel,
+  shortId,
+  statusClass,
+  type BotBuilderTarget,
+  type RefreshProps,
+} from "./shared";
 import BotLibraryDetail from "./BotLibraryDetail";
 
 export default function BotLibrary(
@@ -37,12 +44,26 @@ export default function BotLibrary(
   const [memoryText, setMemoryText] = createSignal("");
   const [memoryKind, setMemoryKind] = createSignal("fact");
   const [editingMemory, setEditingMemory] = createSignal("");
+  const [query, setQuery] = createSignal("");
+  const [lifecycleFilter, setLifecycleFilter] = createSignal("");
   let loadSeq = 0;
+
+  const visibleBots = createMemo(() => {
+    const needle = query().trim().toLocaleLowerCase();
+    const lifecycle = lifecycleFilter();
+    return bots().filter(
+      (bot) =>
+        (!lifecycle || bot.lifecycle === lifecycle) &&
+        (!needle ||
+          bot.display_name.toLocaleLowerCase().includes(needle) ||
+          bot.bot_id.toLocaleLowerCase().includes(needle)),
+    );
+  });
 
   const reload = async () => {
     const seq = ++loadSeq;
     try {
-      const list = await botList();
+      const list = await botList(true);
       if (seq !== loadSeq) return;
       setBots(list);
       const selected = selectedId();
@@ -221,11 +242,37 @@ export default function BotLibrary(
         <Show when={loadErr()}>
           <p class="text-xs text-[var(--err)] mb-2">{loadErr()}</p>
         </Show>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 mb-3">
+          <input
+            class={fieldClass}
+            type="search"
+            aria-label="搜索 Bot"
+            value={query()}
+            onInput={(event) => setQuery(event.currentTarget.value)}
+            placeholder="按名称或 ID 搜索"
+          />
+          <select
+            class="form-select"
+            aria-label="按生命周期筛选 Bot"
+            value={lifecycleFilter()}
+            onChange={(event) => setLifecycleFilter(event.currentTarget.value)}
+          >
+            <option value="">全部状态</option>
+            <option value="draft">draft</option>
+            <option value="active">active</option>
+            <option value="paused">paused</option>
+            <option value="archived">archived</option>
+            <option value="trashed">trashed</option>
+            <option value="blocked">blocked</option>
+          </select>
+        </div>
         <div class="space-y-2">
           <For
-            each={bots()}
+            each={visibleBots()}
             fallback={
-              <p class="text-xs text-[var(--text-faint)]">还没有 Bot，请从 Bot Build 创建。</p>
+              <p class="text-xs text-[var(--text-faint)]">
+                {bots().length ? "没有匹配的 Bot。" : "还没有 Bot，请从“创建 Bot”开始。"}
+              </p>
             }
           >
             {(bot) => (

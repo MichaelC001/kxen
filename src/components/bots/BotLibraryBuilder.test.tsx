@@ -18,7 +18,12 @@ const definition = {
   output_contract: { description: "report", content_type: "text/plain", required_fields: [] },
   mrm_role: "execution",
   capabilities: ["read", "bot_artifact"],
-  resources: { workspaces: [], connectors: [] },
+  resources: {
+    workspaces: [
+      { workspace_id: "workspace_project", paths: [{ relative_path: "reports", access: "write" }] },
+    ],
+    connectors: ["github"],
+  },
   approval: "ask",
   budget: { max_turns: 4 },
   context: { max_parts: 20 },
@@ -164,8 +169,49 @@ describe("Bot Library and Builder", () => {
       document.body,
     );
     await vi.waitFor(() => expect(document.body.textContent).toContain("Report Bot"));
+    expect(h.rpc).toHaveBeenCalledWith("bot.list", { include_trashed: true });
     await press("与 Bot 对话编辑");
     expect(onBuild).toHaveBeenCalledWith({ bot_id: "bot_report", display_name: "Report Bot" });
+    dispose();
+  });
+
+  it("lists trashed Bots so they remain restorable and supports lifecycle filtering", async () => {
+    let lifecycle = "trashed";
+    h.rpc.mockImplementation((method: string) => {
+      if (method === "bot.list")
+        return Promise.resolve([
+          {
+            bot_id: "bot_report",
+            display_name: "Report Bot",
+            lifecycle,
+            current_revision_id: "revision_report_1",
+            updated_at_ms: 2,
+          },
+        ]);
+      if (method === "bot.get") return Promise.resolve({ ...state, lifecycle });
+      if (method === "bot.memory.list") return Promise.resolve({ event_version: 0, items: {} });
+      if (method === "bot.restore") lifecycle = "paused";
+      return Promise.resolve({ ...state, lifecycle });
+    });
+    const dispose = render(
+      () => <BotLibrary epoch={0} onChanged={h.changed} onBuild={vi.fn()} />,
+      document.body,
+    );
+    await press("Restore");
+    await called("bot.restore");
+    const filter = document.querySelector<HTMLSelectElement>(
+      "select[aria-label='按生命周期筛选 Bot']",
+    )!;
+    filter.value = "active";
+    filter.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(document.body.textContent).toContain("没有匹配的 Bot");
+    filter.value = "";
+    filter.dispatchEvent(new Event("change", { bubbles: true }));
+    const search = input("按名称或 ID 搜索");
+    fill(search, "missing");
+    expect(document.body.textContent).toContain("没有匹配的 Bot");
+    fill(search, "bot_report");
+    expect(document.body.textContent).toContain("Report Bot");
     dispose();
   });
 
@@ -266,9 +312,14 @@ describe("Bot Library and Builder", () => {
     await called("bot.builder.message");
     await vi.waitFor(() => expect(document.body.textContent).toContain("发布门禁"));
     expect(document.body.textContent).toContain("I created a Report Bot draft");
+    expect(document.body.textContent).toContain("workspace_project");
+    expect(document.body.textContent).toContain("write reports");
+    expect(document.body.textContent).toContain("github");
     fill(input("回复 Report Bot，或继续调整它的定义"), "Use JSON output");
     await press("发送");
     await called("bot.builder.message");
+    expect(button("授权当前权限").disabled).toBe(true);
+    fill(input("说明为何授权这组能力和资源"), "Reviewed exact grants");
     await press("授权当前权限");
     await called("bot.builder.grant");
     await press("运行受控测试");
@@ -277,7 +328,7 @@ describe("Bot Library and Builder", () => {
     await called("bot.validate");
     await press("发布 Bot");
     await called("bot.publish");
-    await press("取消 Build");
+    await press("取消构建对话");
     await called("bot.builder.cancel");
     expect(h.err).not.toHaveBeenCalled();
     dispose();

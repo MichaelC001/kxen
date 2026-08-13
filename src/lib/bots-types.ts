@@ -42,7 +42,13 @@ export interface BotDefinition {
   output_contract: { description: string; content_type: string; required_fields: string[] };
   mrm_role: string;
   capabilities: string[];
-  resources: { workspaces: unknown[]; connectors: string[] };
+  resources: {
+    workspaces: Array<{
+      workspace_id: string;
+      paths: Array<{ relative_path: string; access: "read" | "write" | "execute" }>;
+    }>;
+    connectors: string[];
+  };
   approval: string;
   budget: Record<string, number | null>;
   context: Record<string, number>;
