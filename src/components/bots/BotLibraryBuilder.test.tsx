@@ -59,7 +59,7 @@ const builder = {
     },
     {
       message_id: "message_2",
-      actor: { kind: "system", actor: "builder" },
+      actor: { kind: "bot", id: "bot_report" },
       text: "I created a Report Bot draft and kept its requested identity.",
       created_at_ms: 2,
     },
@@ -164,7 +164,7 @@ describe("Bot Library and Builder", () => {
       document.body,
     );
     await vi.waitFor(() => expect(document.body.textContent).toContain("Report Bot"));
-    await press("使用 Builder 编辑");
+    await press("与 Bot 对话编辑");
     expect(onBuild).toHaveBeenCalledWith({ bot_id: "bot_report", display_name: "Report Bot" });
     dispose();
   });
@@ -261,12 +261,12 @@ describe("Bot Library and Builder", () => {
     const dispose = render(() => <BotBuilder epoch={0} onChanged={h.changed} />, document.body);
     fill(input("Bot 名称"), "Report Bot");
     fill(input("要长期重复完成什么工作，输入、输出和成功标准是什么"), "Create reports");
-    await press("开始构建对话");
+    await press("开始交互创建");
     await called("bot.builder.start");
     await called("bot.builder.message");
     await vi.waitFor(() => expect(document.body.textContent).toContain("发布门禁"));
     expect(document.body.textContent).toContain("I created a Report Bot draft");
-    fill(input("回答 Builder，或继续调整这个 Bot"), "Use JSON output");
+    fill(input("回复 Report Bot，或继续调整它的定义"), "Use JSON output");
     await press("发送");
     await called("bot.builder.message");
     await press("授权当前权限");
@@ -283,7 +283,7 @@ describe("Bot Library and Builder", () => {
     dispose();
   });
 
-  it("opens the latest Builder Session for an existing Bot instead of a fixed New Bot identity", async () => {
+  it("opens the selected Bot self-builder instead of a fixed Builder identity", async () => {
     const dispose = render(
       () => (
         <BotBuilder
@@ -297,10 +297,12 @@ describe("Bot Library and Builder", () => {
     await vi.waitFor(() =>
       expect(h.rpc).toHaveBeenCalledWith("bot.builder.list", { bot_id: "bot_report" }),
     );
-    await vi.waitFor(() => expect(document.body.textContent).toContain("Builder 对话"));
+    await vi.waitFor(() => expect(document.body.textContent).toContain("Report Bot 的构建对话"));
     expect(input("Bot 名称").value).toBe("Report Bot");
     expect(input("Bot 名称").disabled).toBe(true);
     expect(document.body.textContent).not.toContain("New Bot");
+    expect(document.body.textContent).not.toContain("继续现有 Build");
+    expect(document.body.textContent).not.toContain("builder_...");
     dispose();
   });
 
@@ -325,8 +327,8 @@ describe("Bot Library and Builder", () => {
             },
             {
               message_id: "message_reconciled_reply",
-              actor: { kind: "system", actor: "builder" },
-              text: "The durable Builder reply was committed.",
+              actor: { kind: "bot", id: "bot_report" },
+              text: "The durable self-builder reply was committed.",
               created_at_ms: 4,
             },
           ],
@@ -345,15 +347,15 @@ describe("Bot Library and Builder", () => {
       ),
       document.body,
     );
-    await vi.waitFor(() => expect(document.body.textContent).toContain("Builder 对话"));
-    fill(input("回答 Builder，或继续调整这个 Bot"), "Add a JSON output contract");
+    await vi.waitFor(() => expect(document.body.textContent).toContain("Report Bot 的构建对话"));
+    fill(input("回复 Report Bot，或继续调整它的定义"), "Add a JSON output contract");
     await press("发送");
     await vi.waitFor(() =>
-      expect(h.ok).toHaveBeenCalledWith("Builder 已回复，已从 durable state 确认"),
+      expect(h.ok).toHaveBeenCalledWith("Report Bot 已回复，已从 durable state 确认"),
     );
     expect(h.err).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain("The durable Builder reply was committed.");
-    expect(input("回答 Builder，或继续调整这个 Bot").value).toBe("");
+    expect(document.body.textContent).toContain("The durable self-builder reply was committed.");
+    expect(input("回复 Report Bot，或继续调整它的定义").value).toBe("");
     const messageCalls = h.rpc.mock.calls.filter((call) => call[0] === "bot.builder.message");
     expect(messageCalls).toHaveLength(1);
     dispose();

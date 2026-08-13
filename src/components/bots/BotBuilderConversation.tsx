@@ -4,6 +4,7 @@ import { fieldClass, Panel, primaryClass } from "./shared";
 
 export default function BotBuilderConversation(props: {
   builder: BuilderState;
+  botName: string;
   message: string;
   acting: boolean;
   retrying: boolean;
@@ -12,8 +13,8 @@ export default function BotBuilderConversation(props: {
 }) {
   return (
     <Panel
-      title="Builder 对话"
-      detail="这个 durable 对话只设计当前目标 Bot。Builder 可以追问或更新草稿，但不能替 Owner 授权和发布。"
+      title={`${props.botName} 的构建对话`}
+      detail={`这是 ${props.botName} 自己的 durable self-builder 对话。它可以追问或更新自身草稿，但不能替 Owner 授权和发布。`}
     >
       <div class="max-h-72 overflow-auto space-y-2 mb-3 selectable" aria-live="polite">
         <For
@@ -35,7 +36,7 @@ export default function BotBuilderConversation(props: {
                 }}
               >
                 <div class="text-2xs text-[var(--text-faint)] mb-1">
-                  {owner ? "Owner" : "Bot Builder"}
+                  {owner ? "Owner" : props.botName}
                 </div>
                 <p class="whitespace-pre-wrap">{item.text}</p>
               </div>
@@ -51,8 +52,8 @@ export default function BotBuilderConversation(props: {
           onInput={(event) => props.setMessage(event.currentTarget.value)}
           placeholder={
             props.retrying
-              ? "上一条 Owner 消息已固定，重试将继续同一个 Builder turn"
-              : "回答 Builder，或继续调整这个 Bot"
+              ? `上一条 Owner 消息已固定，重试将继续 ${props.botName} 的同一个构建 turn`
+              : `回复 ${props.botName}，或继续调整它的定义`
           }
         />
         <button
@@ -64,7 +65,7 @@ export default function BotBuilderConversation(props: {
           }
           onClick={props.send}
         >
-          {props.retrying ? "重试 Builder 回复" : "发送"}
+          {props.retrying ? `重试 ${props.botName} 回复` : "发送"}
         </button>
       </div>
     </Panel>

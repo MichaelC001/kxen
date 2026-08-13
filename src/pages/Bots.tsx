@@ -16,7 +16,7 @@ type Tab = "library" | "build" | "collaboration" | "routines" | "runs" | "recove
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof Bot }> = [
   { id: "library", label: "Bot 管理", icon: Bot },
-  { id: "build", label: "Bot Build", icon: Hammer },
+  { id: "build", label: "创建 Bot", icon: Hammer },
   { id: "collaboration", label: "Bot-to-Bot", icon: Boxes },
   { id: "routines", label: "Routine", icon: CalendarClock },
   { id: "runs", label: "Runs", icon: Play },

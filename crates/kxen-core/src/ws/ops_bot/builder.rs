@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::AppState;
 use crate::bot::CreateBot;
 use crate::bot::builder::{BuilderCommand, BuilderMessage, BuilderWrite};
-use crate::core::identity::{ActorRef, SystemActor};
+use crate::core::identity::ActorRef;
 
 use super::{RpcResult, idempotency, now, owner, resource_id, trace, value};
 
@@ -171,20 +171,16 @@ async fn message(params: &Value, state: &Arc<AppState>) -> RpcResult<Value> {
     let response_id = crate::bot::deterministic_id("bmessage", &["builder_response", builder_id.as_str(), message_id.as_str()])?;
     let turn_key = crate::bot::deterministic_id("idem", &["builder_message_turn", builder_id.as_str(), message_id.as_str()])?;
     let at_ms = now();
+    let self_builder = ActorRef::Bot { id: appended.bot_id.clone() };
     let completed = state.bots.builder().execute(BuilderWrite {
         builder_session_id: builder_id.clone(),
         expected_version: appended.event_version,
         idempotency_key: crate::core::identity::IdempotencyKey::parse(turn_key.to_string())?,
-        actor: ActorRef::System { actor: SystemActor::Builder },
+        actor: self_builder.clone(),
         trace: trace(),
         command: BuilderCommand::ApplyTurn {
             source_message_id: message_id.clone(),
-            message: BuilderMessage {
-                message_id: response_id,
-                actor: ActorRef::System { actor: SystemActor::Builder },
-                text: turn.message,
-                created_at_ms: at_ms,
-            },
+            message: BuilderMessage { message_id: response_id, actor: self_builder, text: turn.message, created_at_ms: at_ms },
             expected_draft_version: appended.draft.as_ref().map_or(0, |draft| draft.version),
             definition: turn.draft.map(Box::new),
             at_ms,

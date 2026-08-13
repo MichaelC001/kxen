@@ -1,7 +1,7 @@
 use super::events::BuilderEvent;
 use super::*;
 use crate::agent::capability::CapabilityCatalog;
-use crate::core::identity::{ActorRef, IdempotencyKey, ResourceId, SystemActor, TraceContext};
+use crate::core::identity::{ActorRef, IdempotencyKey, ResourceId, TraceContext};
 use std::collections::{BTreeMap, BTreeSet};
 
 fn id(value: &str) -> ResourceId {
@@ -91,17 +91,37 @@ fn builder_turn_atomically_records_reply_and_target_draft() {
             at_ms: 2,
         },
     );
+    let wrong_bot = repo.execute(BuilderWrite {
+        builder_session_id: session_id.clone(),
+        expected_version: owner_message.event_version,
+        idempotency_key: key("idem_wrong_bot_turn"),
+        actor: ActorRef::Bot { id: id("bot_other") },
+        trace: TraceContext::default(),
+        command: BuilderCommand::ApplyTurn {
+            source_message_id: source_message_id.clone(),
+            message: BuilderMessage {
+                message_id: id("bmessage_wrong_bot"),
+                actor: ActorRef::Bot { id: id("bot_other") },
+                text: "I should not be able to edit another Bot.".into(),
+                created_at_ms: 3,
+            },
+            expected_draft_version: 0,
+            definition: Some(Box::new(definition("Report Bot"))),
+            at_ms: 3,
+        },
+    });
+    assert!(matches!(wrong_bot, Err(BuilderError::Rejected(message)) if message.contains("target Bot self-builder")));
     let completed = write(
         &repo,
         &session_id,
         owner_message.event_version,
         "idem_builder_turn",
-        ActorRef::System { actor: SystemActor::Builder },
+        ActorRef::Bot { id: id("bot_report") },
         BuilderCommand::ApplyTurn {
             source_message_id: source_message_id.clone(),
             message: BuilderMessage {
                 message_id: id("bmessage_builder"),
-                actor: ActorRef::System { actor: SystemActor::Builder },
+                actor: ActorRef::Bot { id: id("bot_report") },
                 text: "The Report Bot draft is ready for review.".into(),
                 created_at_ms: 3,
             },
@@ -113,7 +133,7 @@ fn builder_turn_atomically_records_reply_and_target_draft() {
 
     assert_eq!(completed.event_version, owner_message.event_version + 2);
     assert_eq!(completed.messages.len(), 2);
-    assert_eq!(completed.messages[1].actor, ActorRef::System { actor: SystemActor::Builder });
+    assert_eq!(completed.messages[1].actor, ActorRef::Bot { id: id("bot_report") });
     let draft = completed.draft.as_ref().unwrap();
     assert_eq!(draft.source_message_id.as_ref(), Some(&source_message_id));
     assert_eq!(draft.definition.display_name, "Report Bot");
@@ -276,7 +296,7 @@ fn builder_cannot_grant_and_draft_change_invalidates_review_state() {
         &session_id,
         started.event_version,
         "idem_draft",
-        ActorRef::System { actor: SystemActor::Builder },
+        ActorRef::Bot { id: id("bot_builder_target") },
         BuilderCommand::ReplaceDraft {
             expected_draft_version: 0,
             source_message_id: None,
@@ -296,7 +316,7 @@ fn builder_cannot_grant_and_draft_change_invalidates_review_state() {
         builder_session_id: session_id.clone(),
         expected_version: drafted.event_version,
         idempotency_key: key("idem_builder_grant"),
-        actor: ActorRef::System { actor: SystemActor::Builder },
+        actor: ActorRef::Bot { id: id("bot_builder_target") },
         trace: TraceContext::default(),
         command: BuilderCommand::RecordGrant { grant: grant.clone(), at_ms: 3 },
     });
@@ -314,7 +334,7 @@ fn builder_cannot_grant_and_draft_change_invalidates_review_state() {
         &session_id,
         granted.event_version,
         "idem_changed",
-        ActorRef::System { actor: SystemActor::Builder },
+        ActorRef::Bot { id: id("bot_builder_target") },
         BuilderCommand::ReplaceDraft {
             expected_draft_version: 1,
             source_message_id: None,

@@ -4,7 +4,6 @@ import { actionClass, fieldClass, Panel, primaryClass, type BotBuilderTarget } f
 interface BotBuilderStartProps {
   name: string;
   goal: string;
-  builderId: string;
   acting: boolean;
   loadErr: string;
   target?: BotBuilderTarget | undefined;
@@ -12,9 +11,7 @@ interface BotBuilderStartProps {
   retryingStart: boolean;
   setName: (value: string) => void;
   setGoal: (value: string) => void;
-  setBuilderId: (value: string) => void;
   start: () => void;
-  reload: () => void;
   clearTarget: () => void;
 }
 
@@ -25,7 +22,7 @@ export default function BotBuilderStart(props: BotBuilderStartProps) {
         {(target) => (
           <div class="rounded-lg border border-[var(--accent)]/50 bg-[var(--bg-raised)] p-3 text-xs flex items-center gap-3">
             <span>
-              正在设计 <strong>{target().display_name || target().bot_id}</strong>
+              正在与 <strong>{target().display_name || target().bot_id}</strong> 交互完善自身定义
             </span>
             <span class="font-mono text-2xs text-[var(--text-faint)]">{target().bot_id}</span>
             <button
@@ -33,14 +30,18 @@ export default function BotBuilderStart(props: BotBuilderStartProps) {
               disabled={props.acting}
               onClick={props.clearTarget}
             >
-              创建新 Bot
+              创建另一个 Bot
             </button>
           </div>
         )}
       </Show>
       <Panel
-        title={props.target ? "开始新的调整对话" : "创建 Bot"}
-        detail="每个 Builder Session 只绑定一个目标 Bot。Builder 通过对话生成和验证定义，不继承最终 Bot 的权限。"
+        title={
+          props.target
+            ? `开始与 ${props.target.display_name || props.target.bot_id} 的新对话`
+            : "交互创建 Bot"
+        }
+        detail="每个 Bot 都有独立的 self-builder capability，可以通过对话创建或持续完善自己的定义。Owner 始终独占授权和发布。"
       >
         <div class="space-y-2">
           <input
@@ -71,28 +72,15 @@ export default function BotBuilderStart(props: BotBuilderStartProps) {
             {props.retryingStart
               ? "重试同一个构建对话"
               : props.targetLoading
-                ? "正在查找 Builder Session"
+                ? "正在恢复该 Bot 的构建对话"
                 : props.target
-                  ? "开始调整"
-                  : "开始构建对话"}
+                  ? "开始新一轮调整"
+                  : "开始交互创建"}
           </button>
+          <Show when={props.loadErr}>
+            <p class="text-xs text-[var(--err)]">{props.loadErr}</p>
+          </Show>
         </div>
-      </Panel>
-      <Panel title="继续现有 Build" detail="输入 Builder Session ID 可在重启或切页后恢复。">
-        <div class="flex gap-2">
-          <input
-            class={fieldClass}
-            value={props.builderId}
-            onInput={(event) => props.setBuilderId(event.currentTarget.value)}
-            placeholder="builder_..."
-          />
-          <button class={actionClass} disabled={!props.builderId.trim()} onClick={props.reload}>
-            加载
-          </button>
-        </div>
-        <Show when={props.loadErr}>
-          <p class="text-xs text-[var(--err)] mt-2">{props.loadErr}</p>
-        </Show>
       </Panel>
     </div>
   );

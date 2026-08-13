@@ -80,7 +80,7 @@ impl BotSystem {
             expected_event_version: bot.event_version,
             expected_draft_version: bot_draft_version,
             definition: &draft.definition,
-            actor: ActorRef::System { actor: SystemActor::Builder },
+            actor: ActorRef::Bot { id: builder.bot_id.clone() },
             trace: TraceContext::default(),
             idempotency_key,
             at_ms,
@@ -116,7 +116,7 @@ impl BotSystem {
             builder_session_id: builder_session_id.clone(),
             expected_version: builder.event_version,
             idempotency_key,
-            actor: ActorRef::System { actor: SystemActor::Builder },
+            actor: ActorRef::System { actor: SystemActor::Runtime },
             trace: TraceContext::default(),
             command: BuilderCommand::RecordValidation { report, at_ms },
         })?)

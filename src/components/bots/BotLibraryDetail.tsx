@@ -226,7 +226,7 @@ function LifecycleActions(props: {
         }
         onClick={props.build}
       >
-        使用 Builder 编辑
+        与 Bot 对话编辑
       </button>
       <button
         class={actionClass}

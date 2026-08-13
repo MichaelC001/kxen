@@ -36,7 +36,7 @@ fn start_builder_with_draft(system: &BotSystem, builder_id: &ResourceId, bot_id:
             builder_session_id: builder_id.clone(),
             expected_version: started.event_version,
             idempotency_key: key("idem_builder_flow_draft"),
-            actor: ActorRef::System { actor: crate::core::identity::SystemActor::Builder },
+            actor: ActorRef::Bot { id: bot_id.clone() },
             trace: TraceContext::default(),
             command: BuilderCommand::ReplaceDraft {
                 expected_draft_version: 0,

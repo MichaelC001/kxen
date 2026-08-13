@@ -25,8 +25,8 @@ fn decide_existing(state: &BuilderState, actor: &ActorRef, command: BuilderComma
     let event = match command {
         BuilderCommand::Start { .. } => unreachable!(),
         BuilderCommand::AppendMessage { message, at_ms } => {
-            if message.text.trim().is_empty() || &message.actor != actor || !is_owner_or_builder(actor) {
-                return Err(BuilderError::Rejected("Builder message actor or content is invalid".into()));
+            if message.text.trim().is_empty() || &message.actor != actor || !is_owner_or_self_builder(state, actor) {
+                return Err(BuilderError::Rejected("self-builder message actor or content is invalid".into()));
             }
             if state.messages.last().is_some_and(|pending| {
                 pending.actor == ActorRef::Owner
@@ -37,9 +37,9 @@ fn decide_existing(state: &BuilderState, actor: &ActorRef, command: BuilderComma
             BuilderEvent::MessageAppended { message, at_ms }
         }
         BuilderCommand::ApplyTurn { source_message_id, message, expected_draft_version, definition, at_ms } => {
-            require_builder(actor)?;
+            require_self_builder(state, actor)?;
             if message.actor != *actor || message.text.trim().is_empty() {
-                return Err(BuilderError::Rejected("Builder reply actor or content is invalid".into()));
+                return Err(BuilderError::Rejected("self-builder reply actor or content is invalid".into()));
             }
             let source = state.messages.last().ok_or_else(|| BuilderError::Rejected("Builder turn source message is missing".into()))?;
             if source.message_id != source_message_id || source.actor != ActorRef::Owner {
@@ -64,8 +64,8 @@ fn decide_existing(state: &BuilderState, actor: &ActorRef, command: BuilderComma
             return Ok(events);
         }
         BuilderCommand::ReplaceDraft { expected_draft_version, source_message_id, definition, at_ms } => {
-            if !is_owner_or_builder(actor) {
-                return Err(BuilderError::Rejected("only owner or built-in Builder can patch draft".into()));
+            if !is_owner_or_self_builder(state, actor) {
+                return Err(BuilderError::Rejected("only Owner or the target Bot self-builder can patch draft".into()));
             }
             definition.validate_draft().map_err(|error| BuilderError::Rejected(error.to_string()))?;
             let actual = state.draft.as_ref().map_or(0, |draft| draft.version);
@@ -90,14 +90,14 @@ fn decide_existing(state: &BuilderState, actor: &ActorRef, command: BuilderComma
             BuilderEvent::PermissionGranted { grant, at_ms }
         }
         BuilderCommand::RecordValidation { report, at_ms } => {
-            require_builder(actor)?;
+            require_runtime(actor)?;
             if state.draft.as_ref().map(|draft| &draft.content_hash) != Some(&report.draft_hash) {
                 return Err(BuilderError::Rejected("validation report is stale".into()));
             }
             BuilderEvent::ValidationRecorded { report, at_ms }
         }
         BuilderCommand::LinkTestRun { run_id, draft_hash, at_ms } => {
-            if !is_owner_or_builder(actor) || state.active_test_run_id.is_some() {
+            if !is_owner_or_self_builder(state, actor) || state.active_test_run_id.is_some() {
                 return Err(BuilderError::Rejected("test run cannot be linked".into()));
             }
             if state.draft.as_ref().map(|draft| &draft.content_hash) != Some(&draft_hash) {
@@ -126,19 +126,19 @@ fn decide_existing(state: &BuilderState, actor: &ActorRef, command: BuilderComma
     Ok(vec![event])
 }
 
-fn is_owner_or_builder(actor: &ActorRef) -> bool {
-    actor == &ActorRef::Owner || actor == &(ActorRef::System { actor: SystemActor::Builder })
+fn is_owner_or_self_builder(state: &BuilderState, actor: &ActorRef) -> bool {
+    actor == &ActorRef::Owner || matches!(actor, ActorRef::Bot { id } if id == &state.bot_id)
 }
 
 fn require_owner(actor: &ActorRef) -> Result<(), BuilderError> {
     if actor == &ActorRef::Owner { Ok(()) } else { Err(BuilderError::Rejected("owner action required".into())) }
 }
 
-fn require_builder(actor: &ActorRef) -> Result<(), BuilderError> {
-    if actor == &(ActorRef::System { actor: SystemActor::Builder }) {
+fn require_self_builder(state: &BuilderState, actor: &ActorRef) -> Result<(), BuilderError> {
+    if matches!(actor, ActorRef::Bot { id } if id == &state.bot_id) {
         Ok(())
     } else {
-        Err(BuilderError::Rejected("Builder actor required".into()))
+        Err(BuilderError::Rejected("target Bot self-builder actor required".into()))
     }
 }
 

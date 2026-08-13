@@ -48,6 +48,11 @@ export default function BotBuilder(
   const [pendingTurn, setPendingTurn] = createSignal<PendingTurn | null>(null);
   let loadSeq = 0;
   let loadedTargetId = "";
+  const botName = () =>
+    builder()?.draft?.definition.display_name ||
+    props.target?.display_name ||
+    name().trim() ||
+    "Bot";
 
   const reload = async () => {
     const id = builderId().trim();
@@ -142,7 +147,7 @@ export default function BotBuilder(
         setPendingStart(null);
         setGoal("");
       },
-      okText: "Builder 已回复",
+      okText: `${operation.name} 已回复`,
     });
   };
   const send = () => {
@@ -188,7 +193,7 @@ export default function BotBuilder(
         setPendingTurn(null);
         setMessage("");
       },
-      okText: "Builder 已回复",
+      okText: `${botName()} 已回复`,
     });
   };
   const clearTarget = () => {
@@ -211,7 +216,6 @@ export default function BotBuilder(
       <BotBuilderStart
         name={name()}
         goal={goal()}
-        builderId={builderId()}
         acting={acting()}
         loadErr={loadErr()}
         target={props.target}
@@ -219,9 +223,7 @@ export default function BotBuilder(
         retryingStart={Boolean(pendingStart())}
         setName={setName}
         setGoal={setGoal}
-        setBuilderId={setBuilderId}
         start={start}
-        reload={() => void reload()}
         clearTarget={clearTarget}
       />
 
@@ -229,9 +231,9 @@ export default function BotBuilder(
         <Show
           when={builder()}
           fallback={
-            <Panel title="Build Workspace">
+            <Panel title="Bot 自构建工作区">
               <p class="text-xs text-[var(--text-faint)]">
-                创建或加载一个 Builder Session 后开始。
+                创建新 Bot，或从 Bot 管理选择一个 Bot 与它对话完善定义。
               </p>
             </Panel>
           }
@@ -240,6 +242,7 @@ export default function BotBuilder(
             <>
               <BotBuilderConversation
                 builder={state()}
+                botName={botName()}
                 message={message()}
                 acting={acting()}
                 retrying={Boolean(pendingTurn() || pendingOwnerMessage(state()))}
@@ -268,6 +271,10 @@ function hasBuilderReply(state: BuilderState | null, sourceMessageId: string): b
     sourceIndex >= 0 &&
     state.messages
       .slice(sourceIndex + 1)
-      .some((item) => item.actor.kind === "system" && item.actor.actor === "builder"),
+      .some(
+        (item) =>
+          (item.actor.kind === "bot" && item.actor.id === state.bot_id) ||
+          (item.actor.kind === "system" && item.actor.actor === "builder"),
+      ),
   );
 }
