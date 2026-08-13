@@ -1,4 +1,3 @@
-// ModelPicker：catalog 驱动（models.dev 快照），显示名 + id + ctx + 能力徽章 + 搜索 + 方向键导航 + 角色分配。
 import { createEffect, createSignal, createUniqueId, For, onMount, Show } from "solid-js";
 import { Check, ChevronDown, Search } from "lucide-solid";
 import { configSetRole } from "../../lib/chat";
@@ -7,30 +6,15 @@ import { activeSessionId, sessions } from "../../lib/state";
 import { createExclusiveDisclosure, onClickOutside } from "../../lib/dismiss";
 import { flashErr } from "../../lib/flash";
 import { errText } from "../err-text";
-import {
-  fmtCtx,
-  modelOf,
-  modelsCatalog,
-  type ModelInfo,
-  type ProviderCatalog,
-} from "../../lib/models";
+import { fmtCtx, modelOf, modelsCatalog, type ProviderCatalog } from "../../lib/models";
 import ModelStatusErrors from "./ModelStatusErrors";
+import {
+  filterModelRows,
+  modelRows,
+  ROLE_ASSIGN,
+  type ModelPickerRow,
+} from "./model-picker-options";
 import { createModelStatus } from "./model-status";
-
-const ROLE_ASSIGN: Array<{ role: string; label: string }> = [
-  { role: "chat", label: "设为主会话模型" },
-  { role: "thinking", label: "设为思考模型" },
-  { role: "planning", label: "设为规划模型" },
-  { role: "execution", label: "设为执行模型" },
-  { role: "review", label: "设为审查模型" },
-  { role: "research", label: "设为调研模型" },
-];
-
-interface Row {
-  provider: string;
-  providerName: string;
-  model: ModelInfo;
-}
 
 export default function ModelPicker() {
   const controlId = createUniqueId();
@@ -90,17 +74,8 @@ export default function ModelPicker() {
       listEl?.querySelectorAll<HTMLElement>("[data-nav]")[n]?.scrollIntoView({ block: "nearest" });
   });
 
-  const rows = (): Row[] =>
-    cat().flatMap((p) =>
-      p.models.map((model) => ({ provider: p.provider, providerName: p.provider_name, model })),
-    );
-  const filtered = () => {
-    const q = query().toLowerCase();
-    if (!q) return rows();
-    return rows().filter((r) =>
-      `${r.providerName} ${r.model.name} ${r.model.id}`.toLowerCase().includes(q),
-    );
-  };
+  const rows = () => modelRows(cat());
+  const filtered = () => filterModelRows(rows(), query());
 
   const curInfo = () => modelOf(cat(), cur().provider, cur().model);
   const curLabel = () =>
@@ -117,7 +92,7 @@ export default function ModelPicker() {
     followOverride() ?? !sessions().find((s) => s.id === activeSessionId())?.model;
 
   // 切模型只写当前 session 的 metadata（草稿态暂存，落库后回写）；全局默认在设置页改
-  const pick = (r: Row) => {
+  const pick = (r: ModelPickerRow) => {
     if (modelSaving()) return;
     const sid = activeSessionId();
     const prev = cur();

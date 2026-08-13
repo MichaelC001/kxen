@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal } from "solid-js";
+import { Show, createEffect, createSignal } from "solid-js";
 import {
   botConversationArchive,
   botConversationGet,
@@ -21,9 +21,10 @@ import {
 import { createReconciledMutation } from "../../lib/async-guard";
 import { formatError } from "../../lib/error-text";
 import BotCollaborationCreate from "./BotCollaborationCreate";
+import BotConversationList from "./BotConversationList";
 import BotConversationDetail from "./BotConversationDetail";
 import { conversationLifecycleAfter, findDirectConversation } from "./mutation-state";
-import { Panel, shortId, statusClass, type RefreshProps } from "./shared";
+import { Panel, type RefreshProps } from "./shared";
 
 export default function BotCollaboration(props: RefreshProps) {
   const [bots, setBots] = createSignal<BotSummary[]>([]);
@@ -280,41 +281,12 @@ export default function BotCollaboration(props: RefreshProps) {
         openDirect={openDirect}
       />
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Panel title="协作空间" detail="这里是 Bot collaboration timeline，不是多人聊天。">
-          <Show when={loadErr()}>
-            <p class="text-xs text-[var(--err)] mb-2">{loadErr()}</p>
-          </Show>
-          <div class="space-y-2">
-            <For
-              each={conversations()}
-              fallback={
-                <p class="text-xs text-[var(--text-faint)]">暂无 Bot-to-Bot Conversation。</p>
-              }
-            >
-              {(conversation) => (
-                <button
-                  class="pressable w-full text-left rounded border border-[var(--border)] p-2"
-                  classList={{
-                    "border-[var(--accent)]": selectedId() === conversation.conversation_id,
-                  }}
-                  onClick={() => select(conversation.conversation_id)}
-                >
-                  <div class="flex gap-2">
-                    <span class="text-xs">
-                      {conversation.kind === "bot_group" ? "Group" : "Direct"}
-                    </span>
-                    <span class={`ml-auto text-2xs ${statusClass(conversation.lifecycle)}`}>
-                      {conversation.lifecycle}
-                    </span>
-                  </div>
-                  <div class="font-mono text-2xs text-[var(--text-faint)]">
-                    {shortId(conversation.conversation_id)}
-                  </div>
-                </button>
-              )}
-            </For>
-          </div>
-        </Panel>
+        <BotConversationList
+          conversations={conversations()}
+          selectedId={selectedId()}
+          loadError={loadErr()}
+          onSelect={select}
+        />
         <div class="lg:col-span-2 space-y-4">
           <Show
             when={detail()}

@@ -24,6 +24,7 @@ import {
 } from "./shared";
 import { runCancellationApplied } from "./mutation-state";
 import { decodeArtifactPreview } from "./artifact-preview";
+import { BotRunMetric, terminalRunStatus } from "./BotRunMetric";
 
 export default function BotRuns(props: RefreshProps) {
   const [runs, setRuns] = createSignal<BotRun[]>([]);
@@ -106,7 +107,7 @@ export default function BotRuns(props: RefreshProps) {
   };
   const cancel = () => {
     const run = selected();
-    if (!run || terminal(run.status)) return;
+    if (!run || terminalRunStatus(run.status)) return;
     const runId = run.spec.run_id;
     void mutation.run({
       key: `run:${runId}:cancel`,
@@ -198,20 +199,24 @@ export default function BotRuns(props: RefreshProps) {
                 detail={`${run().spec.trigger.kind}，revision ${shortId(run().spec.revision_id)}`}
               >
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                  <Metric label="状态" value={run().status} tone={statusClass(run().status)} />
-                  <Metric
+                  <BotRunMetric
+                    label="状态"
+                    value={run().status}
+                    tone={statusClass(run().status)}
+                  />
+                  <BotRunMetric
                     label="Tokens"
                     value={String(run().usage.input_tokens + run().usage.output_tokens)}
                   />
-                  <Metric label="Tool calls" value={String(run().usage.tool_calls)} />
-                  <Metric label="Turns" value={String(run().usage.turns)} />
+                  <BotRunMetric label="Tool calls" value={String(run().usage.tool_calls)} />
+                  <BotRunMetric label="Turns" value={String(run().usage.turns)} />
                 </div>
                 <Show when={run().error_message}>
                   <div class="mt-3 rounded border border-[var(--err)]/50 p-2 text-xs text-[var(--err)] selectable">
                     {run().error_code}: {run().error_message}
                   </div>
                 </Show>
-                <Show when={!terminal(run().status)}>
+                <Show when={!terminalRunStatus(run().status)}>
                   <button class={`${actionClass} mt-3`} disabled={acting()} onClick={cancel}>
                     Cancel Run
                   </button>
@@ -339,17 +344,4 @@ export default function BotRuns(props: RefreshProps) {
       </div>
     </div>
   );
-}
-
-function Metric(props: { label: string; value: string; tone?: string }) {
-  return (
-    <div>
-      <div class="text-2xs text-[var(--text-faint)]">{props.label}</div>
-      <div class={props.tone || "text-[var(--text)]"}>{props.value}</div>
-    </div>
-  );
-}
-
-function terminal(status: string): boolean {
-  return ["completed", "failed", "canceled", "rejected", "blocked"].includes(status);
 }

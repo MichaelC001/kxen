@@ -4,6 +4,7 @@ mod command;
 mod decision;
 mod error;
 mod events;
+mod guards;
 mod projection;
 mod repository;
 mod routing;
