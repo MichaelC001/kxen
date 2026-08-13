@@ -124,6 +124,7 @@ pub(super) const METHODS: &[&str] = &[
     "mcp.status",
     "models.catalog",
     "mrm.stats",
+    "mrm.readiness",
     "notifications.clear",
     "notifications.list",
     "provider.accounts",

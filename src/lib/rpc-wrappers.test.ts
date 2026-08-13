@@ -120,6 +120,7 @@ describe("RPC wrappers", () => {
     await provider.setAccountRegion("anthropic", "work", "global");
     await provider.providerReprobe();
     await provider.mrmStats();
+    await provider.mrmReadiness();
     await provider.testDispatch("lead");
 
     expect(h.rpc).toHaveBeenCalledWith("provider.verify", {

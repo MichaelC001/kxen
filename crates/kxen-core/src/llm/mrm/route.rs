@@ -1,6 +1,6 @@
 //! MRM 角色路由、账号候选与派发历史。
 
-use super::{DispatchRecord, ModelResourceManager, Resolved};
+use super::{DispatchRecord, ModelResourceManager, REQUIRED_AGENT_ROLES, ReadinessReport, Resolved, RoleReadiness, RouteReadinessStatus};
 use crate::core::config::{Config, RoleBinding};
 
 impl ModelResourceManager {
@@ -17,6 +17,78 @@ impl ModelResourceManager {
     /// 记历史会把轮询刷成派发证据（mrm.stats 失真），轮询路径必须走这里。
     pub async fn peek(&self, role: &str, store: &crate::auth::credential::AuthStore) -> Option<Resolved> {
         self.resolve_inner(role, store, false).await
+    }
+
+    /// 当前配置视图的严格就绪报告。与生产 `resolve` 的首启兼容语义不同，
+    /// 这里不会把缺少凭证的远程 Provider 当作盲默认候选，也不会记录派发历史。
+    pub async fn readiness(&self, store: &crate::auth::credential::AuthStore) -> ReadinessReport {
+        let mut roles = Vec::with_capacity(REQUIRED_AGENT_ROLES.len() + 1);
+        roles.push(self.role_readiness("chat", store).await);
+        for role in REQUIRED_AGENT_ROLES {
+            roles.push(self.role_readiness(role, store).await);
+        }
+        let chat_ready = roles.first().is_some_and(|role| role.ready);
+        let agents_ready = roles.iter().skip(1).all(|role| role.ready);
+        ReadinessReport { chat_ready, agents_ready, all_ready: chat_ready && agents_ready, roles }
+    }
+
+    async fn role_readiness(&self, role: &str, store: &crate::auth::credential::AuthStore) -> RoleReadiness {
+        let config = self.config_snapshot();
+        if !config.roles.contains_key(role) {
+            return unavailable_role(role, RouteReadinessStatus::MissingBinding, None, None);
+        }
+
+        let mut saw_known_provider = false;
+        let mut saw_dispatch_candidate = false;
+        let mut last_binding = None;
+        let mut invalid_status = None;
+        for routed_role in Self::role_chain(&config, role) {
+            let Some(binding) = config.roles.get(&routed_role) else { continue };
+            last_binding = Some(binding);
+            let provider_known = if let Some(name) = binding.provider.strip_prefix("custom:") {
+                if config.custom_providers.contains_key(name) {
+                    true
+                } else {
+                    invalid_status = Some(RouteReadinessStatus::MissingCustomProvider);
+                    false
+                }
+            } else if crate::providers::find(&binding.provider).is_some() {
+                true
+            } else {
+                invalid_status = Some(RouteReadinessStatus::UnknownProvider);
+                false
+            };
+            if !provider_known {
+                continue;
+            }
+            saw_known_provider = true;
+
+            for (key, account) in self.strict_candidates(binding, store) {
+                saw_dispatch_candidate = true;
+                if self.candidate_open(&binding.provider, &key).await {
+                    return RoleReadiness {
+                        role: role.to_string(),
+                        configured: true,
+                        ready: true,
+                        status: RouteReadinessStatus::Ready,
+                        provider: Some(binding.provider.clone()),
+                        model: Some(binding.model.clone()),
+                        account,
+                        degraded_from: (routed_role != role).then(|| role.to_string()),
+                    };
+                }
+            }
+        }
+
+        let binding = last_binding;
+        let status = if saw_dispatch_candidate {
+            RouteReadinessStatus::TemporarilyUnavailable
+        } else if saw_known_provider {
+            RouteReadinessStatus::MissingCredential
+        } else {
+            invalid_status.unwrap_or(RouteReadinessStatus::UnknownProvider)
+        };
+        unavailable_role(role, status, binding.map(|binding| binding.provider.clone()), binding.map(|binding| binding.model.clone()))
     }
 
     async fn resolve_inner(&self, role: &str, store: &crate::auth::credential::AuthStore, record: bool) -> Option<Resolved> {
@@ -119,6 +191,19 @@ impl ModelResourceManager {
     /// 候选序列：钉账号单候选（缺凭证则无候选，走链下一环）；
     /// 否则账号链（默认 -> 命名字典序），无账号线索时退回默认键（限流不看凭证在否）。
     fn candidates(&self, binding: &RoleBinding, store: &crate::auth::credential::AuthStore) -> Vec<(String, Option<String>)> {
+        self.candidates_with_policy(binding, store, true)
+    }
+
+    fn strict_candidates(&self, binding: &RoleBinding, store: &crate::auth::credential::AuthStore) -> Vec<(String, Option<String>)> {
+        self.candidates_with_policy(binding, store, false)
+    }
+
+    fn candidates_with_policy(
+        &self,
+        binding: &RoleBinding,
+        store: &crate::auth::credential::AuthStore,
+        allow_blind_default: bool,
+    ) -> Vec<(String, Option<String>)> {
         if crate::providers::find(&binding.provider).is_some_and(|provider| provider.auth == crate::providers::AuthKind::LocalFree) {
             return vec![(binding.provider.clone(), None)];
         }
@@ -130,7 +215,7 @@ impl ModelResourceManager {
         if keys.is_empty() {
             // 持有其它 provider 凭证时跳过无凭证 provider：降级链才能走到用户真实持有的订阅；
             // store 全空（首启探测前/测试）退回盲默认键
-            if !store.is_empty() {
+            if !allow_blind_default || !store.is_empty() {
                 return Vec::new();
             }
             return vec![(binding.provider.clone(), None)];
@@ -146,5 +231,18 @@ impl ModelResourceManager {
     /// 候选可用性：provider 并发有余量 + 该账号 RPM 窗未满（账号维度限流只剩 RPM）。
     async fn candidate_open(&self, provider: &str, key: &str) -> bool {
         self.admit(provider).await.is_ok() && self.available(provider).await && !self.rpm_blocked(key).await
+    }
+}
+
+fn unavailable_role(role: &str, status: RouteReadinessStatus, provider: Option<String>, model: Option<String>) -> RoleReadiness {
+    RoleReadiness {
+        role: role.to_string(),
+        configured: status != RouteReadinessStatus::MissingBinding,
+        ready: false,
+        status,
+        provider,
+        model,
+        account: None,
+        degraded_from: None,
     }
 }

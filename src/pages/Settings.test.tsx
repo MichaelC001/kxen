@@ -116,16 +116,17 @@ describe("Settings 运行中发送", () => {
     dispose();
   });
 
-  it("断线 resync 重拉 config/doctor 概览，卸载后退订", async () => {
-    const doctorCalls = () => h.rpc.mock.calls.filter(([method]) => method === "doctor").length;
+  it("断线 resync 重拉 config/当前 Workspace MRM 概览，卸载后退订", async () => {
+    const readinessCalls = () =>
+      h.rpc.mock.calls.filter(([method]) => method === "mrm.readiness").length;
     const dispose = render(() => <Settings />, document.body);
     await vi.waitFor(() => expect(h.cfg).toHaveBeenCalledTimes(1));
-    expect(doctorCalls()).toBe(1);
+    expect(readinessCalls()).toBe(1);
     expect(h.resync.size).toBe(1);
 
     h.resync.forEach((cb) => cb());
     await vi.waitFor(() => expect(h.cfg).toHaveBeenCalledTimes(2));
-    expect(doctorCalls()).toBe(2);
+    expect(readinessCalls()).toBe(2);
 
     dispose();
     expect(h.resync.size).toBe(0);
@@ -133,72 +134,62 @@ describe("Settings 运行中发送", () => {
 });
 
 describe("Settings 首次运行检查", () => {
-  it("只有角色路由落到可用 Provider 才判定 routing PASS", async () => {
-    h.cfg.mockResolvedValue({
-      roles: { chat: { provider: "anthropic", model: "claude-sonnet-4-6" } },
-      send_when_running: "queue",
-    });
+  it("LocalFree 无凭证时按当前 Workspace MRM 报告判定 PASS", async () => {
     h.rpc.mockImplementation((method: string) => {
-      if (method === "doctor") {
+      if (method === "mrm.readiness") {
         return Promise.resolve({
-          entries: [
-            {
-              provider: "xai",
-              display: "xAI",
-              status: "ok",
-              detail: "ready",
-            },
+          workspace_ready: true,
+          chat_ready: true,
+          agents_ready: true,
+          all_ready: true,
+          roles: [
+            { role: "chat", configured: true, ready: true, status: "ready", provider: "ollama" },
           ],
-          system: { lsp_root: "/workspace" },
         });
-      }
-      if (method === "current_model") {
-        return Promise.resolve({ provider: "xai", model: "grok-4" });
       }
       return Promise.resolve({});
     });
     const dispose = render(() => <Settings />, document.body);
     await vi.waitFor(() => {
       const label = [...document.body.querySelectorAll("span")].find(
-        (el) => el.textContent === "至少一个角色路由落到可用 Provider",
+        (el) => el.textContent === "当前 Workspace 的 chat 路由可派发",
       );
       const row = label?.parentElement;
-      expect(row?.textContent).toContain("需要处理");
+      expect(row?.textContent).toContain("PASS");
     });
     dispose();
   });
 
-  it("可用 Provider 与角色路由一致时判定 routing PASS", async () => {
-    h.cfg.mockResolvedValue({
-      roles: { chat: { provider: "xai", model: "grok-4" } },
-      send_when_running: "queue",
-    });
+  it("任一 Agent 角色不可派发时显示具体角色和原因", async () => {
     h.rpc.mockImplementation((method: string) => {
-      if (method === "doctor") {
+      if (method === "mrm.readiness") {
         return Promise.resolve({
-          entries: [
+          workspace_ready: true,
+          chat_ready: true,
+          agents_ready: false,
+          all_ready: false,
+          roles: [
+            { role: "chat", configured: true, ready: true, status: "ready" },
             {
-              provider: "xai",
-              display: "xAI",
-              status: "imported",
-              detail: "imported",
+              role: "planning",
+              configured: true,
+              ready: false,
+              status: "missing_credential",
+              provider: "kimi-for-coding",
             },
           ],
-          system: { lsp_root: "/workspace" },
         });
-      }
-      if (method === "current_model") {
-        return Promise.resolve({ provider: "xai", model: "grok-4" });
       }
       return Promise.resolve({});
     });
     const dispose = render(() => <Settings />, document.body);
     await vi.waitFor(() => {
       const label = [...document.body.querySelectorAll("span")].find(
-        (el) => el.textContent === "至少一个角色路由落到可用 Provider",
+        (el) => el.textContent === "当前 Workspace 的 5 个 Agent 角色均可派发",
       );
       const row = label?.parentElement;
-      expect(row?.textContent).toContain("PASS");
+      expect(row?.textContent).toContain("需要处理");
+      expect(row?.textContent).toContain("planning: 缺少可用凭证");
     });
     dispose();
   });

@@ -82,6 +82,39 @@ pub struct Resolved {
     pub degraded_from: Option<String>,
 }
 
+pub const REQUIRED_AGENT_ROLES: [&str; 5] = ["thinking", "planning", "execution", "review", "research"];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RouteReadinessStatus {
+    Ready,
+    MissingBinding,
+    MissingCredential,
+    UnknownProvider,
+    MissingCustomProvider,
+    TemporarilyUnavailable,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RoleReadiness {
+    pub role: String,
+    pub configured: bool,
+    pub ready: bool,
+    pub status: RouteReadinessStatus,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub account: Option<String>,
+    pub degraded_from: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReadinessReport {
+    pub chat_ready: bool,
+    pub agents_ready: bool,
+    pub all_ready: bool,
+    pub roles: Vec<RoleReadiness>,
+}
+
 impl Resolved {
     /// 限流键（account_id 体系：默认账号 = 裸 provider）。
     pub fn slot_key(&self) -> String {

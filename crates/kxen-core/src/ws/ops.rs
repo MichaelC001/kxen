@@ -33,6 +33,7 @@ fn usage_totals(tokens: &std::collections::HashMap<String, kxen_core::core::usag
 
 const METHODS: &[&str] = &[
     "mrm.stats",
+    "mrm.readiness",
     "agent.test_dispatch",
     "schedule.list",
     "usage.overview",
@@ -89,6 +90,18 @@ async fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<V
                 "history": mrm.history().await,
                 "health": mrm.health().await,
                 "metering_warning": kxen_core::core::usage_trend::warning(),
+            }))
+        }
+        "mrm.readiness" => {
+            let runtime = state.ready_active_runtime().await?;
+            let store = state.auth_store.lock().map_err(|error| error.to_string())?.clone();
+            let report = runtime.mrm().readiness(&store).await;
+            Ok(json!({
+                "workspace_ready": true,
+                "chat_ready": report.chat_ready,
+                "agents_ready": report.agents_ready,
+                "all_ready": report.all_ready,
+                "roles": report.roles,
             }))
         }
         "agent.test_dispatch" => test_dispatch(state, params).await,

@@ -12,7 +12,8 @@ import VoiceSection from "../components/settings/VoiceSection";
 import GeneralSection from "../components/settings/GeneralSection";
 import ComposerSuggestionsSection from "../components/settings/ComposerSuggestionsSection";
 import { client } from "../lib/client";
-import { configGet, doctor } from "../lib/chat";
+import { configGet } from "../lib/chat";
+import { mrmReadiness, type RouteReadinessStatus } from "../lib/provider";
 import { flashErr, flashOk } from "../lib/flash";
 import { formatError } from "../lib/error-text";
 import { onDragStart } from "../lib/drag";
@@ -40,8 +41,10 @@ export default function Settings() {
   });
   const [readiness, setReadiness] = createSignal({
     workspace: null as boolean | null,
-    provider: null as boolean | null,
-    routing: null as boolean | null,
+    chat: null as boolean | null,
+    agents: null as boolean | null,
+    chatDetail: "",
+    agentsDetail: "",
   });
   const [configLoaded, setConfigLoaded] = createSignal(false);
   const [configErr, setConfigErr] = createSignal("");
@@ -73,9 +76,19 @@ export default function Settings() {
     }
   };
 
-  // config/doctor/readiness 合并为一次概览重拉：onMount 首拉 + 断线 resync 对账（同 KnowledgeBlockedPanel 模式）
+  const readinessStatusLabel = (status: RouteReadinessStatus) =>
+    ({
+      ready: "可派发",
+      missing_binding: "缺少角色绑定",
+      missing_credential: "缺少可用凭证",
+      unknown_provider: "Provider 不存在",
+      missing_custom_provider: "自定义 Provider 不存在",
+      temporarily_unavailable: "因限流、并发、预算或 Circuit 暂不可用",
+    })[status];
+
+  // config 与当前 Workspace MRM readiness 合并重拉：onMount 首拉 + 断线 resync 对账。
   const reloadOverview = async () => {
-    const [cfgResult, reportResult] = await Promise.allSettled([configGet(), doctor()]);
+    const [cfgResult, reportResult] = await Promise.allSettled([configGet(), mrmReadiness()]);
     const cfg = cfgResult.status === "fulfilled" ? cfgResult.value : null;
     const report = reportResult.status === "fulfilled" ? reportResult.value : null;
     if (cfg) applyConfig(cfg);
@@ -89,20 +102,19 @@ export default function Settings() {
           : "UNKNOWN",
       );
     }
-    const availableProviders = new Set(
-      report?.entries
-        ?.filter((entry) => ["ok", "imported"].includes(entry.status))
-        .map((entry) => entry.provider) ?? [],
-    );
+    const detailFor = (roles: string[]) =>
+      (report?.roles ?? [])
+        .filter((role) => roles.includes(role.role) && !role.ready)
+        .map((role) => `${role.role}: ${readinessStatusLabel(role.status)}`)
+        .join("；") ?? "";
     setReadiness({
-      workspace: report ? Boolean(report.system?.lsp_root) : null,
-      provider: report ? availableProviders.size > 0 : null,
-      routing:
-        report && cfg
-          ? Object.values(cfg.roles ?? {}).some((binding) =>
-              availableProviders.has(binding.provider),
-            )
-          : null,
+      workspace: report?.workspace_ready ?? null,
+      chat: report?.chat_ready ?? null,
+      agents: report?.agents_ready ?? null,
+      chatDetail: report ? detailFor(["chat"]) : "",
+      agentsDetail: report
+        ? detailFor(["thinking", "planning", "execution", "review", "research"])
+        : "",
     });
   };
 
@@ -201,11 +213,15 @@ export default function Settings() {
           <Show when={section() === "通用"}>
             <GeneralSection
               readiness={readiness()}
+              readinessDetails={{
+                chat: readiness().chatDetail,
+                agents: readiness().agentsDetail,
+              }}
               sendPolicy={sendPolicy()}
               configLoaded={configLoaded()}
               policySaving={policySaving()}
               onPolicy={(policy) => void setPolicy(policy)}
-              onProviders={() => setSection("提供商")}
+              onRouting={() => setSection("模型路由")}
             />
           </Show>
 

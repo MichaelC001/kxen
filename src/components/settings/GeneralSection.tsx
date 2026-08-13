@@ -3,15 +3,16 @@ import { mode, setMode } from "../../lib/theme";
 import { isTauri } from "../../lib/runtime";
 import UpdateSection from "./UpdateSection";
 
-type ReadinessKey = "workspace" | "provider" | "routing";
+type ReadinessKey = "workspace" | "chat" | "agents";
 
 export default function GeneralSection(props: {
   readiness: Record<ReadinessKey, boolean | null>;
+  readinessDetails: Partial<Record<ReadinessKey, string>>;
   sendPolicy: string;
   configLoaded: boolean;
   policySaving: boolean;
   onPolicy: (policy: string) => void;
-  onProviders: () => void;
+  onRouting: () => void;
 }) {
   return (
     <>
@@ -21,8 +22,8 @@ export default function GeneralSection(props: {
           each={
             [
               ["workspace", "Workspace 已选择"],
-              ["provider", "至少一个 Provider 凭证可用"],
-              ["routing", "至少一个角色路由落到可用 Provider"],
+              ["chat", "当前 Workspace 的 chat 路由可派发"],
+              ["agents", "当前 Workspace 的 5 个 Agent 角色均可派发"],
             ] as const
           }
         >
@@ -44,10 +45,13 @@ export default function GeneralSection(props: {
                     : "UNKNOWN"}
               </span>
               <span class="text-[var(--text-dim)]">{label}</span>
-              <Show when={props.readiness[key] === false && key === "provider"}>
+              <Show when={props.readinessDetails[key]}>
+                <span class="text-[var(--text-faint)]">{props.readinessDetails[key]}</span>
+              </Show>
+              <Show when={props.readiness[key] === false && key !== "workspace"}>
                 <button
                   class="text-[var(--accent-hover)] hover:underline"
-                  onClick={props.onProviders}
+                  onClick={props.onRouting}
                 >
                   去配置
                 </button>

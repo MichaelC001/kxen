@@ -43,3 +43,37 @@ async fn local_free_provider_resolves_with_unrelated_credentials_present() {
     assert_eq!(resolved.provider, "ollama");
     assert!(resolved.account.is_none());
 }
+
+fn readiness_config(provider: &str) -> Config {
+    let mut config = Config::default();
+    for role in std::iter::once("chat").chain(REQUIRED_AGENT_ROLES) {
+        config.roles.insert(
+            role.into(),
+            crate::core::config::RoleBinding { provider: provider.into(), model: "model".into(), ..Default::default() },
+        );
+    }
+    config
+}
+
+#[tokio::test]
+async fn readiness_accepts_local_free_routes_without_credentials() {
+    let mrm = ModelResourceManager::new(readiness_config("ollama"));
+    let report = mrm.readiness(&Default::default()).await;
+
+    assert!(report.chat_ready);
+    assert!(report.agents_ready);
+    assert!(report.all_ready);
+    assert!(report.roles.iter().all(|role| role.status == RouteReadinessStatus::Ready));
+    assert!(mrm.history().await.is_empty(), "readiness must not record dispatch history");
+}
+
+#[tokio::test]
+async fn readiness_does_not_treat_missing_remote_credentials_as_ready() {
+    let mrm = ModelResourceManager::new(readiness_config("xai"));
+    let report = mrm.readiness(&Default::default()).await;
+
+    assert!(!report.chat_ready);
+    assert!(!report.agents_ready);
+    assert!(report.roles.iter().all(|role| role.status == RouteReadinessStatus::MissingCredential));
+    assert!(mrm.history().await.is_empty());
+}

@@ -230,6 +230,37 @@ export function mrmStats(): Promise<MrmStats> {
   return client.rpc("mrm.stats");
 }
 
+export type RouteReadinessStatus =
+  | "ready"
+  | "missing_binding"
+  | "missing_credential"
+  | "unknown_provider"
+  | "missing_custom_provider"
+  | "temporarily_unavailable";
+
+export interface RoleReadiness {
+  role: string;
+  configured: boolean;
+  ready: boolean;
+  status: RouteReadinessStatus;
+  provider?: string | null;
+  model?: string | null;
+  account?: string | null;
+  degraded_from?: string | null;
+}
+
+export interface MrmReadiness {
+  workspace_ready: boolean;
+  chat_ready: boolean;
+  agents_ready: boolean;
+  all_ready: boolean;
+  roles: RoleReadiness[];
+}
+
+export function mrmReadiness(): Promise<MrmReadiness> {
+  return client.rpc("mrm.readiness");
+}
+
 export interface TestDispatchResult {
   role: string;
   provider: string;
