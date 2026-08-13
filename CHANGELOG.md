@@ -2,6 +2,37 @@
 
 此文件由 [git-cliff](https://github.com/orhun/git-cliff) 根据 Git tag 和 Conventional Commits 自动生成，请勿手动编辑。
 
+## [0.1.7] - 2026-08-13
+
+> **版本主题:** 独立 Agent CLI 与可恢复自动化
+
+### 本次更新
+
+- 新增独立的 kxen-agent CLI，可从 task 动态构建或加载 DCPAgent，在本地、CI、queue worker 和轻量运行环境中执行非交互任务，无需启动 kxen server。 ([1122632](https://github.com/StringKe/kxen/commit/1122632ee1e7c42b428cdaae0173ce999eab0a65))
+- DCPRun、Session、--resume、Conversation branch、Git worktree、跨 runner bundle 和 UNKNOWN tool recovery 形成可恢复的完整执行链路。 ([1122632](https://github.com/StringKe/kxen/commit/1122632ee1e7c42b428cdaae0173ce999eab0a65))
+- GitHub、GitLab、Webhook 和 queue 等场景通过 MCP 或普通 CLI capability 接入，DCPAgent 核心协议保持平台无关。 ([1122632](https://github.com/StringKe/kxen/commit/1122632ee1e7c42b428cdaae0173ce999eab0a65))
+- macOS、Windows 和 Linux 六个平台在同一个版本中分别提供 kxen server 与 kxen-agent 独立下载资源，并统一进入 SHA256SUMS 与签名验证链路。 ([1122632](https://github.com/StringKe/kxen/commit/1122632ee1e7c42b428cdaae0173ce999eab0a65))
+
+### 工程
+
+- **release:** Publish standalone agent assets ([b27623b](https://github.com/StringKe/kxen/commit/b27623beed8b216373dfcc519128d921fe0942e8))
+
+### 文档
+
+- **agent:** Document CLI automation and recovery ([5862a54](https://github.com/StringKe/kxen/commit/5862a5444215bb236ef0b16f58ca9878f6e6ee74))
+
+### 新增功能
+
+- **agent:** Add standalone DCP runtime ([2422428](https://github.com/StringKe/kxen/commit/2422428615a969d7e1eb332fc45eb597d919b544))
+
+### 测试
+
+- **agent:** Cover DCP recovery boundaries ([f612598](https://github.com/StringKe/kxen/commit/f61259821eec5e3c36e8805108caf524fc903c81))
+
+### 维护
+
+- **docs:** Format agent release documentation ([e674a38](https://github.com/StringKe/kxen/commit/e674a387f44c440c79f763fbb0e47b5ca68ff4f7))
+
 ## [0.1.6] - 2026-08-13
 
 > **版本主题:** 持久对话分支与安全重试
