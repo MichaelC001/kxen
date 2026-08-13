@@ -9,6 +9,7 @@ import { insertComposerText, interruptComposer } from "../lib/composer-bus";
 import { flashErr } from "../lib/flash";
 import { errText } from "./err-text";
 import { createExclusiveDisclosure } from "../lib/dismiss";
+import { COMMAND_PALETTE_OPEN_EVENT } from "../lib/command-palette";
 
 interface Row {
   kind: "action" | "command" | "session" | "model";
@@ -20,7 +21,8 @@ interface Row {
 /** 内置动作：纯前端路由/状态切换，无后端依赖——键盘用户不摸鼠标也能完成页面导航。 */
 const ACTIONS: Array<{ label: string; detail: string; run: () => void }> = [
   { label: "新会话", detail: "Cmd+N", run: () => void newSession() },
-  { label: "打开工作看板", detail: "", run: () => navigate("/workspaces") },
+  { label: "打开工作区", detail: "", run: () => navigate("/workspaces") },
+  { label: "打开 Bots", detail: "", run: () => navigate("/bots") },
   { label: "打开设置", detail: "Cmd+,", run: () => navigate("/settings") },
 ];
 
@@ -44,32 +46,41 @@ export default function CommandPalette() {
           ? "模型不可用"
           : "";
 
+  const prepareOpen = () => {
+    interruptComposer();
+    setOpen(true);
+    setQuery("");
+    setSelected(0);
+    setCmdFailed(false);
+    setCatFailed(false);
+    void commandList()
+      .then(setCommands)
+      .catch(() => setCmdFailed(true));
+    void modelsCatalog()
+      .then(setCat)
+      .catch(() => setCatFailed(true));
+    setTimeout(() => inputRef?.focus(), 0);
+  };
+
   const onKey = (e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
-      // Solid 信号同步生效：setOpen 后再读 open() 已是新值，初始化必须按切换前的旧值判「正在打开」，
-      // 否则初始化落在关闭分支——首开面板命令列表为空、关闭时反而预载
-      const isOpening = !open();
-      // 打开面板即打断语音 PTT：焦点被面板 input 抢走后空格 keyup 丢失，PTT 永远收不到松开
-      if (isOpening) interruptComposer();
-      setOpen(isOpening);
-      if (isOpening) {
-        setQuery("");
-        setSelected(0);
-        setCmdFailed(false);
-        setCatFailed(false);
-        void commandList()
-          .then(setCommands)
-          .catch(() => setCmdFailed(true));
-        void modelsCatalog()
-          .then(setCat)
-          .catch(() => setCatFailed(true));
-        setTimeout(() => inputRef?.focus(), 0);
-      }
+      // 快捷键保留 toggle 语义；Sidebar 等显式入口只发 open request，不会意外关闭已打开面板。
+      if (open()) setOpen(false);
+      else prepareOpen();
     }
   };
-  onMount(() => window.addEventListener("keydown", onKey));
-  onCleanup(() => window.removeEventListener("keydown", onKey));
+  const onOpenRequest = () => {
+    if (!open()) prepareOpen();
+  };
+  onMount(() => {
+    window.addEventListener("keydown", onKey);
+    window.addEventListener(COMMAND_PALETTE_OPEN_EVENT, onOpenRequest);
+  });
+  onCleanup(() => {
+    window.removeEventListener("keydown", onKey);
+    window.removeEventListener(COMMAND_PALETTE_OPEN_EVENT, onOpenRequest);
+  });
 
   const rows = (): Row[] => {
     const q = query().toLowerCase();

@@ -135,7 +135,7 @@ export default function Kanban() {
           class="inline-flex items-center gap-1.5 text-xs text-[var(--text-dim)] hover:text-[var(--text)] mb-4"
         >
           <ArrowLeft size={13} />
-          返回工作看板
+          返回工作区
         </A>
         <div class="flex items-center gap-2 mb-4">
           <h1 class="text-lg font-medium text-[var(--text)] truncate">

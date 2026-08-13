@@ -2,7 +2,7 @@
 // 列内分区：运行中会话 / 隔离树 / goal / 排队与 cron 计数；8s 轮询 + goal/task 事件 250ms 去抖刷新 + resync 对账。
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { A } from "@solidjs/router";
-import { ArrowLeft, FolderGit2, GitBranch, Play, SquareKanban, Target } from "lucide-solid";
+import { FolderGit2, GitBranch, Play, SquareKanban, Target } from "lucide-solid";
 import { onTopic, workspacesOverview, workspaceSwitch, type WorkspaceOverview } from "../lib/chat";
 import { client } from "../lib/client";
 import { newSession, sessions, switchSession } from "../lib/state";
@@ -106,14 +106,10 @@ export default function Workspaces() {
         <div class="h-8" data-tauri-drag-region onMouseDown={onDragStart} />
       </Show>
       <div class="px-8 py-6 pt-2">
-        <A
-          href="/"
-          class="inline-flex items-center gap-1.5 text-xs text-[var(--text-dim)] hover:text-[var(--text)] mb-4"
-        >
-          <ArrowLeft size={13} />
-          返回会话
-        </A>
-        <h1 class="text-lg font-medium text-[var(--text)] mb-4">工作看板</h1>
+        <h1 class="text-lg font-medium text-[var(--text)] mb-1">工作区</h1>
+        <p class="text-xs text-[var(--text-faint)] mb-4">
+          查看项目、运行中会话、隔离树、Goal 和 Kanban 的整体状态。
+        </p>
         <Show when={!loaded()}>
           <div class="text-xs text-[var(--text-faint)]">加载中…</div>
         </Show>

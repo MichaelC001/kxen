@@ -1,5 +1,4 @@
-import { A } from "@solidjs/router";
-import { Bot, ArrowLeft, Boxes, CalendarClock, Hammer, Play, ShieldAlert } from "lucide-solid";
+import { Bot, Boxes, CalendarClock, Hammer, Play, ShieldAlert } from "lucide-solid";
 import { For, Match, Switch, createSignal, onCleanup, onMount } from "solid-js";
 import { client } from "../lib/client";
 import { isTauri } from "../lib/runtime";
@@ -54,13 +53,6 @@ export default function Bots() {
     <div class="h-full flex-1 overflow-auto">
       {isTauri() && <div class="h-8" data-tauri-drag-region onMouseDown={onDragStart} />}
       <div class="px-8 py-6 pt-2 max-w-7xl mx-auto">
-        <A
-          href="/"
-          class="inline-flex items-center gap-1.5 text-xs text-[var(--text-dim)] hover:text-[var(--text)] mb-4"
-        >
-          <ArrowLeft size={13} />
-          返回会话
-        </A>
         <div class="flex items-start gap-4 mb-5">
           <div>
             <h1 class="text-lg font-medium text-[var(--text)]">Bots</h1>

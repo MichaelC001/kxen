@@ -7,6 +7,7 @@ import CommandPalette from "./CommandPalette";
 import { createExclusiveDisclosure } from "../lib/dismiss";
 import { flash } from "../lib/flash";
 import { activeSessionId, setActiveSessionId, setNavigator } from "../lib/state";
+import { openCommandPalette } from "../lib/command-palette";
 import "../styles.css";
 
 // 互斥夹具：与真实弹层共用 createExclusiveDisclosure，验证 Cmd-K 打开时关掉其他弹层
@@ -88,6 +89,17 @@ describe("CommandPalette", () => {
     expect(mocks.commandCalls).toBe(1);
     expect(mocks.catalogCalls).toBe(1);
     expect(document.body.textContent).toContain("/doctor");
+    dispose();
+  });
+
+  it("应用内入口可复用同一面板，重复请求不重复预载", async () => {
+    const dispose = render(() => <CommandPalette />, document.body);
+    openCommandPalette();
+    openCommandPalette();
+    await tick();
+    expect(mocks.commandCalls).toBe(1);
+    expect(mocks.catalogCalls).toBe(1);
+    expect(document.querySelector('[role="dialog"][aria-label="命令面板"]')).toBeTruthy();
     dispose();
   });
 
@@ -177,13 +189,13 @@ describe("CommandPalette 预载失败", () => {
 });
 
 describe("CommandPalette 内置动作", () => {
-  it("含新会话/打开工作看板/打开设置三行，点击触发对应路由动作", async () => {
+  it("含新会话/工作区/Bots/设置入口，点击触发对应路由动作", async () => {
     const paths: string[] = [];
     setNavigator((p) => paths.push(p));
     const dispose = render(() => <CommandPalette />, document.body);
     cmdK();
     await tick();
-    for (const label of ["新会话", "打开工作看板", "打开设置"]) {
+    for (const label of ["新会话", "打开工作区", "打开 Bots", "打开设置"]) {
       expect(document.body.textContent).toContain(label);
     }
     const click = (label: string) => {
@@ -197,14 +209,18 @@ describe("CommandPalette 内置动作", () => {
     expect(paths).toEqual(["/settings"]);
     cmdK(); // 再开（动作执行后面板已关）
     await tick();
-    click("打开工作看板");
+    click("打开工作区");
     expect(paths).toEqual(["/settings", "/workspaces"]);
+    cmdK();
+    await tick();
+    click("打开 Bots");
+    expect(paths).toEqual(["/settings", "/workspaces", "/bots"]);
     cmdK();
     await tick();
     setActiveSessionId("s9");
     click("新会话");
     expect(activeSessionId()).toBe(""); // 新会话回草稿态
-    expect(paths).toEqual(["/settings", "/workspaces", "/"]);
+    expect(paths).toEqual(["/settings", "/workspaces", "/bots", "/"]);
     dispose();
   });
 
@@ -215,13 +231,13 @@ describe("CommandPalette 内置动作", () => {
     cmdK();
     await tick();
     const input = document.querySelector<HTMLInputElement>("input")!;
-    input.value = "看板";
+    input.value = "工作区";
     input.dispatchEvent(new Event("input", { bubbles: true }));
     await tick();
     const labels = [...document.querySelectorAll<HTMLButtonElement>("button")].map(
       (b) => b.textContent ?? "",
     );
-    expect(labels.some((t) => t.includes("打开工作看板"))).toBe(true);
+    expect(labels.some((t) => t.includes("打开工作区"))).toBe(true);
     expect(labels.some((t) => t.includes("打开设置"))).toBe(false);
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await tick();

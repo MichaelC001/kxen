@@ -1,6 +1,4 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { A } from "@solidjs/router";
-import { ArrowLeft } from "lucide-solid";
 import KnowledgeSection from "../components/settings/KnowledgeSection";
 import DoctorSection from "../components/settings/DoctorSection";
 import McpSection from "../components/settings/McpSection";
@@ -181,13 +179,7 @@ export default function Settings() {
       </Show>
       <div class="px-8 py-6 pt-2 flex gap-8">
         <nav class="w-36 shrink-0 space-y-0.5" aria-label="设置导航">
-          <A
-            href="/"
-            class="flex items-center gap-1.5 text-xs text-[var(--text-dim)] hover:text-[var(--text)] mb-3"
-          >
-            <ArrowLeft size={13} />
-            返回会话
-          </A>
+          <h1 class="px-2.5 pb-2 text-lg font-medium text-[var(--text)]">设置</h1>
           <div role="tablist" aria-label="设置分类" aria-orientation="vertical">
             <For each={SECTIONS}>
               {(s, index) => (
