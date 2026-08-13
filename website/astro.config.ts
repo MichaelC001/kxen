@@ -3,6 +3,7 @@ import icon from "astro-icon";
 import tailwindcss from "@tailwindcss/vite";
 import nimbus, { defineConfig as defineNimbusConfig } from "@cloudflare/nimbus-docs";
 import { tableScroll } from "@cloudflare/nimbus-docs/markdown";
+import { initialBundleBudget } from "../scripts/initial-bundle-budget";
 
 const nimbusConfig = defineNimbusConfig({
   site: "https://kxen.ai",
@@ -24,23 +25,18 @@ export default defineConfig({
   // Tailwind v4 — replaces the PostCSS plugin, which doesn't build under
   // Astro 7's Vite 8 bundler).
   vite: {
-    plugins: [tailwindcss()],
-    build: {
-      rolldownOptions: {
-        output: {
-          // 与桌面端相同：单独命名 Mermaid 的 Langium runtime，供共享 chunk budget 精确设限。
-          codeSplitting: {
-            groups: [
-              {
-                // 上游把 Langium 打进单一 parser module，命名后由 chunk budget 对它单独设限。
-                name: "mermaid-parser-runtime",
-                test: /node_modules[\\/]@mermaid-js[\\/]parser[\\/]/,
-              },
-            ],
-          },
-        },
-      },
-    },
+    plugins: [
+      tailwindcss(),
+      initialBundleBudget({
+        label: "website",
+        rawBytes: 550_000,
+        gzipBytes: 160_000,
+        forbiddenModules: [
+          /node_modules[\\/]mermaid[\\/]/,
+          /node_modules[\\/]@mermaid-js[\\/]parser[\\/]/,
+        ],
+      }),
+    ],
     resolve: {
       alias: [
         {

@@ -53,9 +53,14 @@ function files(directory) {
   });
 }
 
-function budget(path) {
+function budget(path, source) {
   const name = basename(path);
-  if (/^mermaid-parser-runtime[.-]/.test(name)) {
+  // 不依赖 chunk 文件名：移除手工 code-splitting 后 hash chunk 仍需独立预算，
+  // 用 Mermaid Langium runtime 的两个稳定生成标记识别，避免放宽其它延迟 chunk。
+  if (
+    /^mermaid-parser-runtime[.-]/.test(name) ||
+    (source.includes("vscode-languageserver-types@") && source.includes("WardleyGrammarGrammar"))
+  ) {
     return {
       raw: MERMAID_PARSER_RAW_LIMIT,
       gzip: MERMAID_PARSER_GZIP_LIMIT,
@@ -73,9 +78,10 @@ function budget(path) {
 const chunks = files(target.output)
   .filter((path) => extname(path) === ".js")
   .map((path) => {
+    const source = readFileSync(path);
     const size = statSync(path).size;
-    const limits = budget(path);
-    const gzip = limits.gzip === undefined ? undefined : gzipSync(readFileSync(path)).length;
+    const limits = budget(path, source);
+    const gzip = limits.gzip === undefined ? undefined : gzipSync(source).length;
     return { path, size, gzip, limits };
   })
   .sort((left, right) => right.size - left.size);

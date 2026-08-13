@@ -3,9 +3,22 @@ import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
 import { SHIKI_LANGS } from "./src/lib/langs";
+import { initialBundleBudget } from "./scripts/initial-bundle-budget";
 
 export default defineConfig({
-  plugins: [solid(), tailwindcss()],
+  plugins: [
+    solid(),
+    tailwindcss(),
+    initialBundleBudget({
+      label: "app",
+      rawBytes: 550_000,
+      gzipBytes: 160_000,
+      forbiddenModules: [
+        /node_modules[\\/]mermaid[\\/]/,
+        /node_modules[\\/]@mermaid-js[\\/]parser[\\/]/,
+      ],
+    }),
+  ],
   server: {
     port: 7823,
     strictPort: true,
@@ -13,19 +26,6 @@ export default defineConfig({
   build: {
     target: "esnext",
     outDir: "dist",
-    rolldownOptions: {
-      output: {
-        codeSplitting: {
-          groups: [
-            {
-              // 上游把 Langium 打进单一 parser module，命名后由 chunk budget 对它单独设限。
-              name: "mermaid-parser-runtime",
-              test: /node_modules[\\/]@mermaid-js[\\/]parser[\\/]/,
-            },
-          ],
-        },
-      },
-    },
   },
   // shiki 细粒度子路径依赖：不预声明会在 dev/test 首跑时触发 dep optimizer 二次扫描，
   // browser mode 下页面中途 reload 直接 flaky（vitest 报 "unexpectedly reloaded a test"）。
