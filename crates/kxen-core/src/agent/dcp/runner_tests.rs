@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
-use super::runner_support::{is_sensitive_child_env, validate_agent_output};
+use super::runner_support::{
+    DcpAutoApprove, ensure_private_dir, filtered_child_environment, is_sensitive_child_env, load_runtime_policy, same_message_content,
+    validate_agent_output, workspace_scope,
+};
 use super::*;
+use crate::tools::auto_approve::AutoApprove;
 
 #[test]
 fn json_output_contract_requires_an_object_and_all_fields() {
@@ -17,6 +21,70 @@ fn sensitive_environment_names_are_filtered_by_default() {
     assert!(is_sensitive_child_env("AWS_SHARED_CREDENTIALS_FILE"));
     assert!(!is_sensitive_child_env("CI"));
     assert!(!is_sensitive_child_env("SSH_AUTH_SOCK"));
+}
+
+#[test]
+fn runtime_helpers_apply_policy_scope_and_durable_audit() {
+    let root = std::env::temp_dir().join(format!("kxen-dcp-helpers-{}", uuid::Uuid::new_v4()));
+    ensure_private_dir(&root).unwrap();
+    let policy_file = root.join("policy.json");
+    std::fs::write(
+        &policy_file,
+        r#"{"allowedCapabilities":["read","write","exec"],"deniedCapabilities":["write"],"passEnv":["CI"],"maxTurns":7}"#,
+    )
+    .unwrap();
+    let options = DcpRuntimeOptions {
+        data_dir: root.join("state"),
+        config_file: root.join("config.toml"),
+        auth_file: root.join("auth.json"),
+        policy_file: Some(policy_file.clone()),
+        event_format: DcpEventFormat::Text,
+        allow_shell: true,
+        allow_mcp: true,
+        pass_env: vec!["SSH_AUTH_SOCK".into(), "CI".into()],
+    };
+    let policy = load_runtime_policy(&options).unwrap();
+    assert!(policy.allow_shell);
+    assert!(policy.allow_mcp);
+    assert_eq!(policy.pass_env, ["CI", "SSH_AUTH_SOCK"]);
+
+    let tool_home = root.join("tool-home");
+    let environment = filtered_child_environment(&policy, &tool_home).unwrap();
+    assert_eq!(environment.get(std::ffi::OsStr::new("HOME")).map(|value| value.as_os_str()), Some(tool_home.as_os_str()));
+    assert_eq!(
+        environment.get(std::ffi::OsStr::new("XDG_STATE_HOME")).map(|value| value.as_os_str()),
+        Some(tool_home.join("state").as_os_str())
+    );
+
+    let read_scope = workspace_scope(&root, &["read".into()]);
+    assert_eq!(read_scope.read.as_slice(), std::slice::from_ref(&root));
+    assert!(read_scope.write.is_empty());
+    assert!(read_scope.execute.is_empty());
+    let execute_scope = workspace_scope(&root, &["exec".into()]);
+    assert_eq!(execute_scope.read.as_slice(), std::slice::from_ref(&root));
+    assert_eq!(execute_scope.write.as_slice(), std::slice::from_ref(&root));
+    assert_eq!(execute_scope.execute.as_slice(), std::slice::from_ref(&root));
+    let empty_scope = workspace_scope(&root, &[]);
+    assert!(empty_scope.read.is_empty());
+
+    let first = crate::core::session::new_message("ses_helpers", crate::core::session::Role::User, vec![]);
+    let mut second = first.clone();
+    second.id = "msg_other".into();
+    second.created_at = second.created_at.saturating_add(1);
+    assert!(same_message_content(&first, &second).unwrap());
+    second.role = crate::core::session::Role::Assistant;
+    assert!(!same_message_content(&first, &second).unwrap());
+
+    let audit = root.join("approval.jsonl");
+    DcpAutoApprove::new(audit.clone(), "shell").try_auto_allow("cargo test").unwrap();
+    let entry: serde_json::Value = serde_json::from_str(std::fs::read_to_string(&audit).unwrap().trim()).unwrap();
+    assert_eq!(entry["schemaVersion"], 1);
+    assert_eq!(entry["category"], "shell");
+    assert!(entry["commandHash"].as_str().is_some_and(|value| !value.is_empty()));
+
+    std::fs::remove_file(audit).unwrap();
+    std::fs::remove_file(policy_file).unwrap();
+    std::fs::remove_dir(root).unwrap();
 }
 
 #[tokio::test]

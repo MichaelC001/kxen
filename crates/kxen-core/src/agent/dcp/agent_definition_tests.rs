@@ -50,3 +50,26 @@ fn provider_credentials_cannot_be_passed_to_tools() {
     let policy = DcpRuntimePolicy { pass_env: vec!["OPENAI_API_KEY".into()], ..Default::default() };
     assert!(policy.validate().unwrap_err().contains("provider credential"));
 }
+
+#[test]
+fn workspace_binding_verifies_identity_and_directory_type() {
+    let root = std::env::temp_dir().join(format!("kxen-dcp-binding-{}", uuid::Uuid::new_v4()));
+    let first = root.join("first");
+    let second = root.join("second");
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    let binding = WorkspaceBinding::capture(&first).unwrap();
+    assert_eq!(binding.verify(&first, false).unwrap(), binding);
+    assert!(binding.verify(&second, true).unwrap_err().contains("identity mismatch"));
+
+    let file = root.join("file");
+    std::fs::write(&file, "not a directory").unwrap();
+    assert!(WorkspaceBinding::capture(&file).unwrap_err().contains("not a directory"));
+    assert_eq!(sanitize_remote("ssh://git@example.com/o/r.git"), "ssh://example.com/o/r.git");
+    assert_eq!(sanitize_remote("git@example.com:o/r.git"), "git@example.com:o/r.git");
+
+    std::fs::remove_file(file).unwrap();
+    std::fs::remove_dir(first).unwrap();
+    std::fs::remove_dir(second).unwrap();
+    std::fs::remove_dir(root).unwrap();
+}

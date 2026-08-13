@@ -301,50 +301,5 @@ fn save_snapshot(path: &Path, snapshot: &DcpToolJournalSnapshot) -> Result<(), S
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn temp_dir() -> PathBuf {
-        std::env::temp_dir().join(format!("kxen-dcp-journal-{}", uuid::Uuid::new_v4()))
-    }
-
-    #[test]
-    fn completed_outcome_replays_only_for_the_same_call_id_until_turn_is_durable() {
-        let dir = temp_dir();
-        let journal = DcpRunToolJournal::open(&dir).unwrap();
-        assert_eq!(journal.before("call_a", "write", "{}", 1).unwrap(), ToolBoundaryAction::Execute);
-        journal.after("call_a", "write", "{}", "ok", false, 2).unwrap();
-        assert_eq!(
-            journal.before("call_a", "write", "{}", 3).unwrap(),
-            ToolBoundaryAction::Replay { output: "ok".into(), is_error: false }
-        );
-        assert_eq!(journal.before("call_b", "write", "{}", 3).unwrap(), ToolBoundaryAction::Execute);
-        journal.after("call_b", "write", "{}", "ok again", false, 4).unwrap();
-        journal
-            .settle_parts(&[crate::core::session::Part::ToolCall {
-                name: "write".into(),
-                input: serde_json::Value::Null,
-                output: "ok".into(),
-                args: Some(serde_json::json!({})),
-                id: Some("call_a".into()),
-            }])
-            .unwrap();
-        assert_eq!(journal.snapshot().operations[0].phase, DcpToolPhase::Settled);
-        assert_eq!(journal.snapshot().operations[1].phase, DcpToolPhase::OutcomeKnown);
-        std::fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn started_operation_becomes_unknown_after_restart() {
-        let dir = temp_dir();
-        {
-            let journal = DcpRunToolJournal::open(&dir).unwrap();
-            journal.before("call_a", "exec", "{}", 1).unwrap();
-        }
-        let journal = DcpRunToolJournal::open(&dir).unwrap();
-        let unknown = journal.reconcile(&[]).unwrap();
-        assert_eq!(unknown.len(), 1);
-        assert!(journal.should_pause());
-        std::fs::remove_dir_all(dir).ok();
-    }
-}
+#[path = "agent_journal_tests.rs"]
+mod tests;
