@@ -2,6 +2,21 @@
 
 此文件由 [git-cliff](https://github.com/orhun/git-cliff) 根据 Git tag 和 Conventional Commits 自动生成，请勿手动编辑。
 
+## [0.1.12] - 2026-08-14
+
+> **版本主题:** Isolated Agent Credential Boundaries
+
+### 本次更新
+
+- kxen-agent uses private one-shot auth files and process isolation to keep Provider credentials outside tool subprocesses. ([10848a8](https://github.com/StringKe/kxen/commit/10848a83c3e05cdf5343824e4b80c6a0381018d2))
+- GitHub Issue automation runs model roles without GitHub credentials and reserves write access for a clean trusted publisher. ([10848a8](https://github.com/StringKe/kxen/commit/10848a83c3e05cdf5343824e4b80c6a0381018d2))
+- Workflow command inputs, pinned containers, and deterministic diff gates protect autonomous Issue remediation from untrusted content. ([10848a8](https://github.com/StringKe/kxen/commit/10848a83c3e05cdf5343824e4b80c6a0381018d2))
+- Release notes are now validated before any platform build starts, preventing expensive late metadata failures. ([10848a8](https://github.com/StringKe/kxen/commit/10848a83c3e05cdf5343824e4b80c6a0381018d2))
+
+### 问题修复
+
+- **release:** Validate release notes before builds ([8c31044](https://github.com/StringKe/kxen/commit/8c310445b645efc7c7bc862e7e69adff95039e80))
+
 ## [0.1.11] - 2026-08-14
 
 ### 文档
