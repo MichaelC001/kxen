@@ -1,5 +1,5 @@
 {
-  "allowedCapabilities": ["mcp__github__issue_read"],
+  "allowedCapabilities": ["read"],
   "deniedCapabilities": [
     "delete",
     "edit",
@@ -7,7 +7,6 @@
     "glob",
     "grep",
     "lsp",
-    "read",
     "task",
     "webfetch",
     "websearch",
@@ -15,8 +14,8 @@
     "write"
   ],
   "allowShell": false,
-  "allowMcp": true,
-  "passEnv": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+  "allowMcp": false,
+  "passEnv": [],
   "maxTurns": 6,
   "maxWallClockMs": 180000
 }

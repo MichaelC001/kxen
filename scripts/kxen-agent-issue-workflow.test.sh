@@ -69,4 +69,32 @@ if "$helper" validate-result reviewer "$artifacts/reviewer-fail.json" >/dev/null
   exit 1
 fi
 
+workflow="$script_dir/../.github/workflows/kxen-issue-autofix.yml"
+[[ -f "$workflow" ]]
+[[ "$(grep -cF 'environment: agent-automation' "$workflow")" -eq 3 ]]
+[[ "$(grep -cF 'image: ubuntu:24.04@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea' "$workflow")" -eq 3 ]]
+[[ "$(grep -cF 'options: --security-opt no-new-privileges:true --cap-drop=SYS_PTRACE' "$workflow")" -eq 3 ]]
+[[ "$(grep -cF -- '--consume-auth-file' "$workflow")" -eq 3 ]]
+! grep -qF 'GITHUB_PERSONAL_ACCESS_TOKEN' "$workflow"
+! grep -qF 'github-mcp-server' "$workflow"
+awk '
+  /^      - name:/ { step = $0 }
+  /XAI_API_KEY: \$\{\{ secrets\.XAI_API_KEY \}\}/ {
+    if (step !~ /Materialize one-shot Provider credential/) exit 1
+    count += 1
+  }
+  END { if (count != 3) exit 1 }
+' "$workflow"
+awk '
+  /^      - name:/ { step = $0 }
+  /GH_TOKEN: \$\{\{ github\.token \}\}/ {
+    if (step ~ /Run context verifier|Run repository fixer|Run independent reviewer/) exit 1
+  }
+' "$workflow"
+publisher="$(sed -n '/^  publish:/,/^  report-failure:/p' "$workflow")"
+[[ "$publisher" != *'environment: agent-automation'* ]]
+[[ "$publisher" != *'XAI_API_KEY'* ]]
+[[ "$publisher" == *'cp "$GITHUB_WORKSPACE/scripts/kxen-agent-issue-workflow.sh" "$trusted/issue-workflow.sh"'* ]]
+[[ "$publisher" == *'helper="$trusted/issue-workflow.sh"'* ]]
+
 printf 'PASS kxen-agent GitHub Issue workflow helpers\n'
