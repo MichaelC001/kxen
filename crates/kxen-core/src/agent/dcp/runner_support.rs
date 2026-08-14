@@ -74,19 +74,24 @@ pub(super) fn is_sensitive_child_env(upper: &str) -> bool {
     if super::runtime_policy::is_provider_credential_env(upper) {
         return true;
     }
-    if matches!(upper, "SSH_AUTH_SOCK" | "GPG_TTY") {
-        return false;
-    }
     if matches!(
         upper,
-        "AWS_SHARED_CREDENTIALS_FILE"
+        "AWS_CONFIG_FILE"
+            | "AWS_SHARED_CREDENTIALS_FILE"
+            | "AZURE_CONFIG_DIR"
+            | "CLOUDSDK_CONFIG"
             | "DOCKER_CONFIG"
             | "GIT_ASKPASS"
             | "SSH_ASKPASS"
+            | "SSH_AUTH_SOCK"
+            | "SSH_AGENT_PID"
+            | "GPG_AGENT_INFO"
+            | "GNUPGHOME"
             | "GIT_CONFIG_GLOBAL"
             | "GIT_CONFIG_SYSTEM"
             | "KUBECONFIG"
             | "NETRC"
+            | "NPM_CONFIG_USERCONFIG"
     ) {
         return true;
     }

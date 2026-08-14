@@ -19,8 +19,12 @@ fn json_output_contract_requires_an_object_and_all_fields() {
 fn sensitive_environment_names_are_filtered_by_default() {
     assert!(is_sensitive_child_env("GH_TOKEN"));
     assert!(is_sensitive_child_env("AWS_SHARED_CREDENTIALS_FILE"));
+    assert!(is_sensitive_child_env("AWS_CONFIG_FILE"));
+    assert!(is_sensitive_child_env("CLOUDSDK_CONFIG"));
+    assert!(is_sensitive_child_env("GNUPGHOME"));
+    assert!(is_sensitive_child_env("SSH_AUTH_SOCK"));
     assert!(!is_sensitive_child_env("CI"));
-    assert!(!is_sensitive_child_env("SSH_AUTH_SOCK"));
+    assert!(!is_sensitive_child_env("GPG_TTY"));
 }
 
 #[test]
