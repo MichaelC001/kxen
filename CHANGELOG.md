@@ -12,6 +12,7 @@
 
 - **agent:** Isolate provider credentials from tools ([4750da8](https://github.com/StringKe/kxen/commit/4750da8c336428c9e347061d1f0c1cbb5867f5d2))
 - **actions:** Isolate autonomous model jobs ([6df9527](https://github.com/StringKe/kxen/commit/6df9527f9ab4534056a5ebc120f535c9bca2f3b8))
+- **actions:** Prevent workflow command injection ([6135b25](https://github.com/StringKe/kxen/commit/6135b25fd9ad0a887b095aedb5b860b4773df098))
 
 ## [0.1.10] - 2026-08-14
 
