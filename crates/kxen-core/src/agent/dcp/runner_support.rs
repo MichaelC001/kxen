@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::agent::agent_loop::ResourcePathScope;
+use crate::agent::agent_loop::{PersistTurn, ResourcePathScope};
 
 use super::{DcpAgentOutput, DcpAgentOutputFormat, DcpRunState, DcpRunToolJournal, DcpRuntimeOptions, DcpRuntimePolicy};
 
@@ -10,6 +10,25 @@ pub(super) fn same_message_content(left: &crate::core::session::Message, right: 
     let left = serde_json::to_value((&left.role, &left.parts, &left.model)).map_err(|error| error.to_string())?;
     let right = serde_json::to_value((&right.role, &right.parts, &right.model)).map_err(|error| error.to_string())?;
     Ok(left == right)
+}
+
+pub(super) fn turn_persister(
+    sessions_dir: &Path,
+    session_id: &str,
+    run_id: &str,
+    model: crate::llm::ModelRef,
+    journal: Arc<DcpRunToolJournal>,
+) -> PersistTurn {
+    let sessions_dir = sessions_dir.to_path_buf();
+    let session_id = session_id.to_string();
+    let run_id = run_id.to_string();
+    Arc::new(move |turn, parts| {
+        let mut message = crate::core::session::new_message(&session_id, crate::core::session::Role::Assistant, parts.clone());
+        message.id = format!("{run_id}_turn_{turn}");
+        message.model = Some(model.clone());
+        crate::core::session::append_message_idempotent_durable(&sessions_dir, &message).map_err(|error| error.to_string())?;
+        journal.settle_parts(&parts)
+    })
 }
 
 pub(super) fn recover_known_outcomes(sessions_dir: &Path, run: &DcpRunState, journal: &DcpRunToolJournal) -> Result<(), String> {

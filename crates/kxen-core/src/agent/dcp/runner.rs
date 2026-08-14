@@ -1,12 +1,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::agent::agent_loop::{AgentContext, AgentEvent, PersistTurn};
+use crate::agent::agent_loop::{AgentContext, AgentEvent};
 use crate::llm::Message;
 
 use super::runner_support::{
-    DcpAutoApprove, ensure_private_dir, filtered_child_environment, recover_known_outcomes, same_message_content, validate_agent_output,
-    workspace_scope,
+    DcpAutoApprove, ensure_private_dir, filtered_child_environment, recover_known_outcomes, same_message_content, turn_persister,
+    validate_agent_output, workspace_scope,
 };
 use super::runner_types::{DcpRunRequest, DcpRunResult, DcpRuntime, DcpRuntimeEvent};
 use super::{
@@ -163,7 +163,7 @@ impl DcpRuntime {
                 timeout_cancel.cancel();
             })
         });
-        let persist = self.turn_persister(&session.session_id, &run.run_id, model.clone(), journal.clone());
+        let persist = turn_persister(self.store.sessions_dir(), &session.session_id, &run.run_id, model.clone(), journal.clone());
         let sink = self.sink.clone();
         let event_session_id = session.session_id.clone();
         let event_run_id = run.run_id.clone();
@@ -336,18 +336,5 @@ impl DcpRuntime {
         };
         (self.sink)(DcpRuntimeEvent::RunFinished { result: result.clone() });
         Ok(result)
-    }
-
-    fn turn_persister(&self, session_id: &str, run_id: &str, model: crate::llm::ModelRef, journal: Arc<DcpRunToolJournal>) -> PersistTurn {
-        let sessions_dir = self.store.sessions_dir().to_path_buf();
-        let session_id = session_id.to_string();
-        let run_id = run_id.to_string();
-        Arc::new(move |turn, parts| {
-            let mut message = crate::core::session::new_message(&session_id, crate::core::session::Role::Assistant, parts.clone());
-            message.id = format!("{run_id}_turn_{turn}");
-            message.model = Some(model.clone());
-            crate::core::session::append_message_idempotent_durable(&sessions_dir, &message).map_err(|error| error.to_string())?;
-            journal.settle_parts(&parts)
-        })
     }
 }

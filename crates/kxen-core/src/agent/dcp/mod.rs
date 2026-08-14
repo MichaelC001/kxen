@@ -5,6 +5,8 @@ mod agent_definition;
 #[cfg(test)]
 mod agent_definition_tests;
 mod agent_journal;
+#[cfg(test)]
+mod agent_journal_tests;
 mod agent_store;
 mod runner;
 mod runner_support;

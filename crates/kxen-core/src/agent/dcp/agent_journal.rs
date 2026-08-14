@@ -347,7 +347,3 @@ fn save_snapshot(path: &Path, snapshot: &DcpToolJournalSnapshot) -> Result<(), S
     let bytes = serde_json::to_vec_pretty(snapshot).map_err(|error| error.to_string())?;
     crate::core::durability::atomic_replace(path, &bytes).map_err(|error| format!("write DCP tool journal {}: {error}", path.display()))
 }
-
-#[cfg(test)]
-#[path = "agent_journal_tests.rs"]
-mod tests;
