@@ -2,6 +2,34 @@
 
 此文件由 [git-cliff](https://github.com/orhun/git-cliff) 根据 Git tag 和 Conventional Commits 自动生成，请勿手动编辑。
 
+## [0.1.10] - 2026-08-14
+
+> **版本主题:** Autonomous Issue Remediation
+
+### 本次更新
+
+- kxen-agent can verify, implement, independently review, and publish bounded GitHub Issue fixes through isolated runners. ([3b87934](https://github.com/StringKe/kxen/commit/3b879348d8219ad32a4f60018bf350c61059a392))
+- GitHub repository automation now keeps platform operations outside DCPAgent and separates model credentials from write credentials. ([3b87934](https://github.com/StringKe/kxen/commit/3b879348d8219ad32a4f60018bf350c61059a392))
+- Desktop and headless assets build in parallel while preserving full signature, checksum, and updater verification. ([3b87934](https://github.com/StringKe/kxen/commit/3b879348d8219ad32a4f60018bf350c61059a392))
+- xAI roles default to the verified Grok 4.6 model. ([3b87934](https://github.com/StringKe/kxen/commit/3b879348d8219ad32a4f60018bf350c61059a392))
+
+### 性能优化
+
+- **release:** Parallelize desktop and headless assets ([f330388](https://github.com/StringKe/kxen/commit/f330388b96439afe795892d567d3f37bdb977efd))
+
+### 文档
+
+- Explain DCP and autonomous issue repair ([85ae29e](https://github.com/StringKe/kxen/commit/85ae29ea5140ea24654966d1bf78f8af24b03cd4))
+
+### 新增功能
+
+- **models:** Default xAI to Grok 4.6 ([6a69bd9](https://github.com/StringKe/kxen/commit/6a69bd9edae1969948e5a60d4499970bcfa87de8))
+- **agent:** Add reviewed GitHub issue automation ([59c4240](https://github.com/StringKe/kxen/commit/59c424020fdb61b4f7c849c8b83cd1bd09acb020))
+
+### 问题修复
+
+- **agent:** Harden headless shell execution ([c501a69](https://github.com/StringKe/kxen/commit/c501a695b0bd80aba4d93de5bf5e25efe8ddecdb))
+
 ## [0.1.9] - 2026-08-14
 
 > **版本主题:** DCPAgent 安全恢复与可信发布链路
