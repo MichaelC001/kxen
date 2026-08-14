@@ -1,0 +1,18 @@
+{
+  "allowedCapabilities": ["read", "glob", "grep", "exec"],
+  "deniedCapabilities": [
+    "delete",
+    "edit",
+    "lsp",
+    "task",
+    "webfetch",
+    "websearch",
+    "worktree",
+    "write"
+  ],
+  "allowShell": true,
+  "allowMcp": false,
+  "passEnv": [],
+  "maxTurns": 24,
+  "maxWallClockMs": 900000
+}

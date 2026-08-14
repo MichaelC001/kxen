@@ -41,10 +41,12 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Test release validation helpers
         run: |
-          bash -n scripts/github-release.sh scripts/prepare-release-assets.sh scripts/release-lib.sh \
+          bash -n scripts/github-release.sh scripts/kxen-agent-issue-workflow.sh scripts/kxen-agent-issue-workflow.test.sh \
+            scripts/prepare-release-assets.sh scripts/release-lib.sh \
             scripts/release-lib.test.sh scripts/release-manifest.sh scripts/validate-release.sh \
             scripts/verify-macos-release.sh scripts/verify-release-assets.sh
           /bin/bash scripts/release-lib.test.sh
+          /bin/bash scripts/kxen-agent-issue-workflow.test.sh
           bash scripts/release-manifest.sh json | jq -e '.include | length == 6' > /dev/null
           node --check scripts/verify-updater-signature.mjs
       - name: Install frontend dependencies
@@ -115,6 +117,15 @@ jobs:
         # Windows 暂不跑测试：lib 大量行为测试是 unix 语义（symlink/0600/kill 进程组），首跑基线待建
         if: runner.os != 'Windows'
         run: cargo test --workspace --all-targets --all-features
+      - name: Validate GitHub Issue DCPAgent contracts
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          for role in context fixer reviewer; do
+            cargo run -p kxen-agent -- agent validate \
+              "examples/kxen-agent/github-issue/$role.dcpagent.yaml" \
+              --policy "examples/kxen-agent/github-issue/$role.policy.json"
+          done
       - name: Lint all Rust targets and features
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Enforce Rust coverage gate

@@ -1,0 +1,22 @@
+{
+  "allowedCapabilities": ["mcp__github__issue_read"],
+  "deniedCapabilities": [
+    "delete",
+    "edit",
+    "exec",
+    "glob",
+    "grep",
+    "lsp",
+    "read",
+    "task",
+    "webfetch",
+    "websearch",
+    "worktree",
+    "write"
+  ],
+  "allowShell": false,
+  "allowMcp": true,
+  "passEnv": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+  "maxTurns": 6,
+  "maxWallClockMs": 180000
+}

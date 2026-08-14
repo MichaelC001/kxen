@@ -1,0 +1,542 @@
+---
+name: Kxen Issue Autofix
+
+on:
+  issues:
+    types:
+      - labeled
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Existing bug issue carrying the kxen:fix label
+        required: true
+        type: number
+
+permissions: {}
+
+concurrency:
+  group: kxen-issue-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Authorize issue request
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'kxen:fix')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      issue: ${{ steps.metadata.outputs.issue }}
+      base: ${{ steps.metadata.outputs.base }}
+      branch: ${{ steps.metadata.outputs.branch }}
+    steps:
+      - name: Resolve actor, labels, and repository metadata
+        id: metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+        run: |
+          set -euo pipefail
+          permission="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" --jq '.permission')"
+          case "$permission" in
+            admin | maintain | write) ;;
+            *)
+              printf 'actor %s does not have write permission\n' "$GITHUB_ACTOR"
+              exit 1
+              ;;
+          esac
+          labels="$(gh issue view "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq '[.labels[].name]')"
+          jq -e 'index("bug") != null and index("kxen:fix") != null' <<< "$labels" >/dev/null
+          base="$(gh repo view "$GITHUB_REPOSITORY" --json defaultBranchRef --jq '.defaultBranchRef.name')"
+          {
+            printf 'issue=%s\n' "$ISSUE_NUMBER"
+            printf 'base=%s\n' "$base"
+            printf 'branch=kxen-agent/issue-%s\n' "$ISSUE_NUMBER"
+          } >> "$GITHUB_OUTPUT"
+
+  context:
+    name: Verify GitHub Issue context
+    needs: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: agent-automation
+    permissions:
+      contents: read
+      issues: read
+    env:
+      KXEN_AGENT_VERSION: ${{ vars.KXEN_AGENT_VERSION }}
+      XAI_MODEL: ${{ vars.XAI_MODEL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.gate.outputs.base }}
+          persist-credentials: false
+
+      - name: Install verified kxen-agent and GitHub MCP releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_MCP_VERSION: v1.9.0
+          GITHUB_MCP_LINUX_X86_64_SHA256: cbf38bd3364518ccf80b6a25587d5ef11655b15d63cbb48bc066384d0b5b5964
+        run: |
+          set -euo pipefail
+          [[ "$KXEN_AGENT_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          agent_dir="$RUNNER_TEMP/kxen-agent-bin"
+          mcp_dir="$RUNNER_TEMP/github-mcp-bin"
+          mkdir -p "$agent_dir" "$mcp_dir"
+          gh release download "$KXEN_AGENT_VERSION" \
+            --repo StringKe/kxen \
+            --pattern kxen-agent-linux-x86_64.tar.gz \
+            --pattern SHA256SUMS \
+            --dir "$agent_dir"
+          (
+            cd "$agent_dir"
+            grep ' kxen-agent-linux-x86_64.tar.gz$' SHA256SUMS | sha256sum -c -
+            tar -xzf kxen-agent-linux-x86_64.tar.gz
+            chmod 0755 kxen-agent
+          )
+          gh release download "$GITHUB_MCP_VERSION" \
+            --repo github/github-mcp-server \
+            --pattern github-mcp-server_Linux_x86_64.tar.gz \
+            --dir "$mcp_dir"
+          printf '%s  %s\n' \
+            "$GITHUB_MCP_LINUX_X86_64_SHA256" \
+            "$mcp_dir/github-mcp-server_Linux_x86_64.tar.gz" \
+            | sha256sum -c -
+          tar -xzf "$mcp_dir/github-mcp-server_Linux_x86_64.tar.gz" -C "$mcp_dir"
+          chmod 0755 "$mcp_dir/github-mcp-server"
+          printf '%s\n' "$agent_dir" "$mcp_dir" >> "$GITHUB_PATH"
+
+      - name: Prepare least-privilege runtime
+        id: runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$XAI_MODEL" =~ ^[A-Za-z0-9._:/-]+$ ]]
+          root="$RUNNER_TEMP/kxen-agent-context-runtime"
+          workspace="$RUNNER_TEMP/kxen-github-context"
+          state="$RUNNER_TEMP/kxen-agent-context-state"
+          handoff="$RUNNER_TEMP/kxen-context-handoff"
+          mkdir -p "$root" "$workspace" "$state" "$handoff"
+          {
+            printf '[roles.planning]\nprovider = "xai"\nmodel = "%s"\n\n' "$XAI_MODEL"
+            printf '[limits]\nglobal_concurrent = 1\ndaily_token_budget = 80000\n\n'
+            printf '[limits.providers.xai]\nconcurrent = 1\nrpm = 10\n'
+            printf 'input_usd_per_million = 2.0\noutput_usd_per_million = 6.0\n'
+            printf 'daily_cost_budget_usd = 1.0\ncircuit_failure_threshold = 2\ncircuit_cooldown_seconds = 60\n'
+          } > "$root/config.toml"
+          jq -n \
+            --arg command "$RUNNER_TEMP/github-mcp-bin/github-mcp-server" \
+            '{
+              mcpServers: {
+                github: {
+                  type: "stdio",
+                  command: $command,
+                  args: ["stdio", "--read-only", "--lockdown-mode", "--tools", "issue_read"]
+                }
+              },
+              toolPolicies: {
+                github: "deny",
+                "github.issue_read": "allow"
+              }
+            }' > "$workspace/.mcp.json"
+          chmod 0600 "$root/config.toml" "$workspace/.mcp.json"
+          {
+            printf 'root=%s\n' "$root"
+            printf 'workspace=%s\n' "$workspace"
+            printf 'state=%s\n' "$state"
+            printf 'handoff=%s\n' "$handoff"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run context verifier
+        shell: bash
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          GITHUB_PERSONAL_ACCESS_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          handoff='${{ steps.runtime.outputs.handoff }}'
+          kxen-agent run \
+            --workspace '${{ steps.runtime.outputs.workspace }}' \
+            --agent examples/kxen-agent/github-issue/context.dcpagent.yaml \
+            --policy examples/kxen-agent/github-issue/context.policy.json \
+            --config '${{ steps.runtime.outputs.root }}/config.toml' \
+            --state-dir '${{ steps.runtime.outputs.state }}' \
+            --task 'Read GitHub Issue ${{ github.repository }}#${{ needs.gate.outputs.issue }} and return its bounded implementation contract.' \
+            --format jsonl \
+            | tee "$handoff/context.jsonl"
+          bash scripts/kxen-agent-issue-workflow.sh extract-result "$handoff/context.jsonl" "$handoff/context.json"
+          bash scripts/kxen-agent-issue-workflow.sh validate-result context "$handoff/context.json"
+          jq -e \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --argjson issue '${{ needs.gate.outputs.issue }}' \
+            '(.issue.owner + "/" + .issue.repo) == $repository and .issue.number == $issue' \
+            "$handoff/context.json" >/dev/null
+
+      - name: Preserve context and recovery evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: kxen-agent-context-${{ github.run_id }}
+          path: |
+            ${{ steps.runtime.outputs.handoff }}
+            ${{ steps.runtime.outputs.state }}
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+  fixer:
+    name: Implement and verify candidate fix
+    needs:
+      - gate
+      - context
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: agent-automation
+    permissions:
+      contents: read
+    env:
+      KXEN_AGENT_VERSION: ${{ vars.KXEN_AGENT_VERSION }}
+      XAI_MODEL: ${{ vars.XAI_MODEL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.gate.outputs.base }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Freeze trusted definitions and prepare issue branch
+        id: trusted
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          trusted="$RUNNER_TEMP/kxen-agent-trusted"
+          mkdir -p "$trusted/github-issue"
+          cp scripts/kxen-agent-issue-workflow.sh "$trusted/issue-workflow.sh"
+          cp examples/kxen-agent/github-issue/* "$trusted/github-issue/"
+          chmod 0755 "$trusted/issue-workflow.sh"
+          bash "$trusted/issue-workflow.sh" prepare-branch \
+            '${{ needs.gate.outputs.branch }}' \
+            '${{ needs.gate.outputs.base }}'
+          if ! git diff --quiet 'origin/${{ needs.gate.outputs.base }}' HEAD --; then
+            bash "$trusted/issue-workflow.sh" validate-diff 'origin/${{ needs.gate.outputs.base }}'
+          fi
+          parent="$(git rev-parse HEAD)"
+          printf '%s\n' "$parent" > "$RUNNER_TEMP/kxen-candidate-parent"
+          {
+            printf 'root=%s\n' "$trusted"
+            printf 'parent=%s\n' "$parent"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install verified kxen-agent release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$KXEN_AGENT_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          agent_dir="$RUNNER_TEMP/kxen-agent-bin"
+          mkdir -p "$agent_dir"
+          gh release download "$KXEN_AGENT_VERSION" \
+            --repo StringKe/kxen \
+            --pattern kxen-agent-linux-x86_64.tar.gz \
+            --pattern SHA256SUMS \
+            --dir "$agent_dir"
+          (
+            cd "$agent_dir"
+            grep ' kxen-agent-linux-x86_64.tar.gz$' SHA256SUMS | sha256sum -c -
+            tar -xzf kxen-agent-linux-x86_64.tar.gz
+            chmod 0755 kxen-agent
+          )
+          printf '%s\n' "$agent_dir" >> "$GITHUB_PATH"
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: kxen-agent-context-${{ github.run_id }}
+          path: ${{ runner.temp }}/kxen-context-artifact
+
+      - name: Prepare fixer runtime
+        id: runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$XAI_MODEL" =~ ^[A-Za-z0-9._:/-]+$ ]]
+          root="$RUNNER_TEMP/kxen-agent-fixer-runtime"
+          state="$RUNNER_TEMP/kxen-agent-fixer-state"
+          handoff="$RUNNER_TEMP/kxen-fixer-handoff"
+          mkdir -p "$root" "$state" "$handoff"
+          {
+            printf '[roles.execution]\nprovider = "xai"\nmodel = "%s"\n\n' "$XAI_MODEL"
+            printf '[limits]\nglobal_concurrent = 1\ndaily_token_budget = 140000\n\n'
+            printf '[limits.providers.xai]\nconcurrent = 1\nrpm = 10\n'
+            printf 'input_usd_per_million = 2.0\noutput_usd_per_million = 6.0\n'
+            printf 'daily_cost_budget_usd = 2.0\ncircuit_failure_threshold = 2\ncircuit_cooldown_seconds = 60\n'
+          } > "$root/config.toml"
+          chmod 0600 "$root/config.toml"
+          cp "$RUNNER_TEMP/kxen-context-artifact/kxen-context-handoff/context.json" "$handoff/context.json"
+          {
+            printf 'root=%s\n' "$root"
+            printf 'state=%s\n' "$state"
+            printf 'handoff=%s\n' "$handoff"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run repository fixer
+        shell: bash
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          handoff='${{ steps.runtime.outputs.handoff }}'
+          kxen-agent run \
+            --workspace "$GITHUB_WORKSPACE" \
+            --agent '${{ steps.trusted.outputs.root }}/github-issue/fixer.dcpagent.yaml' \
+            --policy '${{ steps.trusted.outputs.root }}/github-issue/fixer.policy.json' \
+            --config '${{ steps.runtime.outputs.root }}/config.toml' \
+            --state-dir '${{ steps.runtime.outputs.state }}' \
+            --task-file "$handoff/context.json" \
+            --format jsonl \
+            | tee "$handoff/fixer.jsonl"
+
+      - name: Validate and export candidate patch
+        shell: bash
+        env:
+          PATH: /usr/local/bin:/usr/bin:/bin
+        run: |
+          set -euo pipefail
+          helper='${{ steps.trusted.outputs.root }}/issue-workflow.sh'
+          handoff='${{ steps.runtime.outputs.handoff }}'
+          [[ "$(git rev-parse HEAD)" == '${{ steps.trusted.outputs.parent }}' ]]
+          bash "$helper" extract-result "$handoff/fixer.jsonl" "$handoff/fixer.json"
+          bash "$helper" validate-result fixer "$handoff/fixer.json"
+          bash "$helper" validate-diff 'origin/${{ needs.gate.outputs.base }}'
+          bash "$helper" export-patch HEAD "$handoff/candidate.patch"
+          printf '%s\n' '${{ steps.trusted.outputs.parent }}' > "$handoff/candidate-parent"
+
+      - name: Preserve candidate and recovery evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: kxen-agent-candidate-${{ github.run_id }}
+          path: |
+            ${{ steps.runtime.outputs.handoff }}
+            ${{ steps.runtime.outputs.state }}
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+  reviewer:
+    name: Independently review candidate fix
+    needs:
+      - gate
+      - fixer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: agent-automation
+    permissions:
+      contents: read
+    env:
+      KXEN_AGENT_VERSION: ${{ vars.KXEN_AGENT_VERSION }}
+      XAI_MODEL: ${{ vars.XAI_MODEL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.gate.outputs.base }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Freeze trusted reviewer definition
+        id: trusted
+        shell: bash
+        run: |
+          set -euo pipefail
+          trusted="$RUNNER_TEMP/kxen-agent-trusted"
+          mkdir -p "$trusted/github-issue"
+          cp scripts/kxen-agent-issue-workflow.sh "$trusted/issue-workflow.sh"
+          cp examples/kxen-agent/github-issue/reviewer.* "$trusted/github-issue/"
+          chmod 0755 "$trusted/issue-workflow.sh"
+          printf 'root=%s\n' "$trusted" >> "$GITHUB_OUTPUT"
+
+      - name: Install verified kxen-agent release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$KXEN_AGENT_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          agent_dir="$RUNNER_TEMP/kxen-agent-bin"
+          mkdir -p "$agent_dir"
+          gh release download "$KXEN_AGENT_VERSION" \
+            --repo StringKe/kxen \
+            --pattern kxen-agent-linux-x86_64.tar.gz \
+            --pattern SHA256SUMS \
+            --dir "$agent_dir"
+          (
+            cd "$agent_dir"
+            grep ' kxen-agent-linux-x86_64.tar.gz$' SHA256SUMS | sha256sum -c -
+            tar -xzf kxen-agent-linux-x86_64.tar.gz
+            chmod 0755 kxen-agent
+          )
+          printf '%s\n' "$agent_dir" >> "$GITHUB_PATH"
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: kxen-agent-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/kxen-candidate-artifact
+
+      - name: Prepare isolated reviewer Workspace
+        id: runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$XAI_MODEL" =~ ^[A-Za-z0-9._:/-]+$ ]]
+          helper='${{ steps.trusted.outputs.root }}/issue-workflow.sh'
+          candidate="$RUNNER_TEMP/kxen-candidate-artifact/kxen-fixer-handoff"
+          bash "$helper" apply-patch "$candidate/candidate.patch"
+          bash "$helper" validate-diff 'origin/${{ needs.gate.outputs.base }}'
+          root="$RUNNER_TEMP/kxen-agent-reviewer-runtime"
+          state="$RUNNER_TEMP/kxen-agent-reviewer-state"
+          handoff="$RUNNER_TEMP/kxen-reviewer-handoff"
+          mkdir -p "$root" "$state" "$handoff"
+          {
+            printf '[roles.review]\nprovider = "xai"\nmodel = "%s"\n\n' "$XAI_MODEL"
+            printf '[limits]\nglobal_concurrent = 1\ndaily_token_budget = 100000\n\n'
+            printf '[limits.providers.xai]\nconcurrent = 1\nrpm = 10\n'
+            printf 'input_usd_per_million = 2.0\noutput_usd_per_million = 6.0\n'
+            printf 'daily_cost_budget_usd = 1.5\ncircuit_failure_threshold = 2\ncircuit_cooldown_seconds = 60\n'
+          } > "$root/config.toml"
+          chmod 0600 "$root/config.toml"
+          jq -n \
+            --slurpfile issue "$candidate/context.json" \
+            --slurpfile fixer "$candidate/fixer.json" \
+            '{issueContext:$issue[0], fixerClaim:$fixer[0]}' \
+            > "$handoff/reviewer-task.json"
+          fingerprint="$(bash "$helper" source-fingerprint)"
+          {
+            printf 'root=%s\n' "$root"
+            printf 'state=%s\n' "$state"
+            printf 'handoff=%s\n' "$handoff"
+            printf 'fingerprint=%s\n' "$fingerprint"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run independent reviewer
+        shell: bash
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          handoff='${{ steps.runtime.outputs.handoff }}'
+          kxen-agent run \
+            --workspace "$GITHUB_WORKSPACE" \
+            --agent '${{ steps.trusted.outputs.root }}/github-issue/reviewer.dcpagent.yaml' \
+            --policy '${{ steps.trusted.outputs.root }}/github-issue/reviewer.policy.json' \
+            --config '${{ steps.runtime.outputs.root }}/config.toml' \
+            --state-dir '${{ steps.runtime.outputs.state }}' \
+            --task-file "$handoff/reviewer-task.json" \
+            --format jsonl \
+            | tee "$handoff/reviewer.jsonl"
+
+      - name: Validate independent review
+        shell: bash
+        env:
+          PATH: /usr/local/bin:/usr/bin:/bin
+        run: |
+          set -euo pipefail
+          helper='${{ steps.trusted.outputs.root }}/issue-workflow.sh'
+          handoff='${{ steps.runtime.outputs.handoff }}'
+          bash "$helper" extract-result "$handoff/reviewer.jsonl" "$handoff/reviewer.json"
+          bash "$helper" validate-result reviewer "$handoff/reviewer.json"
+          actual="$(bash "$helper" source-fingerprint)"
+          [[ "$actual" == '${{ steps.runtime.outputs.fingerprint }}' ]]
+
+      - name: Preserve review and recovery evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: kxen-agent-review-${{ github.run_id }}
+          path: |
+            ${{ steps.runtime.outputs.handoff }}
+            ${{ steps.runtime.outputs.state }}
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    name: Publish reviewed draft pull request
+    needs:
+      - gate
+      - fixer
+      - reviewer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.gate.outputs.base }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: kxen-agent-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/kxen-candidate-artifact
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: kxen-agent-review-${{ github.run_id }}
+          path: ${{ runner.temp }}/kxen-review-artifact
+
+      - name: Reconstruct and publish from isolated trusted runner
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          helper="$GITHUB_WORKSPACE/scripts/kxen-agent-issue-workflow.sh"
+          candidate="$RUNNER_TEMP/kxen-candidate-artifact/kxen-fixer-handoff"
+          review="$RUNNER_TEMP/kxen-review-artifact/kxen-reviewer-handoff"
+          parent="$(< "$candidate/candidate-parent")"
+          bash "$helper" prepare-publish-branch \
+            '${{ needs.gate.outputs.branch }}' \
+            '${{ needs.gate.outputs.base }}' \
+            "$parent"
+          bash "$helper" apply-patch "$candidate/candidate.patch"
+          bash "$helper" publish \
+            '${{ needs.gate.outputs.issue }}' \
+            '${{ needs.gate.outputs.branch }}' \
+            '${{ needs.gate.outputs.base }}' \
+            "$candidate/fixer.json" \
+            "$review/reviewer.json"
+
+  report-failure:
+    name: Report failed automation run
+    if: ${{ always() && needs.gate.result == 'success' && needs.publish.result != 'success' }}
+    needs:
+      - gate
+      - context
+      - fixer
+      - reviewer
+      - publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Comment with protected run evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh issue comment '${{ needs.gate.outputs.issue }}'
+          --repo '${{ github.repository }}'
+          --body 'kxen-agent did not publish a draft fix. Inspect the protected workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
