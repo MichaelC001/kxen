@@ -62,9 +62,9 @@ cargo build --release -p kxen-agent
 
 ### GitHub Issue 自动修复
 
-`.github/workflows/kxen-issue-autofix.yml` 是一个完整场景实现，不是 DCP 核心协议。它用官方 GitHub MCP 的只读 `issue_read` capability 获取 Issue contract，让没有 GitHub token 的 fixer 修改 Workspace，再由没有 edit/write capability 的 reviewer 独立验证；各角色和 publisher 运行在相互隔离的 jobs 中。只有结构化结果和 deterministic diff gate 全部 PASS 后，全新的可信 runner 才从校验过的 text patch 重建变更并创建 topic branch、draft PR 和 Issue comment。
+`.github/workflows/kxen-issue-autofix.yml` 是一个完整场景实现，不是 DCP 核心协议。可信的 `gh` step 先读取一个 Issue，再把结构化数据交给没有 GitHub token、Shell 或 MCP 的 context DCPAgent；fixer 修改 Workspace，reviewer 在独立 checkout 中验证。只有结构化结果和 deterministic diff gate 全部 PASS 后，全新的可信 runner 才从校验过的 text patch 重建变更并创建 topic branch、draft PR 和 Issue comment。
 
-启用时在 `agent-automation` GitHub Environment 配置 `XAI_API_KEY` secret，以及 `XAI_MODEL`、`KXEN_AGENT_VERSION` variables。具有 write 权限的维护者给 `bug` Issue 添加 `kxen:fix` label 后开始执行。definitions、policies、凭据边界和恢复方法见 [自动化与 GitHub 场景](https://kxen.ai/agent-cli/automation/)。
+启用时在 `agent-automation` GitHub Environment 配置 `XAI_API_KEY` secret，以及 `XAI_MODEL`、`KXEN_AGENT_VERSION` variables。模型 jobs 在独立 job containers 中运行，通过可信 step 创建 private one-shot auth file，`kxen-agent` 在任何 tool subprocess 启动前消费并 unlink；模型 runner 不获得 GitHub credential。具有 write 权限的维护者给 `bug` Issue 添加 `kxen:fix` label 后开始执行。definitions、policies、凭据边界和恢复方法见 [自动化与 GitHub 场景](https://kxen.ai/agent-cli/automation/)。
 
 ## DCP
 

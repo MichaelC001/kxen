@@ -20,7 +20,7 @@ GitHub Actions、GitLab CI、Webhook handler、queue worker、`kxen` server 和�
 
 1. 使用独立 checkout 或 worktree，避免多个 run 共享可变文件。
 2. 为并发工作单元选择独立 state directory；恢复同一 Session 时依赖 run lease 串行化。
-3. 通过 Kxen config 配置 MRM roles，通过 auth file 或受支持的 provider API key 环境变量提供 LLM credential。
+3. 通过 Kxen config 配置 MRM roles。没有 tool subprocess 的 worker 可以使用 auth file 或受支持的 provider API key 环境变量；启用 Shell 或 MCP subprocess 的 worker 必须使用显式的 private one-shot auth file 和 `--consume-auth-file`。
 4. 使用 policy 限制 capability、turn、wall clock、Shell、MCP 和工具可见 env。
 5. 保存 JSONL 日志。需要跨 ephemeral runner 恢复时同时保存 Session bundle 或完整 state artifact。
 6. 只把显式需要的外部 token 传给对应 capability；provider credential 不进入普通工具环境。
@@ -33,16 +33,17 @@ GitHub Actions、GitLab CI、Webhook handler、queue worker、`kxen` server 和�
 
 执行链路如下：
 
-| 阶段             | 可用能力                                                    | Credential 边界                                                |
-| ---------------- | ----------------------------------------------------------- | -------------------------------------------------------------- |
-| Issue context    | 官方 GitHub MCP 的 `issue_read`，启用 read-only 和 lockdown | 只在该进程传入 GitHub token；没有 Shell 或 Workspace file tool |
-| Repository fixer | Workspace read、search、edit、write、exec 和 LSP            | 没有 GitHub token；provider key 不进入 exec 子进程             |
-| Reviewer         | Workspace read、search 和 exec，不提供 edit/write           | 没有 GitHub token；review 前后 source fingerprint 必须一致     |
-| Host publisher   | 全新 runner 中受控的 `git` 和 `gh` 调用                     | 只有三角色 PASS、diff gate PASS 后才获得 GitHub write token    |
+| 阶段             | 可用能力                                            | Credential 边界                                              |
+| ---------------- | --------------------------------------------------- | ------------------------------------------------------------ |
+| Issue input      | 可信 `gh` step 读取一个 Issue 并生成结构化 task     | 只在该 step 使用 read token；模型尚未启动                    |
+| Issue context    | 只分析结构化 task；仅能 read 一个空的隔离 Workspace | 没有 GitHub token                                            |
+| Repository fixer | Workspace read、search、edit、write、exec 和 LSP    | 没有 GitHub token；one-shot provider file 在任何 exec 前消费 |
+| Reviewer         | Workspace read、search 和 exec，不提供 edit/write   | 没有 GitHub token；one-shot credential 已 unlink             |
+| Host publisher   | 全新 runner 中受控的 `git` 和 `gh` 调用             | 只有三角色 PASS、diff gate PASS 后才获得 GitHub write token  |
 
-GitHub MCP server 固定到经过 SHA256 校验的官方 release，并只暴露一个精确工具。官方 server、read-only 和 lockdown 配置说明见 [github/github-mcp-server](https://github.com/github/github-mcp-server)、[Remote GitHub MCP Server](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md) 和 [Server configuration](https://github.com/github/github-mcp-server/blob/main/docs/server-configuration.md)。
+context、fixer、reviewer 和 publisher 使用相互隔离的 jobs。三个模型 jobs 还分别运行在独立的 Ubuntu job container 中，不共享 host PID namespace；container 不挂载 Docker socket，并显式移除 `SYS_PTRACE`。fixer 只能导出 text patch，reviewer 从 immutable artifact 在全新 checkout 中重建候选；publisher 再次从可信 `main` checkout 验证 artifact、远端 parent commit 和完整 diff。模型运行过的 runner 永远不会获得 GitHub write token。
 
-context、fixer、reviewer 和 publisher 使用相互隔离的 jobs。fixer 只能导出 text patch，reviewer 从 immutable artifact 在全新 checkout 中重建候选；publisher 再次从可信 `main` checkout 验证 artifact、远端 parent commit 和完整 diff。模型运行过的 runner 永远不会获得 GitHub write token。
+每个模型 job 用一个只执行可信 `jq` 的独立 step 把 Environment secret 写成 `0600` one-shot auth file。下一 step 不再注入 `XAI_API_KEY`，`kxen-agent --consume-auth-file` 在启动 tool runtime 前读取并 unlink 文件；初始化失败时专用 cleanup step 也会清除它。启用 Shell 或 MCP subprocess 的 runtime 如果发现持久 auth credential、provider credential 环境变量、错误 owner、group/other 权限、symlink 或多个 hardlink，会 fail closed。Linux agent 进程同时设为 non-dumpable，macOS 使用 `PT_DENY_ATTACH` 限制 debugger attach；其他 OS 上 credentialed tool subprocess 会 fail closed。GitHub 场景的 host process 隔离由 job container 提供。JSONL、Session、tool journal 和 workflow artifacts 不保存 auth store。
 
 publisher 还会确定性拒绝空 diff、超过 20 个文件或 1200 行的 diff、binary 文件，以及对 workflow、DCPAgent policy、GitHub Action、CODEOWNERS 和自身 publisher script 等信任边界的修改。通过后只创建或更新 `kxen-agent/issue-<number>` 分支和 draft PR，不自动合并。
 
@@ -52,21 +53,22 @@ publisher 还会确定性拒绝空 diff、超过 20 个文件或 1200 行的 dif
 
 - Environment secret `XAI_API_KEY`。
 - Environment variable `XAI_MODEL`，值为当前验证过的 xAI model ID。
-- Environment variable `KXEN_AGENT_VERSION`，值为要运行的稳定 Kxen SemVer tag，例如 `v0.1.10`。
+- Environment variable `KXEN_AGENT_VERSION`，值为要运行的稳定 Kxen SemVer tag，例如 `v0.1.11`。
 
 为仓库创建 `kxen:fix` label。Issue 必须同时带有 `bug` 和 `kxen:fix`，而且 `kxen:fix` 必须由具有 `write`、`maintain` 或 `admin` 权限的 actor 添加。也可以从 Actions 页面用已有 Issue number 手动执行；相同权限与 label gate 仍然生效。
 
 ```text
 bug + kxen:fix
   -> authorized actor gate
-  -> Issue context verifier
+  -> trusted Issue input
+  -> GitHub-credential-free context verifier
   -> repository fixer
   -> independent reviewer
   -> deterministic diff gate
   -> topic branch + draft PR + Issue comment
 ```
 
-每个 run 以 Issue number 做 concurrency key，不会取消同一 Issue 的在途执行。分阶段 workflow artifacts 保存三个角色的 JSONL、结构化结果、candidate patch 和 durable state 14 天。state 不含 provider credential，但包含 Issue 内容、工具输出和代码上下文，应按私有执行证据管理。
+每个 run 以 Issue number 做 concurrency key，不会取消同一 Issue 的在途执行。分阶段 workflow artifacts 保存三个角色的 JSONL、结构化结果、candidate patch 和 durable state 14 天。state 不含 provider credential 或 one-shot auth file，但包含 Issue 内容、工具输出和代码上下文，应按私有执行证据管理。
 
 ## 恢复与分支
 
