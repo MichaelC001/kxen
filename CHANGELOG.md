@@ -2,6 +2,12 @@
 
 此文件由 [git-cliff](https://github.com/orhun/git-cliff) 根据 Git tag 和 Conventional Commits 自动生成，请勿手动编辑。
 
+## [Unreleased]
+
+### 文档
+
+- **changelog:** Complete v0.1.8 notes ([4f4d294](https://github.com/StringKe/kxen/commit/4f4d29424401929f4b32a9c80e62969ffafd0371))
+
 ## [0.1.8] - 2026-08-14
 
 > **版本主题:** 可扩展 OKF 知识与混合检索
