@@ -21,6 +21,7 @@ pub const OPENAI: &[StaticModel] = &[
 ];
 
 pub const XAI: &[StaticModel] = &[
+    m("grok-4.6", "Grok 4.6", 500_000, true, true),
     m("grok-4.5", "Grok 4.5", 500_000, true, true),
     m("grok-4.3", "Grok 4.3", 1_000_000, true, true),
     m("grok-build-0.1", "Grok Build 0.1", 256_000, true, true),

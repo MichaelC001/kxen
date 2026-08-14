@@ -12,7 +12,7 @@ async fn seeded_chat_role_resolves() {
     let mrm = seeded_mrm();
     let store = crate::auth::credential::AuthStore::default();
     let resolved = mrm.resolve("chat", &store).await.expect("chat 种子必须可 resolve");
-    assert_eq!((resolved.provider.as_str(), resolved.model.as_str()), ("xai", "grok-build-0.1"));
+    assert_eq!((resolved.provider.as_str(), resolved.model.as_str()), ("xai", "grok-4.6"));
 }
 
 /// peek 与 resolve 同序结论但不写派发历史：轮询路径不得污染 mrm.stats。
@@ -21,7 +21,7 @@ async fn peek_resolves_without_recording_history() {
     let mrm = seeded_mrm();
     let store = crate::auth::credential::AuthStore::default();
     let peeked = mrm.peek("chat", &store).await.expect("peek 必须命中");
-    assert_eq!(peeked.model, "grok-build-0.1");
+    assert_eq!(peeked.model, "grok-4.6");
     assert!(mrm.history().await.is_empty(), "peek 不得记录派发历史");
     assert!(mrm.resolve("chat", &store).await.is_some());
     assert_eq!(mrm.history().await.len(), 1, "resolve 保持记录语义");

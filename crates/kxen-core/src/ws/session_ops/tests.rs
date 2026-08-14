@@ -94,7 +94,7 @@ fn chat_model_or_fallback_arms() {
     let model = chat_model_or_fallback(Some(binding));
     assert_eq!((model.provider.as_str(), model.model.as_str(), model.account.as_deref()), ("anthropic", "claude-sonnet-4-6", Some("work")));
     let model = chat_model_or_fallback(None);
-    assert_eq!((model.provider.as_str(), model.model.as_str(), model.account.as_deref()), ("xai", "grok-build-0.1", None));
+    assert_eq!((model.provider.as_str(), model.model.as_str(), model.account.as_deref()), ("xai", "grok-4.6", None));
 }
 
 #[test]

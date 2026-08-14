@@ -222,8 +222,8 @@ impl Config {
     }
 
     /// 七角色默认绑定：只补缺位（用户 config 逐项覆盖）。
-    /// 思考/评审走 claude（评审需独立产出质量），主会话/执行走 grok-build（命令调度快），
-    /// 研究走 grok-4.5（长上下文检索），规划走 kimi-for-coding 的 k3（1M 上下文推理型；
+    /// 思考/评审走 claude（评审需独立产出质量），主会话、执行和研究走 Grok 4.6，
+    /// 规划走 kimi-for-coding 的 k3（1M 上下文推理型；
     /// provider key 必须对齐订阅探测导入键，否则探测到的凭证不会被该角色命中）。
     /// 用户没有的订阅由 mrm candidates 跳过（无凭证 provider 不出候选），降级链走到真实持有的订阅。
     fn seed_default_roles(&mut self) {
@@ -234,13 +234,13 @@ impl Config {
             account: None,
         };
         let defaults: [(&str, RoleBinding); 7] = [
-            ("chat", binding("xai", "grok-build-0.1", Some("execution"))),
+            ("chat", binding("xai", "grok-4.6", Some("execution"))),
             ("thinking", binding("anthropic", "claude-opus-4-8", Some("planning"))),
             ("planning", binding("kimi-for-coding", "k3", Some("review"))),
-            ("execution", binding("xai", "grok-build-0.1", Some("research"))),
+            ("execution", binding("xai", "grok-4.6", Some("research"))),
             ("review", binding("anthropic", "claude-sonnet-4-6", Some("thinking"))),
-            ("research", binding("xai", "grok-4.5", Some("execution"))),
-            ("suggestion", binding("xai", "grok-build-0.1", Some("chat"))),
+            ("research", binding("xai", "grok-4.6", Some("execution"))),
+            ("suggestion", binding("xai", "grok-4.6", Some("chat"))),
         ];
         for (role, b) in defaults {
             self.roles.entry(role.to_string()).or_insert(b);

@@ -273,7 +273,7 @@ fn chat_model_or_fallback(binding: Option<kxen_core::core::config::RoleBinding>)
             m.account = binding.account;
             m
         }
-        None => kxen_core::llm::ModelRef::new("xai", "grok-build-0.1"),
+        None => kxen_core::llm::ModelRef::new("xai", "grok-4.6"),
     }
 }
 

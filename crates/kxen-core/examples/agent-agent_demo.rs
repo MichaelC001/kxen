@@ -23,7 +23,7 @@ async fn main() {
         child_env: None,
         path_grants: Arc::new(Default::default()),
         path_scope: None,
-        model: ModelRef::new("xai", "grok-build-0.1"),
+        model: ModelRef::new("xai", "grok-4.6"),
         store: store.into(),
         max_turns: 8,
         max_pure_retries: None,

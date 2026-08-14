@@ -163,7 +163,7 @@ fn consolidation_route(
             model.account = binding.account;
             model
         }
-        None => kxen_core::llm::ModelRef::new("xai", "grok-build-0.1"),
+        None => kxen_core::llm::ModelRef::new("xai", "grok-4.6"),
     };
     let mut model = kxen_core::core::session::effective_model(session.model.as_ref(), &default).clone();
     model.account = kxen_core::auth::credential::effective_account_name(store, &model.provider, model.account.as_deref());

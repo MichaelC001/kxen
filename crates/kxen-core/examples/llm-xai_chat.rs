@@ -20,7 +20,7 @@ async fn main() {
         }
     };
     let mrm = kxen_core::llm::mrm::ModelResourceManager::new(config);
-    let model = ModelRef::new("xai", "grok-build-0.1");
+    let model = ModelRef::new("xai", "grok-4.6");
     let messages = vec![Message::user("Reply with exactly one word: pong")];
     match kxen_core::llm::managed::collect_text(&mrm, &model, &messages, &store, std::time::Duration::from_secs(60), None, None).await {
         Ok(output) => {

@@ -40,7 +40,7 @@ pub(super) const XAI: ProviderSpec = ProviderSpec {
     auth: Oauth,
     regions: &[RegionSpec { key: "global", display: GL, base_url: "https://api.x.ai/v1" }],
     models_endpoint: true,
-    default_model: "grok-build-0.1",
+    default_model: "grok-4.6",
     doc_url: "https://docs.x.ai",
     models_dev: Some("xai"),
     static_models: seeds::XAI,

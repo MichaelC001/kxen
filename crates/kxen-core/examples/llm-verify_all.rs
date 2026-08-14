@@ -21,7 +21,7 @@ async fn main() {
     let cases = [
         ("anthropic", "claude-sonnet-4-5-20250929"),
         ("openai", "gpt-5.4"),
-        ("xai", "grok-build-0.1"),
+        ("xai", "grok-4.6"),
         ("kimi-for-coding", "kimi-for-coding"),
         ("deepseek", "deepseek-chat"),
         ("mistral", "mistral-large-latest"),
