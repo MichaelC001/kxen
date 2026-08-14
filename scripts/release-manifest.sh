@@ -152,12 +152,24 @@ kxen_release_asset_map() {
   esac
 }
 
+# 一个平台的桌面 bundle 稳定 asset 名,每行一个。
+kxen_release_desktop_assets() {
+  local platform="$1"
+  kxen_release_asset_map "$platform" | cut -d'|' -f3
+}
+
+# 一个平台的无头 server 与 agent CLI 稳定 asset 名,每行一个。
+kxen_release_headless_assets() {
+  local platform="$1"
+  kxen_release_web_asset "$platform"
+  kxen_release_agent_asset "$platform"
+}
+
 # 一个平台的全部稳定 asset 名(桌面 bundle + kxen server + kxen-agent CLI),每行一个。
 kxen_release_assets() {
   local platform="$1"
-  kxen_release_asset_map "$platform" | cut -d'|' -f3
-  kxen_release_web_asset "$platform"
-  kxen_release_agent_asset "$platform"
+  kxen_release_desktop_assets "$platform"
+  kxen_release_headless_assets "$platform"
 }
 
 kxen_release_manifest_json() {
@@ -190,12 +202,12 @@ kxen_release_manifest_main() {
       kxen_release_platform_exists "$platform" || return 1
       kxen_release_updater_original_name "$platform" "${3:-}"
       ;;
-    assets)
+    assets | desktop-assets | headless-assets)
       kxen_release_platform_exists "$platform" || return 1
-      kxen_release_assets "$platform"
+      "kxen_release_${command//-/_}" "$platform"
       ;;
     *)
-      printf 'usage: release-manifest.sh <json|platforms|runner|target|os|signed|updater-key|updater-asset|updater-original|web-asset|agent-asset|assets> [platform] [version]\n' >&2
+      printf 'usage: release-manifest.sh <json|platforms|runner|target|os|signed|updater-key|updater-asset|updater-original|web-asset|agent-asset|assets|desktop-assets|headless-assets> [platform] [version]\n' >&2
       return 1
       ;;
   esac

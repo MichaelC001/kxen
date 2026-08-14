@@ -86,8 +86,8 @@ jobs:
           matrix_json="$(bash scripts/release-manifest.sh json | jq -c .)"
           printf 'matrix=%s\n' "$matrix_json" >> "$GITHUB_OUTPUT"
 
-  build:
-    name: Build ${{ matrix.platform }} assets
+  desktop:
+    name: Build ${{ matrix.platform }} desktop assets
     needs:
       - validate
       - matrix
@@ -131,7 +131,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         if: matrix.platform == 'macos-x86_64' || startsWith(matrix.platform, 'windows-')
         with:
-          key: release-${{ matrix.target }}
+          key: release-desktop-${{ matrix.target }}
           cache-bin: "false"
       # tauri/webkit 系统依赖（tray-icon 需要 libayatana-appindicator），与 ci.yml 清单一致：仅 Linux
       # xdg-utils：deb/AppImage bundler 调用 xdg-open（arm64 runner 镜像不自带，amd64 自带所以历史上没暴露）
@@ -299,15 +299,188 @@ jobs:
         run: >-
           bash "$RUNNER_TEMP/trusted-release-tools/verify-macos-release.sh"
           "target/${{ matrix.target }}/release/bundle"
+      - name: Clear temporary signing material
+        if: ${{ always() && matrix.signed }}
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/kxen-signing.keychain-db" 2>/dev/null || true
+          for path in "$RUNNER_TEMP/kxen-certificate.p12" "$RUNNER_TEMP/app-store-connect.p8"; do
+            if [[ -f "$path" ]]; then
+              : > "$path"
+              chmod 000 "$path"
+            fi
+          done
+      - name: Prepare verified desktop asset set
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: >-
+          bash "$RUNNER_TEMP/trusted-release-tools/prepare-release-assets.sh"
+          "${{ matrix.platform }}"
+          "$RELEASE_TAG"
+          "$GITHUB_REPOSITORY"
+          "target/${{ matrix.target }}/release/bundle"
+          "$RUNNER_TEMP/release-assets"
+          desktop
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-desktop-${{ matrix.platform }}-${{ needs.validate.outputs.tag }}
+          path: ${{ runner.temp }}/release-assets/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  headless:
+    name: Build ${{ matrix.platform }} headless assets
+    needs:
+      - validate
+      - matrix
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    environment: release
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Preserve trusted release tools
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/trusted-release-tools"
+          cp scripts/{github-release,prepare-release-assets,release-lib,release-manifest,validate-release,verify-macos-release,verify-release-assets}.sh \
+            scripts/verify-updater-signature.mjs \
+            "$RUNNER_TEMP/trusted-release-tools/"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 11.15.1
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: matrix.platform == 'macos-x86_64' || startsWith(matrix.platform, 'windows-')
+        with:
+          key: release-headless-${{ matrix.target }}
+          cache-bin: "false"
+      - run: pnpm install --frozen-lockfile
+      - name: Build frontend dist for rust-embed
+        run: pnpm build
+      - name: Validate macOS CLI signing credentials
+        if: matrix.signed
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          required=(
+            APPLE_CERTIFICATE
+            APPLE_CERTIFICATE_PASSWORD
+            APPLE_TEAM_ID
+            APPLE_API_ISSUER
+            APPLE_API_KEY
+            APPLE_API_PRIVATE_KEY
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name}" ]]; then
+              printf 'missing release secret: %s\n' "$name"
+              exit 1
+            fi
+          done
+          if [[ ! "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then
+            printf 'APPLE_TEAM_ID must contain 10 uppercase letters or digits\n'
+            exit 1
+          fi
+          if [[ ! "$APPLE_API_KEY" =~ ^[A-Z0-9]{10}$ ]]; then
+            printf 'APPLE_API_KEY must contain 10 uppercase letters or digits\n'
+            exit 1
+          fi
+          if [[ ! "$APPLE_API_ISSUER" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]]; then
+            printf 'APPLE_API_ISSUER must be a UUID\n'
+            exit 1
+          fi
+      - name: Import Developer ID certificate
+        if: matrix.signed
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          KXEN_KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          KXEN_KEYCHAIN_PATH="$RUNNER_TEMP/kxen-signing.keychain-db"
+          KXEN_CERTIFICATE_PATH="$RUNNER_TEMP/kxen-certificate.p12"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 -D > "$KXEN_CERTIFICATE_PATH"
+          security create-keychain -p "$KXEN_KEYCHAIN_PASSWORD" "$KXEN_KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KXEN_KEYCHAIN_PATH"
+          security unlock-keychain -p "$KXEN_KEYCHAIN_PASSWORD" "$KXEN_KEYCHAIN_PATH"
+          security import "$KXEN_CERTIFICATE_PATH" \
+            -k "$KXEN_KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security list-keychain -d user -s "$KXEN_KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KXEN_KEYCHAIN_PASSWORD" \
+            "$KXEN_KEYCHAIN_PATH"
+          KXEN_SIGNING_IDENTITY_LINES="$(
+            security find-identity -v -p codesigning "$KXEN_KEYCHAIN_PATH" |
+              awk '/Developer ID Application/'
+          )"
+          KXEN_SIGNING_IDENTITY_COUNT="$(printf '%s\n' "$KXEN_SIGNING_IDENTITY_LINES" | awk 'NF { count += 1 } END { print count + 0 }')"
+          if [[ "$KXEN_SIGNING_IDENTITY_COUNT" != 1 ]]; then
+            printf 'expected exactly one Developer ID Application identity, found %s\n' "$KXEN_SIGNING_IDENTITY_COUNT"
+            exit 1
+          fi
+          if [[ "$KXEN_SIGNING_IDENTITY_LINES" != *"($APPLE_TEAM_ID)"* ]]; then
+            printf 'Developer ID Application identity does not match APPLE_TEAM_ID\n'
+            exit 1
+          fi
+          KXEN_SIGNING_IDENTITY="$(awk '{ print $2 }' <<< "$KXEN_SIGNING_IDENTITY_LINES")"
+          if [[ ! "$KXEN_SIGNING_IDENTITY" =~ ^[0-9A-F]{40}$ ]]; then
+            printf 'Developer ID Application identity does not expose one SHA-1 hash\n'
+            exit 1
+          fi
+          printf 'APPLE_SIGNING_IDENTITY=%s\n' "$KXEN_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+      - name: Prepare App Store Connect key
+        if: matrix.signed
+        shell: bash
+        env:
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          KXEN_API_KEY_PATH="$RUNNER_TEMP/app-store-connect.p8"
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$KXEN_API_KEY_PATH"
+          printf 'APPLE_API_KEY_PATH=%s\n' "$KXEN_API_KEY_PATH" >> "$GITHUB_ENV"
       - name: Build kxen headless server and agent CLI
         shell: bash
-        # rust-embed 编译期读取 dist/,tauri build 已产出前端产物,kxen 编译排在它后面。
         run: >-
           cargo build --release
           -p kxen-cli -p kxen-agent --target ${{ matrix.target }}
-      # kxen 与 kxen-agent 是裸 Mach-O,不签名会被 Gatekeeper 拦截;与 .app/DMG 共用同一证书和公证链。
-      # 必须在 Clear temporary signing material 之前完成签名和公证。
-      - name: Sign and notarize kxen CLI
+      - name: Sign and notarize macOS CLI assets
         if: matrix.signed
         shell: bash
         env:
@@ -330,8 +503,6 @@ jobs:
             codesign --verify --strict --verbose=2 "$cli_path"
             cp -p "$cli_path" "$notarize_dir/$cli_name"
           done
-          # 裸二进制无法 staple ticket;公证提交 zip,ticket 在线生效,
-          # zip 仅用于提交,已签名二进制照常打进 tar.gz。
           cli_zip="$RUNNER_TEMP/kxen-notarize-${{ matrix.platform }}.zip"
           ditto -c -k --keepParent "$notarize_dir" "$cli_zip"
           xcrun notarytool submit "$cli_zip" \
@@ -339,8 +510,6 @@ jobs:
             --key-id "$APPLE_API_KEY" \
             --issuer "$APPLE_API_ISSUER" \
             --wait
-          rm -f "$cli_zip"
-          rm -rf "$notarize_dir"
       - name: Clear temporary signing material
         if: ${{ always() && matrix.signed }}
         shell: bash
@@ -352,7 +521,7 @@ jobs:
               chmod 000 "$path"
             fi
           done
-      - name: Prepare verified release asset set
+      - name: Prepare verified headless asset set
         shell: bash
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
@@ -361,11 +530,12 @@ jobs:
           "${{ matrix.platform }}"
           "$RELEASE_TAG"
           "$GITHUB_REPOSITORY"
-          "target/${{ matrix.target }}/release/bundle"
+          -
           "$RUNNER_TEMP/release-assets"
+          headless
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-${{ matrix.platform }}-${{ needs.validate.outputs.tag }}
+          name: release-headless-${{ matrix.platform }}-${{ needs.validate.outputs.tag }}
           path: ${{ runner.temp }}/release-assets/*
           if-no-files-found: error
           compression-level: 0
@@ -375,7 +545,8 @@ jobs:
     name: Publish verified GitHub release
     needs:
       - validate
-      - build
+      - desktop
+      - headless
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: release

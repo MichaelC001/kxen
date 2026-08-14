@@ -76,6 +76,17 @@ if kxen_compare_stable_release_tags v01.2.3 v1.2.3 >/dev/null 2>&1; then
   fail 'invalid comparison operand was accepted'
 fi
 
+for platform in "${KXEN_RELEASE_PLATFORMS[@]}"; do
+  combined="$(kxen_release_assets "$platform")"
+  split="$(printf '%s\n%s\n' "$(kxen_release_desktop_assets "$platform")" "$(kxen_release_headless_assets "$platform")")"
+  if [[ "$combined" != "$split" ]]; then
+    fail "desktop and headless asset subsets do not reconstruct $platform"
+  fi
+  if [[ "$(kxen_release_headless_assets "$platform" | wc -l | tr -d ' ')" != 2 ]]; then
+    fail "headless asset subset does not contain exactly two files for $platform"
+  fi
+done
+
 commit_a='0123456789abcdef0123456789abcdef01234567'
 commit_b='89abcdef0123456789abcdef0123456789abcdef'
 if ! kxen_require_release_source_parity \
