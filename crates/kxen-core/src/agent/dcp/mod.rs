@@ -9,6 +9,8 @@ mod agent_journal;
 mod agent_journal_tests;
 mod agent_store;
 mod runner;
+#[cfg(test)]
+mod runner_security_tests;
 mod runner_support;
 #[cfg(test)]
 mod runner_tests;

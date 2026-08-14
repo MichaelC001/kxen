@@ -42,6 +42,16 @@ fn sensitive_environment_passes_are_explicit_and_repeatable() {
 }
 
 #[test]
+fn one_shot_auth_file_is_explicit() {
+    let Parsed::Command(command) = parse(args(&["--task", "fix", "--auth-file", "one-shot.json", "--consume-auth-file"])).unwrap() else {
+        panic!("run")
+    };
+    let Command::Run(run) = *command else { panic!("run") };
+    assert_eq!(run.common.auth_file.as_deref(), Some(std::path::Path::new("one-shot.json")));
+    assert!(run.common.consume_auth_file);
+}
+
+#[test]
 fn help_is_available_at_every_command_depth() {
     assert!(matches!(parse(args(&["run", "--help"])).unwrap(), Parsed::Help));
     assert!(matches!(parse(args(&["session", "fork", "--help"])).unwrap(), Parsed::Help));

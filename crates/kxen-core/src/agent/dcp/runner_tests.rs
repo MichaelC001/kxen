@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use super::runner_support::{
-    DcpAutoApprove, ensure_private_dir, filtered_child_environment, is_sensitive_child_env, load_runtime_policy, same_message_content,
-    validate_agent_output, workspace_scope,
+    DcpAutoApprove, ensure_private_dir, filtered_child_environment, load_runtime_policy, same_message_content, validate_agent_output,
+    workspace_scope,
 };
 use super::*;
 use crate::tools::auto_approve::AutoApprove;
@@ -13,21 +13,6 @@ fn json_output_contract_requires_an_object_and_all_fields() {
     assert!(validate_agent_output(&output, r#"{"summary":"ok","checks":[]}"#).is_ok());
     assert!(validate_agent_output(&output, r#"{"summary":"ok"}"#).unwrap_err().contains("checks"));
     assert!(validate_agent_output(&output, "[]").is_err());
-}
-
-#[test]
-fn sensitive_environment_names_are_filtered_by_default() {
-    assert!(is_sensitive_child_env("GH_TOKEN"));
-    assert!(is_sensitive_child_env("AWS_SHARED_CREDENTIALS_FILE"));
-    assert!(is_sensitive_child_env("AWS_CONFIG_FILE"));
-    assert!(is_sensitive_child_env("CLOUDSDK_CONFIG"));
-    assert!(is_sensitive_child_env("GNUPGHOME"));
-    assert!(is_sensitive_child_env("SSH_AUTH_SOCK"));
-    assert!(is_sensitive_child_env("GITHUB_ENV"));
-    assert!(is_sensitive_child_env("GITHUB_OUTPUT"));
-    assert!(is_sensitive_child_env("GITHUB_PATH"));
-    assert!(!is_sensitive_child_env("CI"));
-    assert!(!is_sensitive_child_env("GPG_TTY"));
 }
 
 #[test]
@@ -44,6 +29,7 @@ fn runtime_helpers_apply_policy_scope_and_durable_audit() {
         data_dir: root.join("state"),
         config_file: root.join("config.toml"),
         auth_file: root.join("auth.json"),
+        consume_auth_file: false,
         policy_file: Some(policy_file.clone()),
         event_format: DcpEventFormat::Text,
         allow_shell: true,
@@ -124,6 +110,7 @@ async fn predefined_agent_runs_and_resumes_multiple_durable_tasks() {
             data_dir: state,
             config_file,
             auth_file: root.join("auth.json"),
+            consume_auth_file: false,
             policy_file: None,
             event_format: DcpEventFormat::Jsonl,
             allow_shell: false,
@@ -247,6 +234,7 @@ async fn headless_shell_permission_executes_with_durable_auto_approval() {
             data_dir: state,
             config_file,
             auth_file: root.join("auth.json"),
+            consume_auth_file: false,
             policy_file: None,
             event_format: DcpEventFormat::Jsonl,
             allow_shell: true,
@@ -289,6 +277,7 @@ fn unknown_tool_outcome_emits_input_required_without_terminal_settlement() {
             data_dir: state,
             config_file: root.join("config.toml"),
             auth_file: root.join("auth.json"),
+            consume_auth_file: false,
             policy_file: None,
             event_format: DcpEventFormat::Jsonl,
             allow_shell: false,

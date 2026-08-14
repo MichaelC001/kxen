@@ -29,6 +29,7 @@ COMMON OPTIONS:
   --state-dir PATH            Runtime state root; defaults to KXEN_AGENT_STATE_DIR or kxen/agent
   --config FILE               Provider/MRM config; defaults to ~/.config/kxen/config.toml
   --auth-file FILE            Credential store; defaults to the kxen auth.json
+  --consume-auth-file         Load an explicit private auth file once, then unlink it before execution
   --policy FILE               JSON runtime policy restricting capabilities and budgets
   --allow-shell               Permit noninteractive shell after immutable safety denies
   --allow-mcp                 Permit DCPAgent-requested MCP tools and policy Ask entries
@@ -37,7 +38,8 @@ COMMON OPTIONS:
   -h, --help                  Show help
   -V, --version               Show version
 
-Provider API keys may be supplied through the existing auth.json or supported environment variables.
+Runs with shell or MCP subprocesses and Provider credentials require --consume-auth-file and an explicit --auth-file.
+Provider API keys may otherwise be supplied through the existing auth.json or supported environment variables.
 Credentials are never written to Session bundles.
 "#;
 
@@ -46,6 +48,7 @@ pub struct Common {
     pub state_dir: Option<PathBuf>,
     pub config: Option<PathBuf>,
     pub auth_file: Option<PathBuf>,
+    pub consume_auth_file: bool,
     pub policy: Option<PathBuf>,
     pub output: DcpEventFormat,
     pub allow_shell: bool,
@@ -59,6 +62,7 @@ impl Default for Common {
             state_dir: None,
             config: None,
             auth_file: None,
+            consume_auth_file: false,
             policy: None,
             output: DcpEventFormat::Jsonl,
             allow_shell: false,
@@ -174,6 +178,10 @@ impl Command {
 
     pub fn auth_file(&self) -> PathBuf {
         self.common().auth_file.clone().unwrap_or_else(kxen_core::core::paths::auth_file)
+    }
+
+    pub fn consumes_auth_file(&self) -> bool {
+        self.common().consume_auth_file
     }
 
     pub fn policy_file(&self) -> Option<PathBuf> {

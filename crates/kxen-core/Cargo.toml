@@ -63,6 +63,9 @@ sha2 = "0.11"
 getrandom = "0.4"
 notify-rust = "4"
 
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+libc = "0.2"
+
 # voice 的 Speech.framework / AVFAudio 手写绑定（voice/objc.rs）只在 macOS 编译
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

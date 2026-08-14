@@ -2596,6 +2596,7 @@ dependencies = [
  "getrandom 0.4.3",
  "globset",
  "ignore",
+ "libc",
  "notify-rust",
  "objc2",
  "objc2-foundation",

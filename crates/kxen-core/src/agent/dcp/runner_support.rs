@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -178,7 +179,71 @@ pub(super) fn load_runtime_policy(options: &DcpRuntimeOptions) -> Result<DcpRunt
     Ok(policy)
 }
 
-pub(super) fn load_auth_with_env(path: &Path) -> Result<crate::auth::credential::AuthStore, String> {
+pub(super) fn load_auth(path: &Path, consume: bool) -> Result<crate::auth::credential::AuthStore, String> {
+    if consume {
+        return consume_auth_file(path);
+    }
+    load_auth_with_env(path)
+}
+
+fn consume_auth_file(path: &Path) -> Result<crate::auth::credential::AuthStore, String> {
+    for variable in provider_credential_variables() {
+        if std::env::var_os(variable).is_some_and(|value| !value.is_empty()) {
+            return Err(format!(
+                "{variable} must be absent when --consume-auth-file is used; launch the agent in a separate credential-free step"
+            ));
+        }
+    }
+    #[cfg(unix)]
+    let mut file = {
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(path)
+            .map_err(|error| format!("open private one-shot auth file {}: {error}", path.display()))?;
+        let metadata = file.metadata().map_err(|error| format!("inspect one-shot auth file {}: {error}", path.display()))?;
+        if !metadata.is_file() {
+            return Err(format!("one-shot auth file must be a regular file: {}", path.display()));
+        }
+        if metadata.mode() & 0o077 != 0 {
+            return Err(format!("one-shot auth file must not be accessible by group or other users: {}", path.display()));
+        }
+        if metadata.uid() != unsafe { libc::geteuid() } {
+            return Err(format!("one-shot auth file must be owned by the current user: {}", path.display()));
+        }
+        if metadata.nlink() != 1 {
+            return Err(format!("one-shot auth file must have exactly one hard link: {}", path.display()));
+        }
+        file
+    };
+    #[cfg(not(unix))]
+    let mut file = {
+        let metadata =
+            std::fs::symlink_metadata(path).map_err(|error| format!("inspect one-shot auth file {}: {error}", path.display()))?;
+        if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+            return Err(format!("one-shot auth file must be a regular file, not a symlink: {}", path.display()));
+        }
+        std::fs::File::open(path).map_err(|error| format!("open one-shot auth file {}: {error}", path.display()))?
+    };
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(|error| format!("read one-shot auth file {}: {error}", path.display()))?;
+    let store = serde_json::from_slice(&bytes).map_err(|error| format!("parse one-shot auth file {}: {error}", path.display()))?;
+    std::fs::remove_file(path).map_err(|error| format!("unlink one-shot auth file {} before execution: {error}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+
+        let metadata = file.metadata().map_err(|error| format!("verify consumed auth file {}: {error}", path.display()))?;
+        if metadata.nlink() != 0 {
+            return Err(format!("one-shot auth file changed while it was being consumed: {}", path.display()));
+        }
+    }
+    Ok(store)
+}
+
+fn load_auth_with_env(path: &Path) -> Result<crate::auth::credential::AuthStore, String> {
     let mut store = crate::auth::credential::read_auth_file(path).map_err(|error| format!("load auth store: {error}"))?;
     let mappings = BTreeMap::from([
         ("ANTHROPIC_API_KEY", "anthropic"),
@@ -198,6 +263,48 @@ pub(super) fn load_auth_with_env(path: &Path) -> Result<crate::auth::credential:
         }
     }
     Ok(store)
+}
+
+fn provider_credential_variables() -> [&'static str; 8] {
+    [
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "XAI_API_KEY",
+        "GOOGLE_API_KEY",
+        "OPENROUTER_API_KEY",
+        "GROQ_API_KEY",
+        "MISTRAL_API_KEY",
+        "DEEPSEEK_API_KEY",
+    ]
+}
+
+pub(super) fn harden_tool_process_isolation() -> Result<bool, String> {
+    static HARDENED: std::sync::OnceLock<Result<bool, String>> = std::sync::OnceLock::new();
+    HARDENED
+        .get_or_init(|| {
+            #[cfg(target_os = "linux")]
+            {
+                // Tool subprocesses share the runner UID. Marking the orchestrator non-dumpable
+                // prevents those children from reading its environment or memory through /proc/ptrace.
+                let result = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
+                if result != 0 {
+                    return Err(format!("protect DCP orchestrator from tool subprocess inspection: {}", std::io::Error::last_os_error()));
+                }
+                Ok(true)
+            }
+            #[cfg(target_os = "macos")]
+            {
+                // PT_DENY_ATTACH is irreversible for this process and fails closed before tools start.
+                let result = unsafe { libc::ptrace(libc::PT_DENY_ATTACH, 0, std::ptr::null_mut(), 0) };
+                if result != 0 {
+                    return Err(format!("protect DCP orchestrator from tool subprocess inspection: {}", std::io::Error::last_os_error()));
+                }
+                Ok(true)
+            }
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+            Ok(false)
+        })
+        .clone()
 }
 
 pub(super) fn ensure_private_dir(path: &Path) -> Result<(), String> {

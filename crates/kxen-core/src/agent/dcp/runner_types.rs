@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use crate::agent::agent_loop::SessionExtrasRegistry;
 
-use super::runner_support::{DcpAutoApprove, ensure_private_dir, filtered_child_environment, load_auth_with_env, load_runtime_policy};
+use super::runner_support::{
+    DcpAutoApprove, ensure_private_dir, filtered_child_environment, harden_tool_process_isolation, load_auth, load_runtime_policy,
+};
 use super::{DcpRunStatus, DcpRuntimePolicy, DcpStore};
 
 const DEFAULT_CAPABILITIES: &[&str] = &[
@@ -37,6 +39,7 @@ pub struct DcpRuntimeOptions {
     pub data_dir: PathBuf,
     pub config_file: PathBuf,
     pub auth_file: PathBuf,
+    pub consume_auth_file: bool,
     pub policy_file: Option<PathBuf>,
     pub event_format: DcpEventFormat,
     pub allow_shell: bool,
@@ -102,8 +105,19 @@ impl DcpRuntime {
         let sessions_dir = options.data_dir.join("sessions");
         ensure_private_dir(&sessions_dir)?;
         let config = crate::core::config::Config::load(&options.config_file, None).map_err(|error| error.to_string())?;
-        let auth_store = Arc::new(load_auth_with_env(&options.auth_file)?);
         let bootstrap_policy = load_runtime_policy(&options)?;
+        let has_tool_subprocesses = bootstrap_policy.allow_shell || bootstrap_policy.allow_mcp;
+        let tool_process_isolated = if has_tool_subprocesses { harden_tool_process_isolation()? } else { true };
+        if has_tool_subprocesses && options.consume_auth_file && !tool_process_isolated {
+            return Err("one-shot Provider credentials with shell or MCP subprocesses require Linux or macOS process isolation".into());
+        }
+        let auth_store = Arc::new(load_auth(&options.auth_file, options.consume_auth_file)?);
+        if has_tool_subprocesses && !auth_store.is_empty() && !options.consume_auth_file {
+            return Err(
+                "DCP execution with shell or MCP subprocesses and Provider credentials requires an explicit --auth-file and --consume-auth-file"
+                    .into(),
+            );
+        }
         let tool_home = options.data_dir.join("tool-home");
         ensure_private_dir(&tool_home)?;
         let child_environment = filtered_child_environment(&bootstrap_policy, &tool_home)?;

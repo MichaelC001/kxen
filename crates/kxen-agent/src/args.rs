@@ -197,6 +197,7 @@ fn parse_common(option: &str, args: &[String], index: &mut usize, common: &mut C
         "--state-dir" => common.state_dir = Some(PathBuf::from(value(args, index, option)?)),
         "--config" => common.config = Some(PathBuf::from(value(args, index, option)?)),
         "--auth-file" => common.auth_file = Some(PathBuf::from(value(args, index, option)?)),
+        "--consume-auth-file" => common.consume_auth_file = true,
         "--policy" => common.policy = Some(PathBuf::from(value(args, index, option)?)),
         "--allow-shell" => common.allow_shell = true,
         "--allow-mcp" => common.allow_mcp = true,

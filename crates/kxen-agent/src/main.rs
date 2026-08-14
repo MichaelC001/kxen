@@ -49,11 +49,15 @@ async fn run(command: args::Command) -> ExitCode {
         command => command,
     };
     let sink = event_sink(output);
+    if command.consumes_auth_file() && command.common().auth_file.is_none() {
+        return fail(output, "--consume-auth-file requires an explicit --auth-file");
+    }
     let runtime = match DcpRuntime::new(
         DcpRuntimeOptions {
             data_dir: command.data_dir(),
             config_file: command.config_file(),
             auth_file: command.auth_file(),
+            consume_auth_file: command.consumes_auth_file(),
             policy_file: command.policy_file(),
             event_format: output,
             allow_shell: command.allow_shell(),
