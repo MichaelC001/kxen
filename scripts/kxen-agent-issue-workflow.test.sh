@@ -96,5 +96,10 @@ publisher="$(sed -n '/^  publish:/,/^  report-failure:/p' "$workflow")"
 [[ "$publisher" != *'XAI_API_KEY'* ]]
 [[ "$publisher" == *'cp "$GITHUB_WORKSPACE/scripts/kxen-agent-issue-workflow.sh" "$trusted/issue-workflow.sh"'* ]]
 [[ "$publisher" == *'helper="$trusted/issue-workflow.sh"'* ]]
+awk '
+  in_run && !/^          / && !/^[[:space:]]*$/ { in_run = 0 }
+  /^        run: [|>]/ { in_run = 1; next }
+  in_run && /\$\{\{/ { exit 1 }
+' "$workflow"
 
 printf 'PASS kxen-agent GitHub Issue workflow helpers\n'
