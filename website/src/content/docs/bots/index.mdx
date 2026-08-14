@@ -34,6 +34,8 @@ Bot 不依附于某个聊天 Session。用户可以手动运行 Bot、通过 Rou
 
 Bot 使用 kxen 的统一模型路由和资源管理，不在定义中固定某个 Provider model。模型、账号、并发、RPM、预算和 Circuit 仍由当前 MRM 配置决定。
 
+BotRun 通过 [DCP](https://kxen.ai/concepts/dcp) 的 Provider-neutral `ContextFrame`、`TurnRecord` 和 tool boundary journal 保存可重建执行状态。DCP 是运行基础，不会把 Bot revision、Routine 或 Bot-to-Bot Conversation 合并成 DCPAgent YAML。
+
 ## 明确边界
 
 - Bot Group 中的成员都是 Bot，不是多人真人群聊，不提供联系人、已读回执、在线状态或真人 ACL。

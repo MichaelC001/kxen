@@ -23,6 +23,12 @@ kxen 无头 server（在服务器或本机运行后用浏览器访问全部功�
 - Linux： [x86_64](https://github.com/StringKe/kxen/releases/latest/download/kxen-linux-x86_64.tar.gz) / [ARM64](https://github.com/StringKe/kxen/releases/latest/download/kxen-linux-aarch64.tar.gz)。
 - Windows： [x64](https://github.com/StringKe/kxen/releases/latest/download/kxen-windows-x86_64.zip) / [ARM64](https://github.com/StringKe/kxen/releases/latest/download/kxen-windows-aarch64.zip)。
 
+kxen-agent 独立 autonomous CLI（不启动 server，适合本地终端、CI 和 worker）:
+
+- macOS： [Apple Silicon](https://github.com/StringKe/kxen/releases/latest/download/kxen-agent-macos-aarch64.tar.gz) / [Intel](https://github.com/StringKe/kxen/releases/latest/download/kxen-agent-macos-x86_64.tar.gz)。
+- Linux： [x86_64](https://github.com/StringKe/kxen/releases/latest/download/kxen-agent-linux-x86_64.tar.gz) / [ARM64](https://github.com/StringKe/kxen/releases/latest/download/kxen-agent-linux-aarch64.tar.gz)。
+- Windows： [x64](https://github.com/StringKe/kxen/releases/latest/download/kxen-agent-windows-x86_64.zip) / [ARM64](https://github.com/StringKe/kxen/releases/latest/download/kxen-agent-windows-aarch64.zip)。
+
 每个版本附带 SHA256SUMS 和 updater 签名，可用于校验下载产物。全部 asset 与历史版本见 [GitHub Releases](https://github.com/StringKe/kxen/releases/latest)。
 
 ## 产品文档
@@ -40,11 +46,13 @@ kxen 无头 server（在服务器或本机运行后用浏览器访问全部功�
 - [恢复与隔离](https://kxen.ai/recovery/)
 - [参考手册](https://kxen.ai/reference/)
 - [核心概念](https://kxen.ai/concepts/)
+- [DCP](https://kxen.ai/concepts/dcp)
+- [kxen-agent](https://kxen.ai/agent-cli/)
 
 ## 稳定边界
 
 - 桌面平台覆盖 macOS（Apple Silicon 和 Intel）、Windows（x64 和 ARM64）、Linux（x86_64 和 ARM64）;kxen 无头 server 覆盖同样的六个平台。
-- 应用形态是 Tauri 2 桌面应用和 kxen 无头 server；桌面 webview 与浏览器是同一内嵌服务的两个平等客户端，经同一个 /ws 端点使用全部功能。除 kxen 无头 server 外，不提供其他 CLI、TUI 或公开 HTTP API。
+- 应用形态是 Tauri 2 桌面应用、kxen 无头 server 和独立的 kxen-agent CLI；桌面 webview 与浏览器是同一内嵌服务的两个平等客户端，经同一个 /ws 端点使用全部功能。当前不提供 TUI 或公开 HTTP API。
 - Rust 后端拥有运行状态，SolidJS 前端负责交互和呈现。
 - 所有模型调用进入统一资源管理层。
 - 高风险工具调用在执行层统一审批或拒绝。

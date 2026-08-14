@@ -16,7 +16,8 @@ macOS、Windows 和 Linux 上的 Coding Agent 工作台，也可以用浏览器�
 - **多模型**: 44 个内置 Provider 条目、多账号管理、订阅 OAuth 和 API key 登录，按角色路由模型与降级。
 - **目标与编排**: Goal、Subagent、Dynamic Workflow、Agent Teams 和 Kanban 流水线，后台任务完成逐路回执。
 - **Bots**: 独立、可版本化的重复工作单元。每个 Bot 都能通过自己的受限 self-builder 对话创建和完善定义，并支持 Routine、可恢复 BotRun，以及 Direct 和 2 至 6 Bot Group 的 Bot-to-Bot 协作。
-- **kxen-agent CLI**: 从 task 动态构建或加载 DCPAgent YAML，使用 immutable capability/policy lock 执行完整任务；支持 durable DCPRun、`--resume`、Conversation branch、Git worktree、跨 runner bundle 和 UNKNOWN tool recovery。GitHub/GitLab 等平台通过 MCP 或普通 CLI capability 接入，不进入核心协议。
+- **DCP**: Deterministic Context Pipeline 以 durable facts 重建 Provider-neutral context，并为 turn、tool 副作用、`UNKNOWN` 和 settlement 提供一致边界。
+- **kxen-agent CLI**: 从 task 动态构建或加载 DCPAgent YAML，使用 immutable capability/policy lock 执行完整任务；支持 durable DCPRun、`--resume`、Conversation branch、Git worktree、跨 runner bundle 和 UNKNOWN tool recovery。GitHub/GitLab 等平台通过 MCP 或普通 CLI capability 接入，不进入 DCPAgent definition。
 - **本地工具**: 文件、Shell、Web Fetch、Web Search、Browser、MCP 和 LSP。
 - **长期知识**: OKF v0.2 Knowledge Library、Rules、Skills、Memory、generic concepts 和自动沉淀。
 - **安全边界**: 执行层 Safety 与 Approval、Checkpoint、Rewind、Worktree 隔离，文件删除只进废纸篓。
@@ -57,7 +58,13 @@ cargo build --release -p kxen-agent
   --task "定位问题、完成修复并运行相关验证"
 ```
 
-默认输出 JSONL。Session 和 DCPRun 会持久化，可以用 `kxen-agent --resume SESSION_ID` 恢复，或使用 `session fork/export/import` 在对话分支、Git worktree 和 ephemeral runner 之间迁移。完整协议、权限与自动化示例见 [kxen-agent 文档](https://kxen.ai/agent-cli/)。
+默认输出 JSONL。Session 和 DCPRun 会持久化，可以用 `kxen-agent --resume SESSION_ID` 恢复，或使用 `session fork/export/import` 在对话分支、Git worktree 和 ephemeral runner 之间迁移。完整执行契约、权限与自动化示例见 [kxen-agent 文档](https://kxen.ai/agent-cli/)。
+
+## DCP
+
+DCP 是 Deterministic Context Pipeline，不是网络 transport 或平台 adapter 协议。它要求先持久化可验证事实，再确定性投影为有序、Provider-neutral 的模型上下文；模型输出和工具结果在进入下一次重建前形成 durable record。已经跨过副作用边界却无法证明结果的 operation 保持 `UNKNOWN`，不会自动重放。
+
+BotRun 直接使用 DCP `ContextFrame`、`ProviderNeutralPart`、`TurnRecord` 和 tool boundary journal；`kxen-agent` 使用 DCPAgent lock、DCPRun、Workspace binding、resume 与 bundle。Kanban 的列 Agent 有独立 definition，不是 DCPAgent YAML。GitHub、GitLab、Issue、PR、branch 和 comment 由 MCP、CLI、内置 tool 或宿主调用提供，不进入 DCP 核心模型。完整说明见 [DCP 文档](https://kxen.ai/concepts/dcp)。
 
 ## 开发
 

@@ -8,7 +8,9 @@ sidebar:
 
 `kxen-agent` 是一个新的独立 CLI，不是 `kxen` server 的替代品，也不要求 server 正在运行。它复用 Kxen 的 model routing、Agent loop、工具、MCP、LSP 和 Session 存储能力，从一项自然语言任务构建或加载一个 `DCPAgent`，然后自主检查 Workspace、实施修改、运行验证并返回结果。
 
-它适合任何非交互执行环境，例如本地 shell、GitHub Actions、GitLab CI、Webhook consumer、queue worker、容器或由 `kxen` server 启动的外部 worker。GitHub 只是其中一个场景，不是 DCPAgent 协议的一部分。
+`DCPAgent` 是 [DCP](https://kxen.ai/concepts/dcp) 在 autonomous CLI 上的执行定义，不是 GitHub bot schema 或通用平台 adapter 协议。
+
+它适合任何非交互执行环境，例如本地 shell、GitHub Actions、GitLab CI、Webhook consumer、queue worker、容器或由 `kxen` server 启动的外部 worker。GitHub 只是其中一个场景，不是 DCPAgent definition 的一部分。
 
 ## 安装
 
@@ -80,12 +82,13 @@ provider API key 永远不能通过 `--pass-env` 暴露给工具子进程。
 
 ## 设计边界
 
-`DCPAgent` 只描述目标、通用执行指令、成功标准、capability 请求、预算和输出契约。GitHub、GitLab、Issue、PR、branch、comment、Webhook 和 queue 都不进入核心协议。
+`DCPAgent` 只描述目标、通用执行指令、成功标准、capability 请求、预算和输出契约。GitHub、GitLab、Issue、PR、branch、comment、Webhook 和 queue 都不进入 definition schema。
 
 这些系统能力由普通 runtime tool 提供。例如，agent 可以调用项目 MCP tool，也可以在显式 Shell policy 下执行 `gh`、`git` 或其他 CLI。它们是 capability，不需要被强制抽象成一种固定的 adapter 类型。
 
 继续阅读:
 
+- [DCP](https://kxen.ai/concepts/dcp)
 - [DCPAgent definition](https://kxen.ai/agent-cli/dcpagent/)
 - [Session、branch 与 recovery](https://kxen.ai/agent-cli/sessions-and-recovery/)
 - [自动化与 GitHub 场景](https://kxen.ai/agent-cli/automation/)

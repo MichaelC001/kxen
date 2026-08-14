@@ -1,0 +1,78 @@
+---
+title: DCP
+description: Deterministic Context Pipeline 的真源、确定性重建、Provider-neutral context、tool 边界和产品采用方式。
+status: canonical
+sidebar:
+  order: 2
+---
+
+DCP 是 Deterministic Context Pipeline。它是 kxen 的基础运行原则和一组本地数据契约：应用先持久化可验证的事实，再从这些事实确定性重建模型上下文。LLM transcript、前端缓存和某个 Provider 的 wire message 都不作为应用状态的唯一真源。
+
+DCP 解决的是长任务中的连续性问题。进程退出、UI 重连、模型切换或工具结果延迟到达后，runtime 必须知道已经发生了什么、哪些结果可以重放、哪些副作用仍是 `UNKNOWN`，而不是让模型从一段不完整对话猜测。
+
+## 核心数据流
+
+<pre class="mermaid">{`
+flowchart LR
+  Facts["durable facts"] --> Projection["deterministic projection"]
+  Projection --> Frame["ordered ContextFrame"]
+  Frame --> MRM["MRM and provider codec"]
+  MRM --> Model["model and tools"]
+  Model --> Records["TurnRecord and tool outcome"]
+  Records --> Facts
+`}</pre>
+
+同一份 durable input、同一 cursor 和同一 policy 必须产生相同的有序 context。模型生成、网络响应、调度时刻和外部副作用本身不可能确定；DCP 的要求是让它们在影响下一次重建前形成 durable record。
+
+## ContextFrame
+
+`ContextFrame` 是一次模型请求之前的 Provider-neutral 上下文快照。它由多个 `ContextSegment` 组成，每段具有稳定 ID、layer、排序键、可见性和内容。当前通用 layer 包括 platform、definition、execution、memory、conversation、collaboration task、run history 和 new input。
+
+内容使用 `ProviderNeutralPart` 表达 text、structured data、tool call、tool result 和 immutable artifact reference。Composer 会拒绝空段、无效 tool arguments，以及同一 stable ID 对应不同内容的碰撞，然后按 layer、order key 和 stable ID 排序，并为结果生成 content hash。
+
+Provider codec 只位于最后的 wire boundary。这样 durable state 不需要保存某家 Provider 的 message 格式或敏感 tool call ID，切换模型时也不需要把旧 Provider transcript 当作不可修改的真源。
+
+## Turn 与工具副作用
+
+`TurnRecord` 保存 request、response、tool intent、tool result、approval、input 和 checkpoint 等 Provider-neutral 记录。瞬态 stream delta 可以驱动界面，但不能替代 durable turn。
+
+有副作用的 tool operation 使用严格边界：
+
+```text
+Intent -> Started -> OutcomeKnown -> Settled
+                  \-> OutcomeUnknown
+```
+
+`Started` 必须在执行副作用前持久化。可证明的结果先写为 `OutcomeKnown`，再进入后续上下文和 settlement。若进程已经跨过副作用边界，却无法证明外部操作是否完成，结果保持 `UNKNOWN`，runtime 进入 `input_required` 或 Recovery，而不是自动重放或伪造成普通失败。Owner 的恢复决定必须绑定精确 operation identity。
+
+## Definition、policy 与 identity
+
+DCP 把可变输入和不可变执行身份分开。Definition 描述稳定职责，runtime policy 决定当前环境允许的 capability 和预算，两者的有效交集及 content hash 固定到具体 Session 或 Run。恢复时发生 definition、policy、Workspace identity 或 branch drift 会 fail closed。
+
+这条原则不要求所有产品对象使用同一种 definition schema。`DCPAgent` 是 `kxen-agent` 使用的 `kxen.ai/v1alpha1` YAML kind；Bot revision 和 Kanban 列 Agent 有自己的产品契约，不应被称为 DCPAgent。
+
+## 当前采用范围
+
+| 产品面               | DCP 采用方式                                                                                         |
+| -------------------- | ---------------------------------------------------------------------------------------------------- |
+| Bots                 | 直接使用 `ContextFrame`、`ProviderNeutralPart`、`TurnRecord` 和 tool boundary journal 重建 BotRun。  |
+| `kxen-agent`         | 固定 DCPAgent lock、Workspace binding 和 DCPRun，持久化 tool journal、settlement、resume 与 bundle。 |
+| 普通 Session Agent   | 持久化每轮消息和 tool result，使用 compaction、checkpoint 与恢复门禁；Session store 保留自身格式。   |
+| Kanban               | 从 append-only card events 做纯投影和确定性 prompt 渲染；列 Agent definition 不是 DCPAgent YAML。    |
+| Goal、Workflow、Team | 位于执行编排层，复用 durable Session、MRM、Safety 和终态原则，不构成另一套 DCP 网络协议。            |
+
+采用 DCP 不表示每个模块必须共享一个数据库文件或一个 Rust struct。共同约束是 durable truth、确定性重建、Provider-neutral record、明确副作用边界和可证明终态。
+
+## 与其他能力的关系
+
+- [MRM](https://kxen.ai/concepts/mrm) 负责模型、账号、并发、RPM、预算和 fallback；DCP 负责进入调用的可重建 context 与调用后的 durable record。
+- [Context Engineering](https://kxen.ai/concepts/context-engineering) 负责选择、限制、检索和压缩工作集；DCP 提供确定性组合和持久边界。
+- [Orchestration](https://kxen.ai/concepts/orchestration) 决定任务如何拆分、并行和持续；DCP 不规定 Goal、Workflow、Team 或 Bot 的产品层级。
+- [Safety](https://kxen.ai/concepts/security) 和 Approval 决定操作是否允许；DCP 记录 intent、decision 和 outcome，但不自行授予权限。
+- [DCPAgent definition](https://kxen.ai/agent-cli/dcpagent/) 把 DCP 原则应用到独立 autonomous CLI 的可审计执行定义。
+
+## 明确边界
+
+DCP 不是 HTTP、WebSocket、MCP 或 A2A transport，也不是强制所有外部系统实现某种 adapter interface。GitHub、GitLab、Issue、PR、branch、comment、Webhook 和 queue 不进入 DCP 核心数据模型。需要这些能力时，runtime 可以使用 MCP、普通 CLI、内置 tool 或宿主调用；DCP 只要求它们进入执行边界后拥有清晰的输入、权限、operation identity 和 durable outcome。
+
+DCP 也不保证 LLM 输出相同，不把 `UNKNOWN` 自动解释为失败，不允许用重新生成的 transcript 覆盖已持久化事实。

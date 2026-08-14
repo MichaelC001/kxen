@@ -17,6 +17,8 @@ sidebar:
 - trigger、输入 contract、Conversation 和 Task 关联。
 - provider-neutral context、turn、usage、tool journal、结果和 Artifact manifest。
 
+这些 context、turn 和 tool outcome 遵循 [DCP](https://kxen.ai/concepts/dcp) 的 durable truth 与确定性重建契约。
+
 瞬态 stream delta 只用于界面刷新。应用重启后以 durable Run 和 event stream 为真源，不从前端缓存猜测执行结果。
 
 ## 等待操作

@@ -41,9 +41,11 @@ AppState 持有跨 Session 的共享运行对象，包括:
 
 共享状态不会因为前端组件卸载而结束。界面重连后应从后端快照恢复，再使用事件流保持更新。
 
-## DCPRuntime
+## DCP runtime
 
-`kxen-agent` 为每个 Session 固定 DCPAgent definition、effective capability 和 runtime policy hash。它不创建 `AppState`，也不要求 server 存活。任务作为 DCPRun 写入独立 state root，工具副作用通过 durable journal 结算，进程退出后可用 `--resume` 继续。GitHub、GitLab、Issue、PR、branch 和 comment 不进入 DCPAgent 核心协议；需要时由 MCP tool 或普通 CLI capability 提供。
+`kxen-agent` 为每个 Session 固定 DCPAgent definition、effective capability 和 runtime policy hash。它不创建 `AppState`，也不要求 server 存活。任务作为 DCPRun 写入独立 state root，工具副作用通过 durable journal 结算，进程退出后可用 `--resume` 继续。
+
+这里的 DCP 是 [Deterministic Context Pipeline](https://kxen.ai/concepts/dcp)，不是网络协议。GitHub、GitLab、Issue、PR、branch 和 comment 不进入 DCPAgent definition；需要时可以由 MCP tool、普通 CLI、内置 tool 或宿主调用提供。
 
 ## Session
 

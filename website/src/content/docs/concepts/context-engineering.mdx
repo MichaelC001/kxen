@@ -3,10 +3,10 @@ title: Context Engineering
 description: kxen 如何选择、限制、压缩和恢复模型工作上下文。
 status: canonical
 sidebar:
-  order: 2
+  order: 3
 ---
 
-Context 是当前模型调用的工作集，不是长期存储。kxen 把 Session 历史、Rules、显式附件、Notes、Memory 和运行状态按不同方式装入上下文。
+Context 是当前模型调用的工作集，不是长期存储。kxen 把 Session 历史、Rules、显式附件、Notes、Memory 和运行状态按不同方式装入上下文；确定性组合、Provider-neutral record 和副作用恢复边界由 [DCP](https://kxen.ai/concepts/dcp) 统一定义。
 
 <pre class="mermaid">{`
 flowchart LR

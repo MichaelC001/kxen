@@ -6,6 +6,8 @@ sidebar:
   order: 2
 ---
 
+`DCPAgent` 是独立 CLI 的可执行 YAML definition，不等同于 DCP 本身。它把 [Deterministic Context Pipeline](https://kxen.ai/concepts/dcp) 的 durable identity、Provider-neutral execution 和可恢复副作用边界固化为 `kxen.ai/v1alpha1` 契约。
+
 一个 DCPAgent Session 固定一个 immutable `DcpAgentLock`。Lock 包含规范化 definition、definition content hash、实际 capability 闭集、runtime policy hash 和创建时间。恢复运行不会重新调用 Builder，也不能用另一个 YAML 替换既有 definition。
 
 ## YAML 结构

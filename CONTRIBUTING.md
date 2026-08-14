@@ -113,6 +113,7 @@ Release-Note: 用户能获得的第二项能力或改进
 5. 使用固定的 `git-cliff` 2.13.1 和 tag 区间生成仅属于当前版本的 Release Notes；同一内容写入 `latest.json.notes`，并作为 GitHub Release body 的变更部分。
 6. 合并各平台 updater 签名生成并校验 `latest.json` 与 `SHA256SUMS`，将各平台验证过的 release 文件作为 workflow artifact 传递给独立 publish job。
 7. publish job 只接收已验证 artifact，不接收签名凭据。它先创建 draft，重新下载并逐字节核对全部远端 asset，全部一致后才公开 release。
+8. release 公开后直接调用受信任的 Docker workflow，从 immutable release 下载并校验两个 Linux `kxen` asset，以 release tag 精确 checkout `Dockerfile`，再发布同版本的 `linux/amd64`、`linux/arm64` GHCR manifest。该调用不依赖 `release` event，因此 `GITHUB_TOKEN` 创建 release 也不会漏发镜像；失败时只重跑失败的 Docker job。
 
 Release environment 必须配置 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_TEAM_ID`、`APPLE_API_ISSUER`、`APPLE_API_KEY`、`APPLE_API_PRIVATE_KEY`、`TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。这些值必须是 environment secret，不是 repository secret。`release` environment 的 deployment branch policy 必须只允许 `main`，仓库 tag ruleset 必须允许创建 `v*` 但禁止更新和删除已有发布 tag，仓库必须开启 GitHub Immutable Releases 以锁定公开 release 的 tag 和 asset。GitHub Actions policy 必须开启 full-length commit SHA pinning，并在不需要所有 action 时将 `allowed_actions` 收紧为经审核的列表。secret 只注入需要它们的单个 step。只有 publish job 具有 `contents: write` 权限。
 

@@ -63,6 +63,8 @@ kxen 采用本地优先存储，当前没有 kxen 云同步服务。
 
 `session export` 生成自包含 JSON bundle，包含消息、DCPAgent lock、DCPRun 与 tool journal，不包含 auth store、API key、外部 CLI token 或 OS credential。state 和 bundle 仍可能包含任务正文、代码上下文及工具输出，应作为私有数据保存。
 
+这些文件的真源、重建和 `UNKNOWN` 语义见 [DCP](https://kxen.ai/concepts/dcp)。
+
 ## Session
 
 每个 Session 使用 `<id>.json` meta 和 `<id>.jsonl` 消息文件，并可以包含 `<id>.compact.json`、`<id>.queue.json` 与 `<id>/` artifact 目录。消息追加写入，meta 和需要重写的状态使用临时文件、fsync 和 rename。meta 中的单调 `message_revision` 在真实 append 或 rewrite 后推进；同 ID、同内容的幂等 append 不会虚增 revision。
