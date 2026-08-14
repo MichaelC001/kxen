@@ -23,6 +23,9 @@ fn sensitive_environment_names_are_filtered_by_default() {
     assert!(is_sensitive_child_env("CLOUDSDK_CONFIG"));
     assert!(is_sensitive_child_env("GNUPGHOME"));
     assert!(is_sensitive_child_env("SSH_AUTH_SOCK"));
+    assert!(is_sensitive_child_env("GITHUB_ENV"));
+    assert!(is_sensitive_child_env("GITHUB_OUTPUT"));
+    assert!(is_sensitive_child_env("GITHUB_PATH"));
     assert!(!is_sensitive_child_env("CI"));
     assert!(!is_sensitive_child_env("GPG_TTY"));
 }
@@ -187,6 +190,89 @@ async fn predefined_agent_runs_and_resumes_multiple_durable_tasks() {
             .unwrap_err()
             .contains("NO_PENDING_WORK")
     );
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[tokio::test]
+async fn headless_shell_permission_executes_with_durable_auto_approval() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let root = std::env::temp_dir().join(format!("kxen-dcp-shell-{}", uuid::Uuid::new_v4()));
+    let workspace = root.join("workspace");
+    let state = root.join("state");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let config_file = root.join("config.toml");
+    std::fs::write(&config_file, "[roles.execution]\nprovider = \"ollama\"\nmodel = \"test\"\n").unwrap();
+    let agent_file = root.join("agent.yaml");
+    let definition = DcpAgentDefinition {
+        api_version: DCP_AGENT_API_VERSION.into(),
+        kind: "DCPAgent".into(),
+        metadata: DcpAgentMetadata { name: "shell_runner_test".into(), description: None },
+        spec: DcpAgentSpec {
+            objective: "Execute one permitted check".into(),
+            instructions: vec!["Run the declared command".into()],
+            success_criteria: vec!["The command succeeds".into()],
+            capabilities: DcpAgentCapabilities { required: vec!["exec".into()], optional: Vec::new() },
+            execution: DcpAgentExecution::default(),
+            output: DcpAgentOutput::default(),
+        },
+    };
+    std::fs::write(&agent_file, definition.to_yaml().unwrap()).unwrap();
+    let shell = match crate::tools::shell::default_shell() {
+        crate::tools::shell::ShellKind::Zsh => "zsh",
+        crate::tools::shell::ShellKind::Bash => "bash",
+        crate::tools::shell::ShellKind::Fish => "fish",
+    };
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
+    let stream: crate::llm::StreamFn = Arc::new(move |_, _, _, _| {
+        if seen.fetch_add(1, Ordering::SeqCst) == 0 {
+            Box::pin(futures::stream::iter(vec![
+                crate::llm::Delta::ToolFragments(vec![crate::llm::tool::ChunkToolCall {
+                    index: Some(0),
+                    id: Some("call_1".into()),
+                    function: Some(crate::llm::tool::ChunkFunction {
+                        name: Some("exec".into()),
+                        arguments: Some(format!(r#"{{"type":"{shell}","path":".","command":"printf dcp-shell-ok"}}"#)),
+                    }),
+                }]),
+                crate::llm::Delta::Done,
+            ]))
+        } else {
+            Box::pin(futures::stream::iter(vec![crate::llm::Delta::Text("completed".into()), crate::llm::Delta::Done]))
+        }
+    });
+    let runtime = DcpRuntime::new(
+        DcpRuntimeOptions {
+            data_dir: state,
+            config_file,
+            auth_file: root.join("auth.json"),
+            policy_file: None,
+            event_format: DcpEventFormat::Jsonl,
+            allow_shell: true,
+            allow_mcp: false,
+            pass_env: Vec::new(),
+        },
+        Arc::new(|_| {}),
+    )
+    .unwrap()
+    .with_stream_override(stream);
+    let result = runtime
+        .run(DcpRunRequest {
+            session_id: None,
+            task: Some("run the check".into()),
+            agent_file: Some(agent_file),
+            workspace: Some(workspace),
+            rebind_workspace: false,
+            cancel: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(result.status, DcpRunStatus::Completed, "error={:?} text={}", result.error, result.final_text);
+    let audit = runtime.store().run_dir(&result.session_id, &result.run_id).unwrap().join("shell-audit.jsonl");
+    let audit_text = std::fs::read_to_string(audit).unwrap();
+    assert!(audit_text.contains("shell_command"));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     std::fs::remove_dir_all(root).ok();
 }
 

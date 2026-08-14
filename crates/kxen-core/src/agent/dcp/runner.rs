@@ -171,6 +171,12 @@ impl DcpRuntime {
         let path_scope = workspace_scope(&workspace, &allowed_tools);
         let tool_home = self.options.data_dir.join("tool-home");
         ensure_private_dir(&tool_home)?;
+        // ApprovalCtx requires a broker and bus even when a headless auto-approval
+        // handle is present. DCP shell permission is already frozen by the agent
+        // lock and runtime policy, so this broker only enables that audited path.
+        // A failed audit must fall back to an immediate fail-closed decision.
+        let approvals =
+            policy.allow_shell.then(|| Arc::new(crate::agent::approval::ApprovalBroker::with_timeout(std::time::Duration::ZERO)));
         let mut context = AgentContext {
             registry: self.registry.clone(),
             tracker: crate::tools::fs_tool::FileTracker::default(),
@@ -196,7 +202,7 @@ impl DcpRuntime {
             goal_binding_frozen: true,
             agents: Some(self.agents.clone()),
             bus: Some(self.bus.clone()),
-            approvals: None,
+            approvals,
             kanban_auto: policy.allow_shell.then(|| {
                 Arc::new(DcpAutoApprove::new(
                     self.store.run_dir(&session.session_id, &run.run_id).expect("validated DCPRun path").join("shell-audit.jsonl"),
