@@ -85,7 +85,7 @@ fn print_banner(cli: &args::Cli, port: u16, token: &str, remote_access: bool) {
     println!("kxen listening on http://{host}:{port}/");
     println!();
     println!("  open in browser (keep this URL secret, it carries the only auth token):");
-    println!("  http://{host}:{port}/?token={token}");
+    println!("  http://{host}:{port}/?{}", kxen_core::web::token_query(token));
     if remote_access {
         println!();
         println!("  remote access: terminate TLS with `tailscale serve` instead of exposing plain HTTP");

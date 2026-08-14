@@ -1,9 +1,10 @@
 //! WS 握手检查（upgrade 之前）：token + Origin + Host 白名单。
 //! Jupyter 范式：本机端口不裸奔，token 是唯一防线；Host 白名单防 DNS rebinding。
 
-/// 握手 query 里的 ?token= 提取（token 是 hex，无需 URL decode）。
-fn token_from_query(query: &str) -> Option<&str> {
-    query.split('&').find_map(|pair| pair.strip_prefix("token="))
+/// Extract and URL-decode the token. Generated tokens are hex, while
+/// `kxen --token` deliberately accepts any non-empty secret.
+fn token_from_query(query: &str) -> Option<std::borrow::Cow<'_, str>> {
+    form_urlencoded::parse(query.as_bytes()).find_map(|(name, value)| (name == "token").then_some(value))
 }
 
 /// Origin 检查：无 Origin（原生 webview/非浏览器客户端可能不带）与 Tauri webview / 本地 dev 前端放行；
@@ -60,8 +61,9 @@ mod tests {
 
     #[test]
     fn token_from_query_extracts() {
-        assert_eq!(token_from_query("token=abc123"), Some("abc123"));
-        assert_eq!(token_from_query("x=1&token=zz&y=2"), Some("zz"));
+        assert_eq!(token_from_query("token=abc123").as_deref(), Some("abc123"));
+        assert_eq!(token_from_query("x=1&token=zz&y=2").as_deref(), Some("zz"));
+        assert_eq!(token_from_query("token=a+b%26%3D%25%2F%E6%B1%89").as_deref(), Some("a b&=%/汉"));
         assert_eq!(token_from_query(""), None);
         assert_eq!(token_from_query("x=1"), None);
     }
@@ -137,5 +139,13 @@ mod tests {
             "127.0.0.1",
             &extra
         ));
+    }
+
+    #[test]
+    fn custom_token_round_trips_through_access_query() {
+        let none: &[String] = &[];
+        let token = "a b&=%/汉";
+        let query = super::super::token_query(token);
+        assert!(handshake_allowed(Some(&query), None, Some("127.0.0.1:7824"), token, "127.0.0.1", none));
     }
 }

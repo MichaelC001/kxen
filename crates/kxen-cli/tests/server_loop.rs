@@ -27,13 +27,15 @@ fn ws_end_to_end_in_isolated_child() {
 }
 
 async fn scenario() {
-    let state = Arc::new(kxen_core::AppState::new().unwrap());
+    let mut state = kxen_core::AppState::new().unwrap();
+    state.ws_token = "a b&=%/汉".to_string();
+    let state = Arc::new(state);
     let token = state.ws_token.clone();
     let loopback = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
     let handle = WebServer::start((loopback, 0), state.clone(), true, vec!["myhost.tailnet".to_string()]).unwrap();
     let port = handle.port();
 
-    let url = format!("ws://127.0.0.1:{port}/ws?token={token}");
+    let url = format!("ws://127.0.0.1:{port}/ws?{}", kxen_core::web::token_query(&token));
     let (mut socket, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
     socket
         .send(tokio_tungstenite::tungstenite::Message::Text(r#"{"jsonrpc":"3.0","id":1,"method":"rpc.heartbeat"}"#.into()))
@@ -62,8 +64,9 @@ async fn scenario() {
 
 /// 裸 TCP 发 upgrade，以便控制 Host 头并读回 HTTP 状态码。
 async fn raw_upgrade_status(port: u16, token: &str, host: &str) -> u16 {
+    let query = kxen_core::web::token_query(token);
     let request = format!(
-        "GET /ws?token={token} HTTP/1.1\r\nHost: {host}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        "GET /ws?{query} HTTP/1.1\r\nHost: {host}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
     );
     raw_http_status(port, &request).await
 }

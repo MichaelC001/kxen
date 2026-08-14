@@ -58,6 +58,12 @@ impl WebServerHandle {
 
 pub struct WebServer;
 
+/// Encode the browser access credential as a standards-compliant query.
+/// Keep this shared with the handshake parser so custom tokens round-trip.
+pub fn token_query(token: &str) -> String {
+    form_urlencoded::Serializer::new(String::new()).append_pair("token", token).finish()
+}
+
 impl WebServer {
     /// 同步 bind 后立即返回句柄；serve 循环在 tokio 任务内驱动。
     /// 端口占用回退由调用方以 port 0 重试表达（桌面：7824 优先，回退随机）。
