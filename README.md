@@ -18,13 +18,30 @@ macOS、Windows 和 Linux 上的 Coding Agent 工作台，也可以用浏览器�
 - **Bots**: 独立、可版本化的重复工作单元。每个 Bot 都能通过自己的受限 self-builder 对话创建和完善定义，并支持 Routine、可恢复 BotRun，以及 Direct 和 2 至 6 Bot Group 的 Bot-to-Bot 协作。
 - **kxen-agent CLI**: 从 task 动态构建或加载 DCPAgent YAML，使用 immutable capability/policy lock 执行完整任务；支持 durable DCPRun、`--resume`、Conversation branch、Git worktree、跨 runner bundle 和 UNKNOWN tool recovery。GitHub/GitLab 等平台通过 MCP 或普通 CLI capability 接入，不进入核心协议。
 - **本地工具**: 文件、Shell、Web Fetch、Web Search、Browser、MCP 和 LSP。
-- **长期知识**: Rules、Skills、Memory 和自动沉淀的 Knowledge Library。
+- **长期知识**: OKF v0.2 Knowledge Library、Rules、Skills、Memory、generic concepts 和自动沉淀。
 - **安全边界**: 执行层 Safety 与 Approval、Checkpoint、Rewind、Worktree 隔离，文件删除只进废纸篓。
 - **日常效率**: Voice、Schedule、Usage 统计、通知和诊断。
 
 Bot Group 的成员都是 Bot，不是多人真人聊天。kxen 不提供共享云电脑、共享浏览器凭据或 Bot Marketplace。完整使用说明见 [Bots 文档](https://kxen.ai/bots/)。
 
 对话分支隔离 Session 历史、队列、运行和草稿，但不会复制 Workspace 文件。需要隔离文件实验时使用独立 Worktree；需要回退文件和对话时使用 Rewind。完整语义见 [Session 文档](https://kxen.ai/workspace/session/)。
+
+## OKF 长期知识
+
+项目知识位于 `file:///path/to/workspace/.agents/`，个人知识位于 `file:///Users/you/.agents/`。目录层级只负责组织，每个非 reserved Markdown concept 都使用可解析的 YAML frontmatter 声明非空 `type`:
+
+```md
+---
+type: refactor
+title: Safe refactoring
+description: Constraints and verification for structural code changes.
+tags: [code, rust]
+---
+```
+
+Kxen 为 `rule`、`reference`、`skill`、`command`、`note`、`memory` 和 `history` 提供不同运行 handler。`code`、`refactor`、`test` 等自定义 type 会作为 generic concept 被索引和检索，不会获得可执行语义。`index.md` 用于渐进披露，`log.md` 用于历史记录，根 `index.md` 可以声明 `okf_version: "0.2"`。
+
+检索使用当前 user task 和涉及文件作为 query。Notes 与 Memory 通过 description 和正文做 BM25；generic、reference 和 history concepts 还使用 type、路径、title、tags，并沿本地 Markdown links 做一跳扩展。可选 embedding 按 endpoint、provider、model 和内容 hash 增量缓存。检索热路径不等待网络，embedding 缺失或失败时回退 BM25。当前本地规模不需要单独部署向量数据库。完整格式、handler 和信任边界见 [Knowledge 文档](https://kxen.ai/knowledge/knowledge-library)。
 
 ## 独立 agent CLI
 

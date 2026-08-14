@@ -16,6 +16,8 @@ Agent 也可以通过 knowledge 工具添加 Note。个人 scope 是默认选择
 
 ## Note 类型
 
+OKF concept type 固定为 `type: note`。以下值写入独立的 `note-type` 字段，不替代 concept type:
+
 - correction: 对错误认识的纠正。
 - convention: 稳定约定。
 - pitfall: 容易重复踩到的陷阱。
@@ -32,7 +34,7 @@ Agent 也可以通过 knowledge 工具添加 Note。个人 scope 是默认选择
 
 项目 Note 位于 `file:///path/to/workspace/.agents/notes/`，可以随 Git 共享。个人 Note 位于 `file:///Users/you/.agents/notes/`，跨项目使用。
 
-同 slug 的项目条目覆盖个人条目。移动 scope 时 kind 和内容保持不变。
+同 `concept_id` 的项目条目覆盖个人条目。移动 scope 时目录、`type` 和内容保持不变。
 
 ## 注入方式
 

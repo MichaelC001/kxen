@@ -13,7 +13,16 @@ References 用于 Agent 可能需要、但不应在每次请求中自动加载�
 - 项目范围: `file:///path/to/workspace/.agents/references/`
 - 个人范围: `file:///Users/you/.agents/references/`
 
-Markdown 文件会被扫描为 Reference 条目。未知知识子目录中的 Markdown 默认也按 Reference 处理。
+目录名不决定类型。Reference 文件必须声明 `type: reference`，因此它可以放在 bundle 的任意目录。未知 type 会作为 generic concept 被发现，不会自动获得 Reference 或其他已知 handler。
+
+```md
+---
+type: reference
+title: Runtime architecture
+description: Authoritative component and data-flow reference.
+tags: [architecture]
+---
+```
 
 ## 渐进披露
 

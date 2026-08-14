@@ -1,4 +1,5 @@
 ---
+type: note
 note-type: convention
 description: Journal with run_id for resume
 date: 2026-07-24

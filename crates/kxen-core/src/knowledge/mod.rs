@@ -1,6 +1,6 @@
-//! 统一知识系统：OKF 单规范 + project/personal 双 scope。
-//! 一棵树两个镜像：project = <workdir>/.agents/（入 git 共享），personal = ~/.agents/（跟人走）。
-//! rules / references / skills / commands / notes / memory / history 都是 Entry，区别只在 kind 与激活方式。
+//! OKF v0.2 知识系统：目录只负责组织，frontmatter `type` 是 concept 语义真源。
+//! project = <workdir>/.agents/（入 git 共享），personal = ~/.agents/（跟人走）。
+//! 已知 type 适配到固定运行 handler；未知 type 仍作为 generic concept 被索引与检索。
 
 pub mod consolidate;
 pub mod distill;
@@ -56,15 +56,16 @@ pub enum Kind {
     Note,
     Memory,
     History,
+    Generic,
 }
 
 impl Kind {
     /// 字符串 -> Kind（自有解析器，不实现 FromStr：返回值是 Option 而非 Result，语义不同）。
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Kind> {
-        Some(match s {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
             "rule" => Kind::Rule,
-            "reference" | "doc" => Kind::Reference,
+            "reference" => Kind::Reference,
             "skill" => Kind::Skill,
             "command" => Kind::Command,
             "note" => Kind::Note,
@@ -82,6 +83,7 @@ impl Kind {
             Kind::Note => "notes",
             Kind::Memory => "memory",
             Kind::History => "history",
+            Kind::Generic => "concepts",
         }
     }
 }
@@ -92,11 +94,38 @@ pub const NOTE_TYPES: &[&str] = &["correction", "convention", "pitfall", "prefer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Entry {
     pub scope: Scope,
+    /// OKF concept type。它来自 frontmatter，不由目录决定。
+    #[serde(rename = "type")]
+    pub concept_type: String,
+    /// Kxen 运行 handler。未知 type 固定为 Generic，不获得执行语义。
     pub kind: Kind,
+    /// bundle 根相对路径去掉 `.md`；同路径的 project concept 覆盖 personal concept。
+    pub concept_id: String,
     pub slug: String,
+    #[serde(default)]
+    pub title: String,
     pub description: String,
     pub content: String,
     pub path: String,
+    #[serde(default)]
+    pub resource: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub stale_after: Option<String>,
+    /// Markdown 正文中的本地 links，供一跳 graph expansion 使用。
+    #[serde(default)]
+    pub links: Vec<String>,
+    /// 非 reserved Markdown 是否具有可解析且非空的 `type`。
+    #[serde(default)]
+    pub okf_conformant: bool,
+    /// OKF reserved document role: `index` 或 `log`。
+    #[serde(default)]
+    pub reserved: Option<String>,
+    #[serde(default)]
+    pub okf_version: Option<String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
@@ -203,9 +232,11 @@ fn resolve_needs_inner(workdir: &Path, home: &Path, needs: &[String]) -> String 
     for need in needs {
         let slug = slugify(need);
         // 信任门：needs 正文随加载注入提示词，未信任项目 scope 的依赖条目跳过（personal 不受影响）
-        if let Some(e) = entries.iter().find(|e| e.enabled && e.slug == slug && (trusted || e.scope != Scope::Project)) {
+        if let Some(e) =
+            entries.iter().find(|e| e.enabled && (e.concept_id == *need || e.slug == slug) && (trusted || e.scope != Scope::Project))
+        {
             hit += 1;
-            writeln!(out, "## [{}] {}\n{}\n", e.kind.dir_name(), e.description, e.content.trim()).expect("writing to String cannot fail");
+            writeln!(out, "## [{}] {}\n{}\n", e.concept_type, e.description, e.content.trim()).expect("writing to String cannot fail");
         }
     }
     if hit == 0 {

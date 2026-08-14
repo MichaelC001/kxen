@@ -1,4 +1,5 @@
 ---
+type: note
 note-type: convention
 description: Repo structure
 date: 2026-07-24

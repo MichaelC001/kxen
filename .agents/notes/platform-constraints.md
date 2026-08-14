@@ -1,4 +1,5 @@
 ---
+type: note
 note-type: pitfall
 description: Platform constraints
 date: 2026-07-24

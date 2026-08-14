@@ -8,15 +8,27 @@ export type KnowledgeKind =
   | "command"
   | "note"
   | "memory"
-  | "history";
+  | "history"
+  | "generic";
 
 export interface KnowledgeEntry {
   scope: KnowledgeScope;
+  type: string;
   kind: KnowledgeKind;
+  concept_id: string;
   slug: string;
+  title: string;
   description: string;
   content: string;
   path: string;
+  resource?: string;
+  tags: string[];
+  status?: string;
+  stale_after?: string;
+  links: string[];
+  okf_conformant: boolean;
+  reserved?: "index" | "log";
+  okf_version?: string;
   enabled: boolean;
   always_apply: boolean;
   globs: string[];
@@ -40,24 +52,24 @@ export function knowledgeAdd(
   return client.rpc("knowledge.add", { scope, type, description, content });
 }
 
-export function knowledgeRemove(scope: KnowledgeScope, slug: string): Promise<void> {
-  return client.rpc("knowledge.remove", { scope, slug });
+export function knowledgeRemove(scope: KnowledgeScope, conceptId: string): Promise<void> {
+  return client.rpc("knowledge.remove", { scope, slug: conceptId });
 }
 
 export function knowledgeSetEnabled(
   scope: KnowledgeScope,
-  slug: string,
+  conceptId: string,
   enabled: boolean,
 ): Promise<void> {
-  return client.rpc("knowledge.set_enabled", { scope, slug, enabled });
+  return client.rpc("knowledge.set_enabled", { scope, slug: conceptId, enabled });
 }
 
 export function knowledgeMove(
   scope: KnowledgeScope,
-  slug: string,
+  conceptId: string,
   to: KnowledgeScope,
 ): Promise<void> {
-  return client.rpc("knowledge.move", { scope, slug, to });
+  return client.rpc("knowledge.move", { scope, slug: conceptId, to });
 }
 
 export interface InjectionPreview {

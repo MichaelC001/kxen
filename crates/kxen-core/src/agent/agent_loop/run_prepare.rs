@@ -31,10 +31,12 @@ pub(super) async fn refresh_system_prompt(
         return;
     }
     let embedding_runtime = crate::agent::prompt::embedding_runtime(ctx);
+    let task_query = super::run_setup::latest_user_query(messages).map(String::from);
     messages[0] = Message::system(
         crate::agent::prompt::system_prompt_with_embedding(crate::agent::prompt::SystemPromptContext {
             workdir: &ctx.workdir,
             involved: &involved,
+            task_query: task_query.as_deref(),
             session_id: ctx.session_id.as_deref(),
             coding_rules: crate::core::config::coding_rules_enabled(),
             mrm: ctx.mrm.as_deref(),

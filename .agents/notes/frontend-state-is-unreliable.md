@@ -1,4 +1,5 @@
 ---
+type: note
 note-type: pitfall
 description: Frontend state is unreliable
 date: 2026-07-24

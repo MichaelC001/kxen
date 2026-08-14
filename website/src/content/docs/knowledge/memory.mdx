@@ -21,15 +21,17 @@ Memory 可以来自:
 
 ## 检索
 
-Memory 与 Notes 一起参与检索:
+Memory、Notes 和可发现的 OKF concepts 使用同一个 task-aware retrieval pipeline，但仍按各自 handler 渲染:
 
-1. 使用涉及文件和描述生成查询。
-2. 使用 BM25 进行文本相关性排序。
-3. 配置 embedding 后加入语义召回。
-4. 对项目 scope、较新条目和冲突版本调整权重。
-5. 对同 slug 结果去重并截取最相关条目。
+1. 当前 user task 是主 query，涉及文件路径是补充 query。
+2. Notes 与 Memory 使用 description 和正文做 BM25；generic、reference 和 history concepts 还使用 `type`、`concept_id`、title 和 tags。
+3. 配置 embedding 后加入语义召回；向量按 endpoint、provider、model 和内容 hash 增量缓存，检索热路径不等待网络。
+4. 命中的 generic、reference 或 history concept 沿本地 Markdown links 做一跳 graph expansion。
+5. 对项目 scope、较新条目、生命周期状态和冲突版本调整权重并截取结果。
 
-没有涉及文件时，系统回退到最近日期的 3 条内容。单条注入正文最多使用 500 个字符，避免长期知识无限占用上下文。
+没有 task query 和涉及文件时，Notes 与 Memory 回退到最近日期的 3 条内容，generic concept 返回稳定的层级目录摘要。单条 Note 或 Memory 注入正文最多使用 500 个字符，避免长期知识无限占用上下文。
+
+当前规模按几十到几百个 concept 设计。embedding cache 负责避免重复计算，BM25 和 cosine 在内存完成，因此不需要额外部署向量数据库。未来达到更大规模时可以替换索引后端，但 handler 边界和 OKF 文件仍是语义真源。
 
 ## 冲突处理
 

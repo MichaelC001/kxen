@@ -1,6 +1,6 @@
 ---
 title: 知识与定制
-description: 分别管理规则、资料、技能、命令、笔记、记忆和历史。
+description: 使用 OKF v0.2 管理可扩展 concepts 与 Kxen 运行 handlers。
 status: canonical
 sidebar:
   order: 7
@@ -9,7 +9,7 @@ sidebar:
     icon: ph:brain
 ---
 
-kxen 使用统一知识格式管理不同类型的长期内容，但每种能力拥有独立的激活方式和权威说明:
+kxen 使用 OKF v0.2 管理不同类型的长期内容。目录只组织 concept，文件内 `type` 决定语义；已知 type 使用独立 handler，未知 type 保持可发现但不执行:
 
 - [Knowledge Library](https://kxen.ai/knowledge/knowledge-library)
 - [Rules](https://kxen.ai/knowledge/rules)
@@ -32,6 +32,7 @@ flowchart TB
   Library --> Notes
   Library --> Memory
   Library --> History
+  Library --> Generic["Generic concepts"]
   Rules --> Always["持续约束"]
   References --> Demand["按需读取"]
   Skills --> Match["显式或匹配触发"]
@@ -39,4 +40,5 @@ flowchart TB
   Notes --> Retrieve["相关性检索"]
   Memory --> Retrieve
   History --> Review["历史查看"]
+  Generic --> Retrieve
 `}</pre>

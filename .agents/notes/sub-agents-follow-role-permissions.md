@@ -1,4 +1,5 @@
 ---
+type: note
 note-type: note
 description: Sub-agents follow role permissions
 date: 2026-07-24

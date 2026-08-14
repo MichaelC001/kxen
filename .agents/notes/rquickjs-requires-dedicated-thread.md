@@ -1,4 +1,5 @@
 ---
+type: note
 note-type: pitfall
 description: rquickjs requires dedicated thread
 date: 2026-07-24

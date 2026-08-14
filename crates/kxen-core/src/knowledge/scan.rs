@@ -1,5 +1,5 @@
-//! 统一扫描：project 树在前 personal 树在后，同 (kind, slug) first-wins（项目覆盖个人）。
-//! skills/ 特殊：目录型只认 SKILL.md（目录内其余 .md 是资源），扁平 .md 直接收。
+//! OKF bundle 扫描：目录层级只形成 concept id，frontmatter `type` 决定运行 handler。
+//! project 树在前 personal 树在后，同 concept id first-wins（项目覆盖个人）。
 
 use super::{Entry, Kind, Scope, parse::parse_entry};
 use std::path::{Path, PathBuf};
@@ -18,7 +18,7 @@ pub(super) fn scan_with_home(workdir: &Path, home: &Path) -> Vec<Entry> {
     let mut unique = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for entry in scan_all_with_home(workdir, home) {
-        if seen.insert((entry.kind, entry.slug.clone())) {
+        if seen.insert(entry.concept_id.clone()) {
             unique.push(entry);
         }
     }
@@ -41,6 +41,7 @@ pub(super) fn scan_all_with_home(workdir: &Path, home: &Path) -> Vec<Entry> {
             let path = workdir.join(name);
             if let Some(text) = read_regular_utf8_within(&path, workspace_root, &mut remaining) {
                 let mut e = parse_entry(Scope::Project, Kind::Rule, &path, &text);
+                e.concept_id = name.to_string();
                 e.always_apply = true;
                 e.is_agents_md = true;
                 e.description = format!("root {name}");
@@ -86,33 +87,34 @@ fn walk(root: &Path, scope: Scope, out: &mut Vec<Entry>, remaining: &mut usize) 
                 continue;
             }
             if metadata.is_dir() {
-                // 目录型 skill：收 SKILL.md 即停，不深入资源文件
+                // 目录型 skill 由 SKILL.md 内的 type 声明，不依赖所在目录名。
                 let skill_md = path.join("SKILL.md");
-                if kind_of(root, &path) == Kind::Skill {
-                    if let Some(text) = read_regular_utf8_within(&skill_md, &canonical_root, remaining) {
-                        out.push(parse_entry(scope, Kind::Skill, &skill_md, &text));
-                    } else {
-                        stack.push((path, depth + 1));
+                let before_probe = *remaining;
+                if let Some(text) = read_regular_utf8_within(&skill_md, &canonical_root, remaining) {
+                    let mut concept = parse_entry(scope, legacy_kind_hint(root, &skill_md), &skill_md, &text);
+                    if concept.kind == Kind::Skill {
+                        assign_identity(root, &skill_md, &mut concept);
+                        if !concept.description.is_empty() {
+                            out.push(concept);
+                        }
+                        continue;
                     }
-                } else {
-                    stack.push((path, depth + 1));
+                    // 非 skill 的 SKILL.md 是普通 OKF concept，交给目录遍历统一处理。
+                    *remaining = before_probe;
                 }
+                stack.push((path, depth + 1));
             } else if metadata.is_file() && path.extension().is_some_and(|x| x == "md") {
-                if path.file_name().is_some_and(|n| n == "SKILL.md") {
-                    continue; // 已在目录分支处理
-                }
-                let kind = kind_of(root, &path);
+                let kind = legacy_kind_hint(root, &path);
                 if let Some(text) = read_regular_utf8_within(&path, &canonical_root, remaining) {
                     let mut e = parse_entry(scope, kind, &path, &text);
-                    // index.md 是该层目录的人工策展入口（渐进披露）：slug 带 scope 根相对路径，
-                    // 多层目录各自的 index.md 不因同 slug 被 first-wins 去重吞掉；
-                    // 落在 skills/ 下的 index.md 是入口不是 skill，不适用 skill 可见性规范
-                    let is_index = path.file_name().is_some_and(|n| n == "index.md");
-                    if is_index && let Ok(rel) = path.strip_prefix(root) {
-                        e.slug = rel.with_extension("").to_string_lossy().into_owned();
+                    assign_identity(root, &path, &mut e);
+                    if let Some(reserved) = e.reserved.as_deref() {
+                        e.kind = Kind::Generic;
+                        e.concept_type = reserved.to_string();
+                        e.slug = e.concept_id.clone();
                     }
                     // skill 无 description 不可被清单/调用发现，按规范跳过
-                    if !is_index && e.kind == Kind::Skill && e.description.is_empty() {
+                    if e.reserved.is_none() && e.kind == Kind::Skill && e.description.is_empty() {
                         continue;
                     }
                     out.push(e);
@@ -144,13 +146,23 @@ pub(super) fn read_regular_utf8_within(path: &Path, canonical_root: &Path, remai
     Some(text)
 }
 
-/// kind 由 scope 根下第一级子目录推断；根散文件与未知子目录按 Reference（可被 frontmatter 覆盖）。
-fn kind_of(root: &Path, path: &Path) -> Kind {
+fn assign_identity(root: &Path, path: &Path, entry: &mut Entry) {
+    let Ok(relative) = path.strip_prefix(root) else { return };
+    let id_path = if entry.kind == Kind::Skill && path.file_name().is_some_and(|name| name == "SKILL.md") {
+        relative.parent().unwrap_or(relative).to_path_buf()
+    } else {
+        relative.with_extension("")
+    };
+    entry.concept_id = id_path.to_string_lossy().replace('\\', "/");
+}
+
+/// 仅给缺 `type` 的旧文件提供兼容 hint。未知目录没有任何默认执行语义。
+fn legacy_kind_hint(root: &Path, path: &Path) -> Kind {
     let Some(first) = path.strip_prefix(root).ok().and_then(|rel| rel.components().next()).and_then(|c| c.as_os_str().to_str()) else {
-        return Kind::Reference;
+        return Kind::Generic;
     };
     // 复数目录名优先按单数解析（rules->rule），失败再按原名（history 这类以 s 结尾的）
-    Kind::from_str(first.trim_end_matches('s')).or_else(|| Kind::from_str(first)).unwrap_or(Kind::Reference)
+    Kind::from_str(first.trim_end_matches('s')).or_else(|| Kind::from_str(first)).unwrap_or(Kind::Generic)
 }
 
 #[cfg(test)]
@@ -234,6 +246,34 @@ mod tests {
         assert_eq!(idx.len(), 2, "多层 index.md 不得被同 slug first-wins 去重: {idx:?}");
         assert!(idx.iter().any(|e| e.slug == "index"));
         assert!(idx.iter().any(|e| e.slug == "rules/index"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn explicit_type_overrides_arbitrary_directory_and_unknown_stays_generic() {
+        let dir = fixture("type-authority");
+        let workflows = dir.join(".agents/workflows");
+        std::fs::create_dir_all(&workflows).unwrap();
+        std::fs::write(workflows.join("check.md"), "---\ntype: rule\ndescription: 任意目录规则\n---\n必须验证。\n").unwrap();
+        std::fs::write(
+            dir.join(".agents/rules/refactor.md"),
+            "---\ntype: refactor\ndescription: 重构知识\ntags: [rust, code]\n---\n先保持行为。\n",
+        )
+        .unwrap();
+        let skill = dir.join(".agents/automation/review");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(skill.join("SKILL.md"), "---\ntype: skill\ndescription: 审查流程\n---\n审查 $1。\n").unwrap();
+        std::fs::write(skill.join("resource.md"), "---\ntype: test\n---\nresource").unwrap();
+
+        let entries = scan(&dir);
+        let rule = entries.iter().find(|entry| entry.concept_id == "workflows/check").unwrap();
+        assert_eq!(rule.kind, Kind::Rule);
+        let generic = entries.iter().find(|entry| entry.concept_id == "rules/refactor").unwrap();
+        assert_eq!(generic.kind, Kind::Generic);
+        assert_eq!(generic.concept_type, "refactor");
+        assert!(generic.okf_conformant);
+        assert!(entries.iter().any(|entry| entry.kind == Kind::Skill && entry.concept_id == "automation/review"));
+        assert!(!entries.iter().any(|entry| entry.slug == "resource"), "Skill resources are not independent concepts");
         std::fs::remove_dir_all(&dir).ok();
     }
 

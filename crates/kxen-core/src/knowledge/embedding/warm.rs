@@ -54,7 +54,7 @@ async fn warm(ep: &Endpoint, texts: &[String], runtime: &EmbeddingRuntime) -> Re
     for chunk in texts.chunks(96) {
         let vectors = fetch_managed(ep, chunk, runtime).await?;
         for (text, vector) in chunk.iter().zip(vectors) {
-            cache.insert(super::content_hash(text), vector);
+            cache.insert(super::cache_key(ep, text), vector);
         }
         // 每个成功批次即落盘，后续批次失败不能抹掉已支付并生成的向量。
         cache.save()?;
@@ -209,7 +209,7 @@ fn record_metering(
     runtime: &EmbeddingRuntime,
     attempt: &mut ProviderAttempt,
 ) -> Result<(), String> {
-    // durable settle 先入账：若持久化失败，trend 不得先记——
+    // durable settle 先入账：若持久化失败，trend 不得先记。
     // 否则趋势比 Goal durable 账本多计，漏计方向相反且无用户可见错误。
     let reporter = runtime.usage_reporter.as_ref().ok_or("embedding usage reporter disappeared")?;
     if let Some(usage) = usage {

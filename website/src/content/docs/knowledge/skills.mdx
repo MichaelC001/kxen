@@ -24,6 +24,7 @@ SKILL.md 同目录的其他文件是 Skill 资源，不会被扫描成独立 Ski
 
 Skill 必须提供明确 description，否则不会出现在发现和调用清单中。还可以配置:
 
+- `type: skill`: 必需，决定 Skill handler。
 - `when_to_use`
 - `arguments`
 - `needs`
@@ -31,6 +32,8 @@ Skill 必须提供明确 description，否则不会出现在发现和调用清�
 - `disable-model-invocation`
 
 `needs` 用于在 Skill 加载时一起注入依赖知识，而不是永久增加 system prompt。
+
+目录型 Skill 不要求位于 `skills/`。扫描器读取任意目录中的 `SKILL.md`，只有文件声明 `type: skill` 时才把同目录作为 Skill resource package；其他 type 的 `SKILL.md` 仍是普通 concept。
 
 ## 调用方式
 

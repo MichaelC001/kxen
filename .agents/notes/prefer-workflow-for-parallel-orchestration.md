@@ -1,4 +1,5 @@
 ---
+type: note
 note-type: convention
 description: Prefer workflow for parallel orchestration
 date: 2026-07-24

@@ -1,4 +1,5 @@
 ---
+type: note
 note-type: convention
 description: All LLM traffic must go through MRM
 date: 2026-07-24

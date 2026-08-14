@@ -40,6 +40,7 @@ pub fn list(workdir: &Path) -> Vec<CommandInfo> {
         argument_hint: e.argument_hint,
     }));
     out.sort_by(|a, b| a.name.cmp(&b.name));
+    out.dedup_by(|left, right| left.name == right.name);
     out
 }
 

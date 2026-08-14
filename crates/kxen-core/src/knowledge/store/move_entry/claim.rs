@@ -66,11 +66,7 @@ pub(super) fn locate_claim(
                 continue;
             }
         };
-        if claim.workspace == workspace
-            && claim.scope == scope
-            && claim.to == to
-            && (claim.entry_slug == requested_slug || claim.requested_slug == requested_slug)
-        {
+        if claim.workspace == workspace && claim.scope == scope && claim.to == to && identifier_matches(&claim, requested_slug) {
             matches.push((path, claim));
         }
     }
@@ -97,7 +93,7 @@ pub(super) fn validate_claim(
     if claim.workspace != workspace || claim.scope != scope || claim.to != to {
         return Err("knowledge move claim identity does not match the requested workspace/scopes".into());
     }
-    if claim.entry_slug != requested_slug && claim.requested_slug != requested_slug {
+    if !identifier_matches(claim, requested_slug) {
         return Err("knowledge move claim does not match the requested slug".into());
     }
     let source_root = canonical_scope_root(scope, workspace, home, false)?;
@@ -124,19 +120,27 @@ pub(super) fn validate_claim(
         let entry = find_entry_with_home(scope, workdir, home, &claim.entry_slug)?;
         let actual = if entry.dir.is_empty() { PathBuf::from(entry.path) } else { PathBuf::from(entry.dir) };
         let actual = actual.canonicalize().map_err(|error| format!("canonicalize requested knowledge entry: {error}"))?;
-        if entry.slug != claim.entry_slug || actual != claim.source {
-            return Err("knowledge move claim source is not the requested slug entry".into());
+        if (entry.concept_id != claim.entry_slug && entry.slug != claim.entry_slug) || actual != claim.source {
+            return Err("knowledge move claim source is not the requested concept entry".into());
         }
     } else if destination_present {
         reject_symlink_tree(&claim.destination)?;
         let entry = find_entry_with_home(to, workdir, home, &claim.entry_slug)?;
         let actual = if entry.dir.is_empty() { PathBuf::from(entry.path) } else { PathBuf::from(entry.dir) };
         let actual = actual.canonicalize().map_err(|error| format!("canonicalize moved knowledge entry: {error}"))?;
-        if entry.slug != claim.entry_slug || actual != claim.destination {
-            return Err("knowledge move claim destination is not the requested slug entry".into());
+        if (entry.concept_id != claim.entry_slug && entry.slug != claim.entry_slug) || actual != claim.destination {
+            return Err("knowledge move claim destination is not the requested concept entry".into());
         }
     }
     Ok(())
+}
+
+fn identifier_matches(claim: &MoveClaim, requested: &str) -> bool {
+    if claim.entry_slug == requested || claim.requested_slug == requested {
+        return true;
+    }
+    let leaf = requested.rsplit('/').next().unwrap_or(requested);
+    claim.entry_slug == leaf || claim.requested_slug == leaf
 }
 
 /// 初始 claim 使用 create_new，跨进程并发 move 只有一个 owner 能在 Provider-independent

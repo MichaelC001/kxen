@@ -125,6 +125,8 @@ pre_tool_use = [{ matcher = "exec", command = "./scripts/check-command.sh" }]
 
 `embedding.base_url` 使用相同的传输安全边界。显式 loopback OpenAI-compatible 或 Ollama endpoint 可以使用 HTTP；其他 endpoint 必须使用 HTTPS。
 
+同一 `[embedding]` 配置也用于 OKF Knowledge retrieval。Knowledge 首轮始终可以用本地 BM25 返回结果；已配置 endpoint 时，缺失的 task query 和 concept 向量在后台经 MRM 预热，后续轮次从应用数据目录的 `embedding-cache.json` 读取。缓存 identity 包含 endpoint、provider、model 和内容 SHA-256；配置或文件内容改变后会自然生成新键并由 LRU 淘汰旧向量。项目文件不能提供 endpoint 或凭证，embedding 也不能改变 Rule、Skill、Command 等 handler 的激活语义。
+
 ## Composer 主动推荐
 
 `composer_suggestions.enabled` 默认是 `true`，只启用本地候选。它按完整 draft、最近 4 条有效 Session 文本、已选文件和目录、先前 context sources、最近 involved 文件、Git status/diff、文件路径、mtime 和受信任 Workspace 的截断文本摘要排序。索引尊重 `.gitignore`，不跟随 symlink，不读取敏感路径；未信任 Workspace 只使用路径和 mtime。

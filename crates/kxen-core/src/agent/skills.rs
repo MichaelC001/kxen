@@ -45,6 +45,7 @@ pub fn scan(workdir: &Path) -> Vec<Skill> {
         .map(Skill::from)
         .collect();
     skills.sort_by(|a, b| a.name.cmp(&b.name));
+    skills.dedup_by(|left, right| left.name == right.name);
     skills
 }
 

@@ -11,36 +11,20 @@ import {
   knowledgeRemove,
   knowledgeSetEnabled,
   type KnowledgeEntry,
-  type KnowledgeKind,
   type KnowledgeScope,
 } from "../../lib/knowledge";
 import { badgeChip } from "../../lib/variants";
 import { activeSessionId } from "../../lib/state";
 import { flashErr, flashOk } from "../../lib/flash";
 import { errText } from "../err-text";
-const SCOPES: { id: KnowledgeScope; label: string; hint: string }[] = [
-  { id: "project", label: "项目", hint: ".agents/ · 入 git 共享" },
-  { id: "personal", label: "个人", hint: "~/.agents/ · 跨项目" },
-];
-const KIND_LABELS: Record<KnowledgeKind, string> = {
-  rule: "规则",
-  reference: "参考",
-  skill: "技能",
-  command: "命令",
-  note: "笔记",
-  memory: "记忆",
-  history: "历史",
-};
-const KIND_ORDER: KnowledgeKind[] = [
-  "rule",
-  "note",
-  "memory",
-  "reference",
-  "skill",
-  "command",
-  "history",
-];
-const NOTE_TYPES = ["correction", "convention", "pitfall", "preference", "note"];
+import {
+  NOTE_TYPES,
+  SCOPES,
+  TYPE_LABELS,
+  shadowedConceptIds,
+  typesFor,
+} from "./knowledge-section-model";
+
 export default function KnowledgeSection() {
   const [entries, setEntries] = createSignal<KnowledgeEntry[]>([]);
   const [preview, setPreview] = createSignal<string | null>(null);
@@ -54,7 +38,7 @@ export default function KnowledgeSection() {
   const [previewLoaded, setPreviewLoaded] = createSignal(false);
   const [previewErr, setPreviewErr] = createSignal("");
   const [confirmDel, setConfirmDel] = createSignal("");
-  const keyOf = (e: KnowledgeEntry) => `${e.scope}:${e.kind}:${e.slug}`;
+  const keyOf = (e: KnowledgeEntry) => `${e.scope}:${e.concept_id}`;
   let reloadSeq = 0;
 
   const reload = async () => {
@@ -99,7 +83,7 @@ export default function KnowledgeSection() {
 
   const toggle = async (e: KnowledgeEntry) => {
     try {
-      await knowledgeSetEnabled(e.scope, e.slug, !e.enabled);
+      await knowledgeSetEnabled(e.scope, e.concept_id, !e.enabled);
     } catch (err) {
       flashErr(`启停失败：${errText(err)}`);
       return;
@@ -110,7 +94,7 @@ export default function KnowledgeSection() {
   const move = async (e: KnowledgeEntry, to: KnowledgeScope) => {
     if (to === e.scope) return;
     try {
-      await knowledgeMove(e.scope, e.slug, to);
+      await knowledgeMove(e.scope, e.concept_id, to);
     } catch (err) {
       flashErr(`移动失败：${errText(err)}`);
       return;
@@ -120,7 +104,7 @@ export default function KnowledgeSection() {
   };
   const remove = async (e: KnowledgeEntry) => {
     try {
-      await knowledgeRemove(e.scope, e.slug);
+      await knowledgeRemove(e.scope, e.concept_id);
     } catch (err) {
       flashErr(`删除失败：${errText(err)}`);
       setConfirmDel("");
@@ -132,16 +116,11 @@ export default function KnowledgeSection() {
   };
 
   const byScope = (s: KnowledgeScope) => entries().filter((e) => e.scope === s);
-  const byKind = (s: KnowledgeScope, k: KnowledgeKind) => byScope(s).filter((e) => e.kind === k);
+  const byType = (s: KnowledgeScope, type: string) =>
+    byScope(s).filter((entry) => entry.type === type);
+  const typesOf = (s: KnowledgeScope) => typesFor(entries(), s);
   const enabledOf = (s: KnowledgeScope) => byScope(s).filter((e) => e.enabled).length;
-  const shadowed = () => {
-    const projectSlugs = new Set(byScope("project").map((e) => `${e.kind}:${e.slug}`));
-    return new Set(
-      byScope("personal")
-        .filter((e) => projectSlugs.has(`${e.kind}:${e.slug}`))
-        .map((e) => `${e.kind}:${e.slug}`),
-    );
-  };
+  const shadowed = () => shadowedConceptIds(entries());
 
   return (
     <>
@@ -183,7 +162,7 @@ export default function KnowledgeSection() {
               ? (preview() ?? "（无注入知识）")
               : previewErr()
                 ? `注入预览 UNKNOWN：${previewErr()}`
-                : "加载中…"}
+                : "加载中..."}
           </pre>
         </div>
       </Show>
@@ -196,14 +175,15 @@ export default function KnowledgeSection() {
               <span class="text-2xs text-[var(--text-faint)]">{s.hint}</span>
             </div>
             <div class="list-card">
-              <For each={KIND_ORDER.filter((k) => byKind(s.id, k).length > 0)}>
-                {(k) => (
+              <For each={typesOf(s.id)}>
+                {(type) => (
                   <div class="px-4 py-2.5">
                     <div class="text-2xs text-[var(--text-faint)] mb-1.5">
-                      {KIND_LABELS[k]}（{byKind(s.id, k).length}）
+                      {TYPE_LABELS[type] ?? type} <span class="font-mono">[{type}]</span>（
+                      {byType(s.id, type).length}）
                     </div>
                     <div class="space-y-2">
-                      <For each={byKind(s.id, k)}>
+                      <For each={byType(s.id, type)}>
                         {(e) => (
                           <div
                             class="flex items-start gap-2"
@@ -228,19 +208,21 @@ export default function KnowledgeSection() {
                                 <Show when={e.note_type}>
                                   <span class={badgeChip({ tone: "accent" })}>{e.note_type}</span>
                                 </Show>
-                                <Show
-                                  when={
-                                    shadowed().has(`${e.kind}:${e.slug}`) && e.scope === "personal"
-                                  }
-                                >
+                                <Show when={shadowed().has(e.concept_id) && e.scope === "personal"}>
                                   <span class={badgeChip({ tone: "warn" })}>被项目覆盖</span>
                                 </Show>
                                 <Show when={e.always_apply}>
                                   <span class={badgeChip({ tone: "faint" })}>always</span>
                                 </Show>
+                                <Show when={!e.okf_conformant}>
+                                  <span class={badgeChip({ tone: "warn" })}>缺少 type</span>
+                                </Show>
                                 <span class="text-2xs text-[var(--text-faint)]">{e.date}</span>
                               </div>
-                              <div class="text-sm">{e.description}</div>
+                              <div class="text-sm">{e.title || e.description}</div>
+                              <Show when={e.title && e.description}>
+                                <div class="text-xs text-[var(--text-dim)]">{e.description}</div>
+                              </Show>
                               <div
                                 class="text-xs text-[var(--text-faint)] truncate"
                                 title={e.content}
@@ -251,7 +233,7 @@ export default function KnowledgeSection() {
                             <select
                               class="bg-transparent border border-[var(--border)] rounded px-1 py-0.5 text-2xs text-[var(--text-dim)]"
                               value={e.scope}
-                              title="晋升/降级（跨 scope 移动，保 kind）"
+                              title="晋升/降级（跨 scope 移动，保留目录和 type）"
                               onChange={(ev) =>
                                 void move(e, ev.currentTarget.value as KnowledgeScope)
                               }

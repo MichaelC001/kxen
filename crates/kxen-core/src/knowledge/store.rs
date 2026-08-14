@@ -1,13 +1,17 @@
 //! 写回路：notes/ 写入（同 slug 覆盖）、启停、双 scope 晋升、回收站删除、.kxen 私址存量迁移。
 
-use super::scan::{scan_all, scan_all_with_home};
+use super::scan::scan_all;
+#[cfg(test)]
+use super::scan::scan_all_with_home;
 use super::{Entry, Kind, NOTE_TYPES, Scope, scope_root, slugify, today};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
+mod lookup;
 mod move_entry;
 
+use lookup::{find_entry, find_entry_with_home};
 pub use move_entry::move_entry;
 #[cfg(test)]
 use move_entry::move_entry_with_home;
@@ -41,7 +45,9 @@ pub(crate) fn add_observed(
     let slug = slugify(slug.unwrap_or(description));
     let dir = scope_root(scope, workdir).join(Kind::Note.dir_name());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let body = format!("---\nnote-type: {note_type}\ndescription: {description}\ndate: {}\n---\n\n{}\n", today(), content.trim());
+    let description = serde_json::to_string(description).map_err(|error| error.to_string())?;
+    let body =
+        format!("---\ntype: note\nnote-type: {note_type}\ndescription: {description}\ndate: {}\n---\n\n{}\n", today(), content.trim());
     let path = dir.join(format!("{slug}.md"));
     let warning = write_atomic(&path, body.as_bytes())?;
     Ok((path.to_string_lossy().into_owned(), warning))
@@ -50,22 +56,6 @@ pub(crate) fn add_observed(
 /// 设置页与 knowledge 工具共用的全量列表（双 scope，scan 序 = 项目在前）。
 pub fn list(workdir: &Path) -> Vec<Entry> {
     scan_all(workdir)
-}
-
-fn find_entry(scope: Scope, workdir: &Path, slug: &str) -> Result<Entry, String> {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/var/empty"));
-    find_entry_with_home(scope, workdir, &home, slug)
-}
-
-fn find_entry_with_home(scope: Scope, workdir: &Path, home: &Path, slug: &str) -> Result<Entry, String> {
-    // 先精确匹配再回落 slugify 规范化：带哈希后缀的 CJK slug 二次 slugify 会追加新哈希而失真
-    // （哈希取的是原始描述），规范化只兜底手输描述定位
-    let entries = scan_all_with_home(workdir, home);
-    let found = entries.iter().find(|e| e.scope == scope && e.slug == slug).or_else(|| {
-        let normalized = slugify(slug);
-        entries.iter().find(|e| e.scope == scope && e.slug == normalized)
-    });
-    found.cloned().ok_or_else(|| format!("not found: {}/{slug}", scope.as_str()))
 }
 
 /// 删除一条（进系统废纸篓可恢复；目录型 skill 整目录移走）。

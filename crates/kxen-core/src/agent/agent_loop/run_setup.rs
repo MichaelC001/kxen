@@ -28,6 +28,7 @@ pub(super) async fn initialize_system_prompt(ctx: &AgentContext, messages: &mut 
         return (false, Vec::new());
     }
     let involved = ctx.tracker.files();
+    let task_query = latest_user_query(messages).map(String::from);
     let embedding_runtime = crate::agent::prompt::embedding_runtime(ctx);
     messages.insert(
         0,
@@ -35,6 +36,7 @@ pub(super) async fn initialize_system_prompt(ctx: &AgentContext, messages: &mut 
             crate::agent::prompt::system_prompt_with_embedding(crate::agent::prompt::SystemPromptContext {
                 workdir: &ctx.workdir,
                 involved: &involved,
+                task_query: task_query.as_deref(),
                 session_id: ctx.session_id.as_deref(),
                 coding_rules: crate::core::config::coding_rules_enabled(),
                 mrm: ctx.mrm.as_deref(),
@@ -46,6 +48,16 @@ pub(super) async fn initialize_system_prompt(ctx: &AgentContext, messages: &mut 
         ),
     );
     (true, involved)
+}
+
+pub(super) fn latest_user_query(messages: &[Message]) -> Option<&str> {
+    messages
+        .iter()
+        .rev()
+        .find(|message| message.role == crate::llm::types::Role::User)
+        .map(|message| message.content.as_str())
+        .map(str::trim)
+        .filter(|query| !query.is_empty())
 }
 
 pub(super) fn record_unknown_usage(ctx: &AgentContext, acc: &mut super::usage::UsageAcc, usage_reported: bool) -> Option<String> {
@@ -103,5 +115,17 @@ mod tests {
         let all = names(resolve_base_tools(None));
         assert!(all.contains(&"exec".to_string()));
         assert!(!all.contains(&"lsp".to_string()), "None 不得混入 deferred: {all:?}");
+    }
+
+    #[test]
+    fn retrieval_query_uses_latest_non_empty_user_message() {
+        let messages = vec![
+            Message::system("system"),
+            Message::user("first task"),
+            Message::assistant("working"),
+            Message::user("  refine OKF retrieval  "),
+        ];
+        assert_eq!(latest_user_query(&messages), Some("refine OKF retrieval"));
+        assert_eq!(latest_user_query(&[Message::assistant("no user")]), None);
     }
 }

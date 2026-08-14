@@ -1,4 +1,5 @@
 ---
+type: note
 note-type: convention
 description: Deletions use trash only
 date: 2026-07-24

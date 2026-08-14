@@ -1,5 +1,5 @@
-//! 单一注入渲染：rules 全文（alwaysApply/globs 命中/无条件 rule）+ notes/memory 全文（截 500）
-//! + references/history/未激活 rules 一行索引 + skills 清单。command 不进 system prompt（slash 菜单 + 展开注入）。
+//! Handler-aware 注入：Rule 确定性激活，Skill/Command 保持显式加载，Note/Memory 与
+//! generic concepts 走 hybrid retrieval。语义检索只影响发现，不授予执行能力。
 
 use super::{Entry, Kind, scan};
 use std::fmt::Write as _;
@@ -10,12 +10,13 @@ const NOTE_BODY_CAP: usize = 500;
 const SKILL_DESC_CAP: usize = 250;
 
 pub fn render(workdir: &Path, involved: &[PathBuf]) -> Option<String> {
-    render_with_runtime(workdir, involved, None)
+    render_with_runtime(workdir, involved, None, None)
 }
 
 pub(crate) fn render_with_runtime(
     workdir: &Path,
     involved: &[PathBuf],
+    task_query: Option<&str>,
     runtime: Option<&super::embedding::EmbeddingRuntime>,
 ) -> Option<String> {
     let trusted = crate::core::trust::is_trusted(workdir);
@@ -32,18 +33,23 @@ pub(crate) fn render_with_runtime(
     let mut index = String::new();
     let mut skills = String::new();
     let mut notes_entries: Vec<&Entry> = Vec::new();
+    let mut discoverable_entries: Vec<&Entry> = Vec::new();
     for e in &entries {
         // 信任门：未信任项目的知识只索引不注入（注入即提示词面，.agents 是项目提供的可执行面）
         let gated = e.scope == super::Scope::Project && !trusted;
         if gated {
-            writeln!(index, "- {} — {}（未信任项目，信任后注入）", rel_label(workdir, e), e.description)
+            writeln!(index, "- {} - {}（未信任项目，信任后注入）", rel_label(workdir, e), e.description)
                 .expect("writing to String cannot fail");
             continue;
         }
         // index.md 是所在层目录的人工策展入口（渐进披露）：全文进索引段，正文即按需读取地图，
-        // 先于 kind 匹配——rules/index.md 这类路径按目录推断会是 Rule，但语义仍是入口而非规则
-        if Path::new(&e.path).file_name().is_some_and(|n| n == "index.md") {
+        // 先于 kind 匹配。rules/index.md 这类路径按旧目录 hint 会是 Rule，但语义仍是入口而非规则
+        if e.reserved.as_deref() == Some("index") {
             writeln!(curated, "\n#### {}\n{}", rel_label(workdir, e), e.content.trim()).expect("writing to String cannot fail");
+            continue;
+        }
+        if e.reserved.as_deref() == Some("log") {
+            writeln!(index, "- [log] {} - {}", rel_label(workdir, e), e.description).expect("writing to String cannot fail");
             continue;
         }
         match e.kind {
@@ -52,7 +58,7 @@ pub(crate) fn render_with_runtime(
                 if e.always_apply || e.is_agents_md || e.globs.is_empty() || globbed {
                     writeln!(rules, "\n#### {}\n{}", rel_label(workdir, e), e.content.trim()).expect("writing to String cannot fail");
                 } else {
-                    writeln!(index, "- {} — {}", rel_label(workdir, e), e.description).expect("writing to String cannot fail");
+                    writeln!(index, "- {} - {}", rel_label(workdir, e), e.description).expect("writing to String cannot fail");
                 }
             }
             Kind::Note | Kind::Memory => {
@@ -65,15 +71,18 @@ pub(crate) fn render_with_runtime(
                     write!(skills, " (use when: {w})").expect("writing to String cannot fail");
                 }
             }
-            Kind::Reference | Kind::History | Kind::Command => {
-                writeln!(index, "- {} — {}", rel_label(workdir, e), e.description).expect("writing to String cannot fail");
+            Kind::Reference | Kind::History | Kind::Generic => {
+                discoverable_entries.push(e);
+            }
+            Kind::Command => {
+                writeln!(index, "- {} - {}", rel_label(workdir, e), e.description).expect("writing to String cannot fail");
             }
         }
     }
 
     // 动态检索：BM25 + 可选语义融合（retrieval 内做冲突降权、同 slug 去重与截断）；
     // involved 为空回落日期序 top 3（新沉淀仍可见）
-    let scored = super::retrieval::select_notes_with_runtime(&notes_entries, &involved_rel, runtime);
+    let scored = super::retrieval::select_notes_for_query_with_runtime(&notes_entries, task_query, &involved_rel, runtime);
     let mut notes = String::new();
     for e in &scored {
         let body: String = e.content.chars().take(NOTE_BODY_CAP).collect();
@@ -81,7 +90,15 @@ pub(crate) fn render_with_runtime(
         writeln!(notes, "\n#### [{}] {} ({})\n{}", sub, e.description, e.scope.as_str(), body).expect("writing to String cannot fail");
     }
 
-    let mut out = String::from("\n\n## Knowledge (.agents/ project + ~/.agents/ personal)\n");
+    for e in super::retrieval::select_concepts_with_runtime(&discoverable_entries, task_query, &involved_rel, runtime) {
+        let conformance = if e.okf_conformant { "" } else { " [legacy missing type]" };
+        let tags = if e.tags.is_empty() { String::new() } else { format!(" tags={}", e.tags.join(",")) };
+        let resource = e.resource.as_deref().map(|value| format!(" resource={value}")).unwrap_or_default();
+        writeln!(index, "- [{}] {} - {}{}{}{}", e.concept_type, rel_label(workdir, e), e.description, tags, resource, conformance)
+            .expect("writing to String cannot fail");
+    }
+
+    let mut out = String::from("\n\n## OKF Knowledge (.agents/ project + ~/.agents/ personal)\n");
     if !rules.is_empty() {
         out.push_str("\n### Rules (always applied)\n");
         out.push_str(&rules);
@@ -99,7 +116,6 @@ pub(crate) fn render_with_runtime(
     }
     Some(out)
 }
-
 fn rel_label(workdir: &Path, e: &Entry) -> String {
     let p = Path::new(&e.path);
     p.strip_prefix(workdir).map(|r| r.to_string_lossy().into_owned()).unwrap_or_else(|_| e.path.clone())
@@ -181,11 +197,11 @@ mod tests {
         crate::core::trust::trust(&dir).unwrap(); // 测试夹具显式信任（生产默认未信任只索引）
         let rules = dir.join(".agents/rules");
         std::fs::create_dir_all(&rules).unwrap();
-        std::fs::write(rules.join("style.md"), "---\nalwaysApply: true\ndescription: 风格\n---\n用 trash。\n").unwrap();
-        std::fs::write(rules.join("rust.md"), "---\nglobs: *.rs\ndescription: rust 专属\n---\nRust 规则体。\n").unwrap();
+        std::fs::write(rules.join("style.md"), "---\ntype: rule\nalwaysApply: true\ndescription: 风格\n---\n用 trash。\n").unwrap();
+        std::fs::write(rules.join("rust.md"), "---\ntype: rule\nglobs: \"*.rs\"\ndescription: rust 专属\n---\nRust 规则体。\n").unwrap();
         let refs = dir.join(".agents/references");
         std::fs::create_dir_all(&refs).unwrap();
-        std::fs::write(refs.join("arch.md"), "---\ndescription: 架构\n---\n细节全文不进注入。\n").unwrap();
+        std::fs::write(refs.join("arch.md"), "---\ntype: reference\ndescription: 架构\n---\n细节全文不进注入。\n").unwrap();
 
         let rendered = render(&dir, &[]).unwrap();
         assert!(rendered.contains("用 trash。"));
@@ -219,6 +235,43 @@ mod tests {
         // 普通 reference 仍只出一行索引
         assert!(rendered.contains("arch.md"));
         assert!(!rendered.contains("细节全文不进注入。"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn task_query_discovers_generic_concept_without_executing_it() {
+        setup();
+        let dir = std::env::temp_dir().join(format!("kxen-kn-generic-query-{}", std::process::id()));
+        crate::core::trust::trust(&dir).unwrap();
+        let concepts = dir.join(".agents/domain");
+        std::fs::create_dir_all(&concepts).unwrap();
+        std::fs::write(
+            concepts.join("refactor.md"),
+            "---\ntype: refactor\ndescription: Safe Rust refactoring\ntags: [rust, code]\n---\nGeneric body must stay on demand.\n",
+        )
+        .unwrap();
+        std::fs::write(concepts.join("release.md"), "---\ntype: release\ndescription: Publish artifacts\n---\nUnrelated release body.\n")
+            .unwrap();
+
+        let rendered = render_with_runtime(&dir, &[], Some("refactor Rust code"), None).unwrap();
+        assert!(rendered.contains("[refactor]"));
+        assert!(rendered.contains("domain/refactor.md"));
+        assert!(!rendered.contains("Generic body must stay on demand."));
+        assert!(!rendered.contains("domain/release.md"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn malformed_yaml_never_grants_rule_execution() {
+        setup();
+        let dir = std::env::temp_dir().join(format!("kxen-kn-invalid-rule-{}", std::process::id()));
+        crate::core::trust::trust(&dir).unwrap();
+        let rules = dir.join(".agents/rules");
+        std::fs::create_dir_all(&rules).unwrap();
+        std::fs::write(rules.join("invalid.md"), "---\ntype: [rule\n---\nDo not execute this body.\n").unwrap();
+        let rendered = render(&dir, &[]).unwrap();
+        assert!(!rendered.contains("Do not execute this body."));
+        assert!(rendered.contains("[invalid]"));
         std::fs::remove_dir_all(&dir).ok();
     }
 

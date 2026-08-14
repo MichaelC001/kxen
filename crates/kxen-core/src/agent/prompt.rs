@@ -16,6 +16,8 @@ pub const CACHE_BOUNDARY: &str = "<!-- kxen:context-boundary -->";
 pub(crate) struct SystemPromptContext<'a> {
     pub workdir: &'a std::path::Path,
     pub involved: &'a [std::path::PathBuf],
+    /// 当前 user task，作为 OKF retrieval 的主 query；文件路径只作补充信号。
+    pub task_query: Option<&'a str>,
     pub session_id: Option<&'a str>,
     pub coding_rules: bool,
     pub mrm: Option<&'a crate::llm::mrm::ModelResourceManager>,
@@ -39,6 +41,7 @@ pub async fn system_prompt(
     system_prompt_with_embedding(SystemPromptContext {
         workdir,
         involved,
+        task_query: None,
         session_id,
         coding_rules,
         mrm,
@@ -50,8 +53,17 @@ pub async fn system_prompt(
 }
 
 pub(crate) async fn system_prompt_with_embedding(context: SystemPromptContext<'_>) -> String {
-    let SystemPromptContext { workdir, involved, session_id, coding_rules, mrm, bound_goal_id, goal_binding_frozen, embedding_runtime } =
-        context;
+    let SystemPromptContext {
+        workdir,
+        involved,
+        task_query,
+        session_id,
+        coding_rules,
+        mrm,
+        bound_goal_id,
+        goal_binding_frozen,
+        embedding_runtime,
+    } = context;
     // frozen 段：跨轮逐字节稳定（workdir 会话内不变），provider 前缀缓存的命中区
     let mut out = String::with_capacity(2048);
     out.push_str(IDENTITY);
@@ -77,7 +89,7 @@ pub(crate) async fn system_prompt_with_embedding(context: SystemPromptContext<'_
     out.push_str("\n\n");
     out.push_str(CACHE_BOUNDARY);
     // dynamic 段：knowledge 随涉及文件变、goal usage 逐轮变，全部压在边界之后
-    if let Some(block) = crate::knowledge::render_with_runtime(workdir, involved, embedding_runtime) {
+    if let Some(block) = crate::knowledge::render_with_runtime(workdir, involved, task_query, embedding_runtime) {
         out.push_str(&block);
     }
     if let Some(block) = goal_block(session_id, bound_goal_id, goal_binding_frozen) {

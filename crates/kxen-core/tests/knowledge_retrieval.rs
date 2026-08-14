@@ -10,13 +10,34 @@ use kxen_core::knowledge::{Entry, Kind, Scope};
 use std::collections::HashSet;
 
 fn entry(scope: Scope, kind: Kind, slug: &str, desc: &str, content: &str, date: &str) -> Entry {
+    let concept_type = match kind {
+        Kind::Rule => "rule",
+        Kind::Reference => "reference",
+        Kind::Skill => "skill",
+        Kind::Command => "command",
+        Kind::Note => "note",
+        Kind::Memory => "memory",
+        Kind::History => "history",
+        Kind::Generic => "concept",
+    };
     Entry {
         scope,
+        concept_type: concept_type.into(),
         kind,
+        concept_id: slug.into(),
         slug: slug.into(),
+        title: String::new(),
         description: desc.into(),
         content: content.into(),
         path: format!("/tmp/{slug}.md"),
+        resource: None,
+        tags: vec![],
+        status: None,
+        stale_after: None,
+        links: vec![],
+        okf_conformant: true,
+        reserved: None,
+        okf_version: None,
         enabled: true,
         always_apply: false,
         globs: vec![],
@@ -204,6 +225,38 @@ fn select_notes_conflict_prefers_newer_entry() {
     let involved = vec!["scripts/trash.rs".to_string()];
     let picked = retrieval::select_notes(&refs, &involved);
     assert_eq!(picked[0].slug, "new", "同主题修订新条目优先: {:?}", picked.iter().map(|e| &e.slug).collect::<Vec<_>>());
+}
+
+#[test]
+fn generic_concepts_use_task_metadata_and_expand_local_links() {
+    let mut refactor = entry(
+        Scope::Project,
+        Kind::Generic,
+        "refactor",
+        "Safe Rust refactoring",
+        "Preserve behavior before structural changes",
+        "2026-01-10",
+    );
+    refactor.concept_type = "refactor".into();
+    refactor.concept_id = "code/refactor".into();
+    refactor.tags = vec!["rust".into(), "code".into()];
+    refactor.links = vec!["../tests/regression.md".into()];
+
+    let mut regression =
+        entry(Scope::Project, Kind::Generic, "regression", "Regression contract", "Capture the existing observable behavior", "2026-01-09");
+    regression.concept_type = "test".into();
+    regression.concept_id = "tests/regression".into();
+
+    let mut deployment = entry(Scope::Project, Kind::Generic, "deployment", "Release deployment", "Publish signed artifacts", "2026-01-11");
+    deployment.concept_type = "release".into();
+    deployment.concept_id = "operations/deployment".into();
+
+    let entries = [&refactor, &regression, &deployment];
+    let picked = retrieval::select_concepts(&entries, Some("refactor Rust code safely"), &[]);
+    let ids: Vec<&str> = picked.iter().map(|entry| entry.concept_id.as_str()).collect();
+    assert_eq!(ids[0], "code/refactor", "task and metadata must rank the matching concept first");
+    assert!(ids.contains(&"tests/regression"), "one-hop local link must expand a directly matched concept");
+    assert!(!ids.contains(&"operations/deployment"), "zero-signal unrelated concept must stay out");
 }
 
 // ---------- embedding：端点解析（纯函数，零网络） ----------

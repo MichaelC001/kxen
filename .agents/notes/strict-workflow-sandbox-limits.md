@@ -1,4 +1,5 @@
 ---
+type: note
 note-type: pitfall
 description: Strict workflow sandbox limits
 date: 2026-07-24

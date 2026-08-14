@@ -1,7 +1,7 @@
 //! 可选 embedding 语义召回（缺省关闭，未配置/调用失败静默回落纯 BM25）。
 //! 三档 provider：openai（text-embedding-3-small）、openrouter（同 OpenAI 协议换 base URL）、
 //! ollama（/api/embed，nomic-embed-text，本地无鉴权）。
-//! 设计：检索路径永远同步、永不阻塞网络——只读磁盘缓存算 cosine；缓存未命中的文本
+//! 设计：检索路径永远同步、永不阻塞网络。只读磁盘缓存算 cosine；缓存未命中的文本
 //! 后台 spawn 预热（本轮 BM25，下轮融合生效）。凭证复用 auth.json 的同 provider 账号。
 
 use super::embedding_cache::EmbeddingCache;
@@ -80,7 +80,7 @@ pub fn resolve_endpoint_with(cfg: &EmbeddingConfig, store: &AuthStore) -> Option
     }
 }
 
-/// 读盘装配：config 只读用户级（~/.config/kxen/config.toml）——与 llm client 读
+/// 读盘装配：config 只读用户级（~/.config/kxen/config.toml），与 llm client 读
 /// custom_providers 同路径；召回偏好跟人走，项目级 config 入 git 不放这个。
 pub fn resolve_endpoint() -> Option<Endpoint> {
     let config = match crate::core::config_cache::cached_user_config_result() {
@@ -129,6 +129,11 @@ pub fn content_hash(text: &str) -> String {
     use sha2::Digest;
     let digest = sha2::Sha256::digest(text.as_bytes());
     crate::core::shared::hex_lower(&digest)
+}
+
+/// 向量 cache identity 必须包含 endpoint 和 model，避免配置切换后复用维度或语义空间不兼容的旧向量。
+pub(super) fn cache_key(endpoint: &Endpoint, text: &str) -> String {
+    content_hash(&format!("{}\0{}\0{}\0{text}", endpoint.provider, endpoint.model, endpoint.url))
 }
 
 pub fn cache_path() -> std::path::PathBuf {
@@ -180,9 +185,9 @@ fn f32_array(v: &serde_json::Value) -> Option<Vec<f32>> {
 /// 检索侧语义分（同步、零网络）：只读磁盘缓存。返回 None = 本轮无语义（未配置或 query
 /// 向量未缓存）；Vec 内逐条 Option = 该条目是否有缓存向量。未命中的文本触发后台预热。
 pub fn recall(query: &str, docs: &[String]) -> Option<Vec<Option<f64>>> {
-    resolve_endpoint()?;
-    let hashes: Vec<String> = docs.iter().map(|doc| content_hash(doc)).collect();
-    let (query_present, _, scores) = lookup_cached(&content_hash(query), &hashes)?;
+    let endpoint = resolve_endpoint()?;
+    let hashes: Vec<String> = docs.iter().map(|doc| cache_key(&endpoint, doc)).collect();
+    let (query_present, _, scores) = lookup_cached(&cache_key(&endpoint, query), &hashes)?;
     query_present.then_some(scores)
 }
 
@@ -192,8 +197,8 @@ pub(crate) fn recall_lazy(query: &str, runtime: Option<&EmbeddingRuntime>, docs:
         None => Arc::new(resolve_endpoint()?),
     };
     let docs = docs();
-    let query_hash = content_hash(query);
-    let hashes: Vec<String> = docs.iter().map(|doc| content_hash(doc)).collect();
+    let query_hash = cache_key(&ep, query);
+    let hashes: Vec<String> = docs.iter().map(|doc| cache_key(&ep, doc)).collect();
     let (query_present, present, scores) = lookup_cached(&query_hash, &hashes)?;
     let mut missing: Vec<String> = Vec::new();
     if !query_present {
@@ -249,4 +254,32 @@ fn lookup_cached(query_hash: &str, doc_hashes: &[String]) -> Option<(bool, Vec<b
     let present: Vec<bool> = doc_hashes.iter().map(|hash| cache.contains(hash)).collect();
     let scores = cache.cosine_scores(query_hash, doc_hashes).unwrap_or_else(|| vec![None; doc_hashes.len()]);
     Some((query_present, present, scores))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn endpoint(model: &str, url: &str) -> Endpoint {
+        Endpoint {
+            provider: "openai",
+            account: None,
+            url: url.to_string(),
+            key: None,
+            model: model.to_string(),
+            protocol: Protocol::OpenAi,
+            allow_loopback: false,
+        }
+    }
+
+    #[test]
+    fn cache_key_is_stable_but_namespaced_by_endpoint_and_model() {
+        let primary = endpoint("embed-v1", "https://api.example.com/v1/embeddings");
+        assert_eq!(cache_key(&primary, "same text"), cache_key(&primary, "same text"));
+        assert_ne!(cache_key(&primary, "same text"), cache_key(&endpoint("embed-v2", &primary.url), "same text"));
+        assert_ne!(
+            cache_key(&primary, "same text"),
+            cache_key(&endpoint("embed-v1", "https://other.example.com/v1/embeddings"), "same text")
+        );
+    }
 }

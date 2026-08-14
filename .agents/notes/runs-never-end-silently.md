@@ -1,4 +1,5 @@
 ---
+type: note
 note-type: convention
 description: Runs never end silently
 date: 2026-07-24

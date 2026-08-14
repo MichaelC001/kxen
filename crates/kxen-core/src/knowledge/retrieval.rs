@@ -1,12 +1,17 @@
-//! 记忆检索：BM25 词法基线（无外部依赖，默认路径）+ 可选 embedding 语义融合。
-//! 条目量级几十到几百，打分全在内存做完，不需要向量库。
+//! 本地 OKF concept 检索：metadata/path/content BM25 + 可选 embedding + 一跳 links graph。
+//! 条目量级几十到几百，增量向量缓存后全在内存打分，不需要常驻向量数据库。
 //! 冲突处理：高相似但内容不同的条目对视为同主题修订，新条目优先、旧条目降权。
 
 use super::{Entry, Scope};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
+mod concepts;
+pub use concepts::select_concepts;
+pub(crate) use concepts::select_concepts_with_runtime;
+
 const NOTE_TOP_K: usize = 8;
+const QUERY_CHAR_CAP: usize = 4000;
 
 // BM25 常规参数（Lucene/Elasticsearch 默认同值）：k1 控词频饱和，b 控文档长度归一。
 const K1: f64 = 1.2;
@@ -169,7 +174,7 @@ fn parse_date_days(s: &str) -> Option<i64> {
 }
 
 /// 冲突降权：返回应乘 CONFLICT_PENALTY 的下标。两两 O(n^2)，n 是记忆条目数（几十到几百），可接受。
-/// "内容不同"按原文精确不等判定——完全相同是重复不是冲突（同 slug 去重在 select 里做）。
+/// "内容不同"按原文精确不等判定。完全相同是重复不是冲突（同 slug 去重在 select 里做）。
 pub fn conflict_losers<T: Eq + Hash, D: AsRef<str>, C: AsRef<str>>(token_sets: &[HashSet<T>], dates: &[D], contents: &[C]) -> Vec<usize> {
     let mut losers = Vec::new();
     for i in 0..token_sets.len() {
@@ -195,21 +200,22 @@ pub fn conflict_losers<T: Eq + Hash, D: AsRef<str>, C: AsRef<str>>(token_sets: &
 /// notes/memory 的选择主入口：返回排序+去重+截断后的条目（render 直接渲染）。
 /// involved 为空：日期序 top 3（新沉淀仍可见）。
 pub fn select_notes<'a>(notes: &[&'a Entry], involved_rel: &[String]) -> Vec<&'a Entry> {
-    select_notes_with_runtime(notes, involved_rel, None)
+    select_notes_for_query_with_runtime(notes, None, involved_rel, None)
 }
 
-pub(crate) fn select_notes_with_runtime<'a>(
+pub(crate) fn select_notes_for_query_with_runtime<'a>(
     notes: &[&'a Entry],
+    task_query: Option<&str>,
     involved_rel: &[String],
     runtime: Option<&super::embedding::EmbeddingRuntime>,
 ) -> Vec<&'a Entry> {
-    if involved_rel.is_empty() {
+    let query = retrieval_query(task_query, involved_rel);
+    if query.is_empty() {
         let mut by_date: Vec<&Entry> = notes.to_vec();
         by_date.sort_by(|a, b| b.date.cmp(&a.date));
         by_date.truncate(3);
         return by_date;
     }
-    let query = involved_rel.join(" ");
     let query_terms = tokenize(&query);
     let bm25_docs: Vec<Vec<String>> = notes
         .iter()
@@ -250,4 +256,13 @@ pub(crate) fn select_notes_with_runtime<'a>(
     scored.retain(|(_, entry)| seen.insert(entry.slug.as_str()));
     scored.truncate(NOTE_TOP_K);
     scored.into_iter().map(|(_, e)| e).collect()
+}
+
+fn retrieval_query(task_query: Option<&str>, involved_rel: &[String]) -> String {
+    let mut parts = Vec::with_capacity(involved_rel.len() + 1);
+    if let Some(query) = task_query.map(str::trim).filter(|query| !query.is_empty()) {
+        parts.push(query.chars().take(QUERY_CHAR_CAP).collect());
+    }
+    parts.extend(involved_rel.iter().cloned());
+    parts.join(" ")
 }

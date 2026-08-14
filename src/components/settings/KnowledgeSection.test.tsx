@@ -40,16 +40,21 @@ import { flash } from "../../lib/flash";
 
 const entry = (overrides: Partial<KnowledgeEntry>): KnowledgeEntry => ({
   scope: "project",
+  type: "rule",
   kind: "rule",
+  concept_id: "rules/shared",
   slug: "shared",
+  title: "",
   description: "共享规则",
   content: "规则正文",
   path: "/knowledge/shared.md",
+  tags: [],
+  links: [],
+  okf_conformant: true,
   enabled: true,
   always_apply: false,
   globs: [],
   needs: [],
-  note_type: "convention",
   date: "2026-07-27",
   ...overrides,
 });
@@ -63,7 +68,9 @@ const entries = [
   }),
   entry({
     scope: "personal",
+    type: "skill",
     kind: "skill",
+    concept_id: "skills/disabled-skill",
     slug: "disabled-skill",
     description: "停用技能",
     enabled: false,
@@ -101,6 +108,30 @@ afterEach(() => {
 });
 
 describe("KnowledgeSection 生命周期", () => {
+  it("按 frontmatter type 动态分组并显示 non-conformant 状态", async () => {
+    h.list.mockResolvedValueOnce([
+      entry({
+        type: "refactor",
+        kind: "generic",
+        concept_id: "workflows/refactor",
+        slug: "refactor",
+        title: "Safe refactor",
+        description: "重构流程",
+      }),
+      entry({
+        concept_id: "rules/legacy",
+        slug: "legacy",
+        description: "旧规则",
+        okf_conformant: false,
+      }),
+    ]);
+    const dispose = render(() => <KnowledgeSection />, document.body);
+    await vi.waitFor(() => expect(document.body.textContent).toContain("refactor [refactor]"));
+    expect(document.body.textContent).toContain("Safe refactor");
+    expect(document.body.textContent).toContain("缺少 type");
+    dispose();
+  });
+
   it("加载、预览、启停、移动、删除和新增均使用统一知识接口", async () => {
     const dispose = render(() => <KnowledgeSection />, document.body);
     await vi.waitFor(() => expect(document.body.textContent).toContain("被项目覆盖"));
@@ -112,21 +143,25 @@ describe("KnowledgeSection 生命周期", () => {
     await vi.waitFor(() => expect(document.body.textContent).toContain("injected knowledge"));
 
     document.body.querySelector<HTMLButtonElement>("button[title='停用（注入即刻跳过）']")?.click();
-    await vi.waitFor(() => expect(h.setEnabled).toHaveBeenCalledWith("project", "shared", false));
+    await vi.waitFor(() =>
+      expect(h.setEnabled).toHaveBeenCalledWith("project", "rules/shared", false),
+    );
 
     const moveSelect = document.body.querySelector<HTMLSelectElement>(
-      "select[title='晋升/降级（跨 scope 移动，保 kind）']",
+      "select[title='晋升/降级（跨 scope 移动，保留目录和 type）']",
     );
     expect(moveSelect).toBeTruthy();
     moveSelect!.value = "personal";
     moveSelect!.dispatchEvent(new Event("change", { bubbles: true }));
-    await vi.waitFor(() => expect(h.move).toHaveBeenCalledWith("project", "shared", "personal"));
+    await vi.waitFor(() =>
+      expect(h.move).toHaveBeenCalledWith("project", "rules/shared", "personal"),
+    );
 
     document.body.querySelector<HTMLButtonElement>("button[title='删除（废纸篓可恢复）']")?.click();
     await vi.waitFor(() => expect(document.body.textContent).toContain("确认删除"));
     expect(h.remove).not.toHaveBeenCalled(); // 一键不直删：先出行内确认条
     buttonByText("确认删除").click();
-    await vi.waitFor(() => expect(h.remove).toHaveBeenCalledWith("project", "shared"));
+    await vi.waitFor(() => expect(h.remove).toHaveBeenCalledWith("project", "rules/shared"));
 
     const scopeSelect = [...document.body.querySelectorAll<HTMLSelectElement>("select")].find(
       (select) => select.options[0]?.textContent?.includes("个人（默认）"),
@@ -170,7 +205,7 @@ describe("KnowledgeSection 生命周期", () => {
       expect(flash.msgs().some((message) => message.text.includes("toggle failed"))).toBe(true),
     );
     const moveSelect = document.body.querySelector<HTMLSelectElement>(
-      "select[title='晋升/降级（跨 scope 移动，保 kind）']",
+      "select[title='晋升/降级（跨 scope 移动，保留目录和 type）']",
     );
     moveSelect!.value = "personal";
     moveSelect!.dispatchEvent(new Event("change", { bubbles: true }));
