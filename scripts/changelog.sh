@@ -97,13 +97,15 @@ PY
 
 if [[ "$operation" == check ]]; then
   generated="$(mktemp "${TMPDIR:-/tmp}/kxen-changelog.XXXXXX")"
-  trap 'rm -f "$generated"' EXIT
+  release_notes="$(mktemp "${TMPDIR:-/tmp}/kxen-release-notes.XXXXXX")"
+  trap 'rm -f "$generated" "$release_notes"' EXIT
   generate "$generated"
   if ! cmp -s "$generated" "$output_path"; then
     printf 'CHANGELOG.md is stale; run: scripts/changelog.sh generate %s\n' "$release_tag" >&2
     diff -u "$output_path" "$generated" || true
     exit 1
   fi
+  "$script_dir/changelog.sh" release-notes "$release_tag" "$release_notes"
   printf 'PASS generated changelog matches %s\n' "$release_tag"
 else
   generate "$output_path"

@@ -49,6 +49,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/release-tools"
           cp scripts/release-lib.sh scripts/release-manifest.sh scripts/validate-release.sh \
             "$RUNNER_TEMP/release-tools/"
+          cp cliff.toml "$RUNNER_TEMP/release-tools/cliff.toml"
           if ! git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
             printf 'release tag does not exist locally: %s\n' "$RELEASE_TAG"
             exit 1
@@ -64,6 +65,20 @@ jobs:
           git checkout --detach "$release_commit"
           bash "$RUNNER_TEMP/release-tools/validate-release.sh" \
             "$RELEASE_TAG" origin/main "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+      - name: Generate release notes before platform builds
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4.8.0
+        with:
+          version: v2.13.1
+          config: ${{ runner.temp }}/release-tools/cliff.toml
+          args: --current --strip header --output ${{ runner.temp }}/release-notes.md
+      - name: Validate release notes before platform builds
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/release-tools/release-lib.sh"
+          kxen_validate_release_notes_file "$RELEASE_TAG" "$RUNNER_TEMP/release-notes.md"
 
   matrix:
     name: Release platform matrix
