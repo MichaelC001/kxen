@@ -2,6 +2,17 @@
 
 此文件由 [git-cliff](https://github.com/orhun/git-cliff) 根据 Git tag 和 Conventional Commits 自动生成，请勿手动编辑。
 
+## [0.1.11] - 2026-08-14
+
+### 文档
+
+- Document isolated agent credentials ([5b04242](https://github.com/StringKe/kxen/commit/5b04242f94593d0651a91adbff52b7c0d7208a45))
+
+### 问题修复
+
+- **agent:** Isolate provider credentials from tools ([4750da8](https://github.com/StringKe/kxen/commit/4750da8c336428c9e347061d1f0c1cbb5867f5d2))
+- **actions:** Isolate autonomous model jobs ([6df9527](https://github.com/StringKe/kxen/commit/6df9527f9ab4534056a5ebc120f535c9bca2f3b8))
+
 ## [0.1.10] - 2026-08-14
 
 > **版本主题:** Autonomous Issue Remediation
