@@ -189,3 +189,71 @@ async fn predefined_agent_runs_and_resumes_multiple_durable_tasks() {
     );
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn unknown_tool_outcome_emits_input_required_without_terminal_settlement() {
+    let root = std::env::temp_dir().join(format!("kxen-dcp-input-required-{}", uuid::Uuid::new_v4()));
+    let workspace = root.join("workspace");
+    let state = root.join("state");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let runtime = DcpRuntime::new(
+        DcpRuntimeOptions {
+            data_dir: state,
+            config_file: root.join("config.toml"),
+            auth_file: root.join("auth.json"),
+            policy_file: None,
+            event_format: DcpEventFormat::Jsonl,
+            allow_shell: false,
+            allow_mcp: false,
+            pass_env: Vec::new(),
+        },
+        Arc::new(move |event| crate::core::shared::lock(&captured).push(event)),
+    )
+    .unwrap();
+    let definition = DcpAgentDefinition {
+        api_version: DCP_AGENT_API_VERSION.into(),
+        kind: "DCPAgent".into(),
+        metadata: DcpAgentMetadata { name: "unknown_test".into(), description: None },
+        spec: DcpAgentSpec {
+            objective: "Verify UNKNOWN recovery".into(),
+            instructions: vec!["Stop for owner input".into()],
+            success_criteria: Vec::new(),
+            capabilities: DcpAgentCapabilities { required: vec!["read".into()], optional: Vec::new() },
+            execution: DcpAgentExecution::default(),
+            output: DcpAgentOutput::default(),
+        },
+    };
+    let lock = DcpRuntimePolicy::default().resolve_lock(definition, &DcpRuntime::base_capabilities()).unwrap();
+    let mut session = runtime.store().create_session(WorkspaceBinding::capture(&workspace).unwrap(), lock).unwrap();
+    let run = runtime.store().create_run(&mut session, "inspect".into()).unwrap();
+    let result = runtime
+        .finish_run(
+            &mut session,
+            run,
+            crate::agent::agent_loop::AgentOutcome {
+                final_text: String::new(),
+                turns: 1,
+                aborted: false,
+                stats: None,
+                terminal: crate::agent::agent_loop::AgentEvent::Aborted,
+                provider_model: None,
+            },
+            crate::llm::ModelRef::new("test", "model"),
+            vec!["op_unknown".into()],
+        )
+        .unwrap();
+    assert_eq!(result.status, DcpRunStatus::InputRequired);
+    assert!(result.error.as_deref().is_some_and(|error| error.contains("op_unknown")));
+    let stored = runtime.store().load_run(&result.session_id, &result.run_id).unwrap();
+    assert_eq!(stored.status, DcpRunStatus::InputRequired);
+    assert!(!stored.settled);
+    assert!(
+        crate::core::shared::lock(&events)
+            .iter()
+            .any(|event| { matches!(event, DcpRuntimeEvent::RunInputRequired { operation_ids, .. } if operation_ids == &["op_unknown"]) })
+    );
+    assert!(!crate::core::shared::lock(&events).iter().any(|event| matches!(event, DcpRuntimeEvent::RunFinished { .. })));
+    std::fs::remove_dir_all(root).ok();
+}

@@ -118,19 +118,8 @@ impl DcpRuntime {
             .map_err(|error| format!("load DCP Session history: {error}"))?;
         let unknown = journal.reconcile(&stored_history)?;
         if !unknown.is_empty() {
-            run.status = DcpRunStatus::InputRequired;
-            run.error = Some(format!(
-                "UNKNOWN tool outcomes block automatic resume: {}",
-                unknown.iter().map(|operation| operation.operation_id.as_str()).collect::<Vec<_>>().join(", ")
-            ));
-            run.updated_at_ms = crate::core::shared::now_ms();
-            self.store.save_run(&run)?;
-            (self.sink)(DcpRuntimeEvent::RunInputRequired {
-                session_id: session.session_id.clone(),
-                run_id: run.run_id.clone(),
-                operation_ids: unknown.iter().map(|operation| operation.operation_id.clone()).collect(),
-            });
-            return Err(run.error.clone().unwrap_or_default());
+            let operation_ids = unknown.into_iter().map(|operation| operation.operation_id).collect();
+            return self.require_input_for_unknown(session, run, operation_ids);
         }
         recover_known_outcomes(self.store.sessions_dir(), &run, &journal)?;
         let stored_history = crate::core::session::load_history_checked(self.store.sessions_dir(), &session.session_id)
@@ -220,7 +209,7 @@ impl DcpRuntime {
             notify: None,
             persist_compaction: None,
             persist_turn: Some(persist),
-            tool_journal: Some(journal),
+            tool_journal: Some(journal.clone()),
             domain_tools: None,
             auxiliary_usage: Arc::default(),
             usage_reporter: Some(crate::agent::agent_loop::UsageReporter::new_unscoped_in(
@@ -240,25 +229,32 @@ impl DcpRuntime {
         if let Some(task) = timeout {
             task.abort();
         }
-        let unknown_tool_outcome = context.tool_journal.as_ref().is_some_and(|journal| journal.should_pause());
-        self.finish_run(session, run, outcome, context.model, unknown_tool_outcome)
+        let unknown_operation_ids = journal
+            .snapshot()
+            .operations
+            .into_iter()
+            .filter(|operation| operation.phase == super::DcpToolPhase::OutcomeUnknown)
+            .map(|operation| operation.operation_id)
+            .collect();
+        self.finish_run(session, run, outcome, context.model, unknown_operation_ids)
     }
 
-    fn finish_run(
+    pub(super) fn finish_run(
         &self,
         session: &mut DcpSessionState,
         mut run: DcpRunState,
         outcome: crate::agent::agent_loop::AgentOutcome,
         model: crate::llm::ModelRef,
-        unknown_tool_outcome: bool,
+        unknown_operation_ids: Vec<String>,
     ) -> Result<DcpRunResult, String> {
         let output_error = validate_agent_output(&session.agent.definition.spec.output, &outcome.final_text).err();
         run.turns = outcome.turns;
         run.final_text = outcome.final_text;
         run.model = outcome.provider_model.or(Some(model));
-        run.status = if unknown_tool_outcome {
-            DcpRunStatus::InputRequired
-        } else if outcome.aborted {
+        if !unknown_operation_ids.is_empty() {
+            return self.require_input_for_unknown(session, run, unknown_operation_ids);
+        }
+        run.status = if outcome.aborted {
             DcpRunStatus::Canceled
         } else if matches!(outcome.terminal, AgentEvent::Done { .. }) && output_error.is_none() {
             DcpRunStatus::Completed
@@ -266,13 +262,39 @@ impl DcpRuntime {
             DcpRunStatus::Failed
         };
         run.error = match run.status {
-            DcpRunStatus::InputRequired => Some("UNKNOWN tool outcome requires explicit resolution before resume".into()),
             DcpRunStatus::Failed => Some(output_error.unwrap_or_else(|| run.final_text.clone())),
             _ => None,
         };
         run.updated_at_ms = crate::core::shared::now_ms();
         self.store.save_run(&run)?;
         self.settle_terminal_run(session, run)
+    }
+
+    fn require_input_for_unknown(
+        &self,
+        session: &DcpSessionState,
+        mut run: DcpRunState,
+        operation_ids: Vec<String>,
+    ) -> Result<DcpRunResult, String> {
+        debug_assert!(!operation_ids.is_empty());
+        run.status = DcpRunStatus::InputRequired;
+        run.error = Some(format!("UNKNOWN tool outcomes require explicit resolution before resume: {}", operation_ids.join(", ")));
+        run.updated_at_ms = crate::core::shared::now_ms();
+        self.store.save_run(&run)?;
+        (self.sink)(DcpRuntimeEvent::RunInputRequired {
+            session_id: session.session_id.clone(),
+            run_id: run.run_id.clone(),
+            operation_ids,
+        });
+        Ok(DcpRunResult {
+            session_id: session.session_id.clone(),
+            run_id: run.run_id,
+            status: run.status,
+            final_text: run.final_text,
+            error: run.error,
+            turns: run.turns,
+            model: run.model,
+        })
     }
 
     fn settle_terminal_run(&self, session: &mut DcpSessionState, mut run: DcpRunState) -> Result<DcpRunResult, String> {
