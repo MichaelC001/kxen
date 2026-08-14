@@ -1,3 +1,5 @@
+import DOMPurify from "dompurify";
+
 let diagrams: HTMLPreElement[] = [];
 const captured = new WeakSet<HTMLPreElement>();
 let dialog: HTMLDialogElement | null = null;
@@ -223,7 +225,11 @@ async function render(): Promise<void> {
     try {
       const definition = diagram.getAttribute("data-diagram") as string;
       const { svg } = await mermaid.render(uniqueMermaidId(), definition);
-      diagram.innerHTML = svg;
+      const sanitized = DOMPurify.sanitize(svg, {
+        RETURN_DOM_FRAGMENT: true,
+        USE_PROFILES: { html: true, svg: true, svgFilters: true },
+      });
+      diagram.replaceChildren(sanitized);
       diagram.removeAttribute("data-error");
       wrapDiagram(diagram);
       diagram.setAttribute("data-processed", "true");
