@@ -2,15 +2,46 @@
 
 此文件由 [git-cliff](https://github.com/orhun/git-cliff) 根据 Git tag 和 Conventional Commits 自动生成，请勿手动编辑。
 
-## [Unreleased]
+## [0.1.9] - 2026-08-14
+
+> **版本主题:** DCPAgent 安全恢复与可信发布链路
+
+### 本次更新
+
+- kxen-agent 在恢复时保留 UNKNOWN 工具操作并进入 input_required，避免误判成功或重复执行副作用。 ([8c7393a](https://github.com/StringKe/kxen/commit/8c7393a1f12f5815dc8fcbd8ce6ccb6f83fe7856))
+- DCPAgent Session 和 bundle 会校验 definition hash、capability lock、run 与 tool journal 完整性。 ([8c7393a](https://github.com/StringKe/kxen/commit/8c7393a1f12f5815dc8fcbd8ce6ccb6f83fe7856))
+- 工具子进程默认不再继承 SSH、GPG 等 credential socket，只有显式 pass-env 才会透传非 Provider 凭证。 ([8c7393a](https://github.com/StringKe/kxen/commit/8c7393a1f12f5815dc8fcbd8ce6ccb6f83fe7856))
+- Web 模式的自定义 token 支持空格、符号和 Unicode 等完整 URL 编码字符。 ([8c7393a](https://github.com/StringKe/kxen/commit/8c7393a1f12f5815dc8fcbd8ce6ccb6f83fe7856))
+- Website 新增 DCP 权威概念页，并同步 kxen-agent 的多平台下载、运行边界与恢复模型。 ([8c7393a](https://github.com/StringKe/kxen/commit/8c7393a1f12f5815dc8fcbd8ce6ccb6f83fe7856))
+- Release 现在自动发布与 immutable tag 同源的 linux/amd64 和 linux/arm64 GHCR 镜像。 ([8c7393a](https://github.com/StringKe/kxen/commit/8c7393a1f12f5815dc8fcbd8ce6ccb6f83fe7856))
+
+### 工程
+
+- **release:** Bind Docker image to immutable release ([6b8388f](https://github.com/StringKe/kxen/commit/6b8388f04e17c7285faf17d591aa580eb8801c3f))
 
 ### 文档
 
 - **changelog:** Complete v0.1.8 notes ([4f4d294](https://github.com/StringKe/kxen/commit/4f4d29424401929f4b32a9c80e62969ffafd0371))
+- Establish DCP as a core concept ([1e1aaa8](https://github.com/StringKe/kxen/commit/1e1aaa852b27cfc669f3f313ab47068c856ea979))
+
+### 架构与重构
+
+- **core:** Distinguish DCPAgent from Kanban agents ([135bd14](https://github.com/StringKe/kxen/commit/135bd14f6ab1f74754d4d306e164e57754c4d5a6))
+- **agent:** Split DCP store tests ([b2e66a9](https://github.com/StringKe/kxen/commit/b2e66a935177ef88004775e0d8efeaadd1d7d111))
+- **agent:** Keep DCP runtime within size gate ([5818a71](https://github.com/StringKe/kxen/commit/5818a71b38dd1ad1958a3de1f2c922df04ba32af))
 
 ### 维护
 
 - **changelog:** Sync generated history ([536bc58](https://github.com/StringKe/kxen/commit/536bc588af7c6e224b1c0a5d68f4e42bab021d86))
+
+### 问题修复
+
+- **agent:** Require explicit credential forwarding ([ea2d414](https://github.com/StringKe/kxen/commit/ea2d41425f012f0632c6d84b6f458d8689066f36))
+- **agent:** Preserve DCP input-required events ([75a02ca](https://github.com/StringKe/kxen/commit/75a02cabae2c63fb423e9e902f97a046d07d1959))
+- **agent:** Validate DCP session integrity ([a9793db](https://github.com/StringKe/kxen/commit/a9793db842914665d670ae762511b7b96a87f9db))
+- **web:** Encode custom access tokens ([1ac7ae4](https://github.com/StringKe/kxen/commit/1ac7ae4168386938ae5395a42009e7c37b55e0d4))
+- **release:** Stream updater archives into verifier ([3620298](https://github.com/StringKe/kxen/commit/3620298105080338be4cba4ce4096e9be1fbd1f3))
+- **website:** Sanitize rendered Mermaid SVG ([ecbfcf4](https://github.com/StringKe/kxen/commit/ecbfcf4d79144cf2db6ab4cc1ef5f7a45a4c0825))
 
 ## [0.1.8] - 2026-08-14
 
