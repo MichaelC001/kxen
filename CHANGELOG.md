@@ -25,6 +25,10 @@
 
 - **knowledge:** Implement OKF concept retrieval ([d89bac0](https://github.com/StringKe/kxen/commit/d89bac00089c746db97396e6c5c70138b88d7bcd))
 
+### 问题修复
+
+- **knowledge:** Satisfy Rust lint gate ([faf0198](https://github.com/StringKe/kxen/commit/faf019871e3dd607c248a98c71dab6523d52d54c))
+
 ## [0.1.7] - 2026-08-13
 
 > **版本主题:** 独立 Agent CLI 与可恢复自动化
