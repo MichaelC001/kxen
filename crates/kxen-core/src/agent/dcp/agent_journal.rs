@@ -45,6 +45,49 @@ impl Default for DcpToolJournalSnapshot {
     }
 }
 
+impl DcpToolJournalSnapshot {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version != TOOL_JOURNAL_SCHEMA {
+            return Err(format!("unsupported DCP tool journal schema {}", self.schema_version));
+        }
+        let mut operation_ids = std::collections::BTreeSet::new();
+        let mut call_ids = std::collections::BTreeSet::new();
+        for operation in &self.operations {
+            crate::core::ids::validate_id(&operation.operation_id)?;
+            if !operation_ids.insert(operation.operation_id.as_str()) {
+                return Err(format!("duplicate DCP tool operation id: {}", operation.operation_id));
+            }
+            if operation.call_ids.is_empty() || operation.call_ids.iter().any(|call_id| call_id.trim().is_empty()) {
+                return Err(format!("DCP tool operation {} has an invalid call id", operation.operation_id));
+            }
+            for call_id in &operation.call_ids {
+                if !call_ids.insert(call_id.as_str()) {
+                    return Err(format!("duplicate DCP tool call id: {call_id}"));
+                }
+            }
+            if operation.tool_name.trim().is_empty() || serde_json::from_str::<serde_json::Value>(&operation.arguments_json).is_err() {
+                return Err(format!("DCP tool operation {} has an invalid tool call", operation.operation_id));
+            }
+            if operation.updated_at_ms < operation.started_at_ms {
+                return Err(format!("DCP tool operation {} has decreasing timestamps", operation.operation_id));
+            }
+            let valid_outcome = match operation.phase {
+                DcpToolPhase::Started => operation.output.is_none() && operation.unknown_reason.is_none() && !operation.is_error,
+                DcpToolPhase::OutcomeKnown | DcpToolPhase::Settled => operation.output.is_some() && operation.unknown_reason.is_none(),
+                DcpToolPhase::OutcomeUnknown => {
+                    operation.output.is_none()
+                        && operation.unknown_reason.as_ref().is_some_and(|reason| !reason.trim().is_empty())
+                        && !operation.is_error
+                }
+            };
+            if !valid_outcome {
+                return Err(format!("DCP tool operation {} has inconsistent phase data", operation.operation_id));
+            }
+        }
+        Ok(())
+    }
+}
+
 pub struct DcpRunToolJournal {
     path: PathBuf,
     state: Mutex<DcpToolJournalSnapshot>,
@@ -248,9 +291,15 @@ impl ToolBoundaryJournal for DcpRunToolJournal {
             .iter_mut()
             .find(|operation| operation.call_ids.iter().any(|id| id == call_id))
             .ok_or_else(|| format!("DCP tool operation assignment is missing for call {call_id}"))?;
-        operation.phase = DcpToolPhase::OutcomeUnknown;
-        operation.unknown_reason = Some(reason.into());
-        operation.updated_at_ms = at_ms;
+        match operation.phase {
+            DcpToolPhase::Started => {
+                operation.phase = DcpToolPhase::OutcomeUnknown;
+                operation.unknown_reason = Some(reason.into());
+                operation.updated_at_ms = at_ms;
+            }
+            DcpToolPhase::OutcomeUnknown if operation.unknown_reason.as_deref() == Some(reason) => {}
+            phase => return Err(format!("invalid DCP tool UNKNOWN transition from {phase:?}")),
+        }
         save_snapshot(&self.path, &state)
     }
 
@@ -289,13 +338,12 @@ fn load_snapshot(path: &Path) -> Result<DcpToolJournalSnapshot, String> {
     };
     let snapshot: DcpToolJournalSnapshot =
         serde_json::from_slice(&bytes).map_err(|error| format!("parse DCP tool journal {}: {error}", path.display()))?;
-    if snapshot.schema_version != TOOL_JOURNAL_SCHEMA {
-        return Err(format!("unsupported DCP tool journal schema {}", snapshot.schema_version));
-    }
+    snapshot.validate()?;
     Ok(snapshot)
 }
 
 fn save_snapshot(path: &Path, snapshot: &DcpToolJournalSnapshot) -> Result<(), String> {
+    snapshot.validate()?;
     let bytes = serde_json::to_vec_pretty(snapshot).map_err(|error| error.to_string())?;
     crate::core::durability::atomic_replace(path, &bytes).map_err(|error| format!("write DCP tool journal {}: {error}", path.display()))
 }

@@ -77,6 +77,42 @@ impl DcpRuntimePolicy {
     }
 }
 
+impl DcpAgentLock {
+    pub fn validate(&self) -> Result<(), String> {
+        self.definition.validate()?;
+        let actual_hash = self.definition.content_hash()?;
+        if actual_hash != self.definition_hash {
+            return Err(format!(
+                "DCPAgent definition hash mismatch: expected {}, actual {}",
+                self.definition_hash.as_str(),
+                actual_hash.as_str()
+            ));
+        }
+        let requested = self
+            .definition
+            .spec
+            .capabilities
+            .required
+            .iter()
+            .chain(&self.definition.spec.capabilities.optional)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let effective = self.effective_capabilities.iter().cloned().collect::<BTreeSet<_>>();
+        if effective.len() != self.effective_capabilities.len()
+            || effective.iter().cloned().collect::<Vec<_>>() != self.effective_capabilities
+        {
+            return Err("DCPAgent effective capabilities must be unique and canonically ordered".into());
+        }
+        if let Some(capability) = effective.iter().find(|capability| !requested.contains(*capability)) {
+            return Err(format!("DCPAgent effective capability was not requested: {capability}"));
+        }
+        if let Some(capability) = self.definition.spec.capabilities.required.iter().find(|capability| !effective.contains(*capability)) {
+            return Err(format!("DCPAgent required capability is missing from the lock: {capability}"));
+        }
+        Ok(())
+    }
+}
+
 pub(crate) fn is_provider_credential_env(name: &str) -> bool {
     matches!(
         name.to_ascii_uppercase().as_str(),

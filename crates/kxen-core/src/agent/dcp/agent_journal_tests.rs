@@ -56,6 +56,7 @@ fn unknown_outcome_resolution_replays_and_settles_exactly_once() {
 
     let resolved = journal.resolve_unknown(&operation_id, "verified", true).unwrap();
     assert_eq!(resolved.phase, DcpToolPhase::OutcomeKnown);
+    assert!(journal.mark_unknown("call_a", "late uncertainty", 4).unwrap_err().contains("invalid DCP tool UNKNOWN transition"));
     assert_eq!(journal.unrecorded_outcomes().as_slice(), std::slice::from_ref(&resolved));
     assert_eq!(
         journal.before("call_a", "write", "{}", 5).unwrap(),
