@@ -1,4 +1,4 @@
-//! Provider-neutral deterministic context protocol shared by execution domains.
+//! Provider-neutral primitives for the Deterministic Context Pipeline (DCP).
 
 mod agent_builder;
 mod agent_definition;

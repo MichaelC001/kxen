@@ -30,7 +30,7 @@ async fn wait_until(what: &str, mut check: impl FnMut() -> bool) {
 #[tokio::test]
 async fn default_template_full_chain_parks_at_human_gates() {
     let workspace = temp("chain");
-    // 默认模板 implementing/testing 各引一个 DCP 定义；role 保持 execution（测试 config 只配这个路由键）
+    // 默认模板 implementing/testing 各引一个列 Agent 定义；role 保持 execution（测试 config 只配这个路由键）
     for name in ["execution", "qa"] {
         let mut def = driver_tests::agent_def();
         def.name = name.into();

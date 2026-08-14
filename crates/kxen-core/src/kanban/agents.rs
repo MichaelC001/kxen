@@ -1,4 +1,4 @@
-//! DCP Agent 定义（design.md「AI 编写的 DCP Agent」）：Markdown + 行式 frontmatter 数据文件，
+//! Kanban 列 Agent 定义：Markdown + 行式 frontmatter 数据文件，
 //! 存 `<workspace>/.kxen/kanban/agents/<name>.md`。主线程经 kanban_agent_create（P2b 工具面）写入，
 //! 列触发器（driver.rs）按 on_enter.agent 引用加载。
 //!

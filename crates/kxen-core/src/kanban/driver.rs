@@ -93,7 +93,7 @@ struct StepOutput {
     verdict: Option<Outcome>,
 }
 
-/// 单次列执行：claim（或收养已有 claim）-> DCP 渲染 -> 执行 -> outcome 落地。
+/// 单次列执行：claim（或收养已有 claim）-> 确定性上下文渲染 -> 执行 -> outcome 落地。
 /// adopt = Some(run_id)：run 已被外部 Command claim（显式重试），driver 只执行与落地，不二次 claim。
 pub async fn execute(
     workspace: &Path,
