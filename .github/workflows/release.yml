@@ -475,3 +475,15 @@ jobs:
         run: >-
           bash "$RUNNER_TEMP/trusted-release-tools/github-release.sh"
           cleanup-draft "$RELEASE_TAG" "$GITHUB_REPOSITORY" "$RELEASE_COMMIT" "$RUNNER_TEMP/release-assets"
+
+  docker:
+    name: Publish release GHCR image
+    needs:
+      - validate
+      - publish
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker.yml
+    with:
+      tag: ${{ needs.validate.outputs.tag }}
