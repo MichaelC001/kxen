@@ -2,6 +2,29 @@
 
 此文件由 [git-cliff](https://github.com/orhun/git-cliff) 根据 Git tag 和 Conventional Commits 自动生成，请勿手动编辑。
 
+## [0.1.8] - 2026-08-14
+
+> **版本主题:** 可扩展 OKF 知识与混合检索
+
+### 本次更新
+
+- 长期知识升级为 OKF v0.2 concept 模型，目录只负责组织，文件内 type 决定语义，并支持 code、refactor、test 等自定义类型。 ([6d2b2bf](https://github.com/StringKe/kxen/commit/6d2b2bf03c6da334264a836619af7ae3db0831d3))
+- Rule、Skill、Command、Note、Memory、Reference 和 History 保持独立 handler，未知 type 可被发现但不会获得执行权限。 ([6d2b2bf](https://github.com/StringKe/kxen/commit/6d2b2bf03c6da334264a836619af7ae3db0831d3))
+- 当前任务、涉及文件、metadata、BM25、可选 embedding 和 Markdown links 组成增量分层检索，embedding 缺失或失败时自动回退本地 BM25。 ([6d2b2bf](https://github.com/StringKe/kxen/commit/6d2b2bf03c6da334264a836619af7ae3db0831d3))
+- Knowledge Library、README、Website 和项目知识已统一到 type 与 concept_id 契约，并完整覆盖管理、迁移和信任边界。 ([6d2b2bf](https://github.com/StringKe/kxen/commit/6d2b2bf03c6da334264a836619af7ae3db0831d3))
+
+### 性能优化
+
+- **release:** Reuse exact-commit CI and cache Rust deps ([c0ff91d](https://github.com/StringKe/kxen/commit/c0ff91db75f0bbef68296fbf44b63346bb4defdc))
+
+### 文档
+
+- **release:** Document accelerated verification ([16e08d9](https://github.com/StringKe/kxen/commit/16e08d975a338f195d33bb1e450a04b47d8492c9))
+
+### 新增功能
+
+- **knowledge:** Implement OKF concept retrieval ([d89bac0](https://github.com/StringKe/kxen/commit/d89bac00089c746db97396e6c5c70138b88d7bcd))
+
 ## [0.1.7] - 2026-08-13
 
 > **版本主题:** 独立 Agent CLI 与可恢复自动化
