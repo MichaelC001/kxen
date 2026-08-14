@@ -120,7 +120,7 @@ fn split_frontmatter(text: &str) -> (Option<&str>, &str, bool) {
 }
 
 fn value<'a>(map: &'a Mapping, keys: &[&str]) -> Option<&'a Value> {
-    keys.iter().find_map(|key| map.get(&Value::String((*key).to_string())))
+    keys.iter().find_map(|key| map.get(Value::String((*key).to_string())))
 }
 
 fn string(map: &Mapping, keys: &[&str]) -> Option<String> {
