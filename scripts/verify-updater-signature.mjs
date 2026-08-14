@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash, createPublicKey, verify } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { basename } from "node:path";
-import { lstat, readFile } from "node:fs/promises";
+import { stdin } from "node:process";
 
 function fail(message) {
   console.error(message);
@@ -22,26 +20,16 @@ function decodeCanonicalBase64(value, label) {
   return decoded;
 }
 
-const [archivePath, signaturePath, encodedPublicKey, expectedFileArg] = process.argv.slice(2);
-if (!archivePath || !signaturePath || !encodedPublicKey) {
+const [encodedPublicKey, expectedFile, encodedSignature] = process.argv.slice(2);
+if (!encodedPublicKey || !expectedFile || !encodedSignature) {
   fail(
-    "usage: verify-updater-signature.mjs <archive> <signature> <tauri-public-key> [expected-file]",
+    "usage: verify-updater-signature.mjs <tauri-public-key> <expected-file> <encoded-signature> < archive",
   );
 }
 if (encodedPublicKey.length > 16 * 1024) {
   fail("Tauri updater public key exceeds 16 KiB");
 }
-
-let signatureStat;
-try {
-  signatureStat = await lstat(signaturePath);
-} catch (error) {
-  fail(`unable to inspect Tauri updater signature: ${error.message}`);
-}
-if (!signatureStat.isFile()) {
-  fail("Tauri updater signature must be a regular file");
-}
-if (signatureStat.size > 64 * 1024) {
+if (encodedSignature.length > 64 * 1024) {
   fail("Tauri updater signature exceeds 64 KiB");
 }
 
@@ -57,7 +45,6 @@ if (publicKeyPacket.length !== 42 || publicKeyPacket.subarray(0, 2).toString("as
   fail("Tauri updater public key has an unsupported packet");
 }
 
-const encodedSignature = await readFile(signaturePath, "utf8");
 const signatureBox = decodeCanonicalBase64(encodedSignature, "Tauri updater signature")
   .toString("utf8")
   .trimEnd()
@@ -73,8 +60,6 @@ if (!signaturePacket.subarray(2, 10).equals(publicKeyPacket.subarray(2, 10))) {
   fail("Tauri updater signature key ID does not match the configured public key");
 }
 
-// 发布链会改成稳定 asset 名，但 trusted comment 仍绑定 tauri 原始文件名；调用方需显式传入原始名，缺省回退 archive basename
-const expectedFile = expectedFileArg ?? basename(archivePath);
 if (!/^[A-Za-z0-9._+-]+$/.test(expectedFile)) {
   fail(`expected updater file name is not URL-safe: ${expectedFile}`);
 }
@@ -99,7 +84,7 @@ const publicKey = createPublicKey({
   type: "spki",
 });
 const archiveHasher = createHash("blake2b512");
-for await (const chunk of createReadStream(archivePath)) {
+for await (const chunk of stdin) {
   archiveHasher.update(chunk);
 }
 const archiveDigest = archiveHasher.digest();

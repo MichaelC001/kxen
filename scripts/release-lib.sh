@@ -492,17 +492,17 @@ kxen_verify_updater_signature() {
   local signature_path="$2"
   # 产物改名后 trusted comment 仍绑定 tauri 原始文件名,由 release-manifest.sh 派生传入;
   # 缺省按 archive basename 校验(未改名场景)。
-  local original_name="${3:-}"
+  local original_name="${3:-${archive_path##*/}}"
   local tauri_config="${4:-src-tauri/tauri.conf.json}"
   local public_key
+  local encoded_signature
+  kxen_require_regular_file_size 'updater archive' "$archive_path" 2147483648 || return 1
+  kxen_require_regular_file_size 'updater signature' "$signature_path" 65536 || return 1
   public_key="$(jq -er '.plugins.updater.pubkey | select(type == "string" and length > 0)' "$tauri_config")"
+  encoded_signature="$(<"$signature_path")"
   local library_dir
   library_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  if [[ -n "$original_name" ]]; then
-    node "$library_dir/verify-updater-signature.mjs" "$archive_path" "$signature_path" "$public_key" "$original_name"
-  else
-    node "$library_dir/verify-updater-signature.mjs" "$archive_path" "$signature_path" "$public_key"
-  fi
+  node "$library_dir/verify-updater-signature.mjs" "$public_key" "$original_name" "$encoded_signature" <"$archive_path"
 }
 
 # sha256 摘要跨平台封装:Linux/Windows(Git Bash)用 sha256sum,macOS 用 shasum。
