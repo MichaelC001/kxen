@@ -72,13 +72,13 @@ kxen-agent run --allow-shell --allow-mcp ...
 
 `--allow-shell` 不把 Shell 声明为 OS sandbox。命令仍先经过不可绕过的 Safety deny，然后在宿主机执行。只有明确接受这一边界的受控 worker 才应启用。
 
-provider credential 只进入 LLM client，不会写入 Session、bundle 或普通工具子进程。`exec` 和 `task` 使用过滤后的环境及独立 tool home。token、secret、password、API key 等环境变量默认移除。需要让 `gh` 等工具使用某个外部系统 token 时必须逐项显式声明:
+provider credential 只进入 LLM client，不会写入 Session、bundle 或普通工具子进程。`exec` 和 `task` 使用过滤后的环境及独立 tool home。token、secret、password、API key 等环境变量默认移除。需要让某个受限工具使用外部系统 token 时必须逐项显式声明:
 
 ```bash
-kxen-agent run --allow-shell --pass-env GH_TOKEN ...
+kxen-agent run --allow-mcp --pass-env SERVICE_TOKEN ...
 ```
 
-provider API key 永远不能通过 `--pass-env` 暴露给工具子进程。
+provider API key 永远不能通过 `--pass-env` 暴露给工具子进程。对于 Issue 自动修复，推荐把 GitHub read、repository edit、independent review 和 host publish 拆成不同进程，不把 GitHub token 交给通用 Shell fixer。
 
 ## 设计边界
 

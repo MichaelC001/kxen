@@ -17,7 +17,7 @@ macOS、Windows 和 Linux 上的 Coding Agent 工作台，也可以用浏览器�
 - **目标与编排**: Goal、Subagent、Dynamic Workflow、Agent Teams 和 Kanban 流水线，后台任务完成逐路回执。
 - **Bots**: 独立、可版本化的重复工作单元。每个 Bot 都能通过自己的受限 self-builder 对话创建和完善定义，并支持 Routine、可恢复 BotRun，以及 Direct 和 2 至 6 Bot Group 的 Bot-to-Bot 协作。
 - **DCP**: Deterministic Context Pipeline 以 durable facts 重建 Provider-neutral context，并为 turn、tool 副作用、`UNKNOWN` 和 settlement 提供一致边界。
-- **kxen-agent CLI**: 从 task 动态构建或加载 DCPAgent YAML，使用 immutable capability/policy lock 执行完整任务；支持 durable DCPRun、`--resume`、Conversation branch、Git worktree、跨 runner bundle 和 UNKNOWN tool recovery。GitHub/GitLab 等平台通过 MCP 或普通 CLI capability 接入，不进入 DCPAgent definition。
+- **kxen-agent CLI**: 从 task 动态构建或加载 DCPAgent YAML，使用 immutable capability/policy lock 执行完整任务；支持 durable DCPRun、`--resume`、Conversation branch、Git worktree、跨 runner bundle 和 UNKNOWN tool recovery。仓库同时提供 verifier -> fixer -> reviewer -> draft PR 的 GitHub Issue reference workflow；GitHub/GitLab 等平台能力不进入 DCPAgent definition。
 - **本地工具**: 文件、Shell、Web Fetch、Web Search、Browser、MCP 和 LSP。
 - **长期知识**: OKF v0.2 Knowledge Library、Rules、Skills、Memory、generic concepts 和自动沉淀。
 - **安全边界**: 执行层 Safety 与 Approval、Checkpoint、Rewind、Worktree 隔离，文件删除只进废纸篓。
@@ -59,6 +59,12 @@ cargo build --release -p kxen-agent
 ```
 
 默认输出 JSONL。Session 和 DCPRun 会持久化，可以用 `kxen-agent --resume SESSION_ID` 恢复，或使用 `session fork/export/import` 在对话分支、Git worktree 和 ephemeral runner 之间迁移。完整执行契约、权限与自动化示例见 [kxen-agent 文档](https://kxen.ai/agent-cli/)。
+
+### GitHub Issue 自动修复
+
+`.github/workflows/kxen-issue-autofix.yml` 是一个完整场景实现，不是 DCP 核心协议。它用官方 GitHub MCP 的只读 `issue_read` capability 获取 Issue contract，让没有 GitHub token 的 fixer 修改 Workspace，再由没有 edit/write capability 的 reviewer 独立验证；各角色和 publisher 运行在相互隔离的 jobs 中。只有结构化结果和 deterministic diff gate 全部 PASS 后，全新的可信 runner 才从校验过的 text patch 重建变更并创建 topic branch、draft PR 和 Issue comment。
+
+启用时在 `agent-automation` GitHub Environment 配置 `XAI_API_KEY` secret，以及 `XAI_MODEL`、`KXEN_AGENT_VERSION` variables。具有 write 权限的维护者给 `bug` Issue 添加 `kxen:fix` label 后开始执行。definitions、policies、凭据边界和恢复方法见 [自动化与 GitHub 场景](https://kxen.ai/agent-cli/automation/)。
 
 ## DCP
 

@@ -1,12 +1,12 @@
 ---
 title: 自动化与 GitHub 场景
-description: 在任意 worker 中运行 kxen-agent，以及用普通 MCP 或 CLI capability 完成 GitHub Issue 到 PR 的示例。
+description: 在任意 worker 中运行 kxen-agent，以及用隔离的 GitHub capability 完成 Issue 到 draft PR。
 status: canonical
 sidebar:
   order: 4
 ---
 
-`kxen-agent` 不绑定某一种 trigger 或托管平台。调用方只负责准备 Workspace、task、credential、runtime policy 和 durable state，然后读取 JSONL event 与 exit code。
+`kxen-agent` 不绑定某一种 trigger 或托管平台。调用方准备 Workspace、task、credential、runtime policy 和 durable state，再消费 JSONL event、result 与 exit code。
 
 ```text
 trigger or queue -> prepare Workspace/task -> kxen-agent -> JSONL/result
@@ -14,116 +14,72 @@ trigger or queue -> prepare Workspace/task -> kxen-agent -> JSONL/result
                                              +-> file, shell, MCP, LSP, web tools
 ```
 
-GitHub Actions、GitLab CI、Webhook handler、queue worker 和 `kxen` server 都可以是调用方，但这些名称和对象模型不进入 DCPAgent definition。
+GitHub Actions、GitLab CI、Webhook handler、queue worker、`kxen` server 和本地 shell 都可以调用同一个 CLI。GitHub repository access 是完整自动修复场景需要的 capability，但 GitHub、Issue、PR、branch 和 comment 不进入 DCP 或 DCPAgent schema。它们可以由 MCP、普通 CLI、内置 tool 或受控宿主调用提供，不需要被统一改造成某种 adapter。
 
 ## 通用 worker contract
 
-1. 使用独立 checkout 或 worktree，避免两个 run 共享可变文件。
-2. 为每个并发工作单元选择独立 state directory，或用 Session run lease 串行化同一 Session。
+1. 使用独立 checkout 或 worktree，避免多个 run 共享可变文件。
+2. 为并发工作单元选择独立 state directory；恢复同一 Session 时依赖 run lease 串行化。
 3. 通过 Kxen config 配置 MRM roles，通过 auth file 或受支持的 provider API key 环境变量提供 LLM credential。
 4. 使用 policy 限制 capability、turn、wall clock、Shell、MCP 和工具可见 env。
-5. 保存 JSONL 日志。需要跨 ephemeral runner 恢复时同时保存 Session bundle。
-6. 只把显式需要的外部 token 传给工具，provider credential 不进入工具环境。
+5. 保存 JSONL 日志。需要跨 ephemeral runner 恢复时同时保存 Session bundle 或完整 state artifact。
+6. 只把显式需要的外部 token 传给对应 capability；provider credential 不进入普通工具环境。
 
 进程 exit code 为 0 只表示 DCPRun `completed`。`failed`、`canceled`、`input_required`、policy drift、Workspace mismatch 和存储错误都返回非零。
 
-## GitHub Issue 到 PR 示例
+## 仓库内 GitHub Issue 自动修复
 
-下面是一个场景示例，不是核心架构。它让 GitHub 提供 trigger 和 checkout，让 `gh`/`git` 作为普通 Shell capability 使用。DCPAgent 本身仍是平台无关的 repository fixer。
+仓库提供可直接启用的 [`Kxen Issue Autofix`](https://github.com/StringKe/kxen/blob/main/.github/workflows/kxen-issue-autofix.yml) workflow，以及三份独立的 [DCPAgent definitions 与 runtime policies](https://github.com/StringKe/kxen/tree/main/examples/kxen-agent/github-issue)。这个 workflow 是 GitHub 场景实现，不是 `kxen-agent` 的产品身份。
 
-```yaml
-name: Kxen issue worker
+执行链路如下：
 
-on:
-  issues:
-    types: [opened, labeled]
+| 阶段             | 可用能力                                                    | Credential 边界                                                |
+| ---------------- | ----------------------------------------------------------- | -------------------------------------------------------------- |
+| Issue context    | 官方 GitHub MCP 的 `issue_read`，启用 read-only 和 lockdown | 只在该进程传入 GitHub token；没有 Shell 或 Workspace file tool |
+| Repository fixer | Workspace read、search、edit、write、exec 和 LSP            | 没有 GitHub token；provider key 不进入 exec 子进程             |
+| Reviewer         | Workspace read、search 和 exec，不提供 edit/write           | 没有 GitHub token；review 前后 source fingerprint 必须一致     |
+| Host publisher   | 全新 runner 中受控的 `git` 和 `gh` 调用                     | 只有三角色 PASS、diff gate PASS 后才获得 GitHub write token    |
 
-permissions:
-  contents: write
-  issues: read
-  pull-requests: write
+GitHub MCP server 固定到经过 SHA256 校验的官方 release，并只暴露一个精确工具。官方 server、read-only 和 lockdown 配置说明见 [github/github-mcp-server](https://github.com/github/github-mcp-server)、[Remote GitHub MCP Server](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md) 和 [Server configuration](https://github.com/github/github-mcp-server/blob/main/docs/server-configuration.md)。
 
-concurrency:
-  group: kxen-issue-${{ github.event.issue.number }}
-  cancel-in-progress: false
+context、fixer、reviewer 和 publisher 使用相互隔离的 jobs。fixer 只能导出 text patch，reviewer 从 immutable artifact 在全新 checkout 中重建候选；publisher 再次从可信 `main` checkout 验证 artifact、远端 parent commit 和完整 diff。模型运行过的 runner 永远不会获得 GitHub write token。
 
-jobs:
-  solve:
-    if: github.event.action == 'labeled' && github.event.label.name == 'kxen'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
+publisher 还会确定性拒绝空 diff、超过 20 个文件或 1200 行的 diff、binary 文件，以及对 workflow、DCPAgent policy、GitHub Action、CODEOWNERS 和自身 publisher script 等信任边界的修改。通过后只创建或更新 `kxen-agent/issue-<number>` 分支和 draft PR，不自动合并。
 
-      - name: Install verified kxen-agent release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download \
-            --repo StringKe/kxen \
-            --pattern kxen-agent-linux-x86_64.tar.gz \
-            --pattern SHA256SUMS
-          grep ' kxen-agent-linux-x86_64.tar.gz$' SHA256SUMS | sha256sum -c -
-          tar -xzf kxen-agent-linux-x86_64.tar.gz kxen-agent
-          sudo install -m 0755 kxen-agent /usr/local/bin/kxen-agent
+## 启用步骤
 
-      - name: Prepare task
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: |
-          {
-            printf '%s\n' \
-              'Solve the GitHub issue below in the current repository.' \
-              'Inspect the repository, implement the fix, and run relevant checks.' \
-              'Create a topic branch, commit only task-related files, push it, and create or continue a PR linked to the issue.' \
-              'Do not rewrite protected branch history. Report the PR URL and verification evidence.' \
-              ''
-            gh issue view "$ISSUE_NUMBER" \
-              --json number,title,body,url,labels
-          } > issue-task.md
+在仓库创建名为 `agent-automation` 的 GitHub Environment，并配置：
 
-      - name: Solve issue
-        env:
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
-          GH_TOKEN: ${{ github.token }}
-          KXEN_AGENT_STATE_DIR: ${{ runner.temp }}/kxen-agent-state
-        run: |
-          kxen-agent run \
-            --workspace "$GITHUB_WORKSPACE" \
-            --agent .kxen/repository-fixer.dcpagent.yaml \
-            --task-file issue-task.md \
-            --policy .kxen/agent-policy.json \
-            --pass-env GH_TOKEN \
-            --format jsonl \
-            | tee kxen-agent.jsonl
+- Environment secret `XAI_API_KEY`。
+- Environment variable `XAI_MODEL`，值为当前验证过的 xAI model ID。
+- Environment variable `KXEN_AGENT_VERSION`，值为要运行的稳定 Kxen SemVer tag，例如 `v0.1.10`。
 
-      - name: Preserve recovery evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: kxen-agent-${{ github.event.issue.number }}-${{ github.run_id }}
-          path: |
-            kxen-agent.jsonl
-            ${{ runner.temp }}/kxen-agent-state
-          include-hidden-files: true
+为仓库创建 `kxen:fix` label。Issue 必须同时带有 `bug` 和 `kxen:fix`，而且 `kxen:fix` 必须由具有 `write`、`maintain` 或 `admin` 权限的 actor 添加。也可以从 Actions 页面用已有 Issue number 手动执行；相同权限与 label gate 仍然生效。
+
+```text
+bug + kxen:fix
+  -> authorized actor gate
+  -> Issue context verifier
+  -> repository fixer
+  -> independent reviewer
+  -> deterministic diff gate
+  -> topic branch + draft PR + Issue comment
 ```
 
-这里的 `.kxen/repository-fixer.dcpagent.yaml` 可以使用 [DCPAgent definition](https://kxen.ai/agent-cli/dcpagent/) 中的平台无关示例。`.kxen/agent-policy.json` 决定是否允许 `exec`。task 可以要求 agent 创建 topic branch、提交、push、创建或继续 PR、关联 Issue 并留言；这些动作由 `gh` 和 `git` 完成，不会改变 DCPAgent schema。
+每个 run 以 Issue number 做 concurrency key，不会取消同一 Issue 的在途执行。分阶段 workflow artifacts 保存三个角色的 JSONL、结构化结果、candidate patch 和 durable state 14 天。state 不含 provider credential，但包含 Issue 内容、工具输出和代码上下文，应按私有执行证据管理。
 
-真实仓库还应按组织策略选择 provider role、secret、分支保护、允许的 label 和审查门。上例上传完整 state 作为恢复证据，state 中不包含 provider credential，但可能包含 issue 内容、工具输出和代码上下文，应按私有构建产物管理。
+## 恢复与分支
 
-## MCP 场景
+Git topic branch 保存代码候选，DCP Session 保存 agent 的执行连续性，两者不是同一个对象。下载 state artifact 后，可以查看或恢复其中的 Session：
 
-启用 `--allow-mcp` 后，agent 可以使用当前 Workspace 的 `mcp__server__tool` capability。项目 `.mcp.json` 的 stdio server 在启动前必须通过:
+```bash
+export KXEN_AGENT_STATE_DIR=/path/to/restored/kxen-agent-state
+kxen-agent session list
+kxen-agent --resume ses_xxx
+```
 
-- 项目配置解析和 tool name 校验。
-- absolute、canonical、可执行 command 校验。
-- runtime code injection env 拒绝。
-- 完整 command、args、cwd、脱敏 env 指纹的 durable audit。
-- DCPAgent capability 与 runtime policy 交集。
-- MCP `toolPolicies`，其中 `deny` 始终不可绕过。
+需要跨 runner 迁移单个 Session 时，使用 `session export`、`session import` 和 `--resume`。完整的 Workspace identity、Conversation branch、Git worktree、bundle 与 `UNKNOWN` recovery 语义见 [Session、branch 与 recovery](https://kxen.ai/agent-cli/sessions-and-recovery/)。
 
-因此 MCP 和普通 CLI 是两种并列的 capability 提供方式。调用方可以按环境选择其中任意一种，不需要先把外部系统改造成某个统一 adapter。
+## 其他运行环境
+
+同一套 verifier、fixer 和 reviewer definitions 可以由 GitLab pipeline、queue worker、本地 cron 或服务进程调用。外部系统读写既可以使用 MCP，也可以使用相应 CLI 或宿主 SDK。关键约束是 capability 最小化、credential 只到需要它的进程、可变代码与发布权限分离，以及每次副作用都有可持久化的 outcome。
