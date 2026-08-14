@@ -8,6 +8,10 @@
 
 - **changelog:** Complete v0.1.8 notes ([4f4d294](https://github.com/StringKe/kxen/commit/4f4d29424401929f4b32a9c80e62969ffafd0371))
 
+### 维护
+
+- **changelog:** Sync generated history ([536bc58](https://github.com/StringKe/kxen/commit/536bc588af7c6e224b1c0a5d68f4e42bab021d86))
+
 ## [0.1.8] - 2026-08-14
 
 > **版本主题:** 可扩展 OKF 知识与混合检索
