@@ -2,6 +2,28 @@
 
 此文件由 [git-cliff](https://github.com/orhun/git-cliff) 根据 Git tag 和 Conventional Commits 自动生成，请勿手动编辑。
 
+## [0.1.13] - 2026-08-16
+
+> **版本主题:** Composable Agent Runtime
+
+### 本次更新
+
+- Sessions gain a Trajectory inspection view with an event ledger, timing overview, and per-record inspector alongside the Chat view. ([04ce94c](https://github.com/StringKe/kxen/commit/04ce94c5bee3a39bb178e2bf7df072cd91e06fd2))
+- Models can orchestrate multiple tool calls in one sandboxed program and define their own approval-gated dynamic tools. ([04ce94c](https://github.com/StringKe/kxen/commit/04ce94c5bee3a39bb178e2bf7df072cd91e06fd2))
+- AWS Bedrock, Google Vertex AI, Azure OpenAI endpoints, and direct Anthropic API keys join the provider catalog. ([04ce94c](https://github.com/StringKe/kxen/commit/04ce94c5bee3a39bb178e2bf7df072cd91e06fd2))
+- Session-level approval rules, undoable rewind, and recoverable worktree removal strengthen execution safety. ([04ce94c](https://github.com/StringKe/kxen/commit/04ce94c5bee3a39bb178e2bf7df072cd91e06fd2))
+
+### 文档
+
+- **readme:** Update capability list for providers, code mode, dynamic tools, trajectory and safety ([486791a](https://github.com/StringKe/kxen/commit/486791a06473c05b6e060e71aa30bd322244986f))
+
+### 新增功能
+
+- **providers:** Add AWS Bedrock and Google Vertex AI, Azure query params, Anthropic API key ([42fe039](https://github.com/StringKe/kxen/commit/42fe039e5fdb2bfe0add21fead9400aadb3cf88e))
+- **safety:** Session approval rules, wider Ask coverage, recoverable worktree and rewind ([5e3bc50](https://github.com/StringKe/kxen/commit/5e3bc50dfa388042f31c86f15f0d6e678bc760ce))
+- **agent:** Code-mode tool() bridge and model-defined dynamic tools ([679a51c](https://github.com/StringKe/kxen/commit/679a51ce88070e6b346d326866807306ea677096))
+- **session:** Trajectory inspection view, context gauge, source-attributed folding ([4735d2a](https://github.com/StringKe/kxen/commit/4735d2a10448b68ebd651445ba8ebdb416473f6a))
+
 ## [0.1.12] - 2026-08-14
 
 > **版本主题:** Isolated Agent Credential Boundaries
