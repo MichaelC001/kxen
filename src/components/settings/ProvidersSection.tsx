@@ -109,7 +109,6 @@ export default function ProvidersSection() {
   };
 
   const verifyAll = () => rows().forEach((r) => void verifyOne(r));
-
   onMount(() => void load());
 
   const reprobe = async () => {

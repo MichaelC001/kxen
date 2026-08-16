@@ -209,9 +209,7 @@ export default function Session() {
   );
   mountDraftWorkdir(activeSessionId, setDraftWorkdir);
 
-  onCleanup(() => {
-    discardPendingDelta();
-  });
+  onCleanup(() => discardPendingDelta());
 
   const {
     send,

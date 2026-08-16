@@ -53,7 +53,6 @@ const KINDS: { id: AccountKind; label: string; detail: string }[] = [
   },
   { id: "custom", label: "自定义提供商", detail: "OpenAI / Anthropic 兼容端点（中转、自部署）" },
 ];
-
 const CAPS = ["text", "vision", "audio"];
 export default function AddAccountPanel(props: { onDone: (msg: string) => void }) {
   const [providers, setProviders] = createSignal<ProviderInfo[]>([]);
@@ -64,7 +63,6 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
   const [probing, setProbing] = createSignal(false);
   const [probeMsg, setProbeMsg] = createSignal<{ ok: boolean; text: string } | null>(null);
   const providerGuard = createSeqGuard();
-
   // oauth tab 列订阅厂商 + 支持应用内 OAuth 登录的 api_key 厂商（如 openrouter 换永久 key）；
   // api key tab 只列手填 key 厂商；local_free 无凭证概念，不进入账号面板。
   const visible = () =>
@@ -92,14 +90,12 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
     }
   };
   onMount(() => void loadProviders());
-
   const spec = () => providers().find((p) => p.key === provider());
   const regions = () => spec()?.regions ?? [];
   const providerReady = () => kind() === "custom" || (providerLoaded() && visible().length > 0);
   // 提交值与下拉显示值对齐：多区域且无手动选择时下拉显示首个区域，提交也带它
   // （后端缺省即首区域，见 ProvidersSection 的「缺省」选项文案）
   const chosenRegion = () => (regions().length > 1 ? region() || regions()[0]?.key : undefined);
-
   const toggleCap = (c: string) =>
     setCaps((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
 
@@ -200,7 +196,6 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
         stale={providers().length > 0}
         onRetry={() => void loadProviders()}
       />
-
       <Show when={kind() !== "custom"}>
         <div class="flex gap-2">
           <select
@@ -271,7 +266,6 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
           </details>
         </Show>
       </Show>
-
       <Show when={kind() === "custom"}>
         <div class="flex gap-2">
           <input
