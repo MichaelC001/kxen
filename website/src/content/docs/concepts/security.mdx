@@ -52,13 +52,16 @@ Shell 命令在宿主机执行，不宣称提供进程沙盒。kxen 不加载用
 
 Safety 对系统路径、Credential 目录、Git 元数据、磁盘操作和大范围资源销毁执行硬拒绝。项目 Rules 和用户 Prompt 不能覆盖这些规则。
 
+审批规则（审批卡上的「本会话放行」「总是放行」）只能收窄 Ask 档的逐次询问：Deny 判定先于规则表，含 shell 元字符的复合命令永不自动放行，每次规则放行都先落会话审计再执行。规则可在设置页查看和撤销，全部审批决定在审批审计区块按时间倒序可见。
+
 ## 可恢复性
 
 - 文件和 Session 删除进入系统废纸篓。
-- Checkpoint 使用独立 shadow Git repository。
-- Worktree 隔离并行修改。
+- Checkpoint 使用独立 shadow Git repository，默认保留最近 50 个（`checkpoint_keep` 可配置），超出窗口的旧检查点在提交成功后自动裁剪。
+- Rewind 前的现场挂在独立 ref 上作为补偿点，Rewind 后可在 Session 中撤销；撤销只恢复文件，不回写对话记录。
+- Worktree 隔离并行修改；删除仍有未提交改动的 Worktree 前会自动把改动导出为 patch 备份（`.kxen/backups/`，保留最近 50 个且不超过 30 天），删除后仍可把备份合回主树。
 - Session-scoped Approval 结果写入对应 Session；全局审批不伪造 Session 记录。
-- 用户停止 Session 会使未完成审批失效。
+- 用户停止 Session 会使未完成审批失效；审批等待窗口默认 300 秒，`approval_timeout_seconds` 可配置。
 - BotRun 的 cancellation、tool journal 和 `UNKNOWN` Recovery 写入独立 durable event stream。
 
 ## 已知边界

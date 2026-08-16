@@ -1,5 +1,6 @@
 //! 命令评估与路径守卫实现。
 
+mod ask_extra;
 mod parse;
 
 use super::rules::{
@@ -15,6 +16,10 @@ pub fn evaluate_shell_command(command: &str, cwd: &str) -> Verdict {
 fn evaluate_with_context(command: &str, paths: &PathContext) -> Verdict {
     let mut recoverable_seen = false;
     let mut ask_seen: Option<Verdict> = None;
+    // 进程替换 <(...) / >(...) 执行内嵌命令，读/写语义超出切段能静态界定的副作用面
+    if parse::has_process_substitution(command) {
+        ask_seen = Some(Verdict::Ask { reason: "进程替换 <(...) / >(...) 执行内嵌命令，副作用无法静态界定".into() });
+    }
     let mut check = |cmd: &str| {
         for tokens in parse::segments(cmd) {
             match eval_segment(&tokens, paths) {
@@ -139,6 +144,14 @@ fn eval_segment(tokens: &[String], paths: &PathContext) -> Verdict {
     let delete_verdict = eval_delete_segment(tokens, &seg, paths);
     if !matches!(delete_verdict, Verdict::Allow) {
         return delete_verdict;
+    }
+    if let Some(reason) = ask_extra::inline_script_ask(cmd, tokens, cmd_idx) {
+        return Verdict::Ask { reason };
+    }
+    if cmd == "git"
+        && let Some(reason) = ask_extra::git_worktree_ask(tokens, cmd_idx)
+    {
+        return Verdict::Ask { reason: reason.into() };
     }
     // Ask 档最后判定：具体危险（Deny/Recoverable）优先于审批
     if let Some((_, why)) = ASK_PATTERNS.iter().find(|(re, _)| re.is_match(&seg)) {

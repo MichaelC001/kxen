@@ -28,6 +28,88 @@ fn repo_dir_stable_and_canonical() {
 }
 
 #[test]
+fn undo_rewind_restores_files_to_pre_rewind_state() {
+    let dir = fixture("undo");
+    std::fs::write(dir.join("a.txt"), "v1\n").unwrap();
+    commit(&dir, "msg_1").unwrap();
+    std::fs::write(dir.join("a.txt"), "v2\n").unwrap();
+    commit(&dir, "msg_2").unwrap();
+    std::fs::write(dir.join("b.txt"), "new\n").unwrap();
+    commit(&dir, "msg_3").unwrap();
+
+    reset_to(&dir, "msg_1").unwrap();
+    assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "v1\n");
+    assert!(!dir.join("b.txt").exists());
+
+    undo_rewind(&dir).unwrap();
+    assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "v2\n", "撤销恢复到 rewind 前的补偿点");
+    assert_eq!(std::fs::read_to_string(dir.join("b.txt")).unwrap(), "new\n", "补偿点里的新文件一并恢复");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn undo_rewind_without_backup_errors() {
+    let dir = fixture("undo-none");
+    std::fs::write(dir.join("a.txt"), "v1\n").unwrap();
+    commit(&dir, "msg_1").unwrap();
+    let error = undo_rewind(&dir).unwrap_err();
+    assert!(error.contains("没有可撤销"), "{error}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn undo_rewind_is_itself_undoable() {
+    let dir = fixture("undo-nested");
+    std::fs::write(dir.join("a.txt"), "v1\n").unwrap();
+    commit(&dir, "msg_1").unwrap();
+    std::fs::write(dir.join("a.txt"), "v2\n").unwrap();
+    commit(&dir, "msg_2").unwrap();
+
+    reset_to(&dir, "msg_1").unwrap();
+    // 补偿点 label 粒度是毫秒：拉开时距避免同毫秒撞 label
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    undo_rewind(&dir).unwrap();
+    assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "v2\n");
+    // undo 前的状态（v1）也打了补偿点：再 undo 一次回到 v1
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    undo_rewind(&dir).unwrap();
+    assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "v1\n");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn prune_keeps_newest_window_and_preserves_labels() {
+    let dir = fixture("prune");
+    std::fs::write(dir.join("a.txt"), "v0\n").unwrap();
+    for i in 1..=7 {
+        std::fs::write(dir.join("a.txt"), format!("v{i}\n")).unwrap();
+        commit(&dir, &format!("msg_{i}")).unwrap();
+    }
+    prune_locked(&dir, 3).unwrap();
+    let commits = retention::history(&dir).unwrap();
+    assert_eq!(commits.len(), 3, "窗口外 checkpoint 必须被裁掉: {commits:?}");
+    assert_eq!(commits[0].1, "msg_7");
+    assert_eq!(commits[2].1, "msg_5");
+    // 窗口内 label 仍可 rewind（重建后按 label 查找，hash 变更不影响）
+    std::fs::write(dir.join("a.txt"), "dirty\n").unwrap();
+    reset_to(&dir, "msg_5").unwrap();
+    assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "v5\n");
+    assert!(reset_to(&dir, "msg_4").is_err(), "窗口外 label 不得再可回退");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn prune_noop_within_window() {
+    let dir = fixture("prune-noop");
+    std::fs::write(dir.join("a.txt"), "v1\n").unwrap();
+    commit(&dir, "msg_1").unwrap();
+    let tip = head(&dir).unwrap();
+    prune_locked(&dir, 50).unwrap();
+    assert_eq!(head(&dir).unwrap(), tip, "窗口内不得重写历史");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn commit_args_disable_gpgsign() {
     let args = commit_args("x");
     assert!(args.windows(2).any(|w| w == ["-c", "commit.gpgsign=false"]));

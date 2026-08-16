@@ -61,6 +61,8 @@ pub async fn remove(repo: &Path, name: &str, delete_branch: bool) -> Result<(), 
 /// 有审批通道则挂起等用户决定；无通道拒绝。
 /// confirmed 仅用于前端 RPC 路径：行内确认条已显式确认，再挂审批会向主会话时间线推一张
 /// 无 session 归属的第二张卡（双确认，漏看即 300s 超时）。agent 工具路径一律 confirmed=false。
+/// dirty 时先把未提交改动（含 untracked）打 patch 存 .kxen/backups/ 再删——
+/// 备份失败即拒绝删除（fail-closed），worktree 删除必须是可恢复操作。
 pub async fn remove_with_approval(
     repo: &Path,
     name: &str,
@@ -105,6 +107,10 @@ pub async fn remove_with_approval(
     }
 
     if path.exists() {
+        if dirty {
+            let backup = backup_uncommitted(repo, name, &path).await?;
+            tracing::info!(worktree = name, patch = %backup.patch.display(), skipped = backup.skipped.len(), "worktree uncommitted changes backed up before remove");
+        }
         git(repo, &["worktree", "remove", "--force", &path.to_string_lossy()]).await?;
     }
     if delete_branch {
@@ -112,6 +118,11 @@ pub async fn remove_with_approval(
     }
     Ok(())
 }
+
+#[path = "worktree/backup.rs"]
+mod backup;
+use backup::backup_uncommitted;
+pub use backup::{ApplyOutcome, RemoveBackup, SkippedBackup, apply, prune_backups};
 
 pub async fn list(repo: &Path) -> Result<Vec<WorktreeInfo>, String> {
     let repo = &canon(repo);
@@ -284,29 +295,6 @@ pub(crate) fn ensure_gitignore(repo: &Path) -> Result<(), String> {
         std::fs::remove_file(&tmp).ok();
     }
     result
-}
-
-/// .kxen/backups/ 数量上限：超出清最旧（mtime 升序），覆盖备份不无界增长。
-const BACKUP_KEEP: usize = 50;
-
-pub fn prune_backups(root: &Path) {
-    let mut dirs = vec![root.join(".kxen").join("backups")];
-    let mut files: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
-    while let Some(d) = dirs.pop() {
-        if let Ok(rd) = std::fs::read_dir(d) {
-            for e in rd.flatten() {
-                if e.path().is_dir() {
-                    dirs.push(e.path());
-                } else if let Ok(mtime) = e.metadata().and_then(|m| m.modified()) {
-                    files.push((mtime, e.path()));
-                }
-            }
-        }
-    }
-    files.sort_unstable();
-    for (_, p) in files.iter().take(files.len().saturating_sub(BACKUP_KEEP)) {
-        std::fs::remove_file(p).ok();
-    }
 }
 
 async fn git(repo: &Path, args: &[&str]) -> Result<String, String> {

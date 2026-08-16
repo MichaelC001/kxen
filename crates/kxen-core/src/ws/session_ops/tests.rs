@@ -26,6 +26,7 @@ fn checkpoint_label_maps_to_nearest_user_message() {
         role,
         parts: vec![Part::Text { text: "t".into() }],
         model: None,
+        stats: None,
         created_at: 0,
     };
     let messages = vec![msg("u1", Role::User), msg("a1", Role::Assistant), msg("u2", Role::User), msg("a2", Role::Assistant)];
@@ -131,4 +132,55 @@ fn model_override_load_is_fail_closed_for_named_sessions() {
     }
 
     std::fs::remove_dir_all(sessions).ok();
+}
+
+#[test]
+fn approval_history_projects_parts_descending_and_scopes() {
+    use kxen_core::core::session::{self as ses, Part, Role};
+
+    let dir = std::env::temp_dir().join(format!("kxen-approval-history-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let first = ses::create(&dir, "/workspace").unwrap();
+    let second = ses::create(&dir, "/workspace").unwrap();
+    // created_at 是 now_ms，直接用消息里的真实值，不伪造时间字段
+    let mut older = ses::new_message(
+        &first.id,
+        Role::Assistant,
+        vec![Part::Approval { command: "git push --force".into(), reason: "force".into(), decision: "deny".into() }],
+    );
+    older.created_at = 100;
+    ses::append_message(&dir, &older).unwrap();
+    let mut newer = ses::new_message(
+        &first.id,
+        Role::Assistant,
+        vec![Part::Approval { command: "cargo test".into(), reason: "构建".into(), decision: "rule_allow".into() }],
+    );
+    newer.created_at = 200;
+    ses::append_message(&dir, &newer).unwrap();
+    // 非审批 part 不得混入
+    ses::append_message(&dir, &ses::new_message(&first.id, Role::Assistant, vec![Part::Text { text: "t".into() }])).unwrap();
+    let mut other = ses::new_message(
+        &second.id,
+        Role::Assistant,
+        vec![Part::Approval { command: "rm -rf x".into(), reason: "危险".into(), decision: "timeout".into() }],
+    );
+    other.created_at = 50;
+    ses::append_message(&dir, &other).unwrap();
+
+    // 全局视图：全部会话按 created_at 倒序
+    let all = approval_history_in(&dir, &json!({})).unwrap();
+    let rows = all.as_array().unwrap();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0]["decision"], json!("rule_allow"), "最新的在前");
+    assert_eq!(rows[1]["decision"], json!("deny"));
+    assert_eq!(rows[1]["session_id"], json!(first.id));
+    assert_eq!(rows[2]["session_id"], json!(second.id));
+
+    // 会话过滤 + limit 截断
+    let scoped = approval_history_in(&dir, &json!({ "session_id": first.id })).unwrap();
+    assert_eq!(scoped.as_array().unwrap().len(), 2);
+    let capped = approval_history_in(&dir, &json!({ "limit": 1 })).unwrap();
+    assert_eq!(capped.as_array().unwrap().len(), 1);
+
+    std::fs::remove_dir_all(&dir).ok();
 }

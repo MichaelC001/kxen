@@ -5,6 +5,7 @@ import { Check, GitBranch, Trash2 } from "lucide-solid";
 import {
   statusline,
   workspaceSwitch,
+  worktreeApply,
   worktreeCreate,
   worktreeList,
   worktreeRemove,
@@ -31,7 +32,8 @@ interface PendingRemove {
 
 function confirmText(r: PendingRemove): string {
   const parts: string[] = [];
-  if (r.dirty > 0) parts.push(`${r.dirty} 处未提交改动将丢失`);
+  if (r.dirty > 0)
+    parts.push(`${r.dirty} 处未提交改动（删除前自动备份为 patch 到 .kxen/backups/）`);
   if (r.withBranch) parts.push(`分支 ${r.branch} 将被删除（不可恢复）`);
   return `确认移除 ${r.name}：${parts.join("，")}。`;
 }
@@ -46,6 +48,7 @@ export default function DockWorktree() {
   const [loadFailed, setLoadFailed] = createSignal(false);
   const removeAction = createAction();
   const switchAction = createAction();
+  const applyAction = createAction();
   const reloadGuard = createSeqGuard();
 
   const reload = async () => {
@@ -140,6 +143,20 @@ export default function DockWorktree() {
       onOk: () => setActive(t.path),
     });
 
+  // 合回只在主树是活跃工作区时有意义：worktree.apply 落到 active_workspace 的当前检出上
+  const mainRoot = (t: Row) => t.path.replace(/[\\/]\.kxen[\\/]worktrees[\\/][^\\/]+$/, "");
+  const applyable = (t: Row) => t.path !== active() && active() === mainRoot(t);
+
+  const applyToMain = (t: Row) =>
+    applyAction.run(
+      async () => {
+        const outcome = await worktreeApply(t.name);
+        // 冲突 fail-closed：主树不落盘，提示用户人工处理（diff 在返回里但 toast 不展示全文）
+        if (!outcome.applied) throw new Error("与主树冲突，未落盘；请先解决主树改动再合回");
+      },
+      { okText: `已把 ${t.branch} 合回主树`, errPrefix: "合回失败", onOk: () => void reload() },
+    );
+
   return (
     <div class="border-b border-[var(--border)] px-3 py-3">
       <div class="text-2xs uppercase tracking-wider text-[var(--text-faint)] mb-2 flex items-center gap-1.5">
@@ -207,11 +224,23 @@ export default function DockWorktree() {
                 </button>
               </Show>
               <button
+                class="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pressable px-1 rounded text-2xs text-[var(--text-faint)] hover:text-[var(--text)] disabled:opacity-50"
+                title={
+                  applyable(t)
+                    ? "把该树的全部差异（已提交 + 未提交 + 未跟踪）应用到主树；冲突则不落盘"
+                    : "合回需主树为当前活跃工作区（先切回主目录）"
+                }
+                disabled={!applyable(t) || applyAction.pending()}
+                onClick={() => void applyToMain(t)}
+              >
+                合回
+              </button>
+              <button
                 class="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pressable px-1 rounded text-[var(--text-faint)] hover:text-[var(--text)] disabled:opacity-50"
                 title={
                   t.path === active()
                     ? "当前活跃 worktree 不可删除（先切换到其他目录）"
-                    : "移除 worktree（分支保留）"
+                    : "移除 worktree（分支保留；未提交改动先备份为 patch）"
                 }
                 disabled={t.path === active() || removeAction.pending()}
                 onClick={() => requestRemove(t, false)}

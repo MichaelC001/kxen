@@ -21,6 +21,7 @@ export function applyApprovalEvent(setItems: SetItems, event: ToolEvent): void {
             approvalId: event.approvalId!,
             command: event.command ?? "",
             reason: event.reason ?? "",
+            sessionId: event.sessionId,
           },
         ],
   );
@@ -30,17 +31,23 @@ export async function respondApproval(
   setItems: SetItems,
   id: string,
   allow: boolean,
+  remember?: "session" | "workspace",
 ): Promise<boolean> {
   if (responding.has(id)) return false;
   responding.add(id);
   // RPC 失败不上假已决态：后端 broker 仍在等应答，保持等待卡（用户可重试或等超时事件），
   // 错误上屏让用户感知失败——假已决态会让用户以为已应答，实际命令仍挂起
   try {
-    const r = await approvalRespond(id, allow).catch((e: unknown) => {
+    // 不带 remember 时不传第三参（既有调用方与测试断言保持两参形态）
+    const r = await (
+      remember ? approvalRespond(id, allow, remember) : approvalRespond(id, allow)
+    ).catch((e: unknown) => {
       flashErr(`审批应答失败：${formatError(e)}`);
       return null;
     });
     if (r === null) return false;
+    // 建规失败不撤回放行（后端语义）：用户决定已生效，但规则没落表，必须明示
+    if (r.rule_error) flashErr(`命令已放行，但审批规则未保存：${r.rule_error}`);
     // resolved:false = 服务端已了结（超时/取消/已被应答）的迟到应答：置失效，不冒充用户决定
     const resolved =
       r.resolved === false
@@ -75,5 +82,6 @@ export function pendingApprovalItems(list: PendingApproval[]): Item[] {
     approvalId: a.id,
     command: a.command,
     reason: a.reason,
+    sessionId: a.session_id || undefined,
   }));
 }

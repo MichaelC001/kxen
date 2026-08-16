@@ -108,8 +108,8 @@ describe("会话重载恢复等待卡（approval.pending）", () => {
       { id: "a2", command: "git push", reason: "r2", session_id: "s1" },
     ]);
     expect(items).toEqual([
-      { kind: "approval", approvalId: "a1", command: "rm -rf x", reason: "危险" },
-      { kind: "approval", approvalId: "a2", command: "git push", reason: "r2" },
+      { kind: "approval", approvalId: "a1", command: "rm -rf x", reason: "危险", sessionId: "s1" },
+      { kind: "approval", approvalId: "a2", command: "git push", reason: "r2", sessionId: "s1" },
     ]);
   });
 

@@ -8,6 +8,8 @@ import ScheduleSection from "../components/settings/ScheduleSection";
 import UsageSection from "../components/settings/UsageSection";
 import VoiceSection from "../components/settings/VoiceSection";
 import GeneralSection from "../components/settings/GeneralSection";
+import ApprovalRulesSection from "../components/settings/ApprovalRulesSection";
+import ApprovalHistorySection from "../components/settings/ApprovalHistorySection";
 import ComposerSuggestionsSection from "../components/settings/ComposerSuggestionsSection";
 import { client } from "../lib/client";
 import { configGet } from "../lib/chat";
@@ -264,6 +266,10 @@ export default function Settings() {
           <Show when={section() === "高级"}>
             <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-4 space-y-3 text-sm text-[var(--text-dim)]">
               <ComposerSuggestionsSection />
+              <div class="border-t border-[var(--border)]" />
+              <div class="text-sm text-[var(--text)]">审批规则与审计</div>
+              <ApprovalRulesSection />
+              <ApprovalHistorySection />
               <div class="border-t border-[var(--border)]" />
               <div class="space-y-2">
                 <div class="text-sm text-[var(--text)]">实验能力与数据边界</div>

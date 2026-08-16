@@ -24,14 +24,17 @@ pub enum Verdict {
 pub(super) static ASK_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     vec![
         (Regex::new(r"\bgit\s+push\b[^|;]*\s(-f\b|--force\b)").unwrap(), "git push --force 覆盖远端历史"),
-        // 只拦裸 reset --hard（丢弃全部未提交改动）；带 ref 的是常用安全操作（既有测试约定）
+        // 裸 reset --hard（丢弃全部未提交改动）维持原有 Ask 判定
         (Regex::new(r"^\s*git\s+reset\s+--hard\s*$").unwrap(), "git reset --hard 丢弃未提交改动"),
+        // 带 ref 形式同样丢弃工作区未提交改动，一并升 Ask
+        (Regex::new(r"\bgit\s+reset\s+--hard\s+\S").unwrap(), "git reset --hard <ref> 丢弃未提交改动并移动 HEAD"),
         (Regex::new(r"^\s*sudo\b").unwrap(), "sudo 提权执行"),
         (Regex::new(r"\bgit\s+clean\s+-[a-z]*f").unwrap(), "git clean 删除未跟踪文件（不可恢复）"),
         (Regex::new(r"\bkill\s+-9\b|\bkill\s+-KILL\b").unwrap(), "kill -9 强制终止进程（不可捕获）"),
         (Regex::new(r"\bbrew\s+uninstall\b").unwrap(), "brew uninstall 卸载软件包"),
         (Regex::new(r"\bnpm\s+(uninstall|publish)\b").unwrap(), "npm uninstall/publish 变更包状态"),
         (Regex::new(r"\bchmod\s+-R\b").unwrap(), "chmod -R 递归改权限"),
+        (Regex::new(r"\bgit\s+stash\s+(drop|clear)\b").unwrap(), "git stash drop/clear 丢弃 stash 快照（不可恢复）"),
     ]
 });
 

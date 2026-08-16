@@ -87,7 +87,12 @@ pub fn commit(workdir: &Path, label: &str) -> Result<(), String> {
     // 并发 add/commit 撞 index.lock。find 只读不锁；dirty_count 为避开并发 add 同样进锁
     let lock = repo_lock(workdir);
     let _guard = crate::core::shared::lock(&lock);
-    commit_locked(workdir, label)
+    commit_locked(workdir, label)?;
+    // 保留窗口裁剪是存储治理：失败只记日志，绝不能反卡 checkpoint 屏障（失败会阻断 run）
+    if let Err(error) = prune_locked(workdir, keep_count()) {
+        tracing::warn!(error = %error, "checkpoint prune failed");
+    }
+    Ok(())
 }
 
 fn commit_locked(workdir: &Path, label: &str) -> Result<(), String> {
@@ -121,20 +126,7 @@ fn has_head(workdir: &Path) -> Result<bool, String> {
 
 /// 按 label 找 commit hash。
 fn find(workdir: &Path, label: &str) -> Result<Option<String>, String> {
-    let out = git(workdir, &["log", "--format=%H%x00%B%x00", "-z"])?;
-    if !out.status.success() {
-        return Err(format!("git log: {}", String::from_utf8_lossy(&out.stderr)));
-    }
-    // %x00 与 -z 各发一个 NUL：记录间是双 NUL，先滤空再两两成对
-    let text = String::from_utf8_lossy(&out.stdout);
-    let mut parts = text.split('\0').filter(|part| !part.is_empty());
-    while let Some(hash) = parts.next() {
-        let Some(message) = parts.next() else { break };
-        if message.trim() == label {
-            return Ok(Some(hash.trim().to_string()));
-        }
-    }
-    Ok(None)
+    Ok(retention::history(workdir)?.into_iter().find(|(_, message)| message == label).map(|(hash, _)| hash))
 }
 
 fn head(workdir: &Path) -> Result<String, String> {
@@ -232,6 +224,13 @@ fn rewind_with_clean<T>(
     let backup_label = format!("kxen-rewind-backup-{}-{}", std::process::id(), crate::core::shared::now_ms());
     commit_locked(workdir, &backup_label)?;
     let backup = head(workdir)?;
+    // 补偿点挂专用 ref：reset 后 commit 不可达，无 ref 会被 prune 的 gc --prune=now 回收，
+    // rewind 撤销（undo_rewind）也无从定位。ref 命名空间即撤销清单。
+    let backup_ref = format!("refs/kxen/rewind-backups/{backup_label}");
+    let out = git(workdir, &["update-ref", &backup_ref, &backup])?;
+    if !out.status.success() {
+        return Err(format!("git update-ref: {}", String::from_utf8_lossy(&out.stderr)));
+    }
     let directories = empty_dirs(workdir)?;
 
     if let Err(error) = reset_hard(workdir, &target) {
@@ -283,6 +282,13 @@ pub async fn checkpoint_barrier(workdir: &Path, label: &str) -> Result<(), Strin
         Err(error) => Err(format!("checkpoint commit join failed: {error}")),
     }
 }
+
+#[path = "checkpoint/retention.rs"]
+mod retention;
+use retention::{keep_count, prune_locked};
+#[path = "checkpoint/undo.rs"]
+mod undo;
+pub use undo::undo_rewind;
 
 #[cfg(test)]
 mod tests;

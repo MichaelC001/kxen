@@ -134,13 +134,7 @@ pub(super) fn session_rewind(params: &Value, state: &crate::AppState) -> Result<
         return Err(rewind_gate(true, 0, false, target).expect_err("active_run 分支必拒").to_wire());
     };
     // 同 workspace（按 session 归属目录判定）任何 session 有 active run 即拒绝
-    let active_sessions: Vec<String> = kxen_core::core::shared::lock(&state.active_runs).keys().cloned().collect();
-    let mut active_in_workspace = false;
-    for active_id in active_sessions {
-        let active_meta = kxen_core::core::session::load_meta(&dir, &active_id)
-            .map_err(|error| format!("active session {active_id} metadata unavailable: {error}"))?;
-        active_in_workspace |= active_meta.directory == meta.directory;
-    }
+    let active_in_workspace = workspace_has_active_run(state, &dir, &meta.directory)?;
     let dirty_count = kxen_core::tools::checkpoint::dirty_count(std::path::Path::new(&meta.directory))
         .map_err(|error| format!("checkpoint dirty-state check failed: {error}"))?;
     rewind_gate(active_in_workspace, dirty_count, confirm, target).map_err(|b| b.to_wire())?;
@@ -176,6 +170,39 @@ pub(super) fn session_rewind(params: &Value, state: &crate::AppState) -> Result<
         .to_wire());
     }
     Ok(json!({ "commit": hash, "truncated_to": idx + 1 }))
+}
+
+/// 同 workspace（按 session 归属目录判定）任何 session 有 active run 即视为活跃。
+fn workspace_has_active_run(state: &crate::AppState, sessions_dir: &std::path::Path, workspace: &str) -> Result<bool, String> {
+    let active_sessions: Vec<String> = kxen_core::core::shared::lock(&state.active_runs).keys().cloned().collect();
+    let mut active = false;
+    for active_id in active_sessions {
+        let active_meta = kxen_core::core::session::load_meta(sessions_dir, &active_id)
+            .map_err(|error| format!("active session {active_id} metadata unavailable: {error}"))?;
+        active |= active_meta.directory == workspace;
+    }
+    Ok(active)
+}
+
+/// session.rewind_undo RPC：按最近一次 rewind 补偿点恢复文件层状态。
+/// 只恢复文件：对话 JSONL 在 rewind 时已截断（显式回退语义），撤销不回放对话——
+/// 前端 toast 与本文档同口径说明。与 rewind 同一道门禁：同 workspace 有活跃 run 拒绝。
+pub(super) fn session_rewind_undo(params: &Value, state: &crate::AppState) -> Result<Value, String> {
+    let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
+    let dir = kxen_core::core::paths::sessions_dir();
+    let meta = kxen_core::core::session::load_meta(&dir, session_id).map_err(|e| e.to_string())?;
+    // 与 rewind 同一把写锁：undo 的 reset --hard 同样不能与运行中的 run 并发
+    let Some(_guard) = kxen_core::core::rewind_lock::try_rewind_guard(&meta.directory) else {
+        return Err("同 workspace 有会话正在运行，先 abort 再撤销回退".into());
+    };
+    if workspace_has_active_run(state, &dir, &meta.directory)? {
+        return Err("同 workspace 有会话正在运行，先 abort 再撤销回退".into());
+    }
+    let hash = kxen_core::tools::checkpoint::undo_rewind(std::path::Path::new(&meta.directory))?;
+    // 文件层历史被改写：同 workspace 所有 session 的 diff 快照基线失效（与 rewind 同处理）
+    let affected = workspace_session_ids(&dir, &meta.directory)?;
+    invalidate_workspace_snapshots(&affected, session_id, &state.session_snapshots);
+    Ok(json!({ "commit": hash }))
 }
 
 fn workspace_session_ids(sessions_dir: &std::path::Path, workspace: &str) -> Result<std::collections::HashSet<String>, String> {
@@ -311,12 +338,8 @@ pub(super) fn session_update_meta(params: &Value) -> Result<Value, String> {
     Ok(json!(session))
 }
 
-/// approval.pending RPC：带 session_id 返回该会话审批；省略时只返回全局审批。
-/// 两个恢复面互斥，避免同一 approval 同时出现在 Layout 与 Session。
-pub(super) fn approval_pending(params: &Value, state: &crate::AppState) -> Result<Value, String> {
-    let sid = params.get("session_id").and_then(Value::as_str);
-    Ok(json!(state.approvals.list_pending(sid)))
-}
+mod approvals;
+pub(in crate::ws) use approvals::*;
 
 #[cfg(test)]
 mod tests;

@@ -89,6 +89,35 @@ fn push_word(tokens: &mut Vec<String>, word: &mut String) {
     }
 }
 
+/// 进程替换 <(...) / >(...) 识别：引号内的 <( 是字面文本不算。
+/// 内嵌命令虽已被 segments 按括号切段评估，但进程替换的读/写语义（/dev/fd 通道）
+/// 超出切段能静态界定的副作用面，命中即升 Ask 由人确认。
+pub(super) fn has_process_substitution(command: &str) -> bool {
+    let bytes = command.as_bytes();
+    let mut quote: Option<u8> = None;
+    let mut index = 0;
+    while index < bytes.len() {
+        let ch = bytes[index];
+        if let Some(delimiter) = quote {
+            if ch == delimiter {
+                quote = None;
+            } else if ch == b'\\' && delimiter == b'"' {
+                index += 1;
+            }
+            index += 1;
+            continue;
+        }
+        match ch {
+            b'\'' | b'"' => quote = Some(ch),
+            b'\\' => index += 1,
+            b'<' | b'>' if bytes.get(index + 1) == Some(&b'(') => return true,
+            _ => {}
+        }
+        index += 1;
+    }
+    false
+}
+
 fn push_segment(out: &mut Vec<Vec<String>>, tokens: &mut Vec<String>) {
     if !tokens.is_empty() {
         out.push(std::mem::take(tokens));

@@ -10,6 +10,9 @@ use std::future::Future;
 use std::sync::Mutex;
 use tokio::sync::oneshot;
 
+#[path = "approval/rules.rs"]
+mod rules;
+
 tokio::task_local! {
     /// 仅约束当前 task 内尚未作出决定的审批等待。`tokio::spawn` 不继承 task-local，
     /// 因而显式移交给 durable lifecycle 的后台工作不会被原连接误取消。
@@ -36,7 +39,16 @@ pub enum ApprovalOutcome {
 }
 
 /// 默认审批窗口 5 分钟：无限挂起会让 run 永不收尾（session 删除等不到落地、审批卡烂在前端）。
+/// 可由 config.toml 的 approval_timeout_seconds 覆盖。
 const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// 审批窗口配置（秒）：None / 0 = 默认 300s。
+pub fn configured_timeout() -> std::time::Duration {
+    match crate::core::config_cache::cached_user_config().and_then(|c| c.approval_timeout_seconds) {
+        Some(secs) if secs > 0 => std::time::Duration::from_secs(secs),
+        _ => DEFAULT_TIMEOUT,
+    }
+}
 
 struct PendingEntry {
     tx: oneshot::Sender<bool>,
@@ -55,6 +67,14 @@ pub struct PendingApproval {
     pub session_id: String,
 }
 
+/// 应答结果：delivered = 决定送达等待方；remember 建规结果随行（建规失败不撤回放行）。
+#[derive(Debug)]
+pub struct RespondOutcome {
+    pub delivered: bool,
+    pub rule_id: Option<String>,
+    pub rule_error: Option<String>,
+}
+
 pub struct ApprovalBroker {
     /// 纯内存（有意）：进程重启 = 撤销全部等待中审批，等待方按 deny 唤醒；只有决定落盘。
     pending: Mutex<HashMap<String, PendingEntry>>,
@@ -63,6 +83,10 @@ pub struct ApprovalBroker {
     bus: Option<crate::core::event::EventBus>,
     /// 决定落盘目录（None = 不落盘：测试与无主会话场景的默认）
     sessions_dir: Option<std::path::PathBuf>,
+    /// session 级审批规则（「本会话放行」）：纯内存，进程重启即失效
+    session_rules: Mutex<Vec<crate::agent::approval_rules::ApprovalRule>>,
+    /// workspace 级规则缓存（「总是放行」）：真源是 <workspace>/.kxen/approval-rules.json，惰性加载
+    workspace_rules: Mutex<HashMap<std::path::PathBuf, Vec<crate::agent::approval_rules::ApprovalRule>>>,
 }
 
 struct WaitCleanup<'a> {
@@ -89,7 +113,14 @@ impl ApprovalBroker {
     }
 
     pub fn with_timeout(timeout: std::time::Duration) -> Self {
-        Self { pending: Mutex::new(HashMap::new()), timeout, bus: None, sessions_dir: None }
+        Self {
+            pending: Mutex::new(HashMap::new()),
+            timeout,
+            bus: None,
+            sessions_dir: None,
+            session_rules: Mutex::new(Vec::new()),
+            workspace_rules: Mutex::new(HashMap::new()),
+        }
     }
 
     pub fn with_bus(mut self, bus: crate::core::event::EventBus) -> Self {
@@ -116,18 +147,38 @@ impl ApprovalBroker {
     /// 决定落盘（Part::Approval）：审批痕迹随会话 JSONL 持久，前端重载渲染为历史卡。
     /// 空 session_id（workspace 信任门）无所属会话不落盘；写失败只记日志——痕迹不能反卡审批链路。
     fn persist_decision(&self, session_id: &str, command: &str, reason: &str, decision: &str) {
-        let Some(dir) = &self.sessions_dir else { return };
-        if session_id.is_empty() {
+        if self.sessions_dir.is_none() || session_id.is_empty() {
             return;
+        }
+        if let Err(e) = self.persist_decision_checked(session_id, command, reason, decision) {
+            tracing::warn!(session = session_id, error = %e, "approval decision persist failed");
+        }
+    }
+
+    /// 可失败的落盘变体：规则自动放行（rule_allow）要求审计先 durable 再放行，
+    /// 写不了审计就不自动放行（调用方回落逐次审批），与普通决定「失败只记日志」刻意不同。
+    fn persist_decision_checked(&self, session_id: &str, command: &str, reason: &str, decision: &str) -> Result<(), String> {
+        let Some(dir) = &self.sessions_dir else { return Err("审批审计无落盘目录".into()) };
+        if session_id.is_empty() {
+            return Err("无会话归属，审批审计无从落盘".into());
         }
         let msg = crate::core::session::new_message(
             session_id,
             crate::core::session::Role::Assistant,
             vec![crate::core::session::Part::Approval { command: command.into(), reason: reason.into(), decision: decision.into() }],
         );
-        if let Err(e) = crate::core::session::append_message(dir, &msg) {
-            tracing::warn!(session = session_id, error = %e, "approval decision persist failed");
+        crate::core::session::append_message(dir, &msg).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    /// 会话事件流邻接写入（动态工具定义快照等非审批事件）：与审批决定同一 durability 口径
+    /// （Assistant 角色 + append_message）。无落盘目录/空归属 = 无从 durable，调用方必须 fail-closed。
+    pub fn append_session_event(&self, session_id: &str, parts: Vec<crate::core::session::Part>) -> Result<(), String> {
+        let Some(dir) = &self.sessions_dir else { return Err("会话事件无落盘目录".into()) };
+        if session_id.is_empty() {
+            return Err("无会话归属，事件无从落盘".into());
         }
+        let msg = crate::core::session::new_message(session_id, crate::core::session::Role::Assistant, parts);
+        crate::core::session::append_message(dir, &msg).map(|_| ()).map_err(|e| e.to_string())
     }
 
     /// 等待 future 被连接生命周期取消时摘除 pending，receiver drop 后绝不能留下可被误判为可放行的审批。
@@ -170,16 +221,30 @@ impl ApprovalBroker {
     /// 用户应答（RPC 通道）：从 pending 摘除即赢得唯一终态；发送成功后才记录 allow/deny。
     /// 若等待方已消失，实际执行不可能发生，记录 cancel 而不是虚假的 allow。
     pub fn respond(&self, id: &str, allow: bool) -> bool {
+        self.respond_ext(id, allow, None).delivered
+    }
+
+    /// 可建规应答：remember=Some(scope) 且真实放行后，把命令全文作为前缀规则落表。
+    /// 建规失败不撤回放行（用户决定已送达），以 rule_error 回传给前端提示。
+    pub fn respond_ext(&self, id: &str, allow: bool, remember: Option<crate::agent::approval_rules::RuleScope>) -> RespondOutcome {
         let entry = crate::core::shared::lock(&self.pending).remove(id);
-        let Some(e) = entry else { return false };
+        let Some(e) = entry else { return RespondOutcome { delivered: false, rule_id: None, rule_error: None } };
         let delivered = e.tx.send(allow).is_ok();
         if delivered {
             self.persist_decision(&e.session_id, &e.command, &e.reason, if allow { "allow" } else { "deny" });
         } else {
             self.persist_decision(&e.session_id, &e.command, &e.reason, "cancel");
             self.publish_resolved(id, &e.session_id, "cancelled");
+            return RespondOutcome { delivered, rule_id: None, rule_error: None };
         }
-        delivered
+        let (rule_id, rule_error) = match (allow, remember) {
+            (true, Some(scope)) => match self.remember_rule(&e.session_id, &e.command, &e.reason, scope) {
+                Ok(rule) => (Some(rule.id), None),
+                Err(error) => (None, Some(error)),
+            },
+            _ => (None, None),
+        };
+        RespondOutcome { delivered, rule_id, rule_error }
     }
 
     /// 会话清场：摘走该 session 全部 pending（tx 随 entry drop，等待方收关闭信号按 deny），
@@ -253,8 +318,9 @@ impl ApprovalBroker {
 }
 
 /// 生产装配（main.rs 贴 350 行门禁，broker 构造收口此处）：bus + 决定落盘目录。
+/// 审批窗口取用户配置 approval_timeout_seconds（缺省 300s）。
 pub fn production_broker(bus: crate::core::event::EventBus) -> ApprovalBroker {
-    ApprovalBroker::new().with_bus(bus).with_sessions_dir(crate::core::paths::sessions_dir())
+    ApprovalBroker::with_timeout(configured_timeout()).with_bus(bus).with_sessions_dir(crate::core::paths::sessions_dir())
 }
 
 /// 共享审批请求：登记 + 发事件 + 挂起等用户决定（ApprovalOutcome::Allow = 放行）。

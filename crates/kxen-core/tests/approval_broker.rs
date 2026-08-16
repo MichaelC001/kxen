@@ -334,3 +334,98 @@ fn approval_part_serde_roundtrip() {
     let back: Part = serde_json::from_value(v).unwrap();
     assert!(matches!(back, Part::Approval { command, .. } if command == "rm x"));
 }
+
+// ---------------- 审批规则（B1：本会话放行 / 总是放行） ----------------
+
+use kxen_core::agent::approval_rules::RuleScope;
+
+fn broker_with_session(tag: &str) -> (ApprovalBroker, std::path::PathBuf, std::path::PathBuf, ses::Session) {
+    let dir = tmp_dir(tag);
+    let workspace = tmp_dir(&format!("{tag}-ws"));
+    std::fs::create_dir_all(&workspace).unwrap();
+    let session = ses::create(&dir, &workspace.to_string_lossy()).unwrap();
+    let broker = ApprovalBroker::new().with_sessions_dir(dir.clone());
+    (broker, dir, workspace, session)
+}
+
+#[tokio::test]
+async fn respond_remember_session_creates_rule_and_short_circuits() {
+    let (broker, dir, _workspace, session) = broker_with_session("rule-session");
+    let (id, rx) = broker.register(&session.id, "git push --force-with-lease", "force push");
+    let outcome = broker.respond_ext(&id, true, Some(RuleScope::Session));
+    assert!(outcome.delivered);
+    assert!(outcome.rule_id.is_some(), "放行 + remember 必须建规");
+    assert!(outcome.rule_error.is_none());
+    assert_eq!(broker.wait(&id, rx, None).await, ApprovalOutcome::Allow);
+
+    // 前缀命中（词边界内追加参数）直接放行，落盘 decision=rule_allow
+    broker.try_rule_allow(&session.id, "git push --force-with-lease origin main", "force push").unwrap();
+    let decisions = persisted_decisions(&dir, &session.id);
+    assert_eq!(decisions.last().unwrap(), &("git push --force-with-lease origin main".to_string(), "rule_allow".to_string()));
+
+    // 词边界外不命中：gitx 不得被 git 规则放行
+    assert!(broker.try_rule_allow(&session.id, "gitx push", "r").is_err());
+    // 元字符命令永不自动放行
+    assert!(broker.try_rule_allow(&session.id, "git push --force-with-lease; rm -rf x", "r").is_err());
+    // 别的会话不共享 session 规则
+    assert!(broker.try_rule_allow("other-session", "git push --force-with-lease", "r").is_err());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn respond_remember_metachar_command_reports_rule_error_but_keeps_allow() {
+    let (broker, dir, _workspace, session) = broker_with_session("rule-metachar");
+    let (id, rx) = broker.register(&session.id, "ls; rm -rf x", "复合命令");
+    let outcome = broker.respond_ext(&id, true, Some(RuleScope::Session));
+    assert!(outcome.delivered, "建规失败不撤回已送达的放行");
+    assert!(outcome.rule_id.is_none());
+    assert!(outcome.rule_error.is_some(), "元字符命令建规必须报错回传");
+    assert_eq!(broker.wait(&id, rx, None).await, ApprovalOutcome::Allow);
+    assert!(broker.try_rule_allow(&session.id, "ls; rm -rf x", "r").is_err(), "建规失败则规则表无此命令");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn workspace_rule_persists_used_count_and_revoke_removes() {
+    let (broker, dir, workspace, session) = broker_with_session("rule-workspace");
+    broker.remember_rule(&session.id, "cargo test", "构建", RuleScope::Workspace).unwrap();
+    let file = workspace.join(".kxen").join("approval-rules.json");
+    assert!(file.exists(), "workspace 规则必须落盘");
+
+    broker.try_rule_allow(&session.id, "cargo test -p kxen-core", "构建").unwrap();
+    // 新 broker 实例（模拟重启）读回 used=1：计数不落盘等于重启重置额度
+    let reloaded = kxen_core::agent::approval_rules::load_workspace_rules(&workspace).unwrap();
+    assert_eq!(reloaded.len(), 1);
+    assert_eq!(reloaded[0].used, 1, "命中计数必须随规则落盘");
+
+    // 撤销后不再命中
+    let rule_id = reloaded[0].id.clone();
+    assert!(broker.revoke_rule(&rule_id, &workspace).unwrap());
+    assert!(broker.try_rule_allow(&session.id, "cargo test -p kxen-core", "构建").is_err(), "撤销后不得再自动放行");
+    assert!(!broker.revoke_rule(&rule_id, &workspace).unwrap(), "重复撤销返回 false");
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::remove_dir_all(&workspace).ok();
+}
+
+#[test]
+fn list_rules_filters_expired_and_scopes() {
+    let (broker, dir, workspace, session) = broker_with_session("rule-list");
+    broker.remember_rule(&session.id, "git status", "r", RuleScope::Session).unwrap();
+    broker.remember_rule(&session.id, "cargo build", "r", RuleScope::Workspace).unwrap();
+
+    let all = broker.list_rules(None, &workspace);
+    assert_eq!(all.len(), 2, "session + workspace 规则都列出");
+    let scoped = broker.list_rules(Some("other"), &workspace);
+    assert_eq!(scoped.len(), 1, "别的会话只看到 workspace 规则");
+    assert_eq!(scoped[0].prefix, "cargo build");
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::remove_dir_all(&workspace).ok();
+}
+
+#[test]
+fn rule_allow_requires_persistable_audit() {
+    // sessions_dir 缺失时审计无从落盘：try_rule_allow 必须失败（调用方回落逐次审批）
+    let broker = ApprovalBroker::new();
+    broker.remember_rule("s1", "git status", "r", RuleScope::Session).unwrap();
+    assert!(broker.try_rule_allow("s1", "git status", "r").is_err(), "审计不可 durable 时绝不自动放行");
+}

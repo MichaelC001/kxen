@@ -179,6 +179,112 @@ async fn confirmed_skips_approval() {
     std::fs::remove_dir_all(&repo).ok();
 }
 
+/// dirty 删除先把未提交改动（含 untracked）打 patch 存 .kxen/backups/，patch 可 git apply 还原
+#[tokio::test]
+async fn dirty_remove_writes_recoverable_patch() {
+    let repo = init_repo("bak");
+    create(&repo, "bk1").await.unwrap();
+    let wt = repo.join(".kxen/worktrees/bk1");
+    std::fs::write(wt.join("a.txt"), "modified").unwrap();
+    std::fs::write(wt.join("new.txt"), "brand new").unwrap();
+
+    remove_with_approval(&repo, "bk1", false, None, true).await.unwrap();
+    assert!(!wt.exists());
+
+    let backups = repo.join(".kxen/backups");
+    let patch = std::fs::read_dir(&backups)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .find(|e| e.file_name().to_string_lossy().starts_with("worktree-bk1-") && e.file_name().to_string_lossy().ends_with(".patch"))
+        .expect("dirty 删除必须落 patch 备份");
+    let text = std::fs::read_to_string(patch.path()).unwrap();
+    assert!(text.contains("modified"), "patch 含已跟踪改动: {text}");
+    assert!(text.contains("brand new"), "patch 含 untracked 新文件: {text}");
+
+    // patch 可应用回主树（可恢复性闭环）
+    let out =
+        std::process::Command::new("git").args(["apply", "--check", patch.path().to_str().unwrap()]).current_dir(&repo).output().unwrap();
+    assert!(out.status.success(), "备份 patch 必须可应用: {}", String::from_utf8_lossy(&out.stderr));
+    std::fs::remove_dir_all(&repo).ok();
+}
+
+/// untracked 里的 symlink 不进备份 patch（防逃逸），记 skipped sidecar
+#[cfg(unix)]
+#[tokio::test]
+async fn remove_backup_skips_symlinks() {
+    let repo = init_repo("baklink");
+    create(&repo, "sl1").await.unwrap();
+    let wt = repo.join(".kxen/worktrees/sl1");
+    std::fs::write(wt.join("real.txt"), "data").unwrap();
+    std::os::unix::fs::symlink("real.txt", wt.join("link.txt")).unwrap();
+
+    remove_with_approval(&repo, "sl1", false, None, true).await.unwrap();
+    let backups = repo.join(".kxen/backups");
+    let names: Vec<String> =
+        std::fs::read_dir(&backups).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    let patch = names.iter().find(|n| n.starts_with("worktree-sl1-") && n.ends_with(".patch")).expect("patch 必须存在");
+    let text = std::fs::read_to_string(backups.join(patch)).unwrap();
+    assert!(text.contains("real.txt"));
+    assert!(!text.contains("link.txt"), "symlink 不得入 patch: {text}");
+    assert!(names.iter().any(|n| n.ends_with(".skipped.txt")), "skipped 清单必须落盘: {names:?}");
+    std::fs::remove_dir_all(&repo).ok();
+}
+
+/// clean worktree 删除不产生备份
+#[tokio::test]
+async fn clean_remove_writes_no_backup() {
+    let repo = init_repo("nobak");
+    create(&repo, "nb1").await.unwrap();
+    remove(&repo, "nb1", false).await.unwrap();
+    let backups = repo.join(".kxen/backups");
+    let patches = std::fs::read_dir(&backups).map(|rd| rd.filter_map(|e| e.ok()).count()).unwrap_or(0);
+    assert_eq!(patches, 0, "clean 删除不得产生备份");
+    std::fs::remove_dir_all(&repo).ok();
+}
+
+/// worktree apply：已提交 + 未提交 + untracked 差异合回主树
+#[tokio::test]
+async fn apply_merges_worktree_diff_into_main() {
+    use kxen_core::tools::worktree::apply;
+    let repo = init_repo("ap");
+    create(&repo, "ap1").await.unwrap();
+    let wt = repo.join(".kxen/worktrees/ap1");
+    std::fs::write(wt.join("a.txt"), "changed").unwrap();
+    std::fs::write(wt.join("added.txt"), "new file").unwrap();
+
+    let outcome = apply(&repo, "ap1").await.unwrap();
+    assert!(outcome.applied, "无冲突必须应用成功");
+    assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "changed");
+    assert_eq!(std::fs::read_to_string(repo.join("added.txt")).unwrap(), "new file");
+    std::fs::remove_dir_all(&repo).ok();
+}
+
+/// worktree apply 冲突：返回 diff，主树一字节不动（fail-closed）
+#[tokio::test]
+async fn apply_conflict_returns_diff_without_writing() {
+    use kxen_core::tools::worktree::apply;
+    let repo = init_repo("apc");
+    create(&repo, "c2").await.unwrap();
+    let wt = repo.join(".kxen/worktrees/c2");
+    std::fs::write(wt.join("a.txt"), "from worktree").unwrap();
+    std::fs::write(repo.join("a.txt"), "main diverged").unwrap();
+
+    let outcome = apply(&repo, "c2").await.unwrap();
+    assert!(!outcome.applied, "冲突不得落盘");
+    assert!(outcome.diff.contains("from worktree"), "冲突时 diff 返回给调用方");
+    assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "main diverged", "主树不得被改写");
+    std::fs::remove_dir_all(&repo).ok();
+}
+
+#[tokio::test]
+async fn apply_rejects_unknown_worktree() {
+    use kxen_core::tools::worktree::apply;
+    let repo = init_repo("ap404");
+    assert!(apply(&repo, "nope").await.is_err());
+    assert!(apply(&repo, "../x").await.unwrap_err().contains("invalid worktree name"));
+    std::fs::remove_dir_all(&repo).ok();
+}
+
 /// 残留同名分支（remove 保留分支后重建同名 worktree）：复用该分支而不是报错
 #[tokio::test]
 async fn create_reuses_leftover_branch() {
@@ -213,6 +319,25 @@ fn prune_backups_keeps_newest() {
     assert_eq!(left, 50, "必须只保留最近 50 份");
     assert!(!backups.join("f000.kxen-bak").exists(), "最旧的被清掉");
     assert!(backups.join("newest.kxen-bak").exists(), "最新的保留");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// .kxen/backups 时间上限：超过 30 天的备份即使数量未超限也清掉
+#[test]
+fn prune_backups_drops_expired() {
+    use kxen_core::tools::worktree::prune_backups;
+    let dir = std::env::temp_dir().join(format!("kxen-wt-prune-age-{}", std::process::id()));
+    let backups = dir.join(".kxen/backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    let old = backups.join("old.kxen-bak");
+    let fresh = backups.join("fresh.kxen-bak");
+    std::fs::write(&old, "x").unwrap();
+    std::fs::write(&fresh, "x").unwrap();
+    let expired = std::time::SystemTime::now() - std::time::Duration::from_secs(31 * 24 * 3600);
+    std::fs::File::options().write(true).open(&old).unwrap().set_modified(expired).unwrap();
+    prune_backups(&dir);
+    assert!(!old.exists(), "超过 30 天的备份必须被清掉");
+    assert!(fresh.exists(), "未过期备份保留");
     std::fs::remove_dir_all(&dir).ok();
 }
 

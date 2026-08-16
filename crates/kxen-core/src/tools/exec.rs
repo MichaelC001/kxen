@@ -80,7 +80,11 @@ pub async fn safety_gate(command: &str, cwd: &str, approval: Option<&ApprovalCtx
             suggestion: suggestion.map(|s| format!(" Suggestion: {s}")).unwrap_or_default(),
         })?,
         Verdict::Ask { reason } => format!("{reason}。Shell 将在宿主机目录 {cwd} 执行，可能访问 Workspace 外数据"),
-        Verdict::Allow | Verdict::Recoverable => {
+        Verdict::Recoverable => {
+            // 可恢复档文案必须体现可恢复性：删除走系统废纸篓，误删可从废纸篓还原
+            format!("命令含可恢复删除（目标移入系统废纸篓，可还原）；Shell 将在宿主机目录 {cwd} 执行，可能访问 Workspace 外数据")
+        }
+        Verdict::Allow => {
             format!("Shell 将在宿主机目录 {cwd} 执行，可能访问 Workspace 外数据；Kxen 不将其声明为 sandbox")
         }
     };
@@ -91,6 +95,12 @@ pub async fn safety_gate(command: &str, cwd: &str, approval: Option<&ApprovalCtx
             suggestion: String::new(),
         });
     };
+    // 规则表短路在 Deny 之后、自主授权与逐次审批之前：命中先落 durable 审计再放行；
+    // 未命中/失效/审计失败回落后续路径（fail-closed 语义不变），原因只进日志不执行
+    match appr.broker.try_rule_allow(appr.session_id, command, &reason) {
+        Ok(()) => return Ok(()),
+        Err(miss) => tracing::debug!(%miss, "approval rule miss, falling back to auto/manual approval"),
+    }
     // 自主授权短路在 Deny 返回之后、人工审批之前：Deny 物理上不可绕过；
     // 未命中/授权失效回落逐次审批（fail-closed 语义不变），原因只进日志不执行
     if let Some(auto) = appr.auto {

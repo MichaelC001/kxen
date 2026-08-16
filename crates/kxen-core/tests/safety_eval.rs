@@ -56,10 +56,63 @@ fn ask_verdict() {
     assert!(matches!(evaluate_shell_command("git clean -fd", CWD), Verdict::Ask { .. }));
     assert!(matches!(evaluate_shell_command("kill -9 1234", CWD), Verdict::Ask { .. }));
     assert!(matches!(evaluate_shell_command("brew uninstall node", CWD), Verdict::Ask { .. }));
-    // 带 ref 的 reset --hard 是常用安全操作，不进审批
-    assert!(allowed("git reset --hard HEAD"));
+    // 带 ref 的 reset --hard 同样丢弃未提交改动，升 Ask
+    assert!(matches!(evaluate_shell_command("git reset --hard HEAD", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("git reset --hard origin/main", CWD), Verdict::Ask { .. }));
     // 具体危险优先于审批：sudo rm -rf /etc 仍是 Deny 不是 Ask
     assert!(matches!(evaluate_shell_command("sudo rm -rf /etc", CWD), Verdict::Deny { .. }));
+}
+
+#[test]
+fn ask_interpreter_inline_scripts() {
+    // 解释器内联脚本是 opaque token，脱离切段评估：统一升 Ask
+    for cmd in [
+        "python3 -c \"print(1)\"",
+        "python -c \"print(1)\"",
+        "node -e \"console.log(1)\"",
+        "node --eval \"console.log(1)\"",
+        "perl -e \"print 1\"",
+        "ruby -e \"puts 1\"",
+        "osascript -e \"tell application \\\"Finder\\\" to activate\"",
+    ] {
+        assert!(matches!(evaluate_shell_command(cmd, CWD), Verdict::Ask { .. }), "should ask: {cmd}");
+    }
+    // 脚本文件执行与无内联标志的调用不升档
+    assert!(allowed("python3 script.py"));
+    assert!(allowed("node build.mjs"));
+    // 内联脚本里的具体危险仍是 Deny 优先
+    assert!(denied("python3 -c \"mkfs.ext4 /dev/sda1\""));
+}
+
+#[test]
+fn ask_process_substitution() {
+    assert!(matches!(evaluate_shell_command("diff <(ls a) <(ls b)", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("cat <(echo hi)", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("tee >(gzip > out.gz)", CWD), Verdict::Ask { .. }));
+    // 引号内的 <( 是字面文本
+    assert!(allowed("echo \"<(not real)\""));
+    // 进程替换内嵌的具体危险仍是 Deny 优先
+    assert!(denied("cat <(rm -rf /private/etc)"));
+}
+
+#[test]
+fn ask_git_worktree_destructive() {
+    assert!(matches!(evaluate_shell_command("git checkout -- src/main.rs", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("git checkout -- .", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("git checkout .", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("git checkout ./src", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("git restore src/main.rs", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("git restore --worktree .", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("git restore --source=HEAD~1 src", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("git restore --staged --worktree src", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("git stash drop", CWD), Verdict::Ask { .. }));
+    assert!(matches!(evaluate_shell_command("git stash clear", CWD), Verdict::Ask { .. }));
+    // 安全形态不升档：切分支 / 建分支 / 仅取消暂存
+    assert!(allowed("git checkout main"));
+    assert!(allowed("git checkout -b feature-x"));
+    assert!(allowed("git restore --staged src/main.rs"));
+    assert!(allowed("git stash pop"));
+    assert!(allowed("git stash list"));
 }
 
 #[test]
@@ -76,7 +129,7 @@ fn f3_git() {
     assert!(denied("rm -rf .git"));
     assert!(denied("mv .git /tmp/trash"));
     assert!(denied("git update-ref -d refs/heads/main"));
-    assert!(allowed("git reset --hard HEAD"));
+    assert!(matches!(evaluate_shell_command("git reset --hard HEAD", CWD), Verdict::Ask { .. }));
     assert!(allowed("git branch -d feature-x"));
 }
 

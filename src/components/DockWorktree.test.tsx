@@ -74,15 +74,15 @@ describe("DockWorktree 删除三态", () => {
     const dispose = render(() => <DockWorktree />, document.body);
     await vi.waitFor(() => expect(document.body.textContent).toContain("kxen/wt1"));
 
-    const removeBtn = btn("移除 worktree（分支保留）");
+    const removeBtn = btn("移除 worktree（分支保留；未提交改动先备份为 patch）");
     expect(removeBtn.disabled).toBe(false);
     removeBtn.click();
     await flush();
     expect(h.remove).toHaveBeenCalledTimes(1);
     // clean 且保留分支直连路径：未经确认条，confirmed=false（审批语义不变）
     expect(h.remove).toHaveBeenCalledWith("wt1", false, false);
-    expect(btn("移除 worktree（分支保留）").disabled).toBe(true); // 进行中禁用
-    btn("移除 worktree（分支保留）").click(); // 连点被拒
+    expect(btn("移除 worktree（分支保留；未提交改动先备份为 patch）").disabled).toBe(true); // 进行中禁用
+    btn("移除 worktree（分支保留；未提交改动先备份为 patch）").click(); // 连点被拒
     await flush();
     expect(h.remove).toHaveBeenCalledTimes(1);
 
@@ -103,7 +103,7 @@ describe("DockWorktree 删除三态", () => {
     const dispose = render(() => <DockWorktree />, document.body);
     await vi.waitFor(() => expect(document.body.textContent).toContain("kxen/wt1"));
 
-    btn("移除 worktree（分支保留）").click();
+    btn("移除 worktree（分支保留；未提交改动先备份为 patch）").click();
     await flush();
     await flush();
     const err = flash.msgs().find((m) => m.kind === "err");
@@ -123,7 +123,9 @@ describe("DockWorktree 删除三态", () => {
     await flush();
     expect(h.remove).not.toHaveBeenCalled(); // 未确认不发 RPC
     expect(document.body.textContent).toContain("分支 kxen/wt1 将被删除（不可恢复）");
-    expect(document.body.textContent).toContain("1 处未提交改动将丢失");
+    expect(document.body.textContent).toContain(
+      "1 处未提交改动（删除前自动备份为 patch 到 .kxen/backups/）",
+    );
 
     btnByText("取消").click(); // 取消不收 RPC、不留条
     await flush();

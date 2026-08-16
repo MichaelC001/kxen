@@ -40,6 +40,13 @@ pub(super) async fn try_handle(method: &str, params: &Value, state: &Arc<AppStat
             kxen_core::tools::worktree::remove_with_approval(&dir, name, delete_branch, approval.as_ref(), confirmed).await?;
             Ok(json!(true))
         }
+        "worktree.apply" => {
+            let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;
+            let dir = kxen_core::core::shared::read(&state.active_workspace).clone();
+            // 冲突时 applied=false 且返回 diff，主树不落盘（fail-closed）
+            let outcome = kxen_core::tools::worktree::apply(&dir, name).await?;
+            Ok(serde_json::to_value(outcome).map_err(|e| e.to_string())?)
+        }
         "worktree.status" => {
             let path = params.get("path").and_then(Value::as_str).ok_or("missing path")?;
             // 边界：path 必须落在 workspace（或会话授权清单）内，否则可对任意目录跑 git status

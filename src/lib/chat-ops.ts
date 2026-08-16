@@ -29,6 +29,16 @@ export async function worktreeStatus(path: string): Promise<{ path: string; stat
   return client.rpc<{ path: string; status: string }[]>("worktree.status", { path });
 }
 
+/** worktree.apply 结果：applied=false 即冲突（diff 一并返回，主树不落盘，fail-closed）。 */
+export interface WorktreeApplyOutcome {
+  applied: boolean;
+  diff: string;
+}
+
+export async function worktreeApply(name: string): Promise<WorktreeApplyOutcome> {
+  return client.rpc<WorktreeApplyOutcome>("worktree.apply", { name });
+}
+
 // ---------------- workspace ----------------
 
 export interface Workspace {

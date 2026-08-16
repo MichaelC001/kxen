@@ -5,7 +5,7 @@ use crate::tools::safety::{Verdict, guard_path};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 mod lines;
 mod secure;
@@ -40,10 +40,12 @@ pub enum FsToolError {
 
 // ---------------- 会话内文件新鲜度跟踪（免强制 read-before-edit） ----------------
 
-#[derive(Default)]
+// Clone 共享内部状态（Arc）：workflow 沙箱的工具桥与主会话共用同一份新鲜度视图，
+// 桥内 read 过的文件对主会话的免强制 read-before-edit 判定同样生效，反之亦然。
+#[derive(Default, Clone)]
 pub struct FileTracker {
     // 存 SystemTime 全精度（纳秒）：秒级 mtime + size 会漏同秒同大小的改写
-    seen: Mutex<HashMap<PathBuf, (std::time::SystemTime, u64)>>, // path -> (mtime, size)
+    seen: Arc<Mutex<HashMap<PathBuf, (std::time::SystemTime, u64)>>>, // path -> (mtime, size)
     /// 改动快照（turn 级 diff 口径）：首次写/改/删前留存原文，面板数据源。
     pub snapshots: crate::tools::snapshot::SnapshotStore,
 }

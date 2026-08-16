@@ -2,9 +2,12 @@
 // 后端 RewindBlock（crates/kxen-core/src/ws/session_ops.rs）序列化为 RPC 错误 message：
 // {code, message, dirty_count?, target?}，前端只按 code 归类，文案漂移不再炸确认流。
 import { createEffect, createSignal } from "solid-js";
-import { sessionRewind } from "./chat";
+import { sessionRewind, sessionRewindUndo } from "./chat";
+import { flashAction } from "./flash";
+import { formatError } from "./error-text";
 
-/** 后端 rewind 门禁拒绝类别（checkpoint_missing：barrier commit 失败只 warn，rewind 才暴露）。 */
+/** 后端 rewind 门禁拒绝类别（checkpoint_missing：barrier commit 失败会阻断该轮 run，
+ *  此处暴露的是存量或损坏 shadow repo 仍缺 checkpoint 的情况）。 */
 export type RewindBlock =
   | "active_run"
   | "not_in_session"
@@ -190,6 +193,18 @@ export function createSessionRewind(deps: {
     if (timer) clearTimeout(timer);
     setNote("");
   };
+  // 回退成功后 toast 提供「撤销」：撤销只恢复文件（对话已截断，不回放）。
+  // 注入 call 的测试路径不弹 toast（无真实后端可撤销）。
+  const onRewindDone = () => {
+    deps.onDone();
+    if (deps.call) return;
+    const sid = deps.sessionId();
+    flashAction("已回退到该消息（对话已截断，撤销只恢复文件）", "撤销", () => {
+      void sessionRewindUndo(sid)
+        .then(() => deps.onDone())
+        .catch((e: unknown) => showNote(`撤销失败：${formatError(e)}`));
+    });
+  };
   // 成功才对账：失败的回退不动时间线，不触发无意义重载
   const flow = createRewindFlow({
     sessionId: deps.sessionId,
@@ -197,7 +212,7 @@ export function createSessionRewind(deps: {
     ...(deps.call ? { call: deps.call } : {}),
     onPendingChange: setPending,
     onPendingInfo: setPendingInfo,
-    onDone: deps.onDone,
+    onDone: onRewindDone,
     onError: showNote,
   });
   // pending 绑定 sid：切会话立即清待确认条——旧 sid 的 messageId 拿去新会话重发，
