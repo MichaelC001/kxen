@@ -12,15 +12,15 @@ macOS、Windows 和 Linux 上的 Coding Agent 工作台，也可以用浏览器�
 
 ## 主要能力
 
-- **Workspace 与 Session**: 以本地项目为边界组织会话、配置和执行状态；对话可形成持久分支树，编辑重发和重新生成保留原时间线，中断后原子续跑，存储损坏可恢复。
-- **多模型**: 44 个内置 Provider 条目、多账号管理、订阅 OAuth 和 API key 登录，按角色路由模型与降级。
+- **Workspace 与 Session**: 以本地项目为边界组织会话、配置和执行状态；对话可形成持久分支树，编辑重发和重新生成保留原时间线，中断后原子续跑，存储损坏可恢复。Trajectory 检视视图把会话事件流投影为按轮次组织的记录表，附 Overview 时间线与单条记录检查器，用于核对模型每步实际看到的上下文、token 用量与耗时。
+- **多模型**: 46 个内置 Provider 条目（含 AWS Bedrock 与 Google Vertex AI）、多账号管理、订阅 OAuth 和 API key 登录，按角色路由模型与降级；自定义端点支持 OpenAI 与 Anthropic 兼容协议及 query 参数（可接 Azure OpenAI）。
 - **目标与编排**: Goal、Subagent、Dynamic Workflow、Agent Teams 和 Kanban 流水线，后台任务完成逐路回执。
 - **Bots**: 独立、可版本化的重复工作单元。每个 Bot 都能通过自己的受限 self-builder 对话创建和完善定义，并支持 Routine、可恢复 BotRun，以及 Direct 和 2 至 6 Bot Group 的 Bot-to-Bot 协作。
 - **DCP**: Deterministic Context Pipeline 以 durable facts 重建 Provider-neutral context，并为 turn、tool 副作用、`UNKNOWN` 和 settlement 提供一致边界。
 - **kxen-agent CLI**: 从 task 动态构建或加载 DCPAgent YAML，使用 immutable capability/policy lock 执行完整任务；支持 durable DCPRun、`--resume`、Conversation branch、Git worktree、跨 runner bundle 和 UNKNOWN tool recovery。仓库同时提供 verifier -> fixer -> reviewer -> draft PR 的 GitHub Issue reference workflow；GitHub/GitLab 等平台能力不进入 DCPAgent definition。
-- **本地工具**: 文件、Shell、Web Fetch、Web Search、Browser、MCP 和 LSP。
+- **本地工具**: 文件、Shell、Web Fetch、Web Search、Browser、MCP 和 LSP。`workflow` 沙箱内模型可用 `tool()` 在一次调用中编排多步工具执行；`tool_define` 让模型经审批定义会话级动态工具（`tool_undefine` 同口径卸载），DCP 侧以 `allowDynamicTools` policy 开关和宏目录提供提案-审批-新会话生效的路径。
 - **长期知识**: OKF v0.2 Knowledge Library、Rules、Skills、Memory、generic concepts 和自动沉淀。
-- **安全边界**: 执行层 Safety 与 Approval、Checkpoint、Rewind、Worktree 隔离，文件删除只进废纸篓。
+- **安全边界**: 执行层 Safety 与 Approval、可持久化的会话级审批规则与审批审计、Checkpoint、可撤销的 Rewind、Worktree 隔离与合回，文件删除只进废纸篓。
 - **日常效率**: Voice、Schedule、Usage 统计、通知和诊断。
 
 Bot Group 的成员都是 Bot，不是多人真人聊天。kxen 不提供共享云电脑、共享浏览器凭据或 Bot Marketplace。完整使用说明见 [Bots 文档](https://kxen.ai/bots/)。
