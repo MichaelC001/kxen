@@ -2,6 +2,18 @@
 
 此文件由 [git-cliff](https://github.com/orhun/git-cliff) 根据 Git tag 和 Conventional Commits 自动生成，请勿手动编辑。
 
+## [0.1.14] - 2026-08-16
+
+> **版本主题:** CI Gate Compliance
+
+### 本次更新
+
+- No user-facing changes; this patch keeps the source tree within the enforced file-size gates so the release pipeline unblocks. ([d35975c](https://github.com/StringKe/kxen/commit/d35975c50d6464da58339bb8fb03dfd68927ac30))
+
+### 问题修复
+
+- **ci:** Bring tsx files back under the 350-line gate ([4f99fd4](https://github.com/StringKe/kxen/commit/4f99fd489e50ad825259e8c839d52d4e72260bd7))
+
 ## [0.1.13] - 2026-08-16
 
 > **版本主题:** Composable Agent Runtime
