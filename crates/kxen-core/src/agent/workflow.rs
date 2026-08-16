@@ -2,6 +2,8 @@
 //!
 //! 脚本可用全局：
 //! - `agent(role, prompt)` / `agent(prompt, { agentType, label })` -> Promise<string>  按角色派发子代理（MRM 路由+门控）
+//! - `tool(name, args)` -> Promise<string>  沙箱内直接调宿主工具（code_orchestration 开启时安装，
+//!   走 execute_tool 全路径；逐次 intent/record 进同一 workflow journal，崩溃可逐条 replay）
 //! - `parallel(thunks, { concurrency })` -> Promise<array>  工作池扇出（默认 8）；失败项为 `{ __failed: true, error }`
 //! - `CONSTRAINTS`  角色绑定 + provider 可用性快照
 //! - `phase(name)`  进度标记，实时流式；匹配 `meta.phases` 时带 index/total
@@ -17,14 +19,17 @@ use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Promise, Value};
 use std::fmt::Write as _;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::time::Duration;
 use tokio::sync::mpsc;
 
+mod cancel;
+pub(crate) mod dynamic;
 mod js;
+mod tools;
 
-const WORKFLOW_TIMEOUT_MS: u64 = 10 * 60 * 1000;
+pub(crate) use cancel::{CancelGuard, cascade_parent};
+pub use tools::ToolBridge;
+
 const MAX_AGENTS_PER_WORKFLOW: u32 = 32;
-const MEMORY_LIMIT: usize = 64 * 1024 * 1024;
 const STACK_LIMIT: usize = 1024 * 1024;
 
 /// phase 事件：index/total/workflow_name 由脚本侧按 meta.phases 的 title 匹配
@@ -72,6 +77,9 @@ pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_
     let wf_cancel = crate::agent::cancel::CancelToken::new();
     let parent_cascade = cascade_parent(deps.cancel.clone(), &wf_cancel);
     let deps = SubagentDeps { cancel: Some(wf_cancel.clone()), ..deps };
+    // 通用工具桥：code_orchestration 开启时打包 ctx 快照传入专属线程（Arc/owned，不借引用）；
+    // 关闭时装显式拒绝 stub（脚本拿到可读错误而非 ReferenceError）
+    let tool_bridge = ctx.code_orchestration.then(|| ToolBridge::new(ctx, wf_cancel.clone()));
     std::thread::Builder::new()
         .name("kxen-workflow".into())
         .spawn(move || {
@@ -82,7 +90,7 @@ pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_
                     return;
                 }
             };
-            let result = rt.block_on(run_script(&script_owned, deps, phase_tx, cancel_thread, journal));
+            let result = rt.block_on(run_script(&script_owned, deps, phase_tx, cancel_thread, journal, tool_bridge));
             let _ = result_tx.send(result);
         })
         .map_err(|e| format!("workflow thread: {e}"))?;
@@ -100,9 +108,9 @@ pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_
         }
     };
 
-    let mut out = match tokio::time::timeout(Duration::from_millis(WORKFLOW_TIMEOUT_MS), body).await {
+    let mut out = match tokio::time::timeout(crate::core::config::sandbox_config().workflow_timeout(), body).await {
         Ok(result) => result,
-        Err(_) => Err(format!("workflow timed out after {}s", WORKFLOW_TIMEOUT_MS / 1000)),
+        Err(_) => Err(format!("workflow timed out after {}s", crate::core::config::sandbox_config().workflow_timeout().as_secs())),
     };
     drop(cancel_on_drop);
     drop(parent_cascade);
@@ -122,47 +130,23 @@ pub async fn run_tool(script: &str, deps: SubagentDeps, ctx: &AgentContext, run_
     out
 }
 
-/// 父 run abort 级联进 workflow 令牌（与 dispatch 的父子级联同一共识，done_tx drop 回收 watcher）。
-fn cascade_parent(
-    parent: Option<crate::agent::cancel::CancelToken>,
-    child: &crate::agent::cancel::CancelToken,
-) -> Option<tokio::sync::oneshot::Sender<()>> {
-    parent.map(|parent| {
-        let child = child.clone();
-        let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
-        tokio::spawn(async move {
-            tokio::select! {
-                _ = parent.wait() => child.cancel(),
-                _ = done_rx => {}
-            }
-        });
-        done_tx
-    })
-}
-
-/// 作用域结束即触发 JS 中断 + 在飞子代理级联取消（覆盖超时与提前返回两条路径）。
-struct CancelGuard(Arc<AtomicBool>, crate::agent::cancel::CancelToken);
-
-impl Drop for CancelGuard {
-    fn drop(&mut self) {
-        self.0.store(true, Ordering::Relaxed);
-        self.1.cancel();
-    }
-}
+// 取消装配（cascade_parent / CancelGuard）已拆到 cancel.rs（350 行门禁），语义不变。
 
 /// 直接跑一脚本（run_tool 的引擎部分拆出供测试）：无线程/超时包装，phase 走通道直出。
+/// tool_bridge = None 时安装显式拒绝 stub：脚本侧是清晰的可读错误，不是 ReferenceError。
 pub async fn run_script(
     script: &str,
     deps: SubagentDeps,
     phase_tx: mpsc::UnboundedSender<PhaseMsg>,
     cancel: Arc<AtomicBool>,
     journal: Option<crate::agent::workflow_journal::Journal>,
+    tool_bridge: Option<ToolBridge>,
 ) -> Result<String, String> {
     let constraints = build_constraints(&deps).await;
     let started = std::time::Instant::now();
 
     let runtime = AsyncRuntime::new().map_err(|e| e.to_string())?;
-    runtime.set_memory_limit(MEMORY_LIMIT).await;
+    runtime.set_memory_limit(crate::core::config::sandbox_config().memory_limit()).await;
     runtime.set_max_stack_size(STACK_LIMIT).await;
     runtime.set_interrupt_handler(Some(Box::new(move || cancel.load(Ordering::Relaxed)))).await;
     let context = AsyncContext::full(&runtime).await.map_err(|e| e.to_string())?;
@@ -189,6 +173,7 @@ pub async fn run_script(
             let counter = Arc::new(AtomicU32::new(0));
             let occurrences = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<(String, String, Option<String>), u32>::new()));
             let journal = std::sync::Arc::new(std::sync::Mutex::new(journal));
+            let journal_tools = journal.clone();
             let stats = Arc::new(std::sync::Mutex::new(WfStats::default()));
             let stats_agent = stats.clone();
             let agent_fn = Func::from(Async(move |role: String, prompt: String, label: Option<String>| {
@@ -248,6 +233,16 @@ pub async fn run_script(
             globals.set("__kxen_agent", agent_fn).catch(&ctx).map_err(|e| e.to_string())?;
             ctx.eval::<Value, _>(js::AGENT_JS).catch(&ctx).map_err(|e| e.to_string())?;
 
+            // __kxen_tool(name, argsJson)：通用工具桥（execute_tool 全路径 + journal 逐次 intent/record）。
+            // 子调用记录进 subcalls，脚本跑完后作为结构化块附在结果尾部（前端子调用列表数据源）。
+            let subcalls: tools::Subcalls = Arc::new(std::sync::Mutex::new(Vec::new()));
+            match tool_bridge {
+                Some(bridge) => tools::install(&ctx, bridge, journal_tools, subcalls.clone(), false)?,
+                None => {
+                    ctx.eval::<Value, _>(js::TOOL_DISABLED_JS).catch(&ctx).map_err(|e| e.to_string())?;
+                }
+            }
+
             // __kxen_phase：wrapped 脚本里的局部 phase 闭包按 meta 匹配好 index/total 后调这里。
             // 计数去重：matched 按 index、未匹配按 name——脚本重复调同名 phase 不虚报进度；
             // 事件不去重照常上行（UI 重复标记一次无害，改行为超出去重目标）
@@ -289,6 +284,7 @@ pub async fn run_script(
             let phases_total = meta.as_ref().and_then(|m| m.get("phases")).and_then(|p| p.as_array()).map(|a| a.len() as u32);
             let stats = crate::core::shared::lock(&stats);
             let mut text = text;
+            text.push_str(&tools::render_block(&crate::core::shared::lock(&subcalls)));
             text.push_str(&js::envelope(
                 wf_name,
                 &stats.ok_by_role,

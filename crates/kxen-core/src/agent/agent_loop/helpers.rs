@@ -61,6 +61,7 @@ pub fn summarize_args(name: &str, arguments: &str) -> String {
         "agent" => get("role"),
         "skill" => get("name"),
         "knowledge" => get("description").or_else(|| get("action")),
+        "tool_define" | "tool_undefine" => get("name"),
         _ => None,
     };
     first_line(&salient.unwrap_or_else(|| arguments.trim().to_string()), 80)
@@ -115,10 +116,15 @@ pub fn is_read_only_tool(name: &str, _ctx: &super::context::AgentContext) -> boo
 /// 执行侧白名单（与 run.rs 展示侧过滤同口径）：展示过滤只决定模型「看到什么」，
 /// 模型伪造/幻觉 tool_call 名可直接抵达 dispatch，必须在这里复验。restricted 角色只允许本地白名单精确命中，
 /// 远端 MCP metadata 不能扩大 capability set。
+/// 族名放行（同构 mcp__* 先例的闭集特例）：白名单含 dynamic-tools 时放行 tool_define/tool_undefine 与 dyn__* 限定名。
 pub fn tool_permitted(name: &str, allowed: Option<&[String]>) -> bool {
     match allowed {
         None => true,
-        Some(allowed) => allowed.iter().any(|tool| tool == name),
+        Some(allowed) => {
+            allowed.iter().any(|tool| tool == name)
+                || (crate::agent::dynamic::family_permitted(Some(allowed))
+                    && (name == "tool_define" || name == "tool_undefine" || name.starts_with(crate::agent::dynamic::NAME_PREFIX)))
+        }
     }
 }
 

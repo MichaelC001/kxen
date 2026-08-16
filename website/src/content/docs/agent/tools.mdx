@@ -24,12 +24,24 @@ sidebar:
 - `webfetch`
 - `websearch`
 - `tool_search`
+- `tool_define`
+- `tool_undefine`
 - `workflow`
 - `team`
 
 `team` 只对主会话 lead 可见，teammate 使用受限的 `send_message` 和 `team_task`。文件工具受 Workspace 和统一路径边界限制。`exec` 要求显式 Shell dialect，并把长命令转为后台任务。
 
 `webfetch` 与 `websearch` 的提取、fallback、网络和计量边界见 [Web 与 Search](https://kxen.ai/integrations/web-search)。
+
+`workflow` 在 QuickJS 沙箱内运行模型编写的 JavaScript 编排脚本。脚本内除 `agent()` 子代理派发外，还有 `await tool(name, args)` 全局可直接调用宿主工具（如 `read`、`grep`），多步操作在一次模型往返内完成。桥内每次调用仍走完整工具执行路径（执行侧权限复验、hooks、审批、MCP 门控），单次输出按上限截断，每次运行最多 64 次工具调用，递归调用 `tool("workflow")` 会被拒绝。每次调用和 `agent()` 派发一样写入 workflow journal，中断后凭 run_id 续跑时逐条回放缓存，不重复执行。
+
+## 动态工具
+
+`tool_define` 让模型在运行时定义新工具：提交名称、描述、JSON Schema 参数和一段 QuickJS 实现源码，经用户 Approval（审批卡展示完整源码）后立即可用。动态工具的限定名是 `dyn__<name>_<hash8>`，`hash8` 是实现内容的 sha256 前 8 位——同一名字改实现即得到新名字，重定义无歧义，时间线卡片以「动态」徽标标识。
+
+动态工具的实现在与 `workflow` 相同的 QuickJS 沙箱内执行，可以经 `await tool(name, args)` 组合现有工具（同样走完整执行路径），但不允许递归调用 `workflow` 或 `tool_define`/`tool_undefine`。定义随会话事件流持久化，fork 和 resume 后自动恢复，仅当前会话有效。
+
+`tool_undefine` 按限定名卸载本会话已注册的动态工具：与注册走同一 Approval 口径（自主授权或当次人工批准，无审批通道时失败关闭），卸载事件同样落入会话事件流，fork/resume 后保持一致。卸载只影响后续调用——历史中已执行的 `dyn__*` 调用记录原样保留，卸载后该名字的新调用失败关闭。同名不同实现的再注册会得到新限定名，同实现则可以重新注册。沙箱超时（缺省 5 分钟）与实现源码上限（缺省 20000 字符）可在个人配置的 `[sandbox]` 下调整，见 [Configuration](https://kxen.ai/reference/configuration#沙箱)。
 
 ## 按需工具
 

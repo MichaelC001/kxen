@@ -6,11 +6,17 @@ use std::sync::Arc;
 
 pub(crate) const PROVIDER_TOOL_NAME_MAX: usize = 64;
 
+/// 工具名字段校验（MCP tool 段与动态工具 dyn__ 段同一口径）：非空 ASCII [A-Za-z0-9_-]。
+pub(crate) fn validate_tool_name_segment(segment: &str) -> Result<(), String> {
+    if segment.is_empty() || !segment.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')) {
+        return Err("tool name segment must be non-empty ASCII [A-Za-z0-9_-]".into());
+    }
+    Ok(())
+}
+
 pub(crate) fn provider_tool_name(server: &str, tool: &str) -> Result<String, String> {
     super::config::validate_server_key(server)?;
-    if tool.is_empty() || !tool.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')) {
-        return Err("MCP tool name must be non-empty ASCII [A-Za-z0-9_-]".into());
-    }
+    validate_tool_name_segment(tool).map_err(|_| "MCP tool name must be non-empty ASCII [A-Za-z0-9_-]".to_string())?;
     let exposed = format!("mcp__{server}__{tool}");
     if exposed.len() > PROVIDER_TOOL_NAME_MAX {
         return Err(format!("provider tool name exceeds {PROVIDER_TOOL_NAME_MAX} ASCII bytes"));
@@ -54,9 +60,7 @@ pub fn split_prefixed(name: &str) -> Option<(&str, &str)> {
     let rest = name.strip_prefix("mcp__")?;
     let (server, tool) = rest.split_once("__")?;
     super::config::validate_server_key(server).ok()?;
-    if tool.is_empty() || !tool.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')) {
-        return None;
-    }
+    validate_tool_name_segment(tool).ok()?;
     (name.len() <= PROVIDER_TOOL_NAME_MAX).then_some((server, tool))
 }
 

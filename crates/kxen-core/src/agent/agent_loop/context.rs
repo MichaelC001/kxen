@@ -39,6 +39,12 @@ pub struct SessionExtras {
     pub skill_depth: std::sync::atomic::AtomicU32,
     /// browser 工具的 per-session 单实例槽（懒启动；delete 经 close_browser 关 Chrome）
     pub browser: crate::tools::browser::BrowserSlot,
+    /// 动态工具注册表（tool_define 审批通过后挂载；dyn__<name>_<hash8> 限定名）。
+    /// 交互会话经 restore_from_history 从事件流快照重建；DCP 经宏目录加载。
+    pub dynamic_tools: std::sync::Mutex<std::collections::HashMap<String, crate::agent::dynamic::DynamicToolDef>>,
+    /// DCP 动态工具宏目录（runner 在 dynamic-tools 族生效时挂载）：Some = tool_define
+    /// 走提案落盘（下会话生效）而非即时注册。
+    pub dynamic_macro_dir: std::sync::Mutex<Option<PathBuf>>,
 }
 
 /// 按 session 隔离的 extras 注册表：进程级单例会让 A 会话的 todo/挂载工具
@@ -137,6 +143,10 @@ pub struct AgentContext {
     /// Domain-specific tools use an injected port so the shared Agent loop does
     /// not depend on Bot, Kanban, Session or any other product aggregate.
     pub domain_tools: Option<Arc<dyn crate::agent::domain_tool::DomainToolRouter>>,
+    /// workflow 沙箱内是否提供 `tool()` 通用工具桥（脚本内直接编排工具调用）。
+    /// 交互会话/子代理/kanban/team 开启；DCP 由 runtime policy 的 allowCodeOrchestration 决定，
+    /// BotRun 默认关闭。桥内仍走 execute_tool 全路径，permits 复验是真正的安全边界。
+    pub code_orchestration: bool,
     /// completion judge 等辅助请求的 session/run 统计汇入点；Goal 已在调用处独立记账。
     pub auxiliary_usage: Arc<super::usage::AuxiliaryUsage>,
     /// 所有 lead/subagent/background/team run 共用的 session usage 汇入点。

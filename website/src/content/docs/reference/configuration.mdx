@@ -81,6 +81,16 @@ base_url = "https://api.example.com/v1"
 protocol = "openai"
 models = ["example-model"]
 capabilities = ["text"]
+
+# 需要固定查询参数的端点（如 Azure OpenAI）用 query_params 子表声明
+[custom_providers.azure]
+base_url = "https://<resource>.openai.azure.com/openai/deployments/<deployment>"
+protocol = "openai"
+models = ["gpt-4o"]
+capabilities = ["text"]
+
+[custom_providers.azure.query_params]
+api-version = "2024-10-21"
 ```
 
 `search.engine`、Google CSE、SearXNG、凭证来源和 fallback 行为见 [Web 与 Search](https://kxen.ai/integrations/web-search)。
@@ -156,6 +166,20 @@ Provider、OAuth、Remote MCP、Web Fetch 和 Web Search 使用应用内受保�
 - `circuit_cooldown_seconds`: 熔断冷却时间，默认 60 秒。
 
 多个账号共享 Provider 并发池，RPM 按账号分别记录。实际在飞调用、RPM 窗口和路由历史由进程共享；Circuit 按 Workspace、Provider 和自定义 endpoint 隔离。切换 Workspace 不会重置共享并发或 RPM，也不会让一个 Workspace 的端点故障熔断另一个 Workspace。kxen 不内置可能漂移的公开模型价格；没有显式单价时金额保持 `UNKNOWN`，配置金额预算但缺少单价会失败关闭。token 趋势按本地日期持久化 90 天，Settings 展示最近 14 天。
+
+## 沙箱
+
+QuickJS 沙箱（`workflow` 与动态工具 `dyn__*`）的资源上限在 `[sandbox]` 下配置，只读取个人配置，项目 `.kxen/config.toml` 不能放宽沙箱边界：
+
+```toml
+[sandbox]
+workflow_timeout_seconds = 600                  # workflow 墙钟超时，缺省 600
+memory_limit_mb = 64                            # QuickJS 堆内存上限（两个宿主共用），缺省 64
+dynamic_tool_timeout_seconds = 300              # 动态工具沙箱超时，缺省 300
+dynamic_tool_max_implementation_chars = 20000   # 动态工具实现源码上限（字符），缺省 20000
+```
+
+留空或设为 0 均取缺省值。栈深（1MB）与单次 workflow 的 agent 派发数（32）保持内置，不可配置。
 
 ## 实验能力
 

@@ -45,6 +45,9 @@ pub(super) fn recover_known_outcomes(sessions_dir: &Path, run: &DcpRunState, jou
             output: operation.output.clone().unwrap_or_default().into(),
             args: serde_json::from_str(&operation.arguments_json).ok(),
             id: operation.call_ids.last().cloned(),
+            // journal 记的是 before/after 实测边界，恢复落盘如实带上
+            started_at: Some(operation.started_at_ms),
+            finished_at: Some(operation.updated_at_ms),
         })
         .collect();
     let mut message = crate::core::session::new_message(&run.session_id, crate::core::session::Role::Assistant, parts);

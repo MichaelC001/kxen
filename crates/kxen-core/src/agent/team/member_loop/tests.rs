@@ -208,6 +208,8 @@ fn member_persist_turn_writes_iteration_to_history_log() {
         output: "data".into(),
         args: None,
         id: None,
+        started_at: None,
+        finished_at: None,
     }];
     persist(2, parts.clone()).unwrap();
     persist(2, parts).unwrap();

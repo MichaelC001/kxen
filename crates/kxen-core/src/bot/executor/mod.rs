@@ -229,6 +229,8 @@ impl BotExecutor {
             persist_turn: Some(persist_turn),
             tool_journal: Some(Arc::new(journal::RunToolJournal::new(self.system.clone(), run_id.clone()))),
             domain_tools: Some(Arc::new(crate::bot::tools::BotToolRouter::new(self.system.clone(), run_id.clone()))),
+            // BotRun 默认不开 code 编排桥：自主无人值守场景的 workflow 只用 agent() 派发
+            code_orchestration: false,
             auxiliary_usage: Arc::default(),
             usage_reporter: Some(UsageReporter::new(format!("bot-run:{run_id}"), self.deps.session_usage.clone(), bus.clone())),
             stream_override: None,

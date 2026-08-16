@@ -7,14 +7,19 @@ use std::path::Path;
 mod composer;
 mod custom_provider;
 pub use custom_provider::{CustomProviderDef, validate_custom_provider_auth, validate_custom_provider_endpoint};
-pub(crate) use custom_provider::{custom_provider_def_checked, endpoint_is_explicit_loopback, validate_custom_provider_definition};
+pub(crate) use custom_provider::{
+    append_query_params, custom_provider_def_checked, endpoint_is_explicit_loopback, validate_custom_provider_definition,
+    validate_query_params,
+};
 #[path = "config/document.rs"]
 mod document;
 mod load;
+mod sandbox;
 #[path = "config/web_tray.rs"]
 mod web_tray;
 pub use composer::{ComposerSuggestionsConfig, EmbeddingConfig};
 pub use document::{merge_voice_engine, validate_user_document};
+pub use sandbox::{SandboxConfig, sandbox_config};
 pub use web_tray::{TrayConfig, WebConfig};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -27,6 +32,10 @@ pub struct Config {
     pub custom_providers: HashMap<String, CustomProviderDef>,
     /// 运行中再发消息的策略：queue（默认，排队接续）| interrupt（打断当前立即发送）
     pub send_when_running: String,
+    /// Ask 档审批窗口（秒）：用户未应答多久后审批按超时拒绝；缺省 300。
+    pub approval_timeout_seconds: Option<u64>,
+    /// checkpoint shadow repo 保留的最近 user checkpoint 数；缺省 50，0/缺省均取默认。
+    pub checkpoint_keep: Option<u32>,
     /// 记忆检索的 embedding 语义召回（缺省关闭，纯 BM25）
     pub embedding: EmbeddingConfig,
     /// Composer 主动候选。仅本地候选默认开启，任何 Provider 调用都需显式 opt-in。
@@ -37,6 +46,8 @@ pub struct Config {
     pub coding_rules: CodingRulesConfig,
     /// 涉及外发内容或扩大宿主机能力面的实验功能，全部缺省关闭。
     pub experimental: ExperimentalConfig,
+    /// QuickJS 沙箱（workflow / 动态工具）资源上限，仅用户级（见 config/sandbox.rs）
+    pub sandbox: SandboxConfig,
     /// 内嵌 Web 服务（桌面 bin 常驻；浏览器访问开关与监听参数）
     pub web: WebConfig,
     /// 系统托盘（左键默认动作、关窗行为；per-client UI state，只存用户级）

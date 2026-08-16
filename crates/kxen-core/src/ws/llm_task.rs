@@ -234,6 +234,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
             return;
         }
     };
+    kxen_core::agent::dynamic::restore_from_history(&state.extras_for(&session_id), &stored_history);
     let mut messages: Vec<Message> = kxen_core::agent::compact::flatten_stored(&stored_history);
     // 上一 run 在迭代中崩溃：flatten 只含到最后一个 durable 迭代，先补注记声明副作用未知
     turn_persistence::inject_recovery_note(&stored_history, &mut messages);
@@ -320,6 +321,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
         persist_turn: Some(persist_turn),
         tool_journal: None,
         domain_tools: None,
+        code_orchestration: true,
         auxiliary_usage: Arc::default(),
         usage_reporter: Some(kxen_core::agent::agent_loop::UsageReporter::new(
             session_id.clone(),

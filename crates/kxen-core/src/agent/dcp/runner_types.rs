@@ -26,6 +26,9 @@ const DEFAULT_CAPABILITIES: &[&str] = &[
     "skill",
     "knowledge",
     "worktree",
+    // workflow 进 catalog 但默认被 policy 拦下（allow_code_orchestration 特例，
+    // 同 allow_shell 对 exec/task）：definition 可申请，批准权在 runtime policy
+    "workflow",
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -172,6 +175,9 @@ impl DcpRuntime {
                 capabilities.insert(name);
             }
         }
+        // 动态工具族进 catalog 但默认被 policy 拦下（allow_dynamic_tools 特例，同 allow_mcp）：
+        // definition 可以 optional 预声明，批准权在 runtime policy
+        capabilities.insert(crate::agent::dynamic::FAMILY.to_string());
         capabilities
     }
 

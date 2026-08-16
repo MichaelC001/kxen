@@ -215,6 +215,8 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
                 .map_err(|e| e.to_string())
         }
         "tool_search" => super::tool_search::mount(args, ctx),
+        "tool_define" => crate::agent::dynamic::define(args, ctx).await,
+        "tool_undefine" => crate::agent::dynamic::undefine(args, ctx).await,
         "todo" => {
             let Some(extras) = &ctx.extras else {
                 return Err("todo unavailable in this context".into());
@@ -317,6 +319,8 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
             Box::pin(crate::agent::workflow::run_tool(script, deps, ctx, run_id)).await
         }
         other if other.starts_with("kanban_") => super::kanban_tool::execute_kanban_tool(other, args, ctx),
+        // 动态工具（dyn__）：注册表查找 + 参数校验 + QuickJS 沙箱执行（宿主复用 workflow 引擎）
+        other if other.starts_with(crate::agent::dynamic::NAME_PREFIX) => crate::agent::dynamic::execute_defined(other, args, ctx).await,
         other if other.starts_with("mcp__") => {
             // MCP 调用不是 Shell 命令，不在看板自主授权范围（auto 恒 None）
             let appr = crate::tools::exec::ApprovalCtx::new(

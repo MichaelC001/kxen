@@ -73,3 +73,39 @@ fn workspace_binding_verifies_identity_and_directory_type() {
     std::fs::remove_dir(second).unwrap();
     std::fs::remove_dir(root).unwrap();
 }
+
+#[test]
+fn workflow_capability_is_gated_by_code_orchestration_policy() {
+    let available = BTreeSet::from(["read".into(), "workflow".into()]);
+    let mut def = definition();
+    def.spec.capabilities = DcpAgentCapabilities { required: vec!["read".into()], optional: vec!["workflow".into()] };
+
+    // 默认关闭（与 allow_shell/allow_mcp 同构的闭集特例）：workflow 出集，optional 申请被静默裁掉
+    let policy = DcpRuntimePolicy::default();
+    assert!(!policy.allow_code_orchestration);
+    assert!(!policy.permitted_catalog(&available).contains("workflow"));
+    let lock = policy.resolve_lock(def.clone(), &available).unwrap();
+    assert_eq!(lock.effective_capabilities, ["read"]);
+    // required 申请 workflow 在关闭时直接锁定失败
+    let mut def_required = definition();
+    def_required.spec.capabilities = DcpAgentCapabilities { required: vec!["workflow".into()], optional: vec![] };
+    let error = policy.resolve_lock(def_required.clone(), &available).unwrap_err();
+    assert!(error.contains("required capability"), "{error}");
+
+    // 开启：workflow 入集并可入锁
+    let policy = DcpRuntimePolicy { allow_code_orchestration: true, ..Default::default() };
+    assert!(policy.permitted_catalog(&available).contains("workflow"));
+    let lock = policy.resolve_lock(def, &available).unwrap();
+    assert_eq!(lock.effective_capabilities, ["read", "workflow"]);
+    let lock = policy.resolve_lock(def_required, &available).unwrap();
+    assert_eq!(lock.effective_capabilities, ["workflow"]);
+}
+
+#[test]
+fn code_orchestration_flag_roundtrips_in_policy_json() {
+    // 旧 policy 文件无该字段：serde default false（向后兼容）；显式开启可解析
+    let policy: DcpRuntimePolicy = serde_json::from_str("{}").unwrap();
+    assert!(!policy.allow_code_orchestration);
+    let policy: DcpRuntimePolicy = serde_json::from_str(r#"{"allowCodeOrchestration": true}"#).unwrap();
+    assert!(policy.allow_code_orchestration);
+}

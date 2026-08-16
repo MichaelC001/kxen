@@ -31,6 +31,8 @@ pub struct SubagentDeps {
     pub lsp: Option<Arc<crate::lsp::LspManager>>,
     pub stream_override: Option<crate::llm::StreamFn>,
     pub usage_reporter: Option<crate::agent::agent_loop::UsageReporter>,
+    /// 父 ctx 的 code_orchestration 继承位：子代理派发的 workflow 是否带 tool() 桥与父一致。
+    pub code_orchestration: bool,
 }
 
 #[derive(Debug)]
@@ -63,6 +65,7 @@ impl SubagentDeps {
             lsp: ctx.lsp.clone(),
             stream_override: ctx.stream_override.clone(),
             usage_reporter: ctx.usage_reporter.clone(),
+            code_orchestration: ctx.code_orchestration,
         })
     }
 }
@@ -160,6 +163,7 @@ pub async fn dispatch(role: &str, prompt: String, deps: &SubagentDeps, kind: Age
         persist_turn,
         tool_journal: None,
         domain_tools: None,
+        code_orchestration: deps.code_orchestration,
         auxiliary_usage: Arc::default(),
         usage_reporter: deps.usage_reporter.clone(),
         stream_override: deps.stream_override.clone(),

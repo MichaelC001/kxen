@@ -134,6 +134,7 @@ async fn dispatch_rechecks_circuit_before_next_child_request() {
         lsp: None,
         stream_override: Some(stream),
         usage_reporter: None,
+        code_orchestration: false,
     };
 
     dispatch("execution", "first".into(), &deps, AgentKind::Subagent).await.expect("first child reaches provider and records failure");
@@ -176,6 +177,7 @@ async fn dispatch_persists_run_log_and_transcript_when_session_scoped() {
         lsp: None,
         stream_override: Some(stream),
         usage_reporter: None,
+        code_orchestration: false,
     };
 
     let result = dispatch("execution", "reply PONG".into(), &deps, AgentKind::Subagent).await.expect("dispatch");

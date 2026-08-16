@@ -86,12 +86,18 @@ Policy 是 JSON，调用方在 agent 外部决定权限:
   "deniedCapabilities": [],
   "allowShell": true,
   "allowMcp": false,
+  "allowCodeOrchestration": false,
+  "allowDynamicTools": false,
   "passEnv": [],
   "maxTurns": 48,
   "maxWallClockMs": 1800000
 }
 ```
 
-`allowedCapabilities` 缺省表示不额外限制 catalog。`deniedCapabilities` 始终优先。`allowShell` 控制 `exec` 和 `task`，`allowMcp` 控制 `mcp__*` capability 及 MCP policy 中的 `ask`。`passEnv` 是工具子进程的环境变量显式清单。
+`allowedCapabilities` 缺省表示不额外限制 catalog。`deniedCapabilities` 始终优先。`allowShell` 控制 `exec` 和 `task`，`allowMcp` 控制 `mcp__*` capability 及 MCP policy 中的 `ask`。`allowCodeOrchestration` 控制 `workflow` capability（默认 `false`，关闭时 `workflow` 整体不在 permitted catalog，与 `allowShell` 对 `exec`/`task` 的处理同构）；开启后 DCP agent 可申请 `workflow` 工具，脚本内获得 `tool()` 通用工具桥，沙箱内可在一次模型往返内编排多次工具调用。`passEnv` 是工具子进程的环境变量显式清单。
+
+`allowDynamicTools`（默认 `false`）控制 `dynamic-tools` 族 capability。definition 以 `optional: [dynamic-tools]` 预声明后，agent 获得 `tool_define`：它定义的新工具不直接进入当前 run，而是先作为提案落盘到 policy 文件同级的 `dynamic-tools/proposals/`，审批通过后激活为 `dynamic-tools/<name>.json`，从下一个新 Session 起生效。动态工具限定名 `dyn__<name>_<hash8>` 把实现内容的 sha256 前 8 位编进名字，加载宏目录时逐文件校验名称与实现 hash 自洽——任何文件被篡改或无法解析，整个目录 fail-closed，Session 创建直接失败；历史中的 `dyn__*` 调用若无法由当前宏目录解析，run 同样 fail-closed 而不是静默跳过。提案审批经 `dynamic-tool-audit.jsonl` 落 durable 审计。Lock 只包含族名，宏实例不进 Lock。
+
+审批通道是 headless 设计边界：kxen-agent 是一次性 CLI 进程，没有回到人的交互审批通道，DCP run 内的 `tool_define` 提案只在 `allowDynamicTools: true` 时经自主授权自动放行（先落 `dynamic-tool-audit.jsonl` durable 审计再放行，审计写失败则回落拒绝）；不开关时一律失败关闭（run 内审批 broker 为零超时，等待即超时拒绝）。这与人坐在工作台前的交互会话口径不同：人工审查发生在 run 之外——审查 `dynamic-tools/proposals/` 的留痕提案与审计文件，再决定是否调整 policy 重跑。`tool_undefine` 在 DCP 提案模式下不可用（调用返回失败）：移除动态工具即删除 `dynamic-tools/<name>.json` 宏文件，下一个新 Session 不再加载它；注意引用已删名字的旧 Session 历史在 resume 时会因此 fail-closed。沙箱超时与实现源码上限沿用 agent 宿主机的个人配置 `[sandbox]`（缺省分别为 300 秒与 20000 字符）。
 
 definition 和 policy 合并后的 hash 固定在 Session 中。`--resume` 必须使用同一有效 policy，包括命令行合并的 `--allow-shell`、`--allow-mcp` 和 `--pass-env`，否则以 policy drift 拒绝继续。这防止恢复时静默扩大权限或新增 secret 暴露面。

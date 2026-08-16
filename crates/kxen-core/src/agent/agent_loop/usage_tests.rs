@@ -171,6 +171,7 @@ fn bare_ctx(goal_id: Option<&str>) -> AgentContext {
         persist_turn: None,
         tool_journal: None,
         domain_tools: None,
+        code_orchestration: false,
         auxiliary_usage: std::sync::Arc::default(),
         usage_reporter: None,
         on_event: std::sync::Arc::new(|_| {}),

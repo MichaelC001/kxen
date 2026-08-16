@@ -5,8 +5,8 @@ use crate::agent::agent_loop::{AgentContext, AgentEvent};
 use crate::llm::Message;
 
 use super::runner_support::{
-    DcpAutoApprove, ensure_private_dir, filtered_child_environment, recover_known_outcomes, same_message_content, turn_persister,
-    validate_agent_output, workspace_scope,
+    ensure_private_dir, filtered_child_environment, recover_known_outcomes, same_message_content, turn_persister, validate_agent_output,
+    workspace_scope,
 };
 use super::runner_types::{DcpRunRequest, DcpRunResult, DcpRuntime, DcpRuntimeEvent};
 use super::{
@@ -54,6 +54,8 @@ impl DcpRuntime {
                     }
                 };
                 let lock = policy.resolve_lock(definition, &capabilities)?;
+                // 动态工具族进锁即校验宏目录（hash 自洽）：坏宏在 session 创建时报错，不留到 run 半路
+                super::runner_dynamic::validate_at_lock(self.options.policy_file.as_deref(), &lock)?;
                 let session = self.store.create_session(workspace, lock)?;
                 (self.sink)(DcpRuntimeEvent::SessionCreated { session_id: session.session_id.clone() });
                 session
@@ -103,19 +105,14 @@ impl DcpRuntime {
         let workspace = PathBuf::from(&session.workspace.root);
         let runtime = self.workspace_runtime(&workspace, policy).await?;
         let available = Self::capabilities_for(&runtime);
-        for capability in &session.agent.effective_capabilities {
-            if !available.contains(capability)
-                || policy.denied_capabilities.contains(capability)
-                || policy.allowed_capabilities.as_ref().is_some_and(|allowed| !allowed.contains(capability))
-                || (!policy.allow_shell && matches!(capability.as_str(), "exec" | "task"))
-                || (!policy.allow_mcp && capability.starts_with("mcp__"))
-            {
-                return Err(format!("locked DCPAgent capability is unavailable under the current runtime policy: {capability}"));
-            }
-        }
+        super::runner_dynamic::verify_locked_capabilities(policy, &available, &session.agent.effective_capabilities)?;
         let journal = Arc::new(DcpRunToolJournal::open(&self.store.run_dir(&session.session_id, &run.run_id)?)?);
         let stored_history = crate::core::session::load_history_checked(self.store.sessions_dir(), &session.session_id)
             .map_err(|error| format!("load DCP Session history: {error}"))?;
+        // 动态工具族在锁内才把宏目录加载进会话注册表（tool_define 据此走提案模式），
+        // 并复验历史里的 dyn__ 调用都可由当前宏目录解析（缺失/hash 不符 = fail closed）
+        let extras = self.extras.extras_for(&session.session_id);
+        super::runner_dynamic::mount(self.options.policy_file.as_deref(), &session.agent.effective_capabilities, &extras, &stored_history)?;
         let unknown = journal.reconcile(&stored_history)?;
         if !unknown.is_empty() {
             let operation_ids = unknown.into_iter().map(|operation| operation.operation_id).collect();
@@ -190,7 +187,7 @@ impl DcpRuntime {
             max_pure_retries: Some(session.agent.definition.spec.execution.max_pure_retries),
             mrm: Some(runtime.mrm()),
             allowed_tools: Some(allowed_tools),
-            extras: Some(self.extras.extras_for(&session.session_id)),
+            extras: Some(extras),
             hooks: None,
             loop_detector: crate::agent::loop_detect::LoopDetector::new(),
             cancel: Some(cancel),
@@ -203,12 +200,7 @@ impl DcpRuntime {
             agents: Some(self.agents.clone()),
             bus: Some(self.bus.clone()),
             approvals,
-            kanban_auto: policy.allow_shell.then(|| {
-                Arc::new(DcpAutoApprove::new(
-                    self.store.run_dir(&session.session_id, &run.run_id).expect("validated DCPRun path").join("shell-audit.jsonl"),
-                    "shell_command",
-                )) as Arc<dyn crate::tools::auto_approve::AutoApprove>
-            }),
+            kanban_auto: super::runner_dynamic::auto_approve(policy, &self.store.run_dir(&session.session_id, &run.run_id)?),
             mcp: Some(runtime.mcp()),
             mcp_approval_prechecked: policy.allow_mcp,
             lsp: Some(runtime.lsp()),
@@ -217,6 +209,9 @@ impl DcpRuntime {
             persist_turn: Some(persist),
             tool_journal: Some(journal.clone()),
             domain_tools: None,
+            // workflow 工具的 tool() 桥由 policy 显式授权（allowCodeOrchestration）；
+            // 关闭时 workflow 整体不在 permitted_catalog（permitted_catalog 特例同 allow_shell）
+            code_orchestration: policy.allow_code_orchestration,
             auxiliary_usage: Arc::default(),
             usage_reporter: Some(crate::agent::agent_loop::UsageReporter::new_unscoped_in(
                 run.run_id.clone(),

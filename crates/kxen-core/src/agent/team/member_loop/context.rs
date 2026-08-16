@@ -73,6 +73,7 @@ pub(super) fn build_ctx(
         persist_turn: Some(persist_turn),
         tool_journal: None,
         domain_tools: None,
+        code_orchestration: true,
         auxiliary_usage: Arc::default(),
         usage_reporter: Some(usage_reporter(state)),
         stream_override: None,

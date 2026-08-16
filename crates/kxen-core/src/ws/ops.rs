@@ -292,6 +292,7 @@ async fn test_dispatch(state: &Arc<AppState>, params: &Value) -> Result<Value, S
         lsp: Some(runtime.lsp()),
         stream_override: None,
         usage_reporter: Some(usage_reporter),
+        code_orchestration: true,
     };
     let dispatch = kxen_core::agent::subagent::dispatch(
         role,

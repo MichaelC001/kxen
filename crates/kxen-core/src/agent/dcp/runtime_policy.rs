@@ -39,6 +39,8 @@ impl DcpRuntimePolicy {
                     && !denied.contains(*name)
                     && (self.allow_shell || !matches!(name.as_str(), "exec" | "task"))
                     && (self.allow_mcp || !name.starts_with("mcp__"))
+                    && (self.allow_code_orchestration || name.as_str() != "workflow")
+                    && (self.allow_dynamic_tools || !crate::agent::dynamic::is_dynamic_capability(name))
             })
             .cloned()
             .collect()

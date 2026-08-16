@@ -29,6 +29,8 @@ fn session_lifecycle() {
                 output: "a.txt b.txt".into(),
                 args: Some(serde_json::json!({"command": "ls"})),
                 id: None,
+                started_at: None,
+                finished_at: None,
             },
         ],
     );
@@ -203,6 +205,8 @@ fn tool_call_stores_exact_args_and_full_output() {
             output: full_output.into(),
             args: Some(serde_json::json!({"path": "/tmp/a.txt", "content": "hello"})),
             id: None,
+            started_at: None,
+            finished_at: None,
         }],
     );
     ses::append_message(&dir, &m).unwrap();
@@ -221,6 +225,50 @@ fn tool_call_stores_exact_args_and_full_output() {
     std::fs::write(dir.join(format!("{}.jsonl", s.id)), format!("{legacy}\n")).unwrap();
     let loaded = ses::load_messages(&dir, &s.id);
     assert!(matches!(&loaded[0].parts[0], Part::ToolCall { args: None, .. }));
+    assert!(
+        matches!(&loaded[0].parts[0], Part::ToolCall { started_at: None, finished_at: None, .. }) && loaded[0].stats.is_none(),
+        "存量 JSONL 缺计时/统计字段按 unknown 反序列化"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn tool_timing_and_run_stats_roundtrip() {
+    let dir = tmp_dir("timing");
+    let s = ses::create(&dir, "/tmp/work").unwrap();
+    let mut m = ses::new_message(
+        &s.id,
+        Role::Assistant,
+        vec![Part::ToolCall {
+            name: "exec".into(),
+            input: serde_json::json!("ls"),
+            output: "ok".into(),
+            args: None,
+            id: None,
+            started_at: Some(1000),
+            finished_at: Some(1600),
+        }],
+    );
+    m.stats = Some(ses::MessageRunStats {
+        ttft_ms: 300,
+        duration_ms: 2000,
+        input_tokens: 10,
+        output_tokens: 5,
+        tokens_per_sec: 2,
+        usage_complete: true,
+    });
+    ses::append_message(&dir, &m).unwrap();
+
+    let loaded = ses::load_messages(&dir, &s.id);
+    assert!(
+        matches!(&loaded[0].parts[0], Part::ToolCall { started_at: Some(1000), finished_at: Some(1600), .. }),
+        "工具执行起止随 part 落盘"
+    );
+    let stats = loaded[0].stats.expect("run 统计快照随收尾消息落盘");
+    assert_eq!((stats.ttft_ms, stats.duration_ms, stats.input_tokens, stats.output_tokens), (300, 2000, 10, 5));
+    // skip_serializing_if：缺省字段不回写，旧读取路径（无字段结构）仍兼容
+    let raw = std::fs::read_to_string(dir.join(format!("{}.jsonl", s.id))).unwrap();
+    assert!(raw.contains("\"started_at\":1000"));
     std::fs::remove_dir_all(&dir).ok();
 }
 

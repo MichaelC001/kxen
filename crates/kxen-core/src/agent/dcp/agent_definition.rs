@@ -101,6 +101,15 @@ pub struct DcpRuntimePolicy {
     pub allow_shell: bool,
     #[serde(default)]
     pub allow_mcp: bool,
+    /// 允许 workflow 沙箱内的 code 编排（workflow 能力 + tool() 通用工具桥）。默认关闭：
+    /// 关闭时 workflow 整体不在 permitted_catalog（与 allow_shell 对 exec/task 的特例同构）。
+    #[serde(default)]
+    pub allow_code_orchestration: bool,
+    /// 允许动态工具族（dynamic-tools 能力 + tool_define 提案 + dyn__* 宏实例）。默认关闭：
+    /// 开启后 tool_define 只写宏提案（<policy 同级>/dynamic-tools/），审批后新 session 生效，
+    /// 当前 run 不生效。宏目录需由 policy 文件定位，故无 policy 文件时该族不可用。
+    #[serde(default)]
+    pub allow_dynamic_tools: bool,
     /// 允许传给 exec/task 子进程的敏感环境变量名。provider credential 永远禁止传递。
     #[serde(default)]
     pub pass_env: Vec<String>,

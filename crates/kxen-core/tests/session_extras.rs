@@ -97,6 +97,7 @@ fn subagent_shares_parent_session_extras() {
         persist_turn: None,
         tool_journal: None,
         domain_tools: None,
+        code_orchestration: false,
         auxiliary_usage: Arc::default(),
         usage_reporter: None,
         on_event: Arc::new(|_| {}),

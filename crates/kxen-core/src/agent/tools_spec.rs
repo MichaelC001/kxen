@@ -17,7 +17,13 @@ pub fn core_tool_catalog() -> &'static [ToolDefinition] {
 }
 
 fn build_core_tools() -> Vec<ToolDefinition> {
-    vec![
+    build_core_tools_impl()
+}
+
+/// 拆成 head/workflow/tail 三段：workflow 描述里的可调用工具清单从同批 catalog 动态生成，
+/// 新增/改名工具自动反映进描述，不与前述实现漂移（手写清单会腐化）。
+fn build_core_tools_impl() -> Vec<ToolDefinition> {
+    let head = vec![
         ToolDefinition::function(
             "exec",
             "Execute a command in an explicitly declared shell dialect (zsh/bash/fish). Long commands auto-background after 15s and return a task_id - you are notified on completion, so do not poll or sleep-wait. Prefer one well-formed command over chained one-liners.",
@@ -186,18 +192,8 @@ fn build_core_tools() -> Vec<ToolDefinition> {
                 "required": ["query"]
             }),
         ),
-        ToolDefinition::function(
-            "workflow",
-            "Run a JavaScript orchestration script (QuickJS, sandboxed) that fans work out to subagents in parallel. MANDATORY for /ultracode, /ultraplan, /ultrareview and any task needing 2+ subagents or named phases - never explore repos one-by-one when a workflow applies. Globals: `await agent(role, prompt)` or `agent(prompt, { agentType, label })` -> string (subagent dispatch, MRM-routed); `await parallel(thunks, { concurrency: 8 })` -> array in input order, failed items come back as `{ __failed: true, error }` instead of rejecting (check and retry/report them); `CONSTRAINTS` (role bindings + provider availability); `phase(name)` (progress marker); `log(msg)`. Optional `export const meta = { name, description, whenToUse, phases: [{ title, detail }] }` enables structured phase progress (index/total per phase call). The script return value is the workflow result; the engine appends a compact completion envelope (agent counts, failures list, phase progress, wall time). Cap: 32 agent dispatches, 10min wall clock. The run journal is always on: completed agent dispatches are persisted. run_id is optional - when omitted, a random one is auto-generated and returned in the result text; after a crash/cancel, re-invoke with that run_id and completed dispatches return cached results instead of re-dispatching. A fresh run_id never hits the cache, so new executions are unaffected.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "script": { "type": "string", "description": "Flat top-level JavaScript statements (auto-wrapped in async - do NOT wrap in a function yourself); must end with a top-level return of ONE concatenated markdown string" },
-                    "run_id": { "type": "string", "description": "optional: stable id to resume a previous run from the journal; auto-generated and returned in the result text when omitted" }
-                },
-                "required": ["script"]
-            }),
-        ),
+    ];
+    let tail = vec![
         ToolDefinition::function(
             "team",
             "Lead an agent team. spawn creates a teammate; message sends to its inbox; approve/reject answers a plan request; resume requires a new recovery prompt for a crash-blocked teammate; shutdown stops a teammate; task_create/cancel/fail/reassign manage work; task_resolve explicitly confirms a crash-blocked completion as completed or reopens it without replaying the old hook; list shows members and tasks. Teammates report back automatically - do not poll.",
@@ -248,7 +244,50 @@ fn build_core_tools() -> Vec<ToolDefinition> {
                 "required": ["action"]
             }),
         ),
-    ]
+    ];
+    let workflow = ToolDefinition::function(
+        "workflow",
+        // tool_define/tool_undefine 不进可调用清单：桥内一律拒绝（生命周期动作的审批边界在宿主侧）
+        workflow_description(
+            head.iter().chain(tail.iter()).filter(|tool| !matches!(tool.function.name.as_str(), "tool_define" | "tool_undefine")),
+        ),
+        json!({
+            "type": "object",
+            "properties": {
+                "script": { "type": "string", "description": "Flat top-level JavaScript statements (auto-wrapped in async - do NOT wrap in a function yourself); must end with a top-level return of ONE concatenated markdown string" },
+                "run_id": { "type": "string", "description": "optional: stable id to resume a previous run from the journal; auto-generated and returned in the result text when omitted" }
+            },
+            "required": ["script"]
+        }),
+    );
+    let mut tools = head;
+    // 动态工具生命周期定义拆在 tools_dynamic.rs（350 行门禁）：紧随 tool_search、workflow 之前
+    tools.extend(crate::agent::tools_dynamic::lifecycle_tools());
+    tools.push(workflow);
+    tools.extend(tail);
+    tools
+}
+
+/// workflow 工具描述：固定正文 + 从同批 catalog 动态生成的 tool() 可调用清单
+/// （名称 + 一句话描述 + 必填参数摘要）。不新增工具名：tool 是沙箱内全局，不是 LLM 工具。
+fn workflow_description<'a>(tools: impl Iterator<Item = &'a ToolDefinition>) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::from(
+        "Run a JavaScript orchestration script (QuickJS, sandboxed) that fans work out to subagents in parallel. MANDATORY for /ultracode, /ultraplan, /ultrareview and any task needing 2+ subagents or named phases - never explore repos one-by-one when a workflow applies. Globals: `await agent(role, prompt)` or `agent(prompt, { agentType, label })` -> string (subagent dispatch, MRM-routed); `await parallel(thunks, { concurrency: 8 })` -> array in input order, failed items come back as `{ __failed: true, error }` instead of rejecting (check and retry/report them); `CONSTRAINTS` (role bindings + provider availability); `phase(name)` (progress marker); `log(msg)`. Optional `export const meta = { name, description, whenToUse, phases: [{ title, detail }] }` enables structured phase progress (index/total per phase call). The script return value is the workflow result; the engine appends a compact completion envelope (agent counts, failures list, phase progress, wall time). Cap: 32 agent dispatches, 10min default wall clock (configurable via [sandbox] in config.toml). The run journal is always on: completed agent dispatches are persisted. run_id is optional - when omitted, a random one is auto-generated and returned in the result text; after a crash/cancel, re-invoke with that run_id and completed dispatches return cached results instead of re-dispatching. A fresh run_id never hits the cache, so new executions are unaffected. Sandbox global `await tool(name, args)` calls any permitted tool directly inside the script, so multi-step operations (e.g. read + grep + summarize) finish in ONE model round-trip; each call goes through the full tool execution path (permissions, hooks, approvals), output is capped, recursive tool(\"workflow\") and tool_define/tool_undefine are rejected, total cap 64 calls per run, and every call is journaled for resume. Callable tools via tool():",
+    );
+    for tool in tools {
+        let spec = &tool.function;
+        let one_liner = spec.description.split(". ").next().unwrap_or(spec.description.as_str());
+        let required = spec
+            .parameters
+            .get("required")
+            .and_then(serde_json::Value::as_array)
+            .map(|items| items.iter().filter_map(serde_json::Value::as_str).collect::<Vec<_>>().join(", "))
+            .filter(|list| !list.is_empty())
+            .unwrap_or_else(|| "none".into());
+        write!(out, "\n- {}: {} (required: {})", spec.name, one_liner, required).expect("writing to String cannot fail");
+    }
+    out
 }
 
 /// deferred 工具目录：默认不进上下文，经 tool_search 挂载到会话。
@@ -268,5 +307,25 @@ mod tests {
         let left = first.iter().find(|tool| tool.function.name == "lsp").unwrap();
         let right = second.iter().find(|tool| tool.function.name == "lsp").unwrap();
         assert!(std::sync::Arc::ptr_eq(&left.function, &right.function));
+    }
+
+    #[test]
+    fn workflow_description_lists_callable_tools_from_catalog() {
+        let catalog = super::core_tool_catalog();
+        let workflow = catalog.iter().find(|tool| tool.function.name == "workflow").unwrap();
+        let description = &workflow.function.description;
+        assert!(description.contains("`await tool(name, args)`"), "{description}");
+        assert!(description.contains("cap 64 calls"), "{description}");
+        // 清单从同批 catalog 动态生成：名称 + 一句话 + 必填参数摘要
+        assert!(description.contains("- read: Read a file with LINE#HASH anchors"), "{description}");
+        assert!(description.contains("(required: path)"), "{description}");
+        assert!(description.contains("- grep: Search file contents with a regex"), "{description}");
+        assert!(description.contains("- todo: Session todo list for tracking multi-step work"), "{description}");
+        // 清单不得包含 workflow 自身（桥内递归被拒绝，描述不应自指）
+        assert!(!description.contains("- workflow:"), "{description}");
+        // tool_define/tool_undefine 同规：桥内一律拒绝（审批边界在宿主侧），不进可调用清单
+        assert!(!description.contains("- tool_define:"), "{description}");
+        assert!(!description.contains("- tool_undefine:"), "{description}");
+        assert!(description.contains("tool_define/tool_undefine are rejected"), "{description}");
     }
 }

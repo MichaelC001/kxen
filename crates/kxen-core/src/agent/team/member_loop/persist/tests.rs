@@ -8,7 +8,15 @@ fn temp(tag: &str) -> PathBuf {
 }
 
 fn call(name: &str, output: &str) -> ses::Part {
-    ses::Part::ToolCall { name: name.into(), input: serde_json::json!(name), output: output.into(), args: None, id: None }
+    ses::Part::ToolCall {
+        name: name.into(),
+        input: serde_json::json!(name),
+        output: output.into(),
+        args: None,
+        id: None,
+        started_at: None,
+        finished_at: None,
+    }
 }
 
 fn iteration(dir: &Path, name: &str, wake: u32, turn: u32, parts: Vec<ses::Part>) {

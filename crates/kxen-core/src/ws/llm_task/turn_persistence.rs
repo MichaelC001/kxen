@@ -74,12 +74,21 @@ mod tests {
             role: ses::Role::Assistant,
             parts: calls,
             model: None,
+            stats: None,
             created_at: 0,
         }
     }
 
     fn call(name: &str, output: &str) -> ses::Part {
-        ses::Part::ToolCall { name: name.into(), input: serde_json::json!(name), output: output.into(), args: None, id: None }
+        ses::Part::ToolCall {
+            name: name.into(),
+            input: serde_json::json!(name),
+            output: output.into(),
+            args: None,
+            id: None,
+            started_at: None,
+            finished_at: None,
+        }
     }
 
     #[test]

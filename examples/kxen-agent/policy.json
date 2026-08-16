@@ -8,12 +8,14 @@
     "exec",
     "lsp",
     "webfetch",
-    "websearch"
+    "websearch",
+    "workflow"
   ],
   "deniedCapabilities": [],
   "allowShell": true,
   "allowMcp": false,
   "passEnv": [],
   "maxTurns": 48,
-  "maxWallClockMs": 1800000
+  "maxWallClockMs": 1800000,
+  "allowCodeOrchestration": true
 }

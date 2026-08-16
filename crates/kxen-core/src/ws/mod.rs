@@ -9,6 +9,7 @@
 
 mod active_context;
 pub mod connection;
+mod context_stats;
 pub(crate) mod llm_compaction;
 mod llm_context;
 mod llm_input;

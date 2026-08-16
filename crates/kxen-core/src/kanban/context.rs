@@ -76,6 +76,7 @@ pub(super) fn base_context(
         persist_turn,
         tool_journal: None,
         domain_tools: None,
+        code_orchestration: true,
         auxiliary_usage: Arc::default(),
         usage_reporter: deps.usage_reporter.clone(),
         on_event: Arc::new(|_| ()),

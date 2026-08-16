@@ -174,6 +174,7 @@ async fn custom_provider_circuits_are_isolated_by_workspace_endpoint() {
                 protocol: "openai".into(),
                 models: vec!["model".into()],
                 capabilities: vec!["text".into()],
+                query_params: Default::default(),
             },
         );
         config.limits.providers.insert(

@@ -197,6 +197,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
             session_messages::load(&kxen_core::core::paths::sessions_dir(), id)
         }
         "session.delete" => super::session_delete::delete(&params, state).await,
+        "session.context_stats" => super::context_stats::context_stats_report(&params, state).await,
         "session.update_meta" => super::session_ops::session_update_meta(&params),
         "session.set_model" => super::session_ops::session_set_model(&params),
         "session.fork" => {
@@ -231,6 +232,7 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
             Ok(json!(session))
         }
         "session.rewind" => super::session_ops::session_rewind(&params, state),
+        "session.rewind_undo" => super::session_ops::session_rewind_undo(&params, state),
         "session.pending_list" => {
             let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
             Ok(json!(state.pending_messages.texts(id)))
@@ -256,12 +258,11 @@ pub(super) async fn rpc_call(method: &str, params: Value, state: &Arc<AppState>)
             super::queue_retry::reset_retry(id);
             Ok(json!(aborted))
         }
-        "approval.respond" => {
-            let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
-            let allow = params.get("allow").and_then(Value::as_bool).ok_or("missing allow")?;
-            Ok(json!({ "resolved": state.approvals.respond(id, allow) }))
-        }
+        "approval.respond" => super::session_ops::approval_respond(&params, state),
         "approval.pending" => super::session_ops::approval_pending(&params, state),
+        "approval.history" => super::session_ops::approval_history(&params),
+        "approval_rules.list" => super::session_ops::approval_rules_list(&params, state),
+        "approval_rules.revoke" => super::session_ops::approval_rules_revoke(&params, state),
         "team.message" => {
             let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let name = params.get("name").and_then(Value::as_str).ok_or("missing name")?;

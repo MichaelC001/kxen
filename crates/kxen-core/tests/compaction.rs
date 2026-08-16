@@ -27,6 +27,8 @@ fn full_assistant(sid: &str, tag: &str) -> ses::Message {
                 output: format!("out-{tag}").into(),
                 args: Some(serde_json::json!({"command": format!("ls {tag}")})),
                 id: Some(format!("call-{tag}")),
+                started_at: None,
+                finished_at: None,
             },
             Part::Image { media_type: "image/png".into(), data: "aGVsbG8=".into() },
             Part::Text { text: format!("done-{tag}").into() },

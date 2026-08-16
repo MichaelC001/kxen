@@ -23,6 +23,8 @@ fn completed_outcome_replays_only_for_the_same_call_id_until_turn_is_durable() {
             output: "ok".into(),
             args: Some(serde_json::json!({})),
             id: Some("call_a".into()),
+            started_at: None,
+            finished_at: None,
         }])
         .unwrap();
     assert_eq!(journal.snapshot().operations[0].phase, DcpToolPhase::Settled);

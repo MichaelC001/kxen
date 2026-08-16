@@ -149,6 +149,8 @@ fn messages_preserve_context_history_resume_and_tool_pairs() {
                 output: "ERROR: denied".into(),
                 args: Some(serde_json::json!({ "path": "file.txt" })),
                 id: None,
+                started_at: None,
+                finished_at: None,
             },
             Part::Reasoning { text: "reason".into() },
         ],

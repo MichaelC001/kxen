@@ -80,11 +80,19 @@ mod tests {
     use crate::llm::types::Role;
 
     fn stored(id: &str, role: StoredRole, parts: Vec<Part>) -> StoredMessage {
-        StoredMessage { id: id.into(), session_id: "ses".into(), role, parts, model: None, created_at: 0 }
+        StoredMessage { id: id.into(), session_id: "ses".into(), role, parts, model: None, stats: None, created_at: 0 }
     }
 
     fn tool(name: &str, output: &str, args: Option<serde_json::Value>, id: Option<String>) -> Part {
-        Part::ToolCall { name: name.into(), input: serde_json::json!(format!("run {name}")), output: output.into(), args, id }
+        Part::ToolCall {
+            name: name.into(),
+            input: serde_json::json!(format!("run {name}")),
+            output: output.into(),
+            args,
+            id,
+            started_at: None,
+            finished_at: None,
+        }
     }
 
     #[test]

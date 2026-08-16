@@ -11,6 +11,14 @@ pub(super) fn tools(ctx: &AgentContext, base: &[crate::llm::tool::ToolDefinition
         _ => true,
     });
     tools.extend(super::helpers::deferred_visible(ctx.extras.as_deref(), ctx.allowed_tools.as_deref()));
+    // 动态工具（dyn__）：注册表按身份口径合并（Full 全量；族名 dynamic-tools 放行；精确白名单亦可）
+    tools.extend(crate::agent::dynamic::visible_defs(ctx.extras.as_deref(), ctx.allowed_tools.as_deref()));
+    // DCP 族能力路径：白名单含族名 dynamic-tools 而非 tool_define 本名，展示侧按族补齐定义
+    if crate::agent::dynamic::family_permitted(ctx.allowed_tools.as_deref())
+        && !tools.iter().any(|tool| tool.function.name == "tool_define")
+    {
+        tools.push(crate::agent::dynamic::tool_define_definition());
+    }
     if let Some(mcp) = &ctx.mcp {
         tools.extend(crate::mcp::tools::tool_defs_for(&mcp.all_tools(), ctx.allowed_tools.as_deref()));
     }

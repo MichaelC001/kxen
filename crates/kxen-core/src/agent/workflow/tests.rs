@@ -45,11 +45,14 @@ fn counting_deps(count: Arc<AtomicU32>) -> SubagentDeps {
         voice: Default::default(),
         custom_providers: Default::default(),
         send_when_running: String::new(),
+        approval_timeout_seconds: None,
+        checkpoint_keep: None,
         embedding: Default::default(),
         composer_suggestions: Default::default(),
         search: Default::default(),
         coding_rules: Default::default(),
         experimental: Default::default(),
+        sandbox: Default::default(),
         web: Default::default(),
         tray: Default::default(),
     };
@@ -74,6 +77,7 @@ fn counting_deps(count: Arc<AtomicU32>) -> SubagentDeps {
             Box::pin(futures::stream::iter(vec![Delta::Text("ok".into()), Delta::Done]))
         })),
         usage_reporter: None,
+        code_orchestration: true,
     }
 }
 
@@ -113,6 +117,7 @@ fn session_ctx(session_id: &str) -> AgentContext {
         persist_turn: None,
         tool_journal: None,
         domain_tools: None,
+        code_orchestration: true,
         auxiliary_usage: Arc::default(),
         usage_reporter: None,
         on_event: Arc::new(|_| {}),
@@ -159,4 +164,125 @@ async fn missing_run_id_auto_generates_journal_and_resumes_from_cache() {
 
     let _ = std::fs::remove_file(&file);
     let _ = std::fs::remove_file(file.with_extension("jsonl.lock"));
+}
+
+// ---------------- tool() 通用工具桥（code mode） ----------------
+
+/// 带桥跑一脚本：journal=None（不碰 data_dir），工作目录为测试临时目录。
+async fn run_with_bridge(script: &str, workdir: &std::path::Path) -> Result<String, String> {
+    let ctx = {
+        let mut ctx = session_ctx("sess-wf-tools");
+        ctx.workdir = Arc::from(workdir);
+        ctx
+    };
+    let bridge = super::ToolBridge::new(&ctx, crate::agent::cancel::CancelToken::new());
+    let (tx, _rx) = mpsc::unbounded_channel();
+    run_script(script, counting_deps(Arc::new(AtomicU32::new(0))), tx, Arc::new(AtomicBool::new(false)), None, Some(bridge)).await
+}
+
+fn temp_workdir(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("kxen-wf-tools-{tag}-{}-{}", std::process::id(), crate::core::ids::new_id("d")));
+    std::fs::create_dir_all(&dir).expect("create temp workdir");
+    dir
+}
+
+/// 一次 workflow 调用内完成 read + grep 多步编排；子调用结构化块随结果产出（前端投影数据源）。
+#[tokio::test]
+async fn tool_bridge_runs_multiple_calls_in_one_workflow() {
+    let dir = temp_workdir("multi");
+    std::fs::write(dir.join("a.txt"), "needle one\nhay\n").unwrap();
+    std::fs::write(dir.join("b.txt"), "needle two\n").unwrap();
+    let script = "const c = await tool('read', { path: 'a.txt' });\n\
+                  const g = await tool('grep', { pattern: 'needle' });\n\
+                  return String(c.includes('needle one')) + '|' + String(g.includes('b.txt'))";
+    let out = run_with_bridge(script, &dir).await.expect("workflow with tool bridge should succeed");
+    assert!(out.starts_with("true|true"), "{out}");
+    assert!(out.contains("[kxen:tool-calls]"), "{out}");
+    assert!(out.contains(r#"{"name":"read","status":"ok","ms":"#), "{out}");
+    assert!(out.contains(r#"{"name":"grep","status":"ok","ms":"#), "{out}");
+    assert!(out.contains("0 agents"), "{out}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 递归编排拒绝：桥内 tool("workflow") 报错，不开第二层沙箱。
+#[tokio::test]
+async fn tool_bridge_rejects_recursive_workflow() {
+    let dir = temp_workdir("recursion");
+    let script = "try { await tool('workflow', { script: 'return 1' }); return 'not-rejected'; } catch (e) { return String(e); }";
+    let out = run_with_bridge(script, &dir).await.expect("script catches bridge error");
+    assert!(out.contains("recursive"), "{out}");
+    assert!(!out.contains("[kxen:tool-calls]"), "递归拒绝不留子调用记录: {out}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 调用预算封顶（64）：第 65 次调用报 budget exhausted，脚本可捕获。
+#[tokio::test]
+async fn tool_bridge_budget_caps_at_64_calls() {
+    let dir = temp_workdir("budget");
+    std::fs::write(dir.join("x.txt"), "x\n").unwrap();
+    let script = "let msg = '';\n\
+                  for (let i = 0; i < 65; i++) { try { await tool('read', { path: 'x.txt' }); } catch (e) { msg = String(e); break; } }\n\
+                  return msg";
+    let out = run_with_bridge(script, &dir).await.expect("script catches budget error");
+    assert!(out.contains("tool call budget exhausted (64)"), "{out}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 桥关闭（code_orchestration=false）：tool() 是显式拒绝 stub，不是 ReferenceError。
+#[tokio::test]
+async fn tool_bridge_disabled_stub_rejects_clearly() {
+    let dir = temp_workdir("disabled");
+    let script = "try { await tool('read', { path: 'x' }); return 'not-rejected'; } catch (e) { return String(e); }";
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let out = run_script(script, counting_deps(Arc::new(AtomicU32::new(0))), tx, Arc::new(AtomicBool::new(false)), None, None)
+        .await
+        .expect("script catches stub rejection");
+    assert!(out.contains("code orchestration not allowed"), "{out}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// journal 逐次 intent/record：同 run_id 重跑逐条 replay——write 不重复执行（文件不复活），
+/// read 回缓存；子调用块标 cached 且不虚构耗时。
+#[tokio::test]
+async fn tool_calls_journal_replays_per_dispatch() {
+    let dir = temp_workdir("replay");
+    let session = "sess-wf-tools-replay";
+    let run_id = format!("wftoolsreplay{}", std::process::id());
+    let script = "await tool('write', { path: 'made.txt', content: 'hello' });\n\
+                  const c = await tool('read', { path: 'made.txt' });\n\
+                  return String(c.includes('hello'))";
+    let ctx = {
+        let mut ctx = session_ctx(session);
+        ctx.workdir = Arc::from(dir.as_path());
+        ctx
+    };
+    let out = run_tool(script, counting_deps(Arc::new(AtomicU32::new(0))), &ctx, Some(&run_id)).await.expect("first run should succeed");
+    assert!(out.starts_with("true"), "{out}");
+    assert!(dir.join("made.txt").exists(), "首跑真实执行 write");
+
+    // file lock 随 workflow 线程退出释放：轮询等待（同 missing_run_id 测试先例）
+    let file = crate::agent::workflow_journal::scoped_journal_file(Some(session), &run_id);
+    let mut released = false;
+    for _ in 0..40 {
+        if let Ok(journal) = crate::agent::workflow_journal::Journal::open_scoped(Some(session), &run_id, script) {
+            assert_eq!(journal.completed(), 2, "write + read 两次调用都必须落 journal");
+            released = true;
+            drop(journal);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(released, "journal lock must be released after run");
+
+    // 删除产物后同 run_id 重跑：write 命中缓存不重复执行，文件不得复活
+    std::fs::remove_file(dir.join("made.txt")).unwrap();
+    let out2 = run_tool(script, counting_deps(Arc::new(AtomicU32::new(0))), &ctx, Some(&run_id)).await.expect("resume should succeed");
+    assert!(out2.starts_with("true"), "{out2}");
+    assert!(!dir.join("made.txt").exists(), "缓存回放不得重复执行 write");
+    assert!(out2.contains(r#""cached":true"#), "{out2}");
+    assert!(!out2.contains(r#"{"name":"write","status":"ok","ms""#), "回放不虚构耗时: {out2}");
+
+    let _ = std::fs::remove_file(&file);
+    let _ = std::fs::remove_file(file.with_extension("jsonl.lock"));
+    std::fs::remove_dir_all(&dir).unwrap();
 }

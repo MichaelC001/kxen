@@ -25,11 +25,14 @@ fn test_deps() -> SubagentDeps {
         voice: Default::default(),
         custom_providers: Default::default(),
         send_when_running: String::new(),
+        approval_timeout_seconds: None,
+        checkpoint_keep: None,
         embedding: Default::default(),
         composer_suggestions: Default::default(),
         search: Default::default(),
         coding_rules: Default::default(),
         experimental: Default::default(),
+        sandbox: Default::default(),
         web: Default::default(),
         tray: Default::default(),
     };
@@ -51,6 +54,7 @@ fn test_deps() -> SubagentDeps {
         lsp: None,
         stream_override: Some(success_stream()),
         usage_reporter: None,
+        code_orchestration: true,
     }
 }
 
@@ -60,7 +64,7 @@ fn success_stream() -> StreamFn {
 
 async fn run(script: &str) -> Result<String, String> {
     let (tx, _rx) = mpsc::unbounded_channel();
-    run_script(script, test_deps(), tx, Arc::new(AtomicBool::new(false)), None).await
+    run_script(script, test_deps(), tx, Arc::new(AtomicBool::new(false)), None, None).await
 }
 
 async fn run_ok(script: &str) -> String {
@@ -107,7 +111,7 @@ async fn constraints_are_deep_frozen() {
 #[tokio::test]
 async fn phases_are_streamed() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let fut = run_script("phase('scan'); phase('fix'); return 'done'", test_deps(), tx, Arc::new(AtomicBool::new(false)), None);
+    let fut = run_script("phase('scan'); phase('fix'); return 'done'", test_deps(), tx, Arc::new(AtomicBool::new(false)), None, None);
     tokio::pin!(fut);
     let mut phases = Vec::new();
     let result = loop {
@@ -167,7 +171,7 @@ async fn string_result_passes_through() {
 async fn meta_with_export_captured() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let script = "export const meta = { name: 'wf-x', description: 'd', whenToUse: 'w', phases: [{ title: 'a', detail: 'x' }, { title: 'b', detail: 'y' }] };\nphase('b');\nphase('zzz');\nreturn 'ok'";
-    let fut = run_script(script, test_deps(), tx, Arc::new(AtomicBool::new(false)), None);
+    let fut = run_script(script, test_deps(), tx, Arc::new(AtomicBool::new(false)), None, None);
     tokio::pin!(fut);
     let mut phases = Vec::new();
     let result = loop {
@@ -273,7 +277,7 @@ async fn cancel_flag_interrupts() {
     // 中断标志走 interrupt_handler：死循环脚本必须被打断而不是挂死
     let cancel = Arc::new(AtomicBool::new(false));
     cancel.store(true, Ordering::Relaxed);
-    let err = run_script("while (true) {}", test_deps(), mpsc::unbounded_channel().0, cancel, None).await.unwrap_err();
+    let err = run_script("while (true) {}", test_deps(), mpsc::unbounded_channel().0, cancel, None, None).await.unwrap_err();
     assert!(!err.is_empty());
 }
 
@@ -300,7 +304,7 @@ async fn duplicate_phase_calls_do_not_inflate_progress() {
     // 进度计数去重：matched 按 index、未匹配按 name；事件不去重照常上行（UI 重复标记无害）
     let (tx, mut rx) = mpsc::unbounded_channel();
     let script = "const meta = { name: 'wf-dup', phases: [{ title: 'a' }, { title: 'b' }] };\nphase('a'); phase('a'); phase('b'); phase('zzz'); phase('zzz');\nreturn 'ok'";
-    let fut = run_script(script, test_deps(), tx, Arc::new(AtomicBool::new(false)), None);
+    let fut = run_script(script, test_deps(), tx, Arc::new(AtomicBool::new(false)), None, None);
     tokio::pin!(fut);
     let mut phases = Vec::new();
     let result = loop {

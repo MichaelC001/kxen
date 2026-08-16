@@ -35,6 +35,10 @@ globalThis.__kxen_deepFreeze = (o) => {
 pub(crate) const NO_RETURN_MSG: &str =
     "workflow script returned nothing: top-level return is required (flat statements, do not wrap in a function)";
 
+/// 动态工具版无 return 文案（workflow/dynamic.rs 宿主）。
+pub(crate) const NO_RETURN_DYNAMIC_MSG: &str =
+    "dynamic tool script returned nothing: top-level return is required (flat statements, do not wrap in a function)";
+
 /// parallel 内置：worker pool 限流（缺省 8），结果顺序与入参一致。
 /// 失败项收为 { __failed, error } 而不 reject 全体——一个 agent 死不能拖垮整个 workflow，
 /// 用户脚本里的 safeAgent/collect 是用户态补丁，容错应内置于引擎。
@@ -67,6 +71,17 @@ globalThis.agent = (a, b) => {
   if (b !== null && typeof b === 'object') return globalThis.__kxen_agent(b.agentType || b.role || 'execution', a, b.label);
   return globalThis.__kxen_agent(a, b, undefined);
 };
+"#;
+
+/// 通用工具桥：脚本内 `await tool(name, args)` 直接调宿主工具（args 为对象，Rust 侧收 JSON 字符串）。
+/// stringify 在 JS 侧完成：rquickjs 对象跨边界转换昂贵且易错，JSON 字符串是既有的 tool_call 协议形态。
+pub(crate) const TOOL_JS: &str = r#"
+globalThis.tool = (name, args) => globalThis.__kxen_tool(name, JSON.stringify(args == null ? {} : args));
+"#;
+
+/// 桥关闭（code orchestration 未授权）时的显式拒绝 stub：脚本拿到可读错误而不是 ReferenceError。
+pub(crate) const TOOL_DISABLED_JS: &str = r#"
+globalThis.tool = () => Promise.reject(new Error('tool() bridge is disabled in this context (code orchestration not allowed)'));
 "#;
 
 /// meta 捕获闭包：必须与脚本同一作用域注入（全局函数拿不到脚本里的 const meta）。
@@ -115,6 +130,15 @@ pub(crate) fn strip_meta_export(script: &str) -> String {
 pub(crate) fn wrap_script(script: &str) -> String {
     format!(
         "(async () => {{\n{META_CAPTURE_JS}\n{PHASE_JS}\n{script}\n}})().then(v => {{ if (v === undefined || v === null) throw new Error('{NO_RETURN_MSG}'); return __kxenFormatResult(v); }})"
+    )
+}
+
+/// 动态工具脚本包装：契约只有 args（深冻结入参）+ tool() 桥，无 meta/phase；
+/// args 经 JSON 字面量注入（注入前 DEEP_FREEZE_JS 已由宿主 eval）。
+pub(crate) fn wrap_dynamic_script(script: &str, args: &serde_json::Value) -> String {
+    let args_json = serde_json::to_string(args).unwrap_or_else(|_| "{}".into());
+    format!(
+        "(async () => {{\nconst args = globalThis.__kxen_deepFreeze({args_json});\n{script}\n}})().then(v => {{ if (v === undefined || v === null) throw new Error('{NO_RETURN_DYNAMIC_MSG}'); return __kxenFormatResult(v); }})"
     )
 }
 

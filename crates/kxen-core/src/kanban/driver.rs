@@ -30,7 +30,7 @@ use super::model::OnEnterKind;
 use super::{Board, BoardAutoApprove, agents, render, store, worktree};
 
 /// 默认列执行超时 30min：实现类列任务合法地长（编辑+构建+测试多轮工具调用），但 P1 租约语义
-/// 要求绝不永远 running，必须有上限；workflow 引擎自身 10min 上限（workflow.rs）在此之下先触发。
+/// 要求绝不永远 running，必须有上限；workflow 引擎自身墙钟上限（workflow.rs，缺省 10min）在此之下先触发。
 pub const DEFAULT_RUN_TIMEOUT_MS: u64 = 30 * 60 * 1000;
 
 /// 结果判定协议：成功/失败必须由 Agent 末轮文本显式声明，driver 不从正文内容猜结果。
@@ -314,6 +314,7 @@ async fn run_workflow(
         lsp: deps.lsp.clone(),
         stream_override: deps.stream_override.clone(),
         usage_reporter: deps.usage_reporter.clone(),
+        code_orchestration: true,
     };
     let mut ctx = base_context(deps, ModelRef::default(), None, None, cancel, Some(auto.clone()));
     ctx.workdir = Arc::from(scope.workdir.as_path());
