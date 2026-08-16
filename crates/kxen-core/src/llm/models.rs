@@ -26,7 +26,7 @@ pub async fn fetch_models(
             return ModelsOutcome { models: vec![], source: "error".into(), detail: format!("custom provider not configured: {name}") };
         };
         let suffix = if def.protocol == "anthropic" { "v1/models" } else { "models" };
-        let url = match crate::core::net_security::join_base_endpoint(&def.base_url, suffix) {
+        let url = match def.endpoint_url(suffix) {
             Ok(url) => url,
             Err(error) => return ModelsOutcome { models: vec![], source: "error".into(), detail: error },
         };
@@ -93,10 +93,18 @@ pub async fn fetch_models(
 }
 
 /// 不落盘探测：添加自定义 provider 前用候选凭证拉模型清单（保存前预览）。
-/// base_url/protocol 的合法性由调用方（RPC 层）先行校验。
-pub async fn probe_custom_models(base_url: &str, api_key: &str, protocol: &str, timeout_s: u64) -> ModelsOutcome {
+/// base_url/protocol 的合法性由调用方（RPC 层）先行校验；query_params 随请求编码进 query（Azure api-version 等）。
+pub async fn probe_custom_models(
+    base_url: &str,
+    api_key: &str,
+    protocol: &str,
+    query_params: &std::collections::BTreeMap<String, String>,
+    timeout_s: u64,
+) -> ModelsOutcome {
     let suffix = if protocol == "anthropic" { "v1/models" } else { "models" };
-    let url = match crate::core::net_security::join_base_endpoint(base_url, suffix) {
+    let url = match crate::core::net_security::join_base_endpoint(base_url, suffix)
+        .and_then(|url| crate::core::config::append_query_params(&url, query_params))
+    {
         Ok(url) => url,
         Err(error) => return ModelsOutcome { models: vec![], source: "error".into(), detail: error },
     };
@@ -186,6 +194,7 @@ mod tests {
                 protocol: "openai".into(),
                 models: vec!["configured-model".into()],
                 capabilities: vec!["text".into()],
+                query_params: Default::default(),
             },
         );
         let mrm = crate::llm::mrm::ModelResourceManager::new(config);
@@ -199,5 +208,32 @@ mod tests {
 
         assert_eq!(outcome.source, "endpoint");
         assert_eq!(outcome.models, vec!["workspace-model"]);
+    }
+
+    #[tokio::test]
+    async fn probe_appends_query_params_to_models_request() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 2048];
+            let n = stream.read(&mut buf).unwrap();
+            tx.send(String::from_utf8_lossy(&buf[..n]).to_string()).unwrap();
+            let body = r#"{"data":[{"id":"m1"}]}"#;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(resp.as_bytes()).unwrap();
+        });
+        let query_params = [("api-version".to_string(), "2025-01-01-preview".to_string())].into_iter().collect();
+
+        let outcome = probe_custom_models(&format!("http://{addr}"), "k", "openai", &query_params, 2).await;
+
+        assert_eq!(outcome.source, "endpoint");
+        let request = rx.recv().unwrap();
+        assert!(request.starts_with("GET /models?api-version=2025-01-01-preview "), "{request}");
     }
 }

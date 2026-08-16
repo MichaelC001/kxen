@@ -255,3 +255,10 @@ pub const OLLAMA_CLOUD: &[StaticModel] = &[
     m("glm-5.1", "GLM-5.1 (Ollama Cloud)", 202_800, true, false),
     m("deepseek-v4-flash", "DeepSeek V4 Flash (Ollama Cloud)", 1_000_000, true, false),
 ];
+
+// Bedrock 模型 id 是带版本后缀的 deployment id（region 内 ListFoundationModels 可见），非 Anthropic 官方 id
+pub const BEDROCK: &[StaticModel] = &[
+    m("anthropic.claude-sonnet-4-5-20250929-v1:0", "Claude Sonnet 4.5 (Bedrock)", 200_000, true, true),
+    m("anthropic.claude-haiku-4-5-20251001-v1:0", "Claude Haiku 4.5 (Bedrock)", 200_000, true, true),
+    m("anthropic.claude-opus-4-1-20250805-v1:0", "Claude Opus 4.1 (Bedrock)", 200_000, true, true),
+];

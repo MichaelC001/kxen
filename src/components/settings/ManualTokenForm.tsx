@@ -6,6 +6,7 @@ import { formatError } from "../../lib/error-text";
 import { errText } from "../err-text";
 import {
   ACCOUNT_NAME_BAD,
+  effectiveSubmitKind,
   kind,
   name,
   parseAccountToken,
@@ -26,8 +27,10 @@ export default function ManualTokenForm(props: {
   const [testMsg, setTestMsg] = createSignal<{ ok: boolean; text: string } | null>(null);
 
   const parsed = () => parseAccountToken(kind(), token());
+  // anthropic 手贴 sk-ant-api key 按 api 存储：OAuth 解析与缺 refresh 警告均不适用
+  const submitKind = () => effectiveSubmitKind(kind(), provider(), token());
   const parseIssue = () => {
-    if (kind() !== "oauth" || !token().trim()) return null;
+    if (submitKind() !== "oauth" || !token().trim()) return null;
     const p = parsed();
     return p.error
       ? { ok: false, text: p.error }
@@ -67,7 +70,7 @@ export default function ManualTokenForm(props: {
         access: p.access,
         refresh: p.refresh,
         expires: p.expires,
-        kind: kind() === "apikey" ? "api" : "oauth",
+        kind: submitKind(),
         region: props.region(),
       });
       setTestMsg({
@@ -99,7 +102,7 @@ export default function ManualTokenForm(props: {
         provider(),
         name().trim(),
         p.access,
-        kind() === "apikey" ? "api" : "oauth",
+        submitKind(),
         p.refresh,
         p.expires,
         props.region(),

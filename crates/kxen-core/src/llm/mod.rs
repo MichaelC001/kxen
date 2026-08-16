@@ -3,8 +3,10 @@
 
 pub mod anthropic;
 pub mod anthropic_sse;
+pub mod bedrock;
 pub mod catalog;
 pub mod client;
+pub(crate) mod eventstream;
 pub mod gemini;
 pub mod kiro;
 pub mod managed;
@@ -18,6 +20,7 @@ pub(crate) mod stream_limit;
 pub mod tool;
 pub mod types;
 pub mod verify;
+pub mod vertex;
 pub mod xai;
 
 pub use client::{LlmClient, StreamFn};

@@ -48,7 +48,7 @@ fn str_header(name: &str, value: &str) -> (Vec<u8>, u8, Vec<u8>) {
 #[test]
 fn decodes_single_frame_with_headers_and_payload() {
     let bytes = frame("event", "assistantResponseEvent", r#"{"content":"你好"}"#);
-    let events = FrameDecoder::default().feed(&bytes).expect("valid frame");
+    let events = FrameDecoder::new("test").feed(&bytes).expect("valid frame");
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].message_type, "event");
     assert_eq!(events[0].event_type, "assistantResponseEvent");
@@ -58,7 +58,7 @@ fn decodes_single_frame_with_headers_and_payload() {
 #[test]
 fn frame_split_across_feeds_decodes_once_complete() {
     let bytes = frame("event", "assistantResponseEvent", r#"{"content":"ab"}"#);
-    let mut decoder = FrameDecoder::default();
+    let mut decoder = FrameDecoder::new("test");
     let mid = bytes.len() / 2;
     assert!(decoder.feed(&bytes[..mid]).expect("prefix").is_empty(), "半帧不得产出事件");
     let events = decoder.feed(&bytes[mid..]).expect("suffix");
@@ -72,7 +72,7 @@ fn multiple_frames_in_one_chunk_all_decode() {
     let two = frame("event", "messageStopEvent", r#"{"stopReason":"end_turn"}"#);
     let mut joined = one;
     joined.extend_from_slice(&two);
-    let events = FrameDecoder::default().feed(&joined).expect("two frames");
+    let events = FrameDecoder::new("test").feed(&joined).expect("two frames");
     assert_eq!(events.len(), 2);
     assert_eq!(events[1].event_type, "messageStopEvent");
 }
@@ -81,7 +81,7 @@ fn multiple_frames_in_one_chunk_all_decode() {
 fn corrupt_prelude_crc_is_rejected() {
     let mut bytes = frame("event", "x", "{}");
     bytes[0] ^= 0xFF;
-    let error = FrameDecoder::default().feed(&bytes).expect_err("corrupt prelude must fail");
+    let error = FrameDecoder::new("test").feed(&bytes).expect_err("corrupt prelude must fail");
     assert!(error.contains("prelude CRC"), "{error}");
 }
 
@@ -90,14 +90,14 @@ fn corrupt_message_crc_is_rejected() {
     let mut bytes = frame("event", "x", "{}");
     let last = bytes.len() - 1;
     bytes[last] ^= 0xFF;
-    let error = FrameDecoder::default().feed(&bytes).expect_err("corrupt message crc must fail");
+    let error = FrameDecoder::new("test").feed(&bytes).expect_err("corrupt message crc must fail");
     assert!(error.contains("message CRC"), "{error}");
 }
 
 #[test]
 fn truncated_frame_at_eof_is_an_error() {
     let bytes = frame("event", "x", "{}");
-    let mut decoder = FrameDecoder::default();
+    let mut decoder = FrameDecoder::new("test");
     assert!(decoder.feed(&bytes[..bytes.len() - 2]).expect("prefix").is_empty());
     assert!(decoder.finish().expect_err("leftover bytes must fail").contains("truncated"));
 }
@@ -105,7 +105,7 @@ fn truncated_frame_at_eof_is_an_error() {
 #[test]
 fn error_frame_surfaces_message_type_and_error_code() {
     let bytes = frame("exception", "", r#"{"message":"throttled"}"#);
-    let events = FrameDecoder::default().feed(&bytes).expect("error frame");
+    let events = FrameDecoder::new("test").feed(&bytes).expect("error frame");
     assert_eq!(events[0].message_type, "exception");
     assert_eq!(events[0].payload.as_ref().and_then(|p| p.get("message")).and_then(Value::as_str), Some("throttled"));
 }
@@ -121,7 +121,7 @@ fn crc32_matches_ieee_reference_vectors() {
 #[test]
 fn buffered_bytes_over_protocol_bound_are_rejected() {
     let chunk = vec![0u8; MAX_MESSAGE_BYTES + 1];
-    let error = FrameDecoder::default().feed(&chunk).expect_err("oversized buffer must fail");
+    let error = FrameDecoder::new("test").feed(&chunk).expect_err("oversized buffer must fail");
     assert!(error.contains("exceed the protocol bound"), "{error}");
 }
 
@@ -132,14 +132,14 @@ fn invalid_frame_bounds_are_rejected() {
     small.extend_from_slice(&8u32.to_be_bytes());
     small.extend_from_slice(&0u32.to_be_bytes());
     small.extend_from_slice(&crc32(&small).to_be_bytes());
-    let error = FrameDecoder::default().feed(&small).expect_err("tiny total must fail");
+    let error = FrameDecoder::new("test").feed(&small).expect_err("tiny total must fail");
     assert!(error.contains("bounds are invalid"), "{error}");
     // headers_len 超过 total_len 余量。
     let mut oversized = Vec::new();
     oversized.extend_from_slice(&64u32.to_be_bytes());
     oversized.extend_from_slice(&128u32.to_be_bytes());
     oversized.extend_from_slice(&crc32(&oversized).to_be_bytes());
-    let error = FrameDecoder::default().feed(&oversized).expect_err("oversized headers must fail");
+    let error = FrameDecoder::new("test").feed(&oversized).expect_err("oversized headers must fail");
     assert!(error.contains("bounds are invalid"), "{error}");
 }
 
@@ -149,7 +149,7 @@ fn error_code_header_is_captured_and_unknown_headers_skipped() {
         &[str_header(":message-type", "error"), str_header(":error-code", "AccessDenied"), str_header("x-custom", "ignored")],
         br#"{"message":"denied"}"#,
     );
-    let events = FrameDecoder::default().feed(&bytes).expect("frame with error code");
+    let events = FrameDecoder::new("test").feed(&bytes).expect("frame with error code");
     assert_eq!(events[0].message_type, "error");
     assert_eq!(events[0].error_code, "AccessDenied");
 }
@@ -170,7 +170,7 @@ fn non_string_header_value_types_are_skipped() {
         str_header(":event-type", "assistantResponseEvent"),
     ];
     let bytes = raw_frame(&headers, br#"{"content":"ok"}"#);
-    let events = FrameDecoder::default().feed(&bytes).expect("typed headers must decode");
+    let events = FrameDecoder::new("test").feed(&bytes).expect("typed headers must decode");
     assert_eq!(events[0].event_type, "assistantResponseEvent");
     assert_eq!(events[0].payload.as_ref().and_then(|p| p.get("content")).and_then(Value::as_str), Some("ok"));
 }
@@ -178,7 +178,7 @@ fn non_string_header_value_types_are_skipped() {
 #[test]
 fn unknown_header_value_type_is_rejected() {
     let bytes = raw_frame(&[(b":weird".to_vec(), 42, vec![1, 2])], b"{}");
-    let error = FrameDecoder::default().feed(&bytes).expect_err("unknown header type must fail");
+    let error = FrameDecoder::new("test").feed(&bytes).expect_err("unknown header type must fail");
     assert!(error.contains("unknown type 42"), "{error}");
 }
 
@@ -194,42 +194,42 @@ fn header_overrunning_declared_bounds_is_rejected() {
     bytes.extend_from_slice(&headers);
     let crc = crc32(&bytes);
     bytes.extend_from_slice(&crc.to_be_bytes());
-    let error = FrameDecoder::default().feed(&bytes).expect_err("overrunning header must fail");
+    let error = FrameDecoder::new("test").feed(&bytes).expect_err("overrunning header must fail");
     assert!(error.contains("exceeds its declared bounds"), "{error}");
 }
 
 #[test]
 fn non_utf8_header_name_is_rejected() {
     let bytes = raw_frame(&[(vec![0xFF], 0, vec![])], b"{}");
-    let error = FrameDecoder::default().feed(&bytes).expect_err("non-utf8 name must fail");
+    let error = FrameDecoder::new("test").feed(&bytes).expect_err("non-utf8 name must fail");
     assert!(error.contains("header name is not UTF-8"), "{error}");
 }
 
 #[test]
 fn non_utf8_string_header_value_is_rejected() {
     let bytes = raw_frame(&[(b":message-type".to_vec(), 7, vec![0xFF])], b"{}");
-    let error = FrameDecoder::default().feed(&bytes).expect_err("non-utf8 value must fail");
+    let error = FrameDecoder::new("test").feed(&bytes).expect_err("non-utf8 value must fail");
     assert!(error.contains("header value is not UTF-8"), "{error}");
 }
 
 #[test]
 fn non_utf8_payload_is_rejected() {
     let bytes = raw_frame(&[str_header(":message-type", "event")], &[0xFF, 0xFE]);
-    let error = FrameDecoder::default().feed(&bytes).expect_err("non-utf8 payload must fail");
+    let error = FrameDecoder::new("test").feed(&bytes).expect_err("non-utf8 payload must fail");
     assert!(error.contains("payload is not UTF-8"), "{error}");
 }
 
 #[test]
 fn non_json_payload_is_rejected() {
     let bytes = raw_frame(&[str_header(":message-type", "event")], b"not-json{");
-    let error = FrameDecoder::default().feed(&bytes).expect_err("non-json payload must fail");
+    let error = FrameDecoder::new("test").feed(&bytes).expect_err("non-json payload must fail");
     assert!(error.contains("payload is not valid JSON"), "{error}");
 }
 
 #[test]
 fn empty_payload_decodes_with_none_payload() {
     let bytes = frame("event", "messageStopEvent", "");
-    let events = FrameDecoder::default().feed(&bytes).expect("empty payload frame");
+    let events = FrameDecoder::new("test").feed(&bytes).expect("empty payload frame");
     assert_eq!(events[0].event_type, "messageStopEvent");
     assert!(events[0].payload.is_none());
 }

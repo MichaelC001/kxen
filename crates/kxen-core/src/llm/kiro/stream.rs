@@ -3,7 +3,7 @@
 //! 内嵌 <thinking>...</thinking> 段剥出为 Reasoning)、reasoningContentEvent、codeEvent、
 //! toolUseEvent（name/input 按 toolUseId 聚合，流末一次性给出）、error/exception 帧即终态错误。
 
-use super::eventstream::{Event, FrameDecoder};
+use crate::llm::eventstream::{Event, FrameDecoder};
 use crate::llm::types::Delta;
 use futures::StreamExt;
 use serde_json::Value;
@@ -193,7 +193,7 @@ impl Projection {
 /// 响应字节流 -> Delta 流：帧可跨分片，传输 EOF 后收尾（截断帧/零输出都报错）。
 pub(super) fn stream_events(resp: reqwest::Response) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
     let bytes = Box::pin(resp.bytes_stream());
-    let initial = (bytes, FrameDecoder::default(), Projection::default(), VecDeque::new(), false);
+    let initial = (bytes, FrameDecoder::new("kiro"), Projection::default(), VecDeque::new(), false);
     Box::pin(futures::stream::unfold(initial, |(mut bytes, mut decoder, mut projection, mut queued, mut finished)| async move {
         loop {
             if let Some(delta) = queued.pop_front() {

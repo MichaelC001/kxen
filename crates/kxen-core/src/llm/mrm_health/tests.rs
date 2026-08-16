@@ -166,6 +166,7 @@ fn in_flight_custom_result_settles_the_endpoint_it_claimed() {
                 models: vec!["model".into()],
                 protocol: "openai".into(),
                 capabilities: vec!["text".into()],
+                query_params: Default::default(),
             },
         );
         config.limits.providers.insert(

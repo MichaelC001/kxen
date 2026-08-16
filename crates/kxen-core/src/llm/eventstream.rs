@@ -1,4 +1,4 @@
-//! AWS event stream 二进制帧解析（CodeWhisperer GenerateAssistantResponse 的响应协议）。
+//! AWS event stream 二进制帧解析（Kiro CodeWhisperer 与 Bedrock converse-stream 共用的响应协议）。
 //! 帧布局：total_len u32BE | headers_len u32BE | prelude_crc u32 | headers | payload(JSON) | message_crc u32；
 //! 两个 CRC 均为标准 CRC-32（IEEE，反射多项式 0xEDB88320）。帧契约对照 9router open-sse/executors/kiro.js
 //! 的 parseEventFrame 翻译，含同样的边界与 CRC 校验（损坏帧无法重同步，直接报错终止）。
@@ -14,7 +14,7 @@ const CRC_BYTES: usize = 4;
 
 /// 一帧解码结果：只保留投影层关心的头（:message-type/:event-type/:error-code）与 JSON payload。
 #[derive(Debug)]
-pub(super) struct Event {
+pub(crate) struct Event {
     pub message_type: String,
     pub event_type: String,
     pub error_code: String,
@@ -51,16 +51,20 @@ fn be_u32(frame: &[u8], offset: usize) -> u32 {
     u32::from_be_bytes(frame[offset..offset + 4].try_into().expect("u32 slice"))
 }
 
-/// 增量解码器：帧可跨 TCP 分片，buffer 攒够一帧才解析。
-#[derive(Default)]
-pub(super) struct FrameDecoder {
+/// 增量解码器：帧可跨 TCP 分片，buffer 攒够一帧才解析。label 用于错误串归属（kiro / bedrock）。
+pub(crate) struct FrameDecoder {
     buffer: Vec<u8>,
+    label: &'static str,
 }
 
 impl FrameDecoder {
-    pub(super) fn feed(&mut self, chunk: &[u8]) -> Result<Vec<Event>, String> {
+    pub(crate) fn new(label: &'static str) -> Self {
+        Self { buffer: Vec::new(), label }
+    }
+
+    pub(crate) fn feed(&mut self, chunk: &[u8]) -> Result<Vec<Event>, String> {
         if self.buffer.len() + chunk.len() > MAX_MESSAGE_BYTES {
-            return Err("kiro eventstream buffered bytes exceed the protocol bound".into());
+            return Err(format!("{} eventstream buffered bytes exceed the protocol bound", self.label));
         }
         self.buffer.extend_from_slice(chunk);
         let mut events = Vec::new();
@@ -68,7 +72,7 @@ impl FrameDecoder {
         while self.buffer.len() - consumed >= PRELUDE_BYTES {
             let frame = &self.buffer[consumed..];
             if be_u32(frame, 8) != crc32(&frame[..8]) {
-                return Err("kiro eventstream prelude CRC mismatch".into());
+                return Err(format!("{} eventstream prelude CRC mismatch", self.label));
             }
             let total = be_u32(frame, 0) as usize;
             let headers_len = be_u32(frame, 4) as usize;
@@ -76,12 +80,12 @@ impl FrameDecoder {
                 || headers_len > MAX_HEADERS_BYTES
                 || headers_len > total - PRELUDE_BYTES - CRC_BYTES
             {
-                return Err("kiro eventstream frame bounds are invalid".into());
+                return Err(format!("{} eventstream frame bounds are invalid", self.label));
             }
             if frame.len() < total {
                 break;
             }
-            events.push(parse_frame(&frame[..total])?);
+            events.push(parse_frame(&frame[..total], self.label)?);
             consumed += total;
         }
         if consumed == self.buffer.len() {
@@ -93,33 +97,35 @@ impl FrameDecoder {
     }
 
     /// 传输 EOF 时调用：残留字节即截断帧（协议未完成，必须报错）。
-    pub(super) fn finish(&mut self) -> Result<(), String> {
-        if self.buffer.is_empty() { Ok(()) } else { Err("kiro eventstream ended with a truncated frame".into()) }
+    pub(crate) fn finish(&mut self) -> Result<(), String> {
+        if self.buffer.is_empty() { Ok(()) } else { Err(format!("{} eventstream ended with a truncated frame", self.label)) }
     }
 }
 
-fn parse_frame(frame: &[u8]) -> Result<Event, String> {
+fn parse_frame(frame: &[u8], label: &str) -> Result<Event, String> {
     let total = frame.len();
     let headers_len = be_u32(frame, 4) as usize;
     if be_u32(frame, total - CRC_BYTES) != crc32(&frame[..total - CRC_BYTES]) {
-        return Err("kiro eventstream message CRC mismatch".into());
+        return Err(format!("{label} eventstream message CRC mismatch"));
     }
     let mut event = Event { message_type: String::new(), event_type: String::new(), error_code: String::new(), payload: None };
-    let mut cursor = Cursor { frame, offset: PRELUDE_BYTES, end: PRELUDE_BYTES + headers_len };
+    let mut cursor = Cursor { frame, offset: PRELUDE_BYTES, end: PRELUDE_BYTES + headers_len, label };
     while cursor.offset < cursor.end {
         let name = cursor.read_name()?;
         let value = cursor.read_value()?;
         match (name, value) {
             (":message-type", Some(value)) => event.message_type = value.to_owned(),
             (":event-type", Some(value)) => event.event_type = value.to_owned(),
-            (":error-code", Some(value)) => event.error_code = value.to_owned(),
+            // bedrock converse-stream 的异常帧用 :exception-type；kiro/codewhisperer 用 :error-code
+            (":error-code", Some(value)) | (":exception-type", Some(value)) => event.error_code = value.to_owned(),
             _ => {}
         }
     }
     let payload = &frame[cursor.end..total - CRC_BYTES];
-    let text = std::str::from_utf8(payload).map_err(|_| "kiro eventstream payload is not UTF-8".to_string())?;
+    let text = std::str::from_utf8(payload).map_err(|_| format!("{label} eventstream payload is not UTF-8"))?;
     if !text.trim().is_empty() {
-        event.payload = Some(serde_json::from_str(text).map_err(|error| format!("kiro eventstream payload is not valid JSON: {error}"))?);
+        event.payload =
+            Some(serde_json::from_str(text).map_err(|error| format!("{label} eventstream payload is not valid JSON: {error}"))?);
     }
     Ok(event)
 }
@@ -129,12 +135,13 @@ struct Cursor<'a> {
     frame: &'a [u8],
     offset: usize,
     end: usize,
+    label: &'a str,
 }
 
 impl<'a> Cursor<'a> {
     fn take(&mut self, count: usize) -> Result<&'a [u8], String> {
         if self.offset + count > self.end {
-            return Err("kiro eventstream header exceeds its declared bounds".into());
+            return Err(format!("{} eventstream header exceeds its declared bounds", self.label));
         }
         let slice = &self.frame[self.offset..self.offset + count];
         self.offset += count;
@@ -144,7 +151,7 @@ impl<'a> Cursor<'a> {
     fn read_name(&mut self) -> Result<&'a str, String> {
         let len = usize::from(self.take(1)?[0]);
         let bytes = self.take(len)?;
-        std::str::from_utf8(bytes).map_err(|_| "kiro eventstream header name is not UTF-8".into())
+        std::str::from_utf8(bytes).map_err(|_| format!("{} eventstream header name is not UTF-8", self.label))
     }
 
     /// 返回字符串值（type 7）；其余类型按长度跳过。
@@ -158,7 +165,7 @@ impl<'a> Cursor<'a> {
             5 | 8 => 8,          // long / timestamp
             9 => 16,             // uuid
             6 | 7 => usize::MAX, // bytes / string：u16 长度前缀
-            other => return Err(format!("kiro eventstream header has unknown type {other}")),
+            other => return Err(format!("{} eventstream header has unknown type {other}", self.label)),
         };
         if fixed != usize::MAX {
             self.take(fixed)?;
@@ -167,7 +174,7 @@ impl<'a> Cursor<'a> {
         let len = u16::from_be_bytes(self.take(2)?.try_into().expect("u16 slice")) as usize;
         let bytes = self.take(len)?;
         if kind == 7 {
-            std::str::from_utf8(bytes).map(Some).map_err(|_| "kiro eventstream header value is not UTF-8".into())
+            std::str::from_utf8(bytes).map(Some).map_err(|_| format!("{} eventstream header value is not UTF-8", self.label))
         } else {
             Ok(None)
         }

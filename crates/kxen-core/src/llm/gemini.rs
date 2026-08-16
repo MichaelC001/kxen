@@ -16,6 +16,16 @@ mod wire;
 
 pub use discover::discover_project;
 
+/// Vertex AI 复用同一 GenerateContent wire（v1internal 信封是 cloudcode-pa 私有，Vertex 直发裸请求）。
+pub(crate) fn generate_content_request(messages: &[Message], tools: &[ToolDefinition]) -> serde_json::Value {
+    wire::generate_content_request(messages, tools)
+}
+
+/// Vertex AI 的裸帧 SSE 管线（复用同一解析器，帧不包 {"response": ...} 信封）。
+pub(crate) fn stream_sse_raw(resp: reqwest::Response) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
+    sse::stream_sse(resp, sse::FrameShape::Raw)
+}
+
 pub const DEFAULT_BASE: &str = "https://cloudcode-pa.googleapis.com";
 
 /// Code Assist 客户端身份头（gemini-cli 固定值；缺了会被 v1internal 拒）。
@@ -111,7 +121,7 @@ impl GeminiProvider {
         let start = async move { request.send().await };
 
         Box::pin(futures::stream::once(start).flat_map(move |result| match result {
-            Ok(resp) if resp.status().is_success() => sse::stream_sse(resp),
+            Ok(resp) if resp.status().is_success() => sse::stream_sse(resp, sse::FrameShape::Envelope),
             Ok(resp) => {
                 let error_bearer = error_bearer.clone();
                 futures::stream::once(async move {

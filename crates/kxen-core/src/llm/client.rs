@@ -34,13 +34,16 @@ impl LlmClient {
         }
         match model.provider.as_str() {
             "anthropic" => match crate::auth::credential::credential_for(store, "anthropic", model.account.as_deref()) {
-                Some(crate::auth::credential::CredentialKind::Oauth { .. }) => Ok(()),
-                _ => Err("anthropic credential missing (run doctor)".into()),
+                Some(crate::auth::credential::CredentialKind::Oauth { .. } | crate::auth::credential::CredentialKind::Api { .. }) => Ok(()),
+                _ => Err("anthropic credential missing (run doctor or import API key in settings)".into()),
             },
             "openai" => match crate::auth::credential::credential_for(store, "openai", model.account.as_deref()) {
                 Some(crate::auth::credential::CredentialKind::Oauth { .. } | crate::auth::credential::CredentialKind::Api { .. }) => Ok(()),
                 _ => Err("openai credential missing (run doctor)".into()),
             },
+            // 凭证 JSON 文档在分派前解析（缺字段/坏 JSON 给明确错误，不落到 HTTP 层）
+            "bedrock" => crate::llm::bedrock::validate_credential(store, model.account.as_deref()),
+            "google-vertex" => crate::llm::vertex::validate_credential(store, model.account.as_deref()),
             other if other.starts_with("custom:") => {
                 let name = &other[7..];
                 let Some(def) = custom_provider_definition(name, mrm)? else {
@@ -139,14 +142,7 @@ impl LlmClient {
         mrm: Option<&crate::llm::mrm::ModelResourceManager>,
     ) -> Pin<Box<dyn Stream<Item = Delta> + Send>> {
         match model.provider.as_str() {
-            "anthropic" => {
-                let Some(crate::auth::credential::CredentialKind::Oauth { access, .. }) =
-                    crate::auth::credential::credential_for(store, "anthropic", model.account.as_deref())
-                else {
-                    return Box::pin(futures::stream::once(async { Delta::Error("anthropic credential missing (run doctor)".into()) }));
-                };
-                crate::llm::anthropic::AnthropicProvider::new(access.clone()).stream_chat(&model.model, messages, tools)
-            }
+            "anthropic" => crate::llm::anthropic::stream(model, messages, tools, store),
             "openai" => match crate::auth::credential::credential_for(store, "openai", model.account.as_deref()) {
                 Some(crate::auth::credential::CredentialKind::Oauth { access, account_id, .. }) => crate::llm::openai::OpenAiProvider::new(
                     access.clone(),
@@ -162,6 +158,8 @@ impl LlmClient {
             "google-oauth" | "google-antigravity" => Self::stream_google_oauth(model, messages, tools, store),
             "minimax-oauth" | "minimax-cn-oauth" => Self::stream_minimax_oauth(model, messages, tools, store),
             "kiro" => crate::llm::kiro::stream(model, messages, tools, store),
+            "bedrock" => crate::llm::bedrock::stream(model, messages, tools, store),
+            "google-vertex" => crate::llm::vertex::stream(model, messages, tools, store),
             other if other.starts_with("custom:") => {
                 // 自定义类型提供商：config.toml 给端点+协议，auth.json 给 key（custom:<name>）
                 let name = other[7..].to_string();
@@ -174,12 +172,12 @@ impl LlmClient {
                     return Box::pin(futures::stream::once(async move { Delta::Error(format!("custom provider {name} missing api key")) }));
                 };
                 if def.protocol == "anthropic" {
-                    let Ok(url) = crate::core::net_security::join_base_endpoint(&def.base_url, "v1/messages") else {
+                    let Ok(url) = def.endpoint_url("v1/messages") else {
                         return Box::pin(futures::stream::once(async { Delta::Error("custom provider endpoint is invalid".into()) }));
                     };
                     crate::llm::anthropic::AnthropicProvider::custom(url, key.clone()).stream_chat(&model.model, messages, tools)
                 } else {
-                    let Ok(url) = crate::core::net_security::join_base_endpoint(&def.base_url, "chat/completions") else {
+                    let Ok(url) = def.endpoint_url("chat/completions") else {
                         return Box::pin(futures::stream::once(async { Delta::Error("custom provider endpoint is invalid".into()) }));
                     };
                     crate::llm::xai::XaiProvider::custom(url, key.clone()).stream_chat_with_tools(&model.model, messages, tools)

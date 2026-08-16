@@ -21,6 +21,7 @@ fn custom_dispatch_rejects_invalid_endpoint_and_header_before_request() {
         models: vec!["model".into()],
         protocol: "openai".into(),
         capabilities: vec!["text".into()],
+        query_params: Default::default(),
     };
     let error = validate_custom_dispatch(&invalid_endpoint, "valid-key").expect_err("missing host must fail locally");
     assert!(error.contains("base_url"));
@@ -41,6 +42,7 @@ fn custom_dispatch_uses_workspace_mrm_definition() {
             models: vec!["model".into()],
             protocol: "openai".into(),
             capabilities: vec!["text".into()],
+            query_params: Default::default(),
         },
     );
     let mrm = crate::llm::mrm::ModelResourceManager::new(config);
@@ -49,6 +51,20 @@ fn custom_dispatch_uses_workspace_mrm_definition() {
     let model = crate::llm::ModelRef::new("custom:workspace", "model");
 
     LlmClient::validate_dispatch_in(&model, &store, None, Some(&mrm)).expect("workspace custom provider must resolve");
+}
+
+#[test]
+fn anthropic_dispatch_accepts_api_key_and_oauth_credentials() {
+    let model = crate::llm::ModelRef::new("anthropic", "claude-sonnet-4-6");
+    let mut store = crate::auth::credential::AuthStore::default();
+    let error = LlmClient::validate_dispatch_in(&model, &store, None, None).expect_err("missing credential must fail");
+    assert!(error.contains("anthropic credential missing"), "{error}");
+
+    store.insert("anthropic".into(), CredentialKind::Api { key: "sk-ant-test".into(), region: None });
+    LlmClient::validate_dispatch_in(&model, &store, None, None).expect("API key credential must dispatch");
+
+    store.insert("anthropic".into(), CredentialKind::Oauth { access: "tok".into(), refresh: "ref".into(), expires: 0, account_id: None });
+    LlmClient::validate_dispatch_in(&model, &store, None, None).expect("OAuth credential must still dispatch");
 }
 
 #[tokio::test]

@@ -10,7 +10,6 @@ use futures::StreamExt;
 use reqwest::header;
 use std::pin::Pin;
 
-mod eventstream;
 mod stream;
 mod wire;
 

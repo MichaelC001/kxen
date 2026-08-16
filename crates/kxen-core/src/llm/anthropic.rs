@@ -205,7 +205,7 @@ impl AnthropicProvider {
         }
     }
 
-    /// 自定义 anthropic 兼容端点：x-api-key 直连，无 OAuth 契约要素。
+    /// x-api-key 直连：官方端点的 API key 形态与自定义 anthropic 兼容端点共用此路径，无 OAuth 契约要素。
     pub fn custom(base_url: String, api_key: impl Into<String>) -> Self {
         let http = crate::llm::client::shared_http_for_url(&base_url);
         Self {
@@ -287,6 +287,27 @@ impl AnthropicProvider {
                 .boxed()
             }
         }))
+    }
+}
+
+/// client.rs 分派入口：按凭证形态选 OAuth 契约（订阅，`new`）或 API key 直连（`custom`，x-api-key 无 OAuth 契约要素）。
+pub fn stream(
+    model: &crate::llm::types::ModelRef,
+    messages: &[Message],
+    tools: &[crate::llm::tool::ToolDefinition],
+    store: &crate::auth::credential::AuthStore,
+) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
+    match crate::auth::credential::credential_for(store, "anthropic", model.account.as_deref()) {
+        Some(crate::auth::credential::CredentialKind::Oauth { access, .. }) => {
+            AnthropicProvider::new(access.clone()).stream_chat(&model.model, messages, tools)
+        }
+        Some(crate::auth::credential::CredentialKind::Api { key, region }) => {
+            let url = crate::providers::find("anthropic").expect("anthropic in registry").chat_url(region.as_deref());
+            AnthropicProvider::custom(url, key.clone()).stream_chat(&model.model, messages, tools)
+        }
+        _ => Box::pin(futures::stream::once(async {
+            Delta::Error("anthropic credential missing (run doctor or import API key in settings)".into())
+        })),
     }
 }
 

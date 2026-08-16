@@ -9,6 +9,16 @@ const MAX_OUTPUT_TOKENS: u32 = 32768;
 const THINKING_BUDGET: u32 = 8192;
 
 pub(super) fn build_request(model: &str, project: &str, messages: &[Message], tools: &[ToolDefinition]) -> Value {
+    json!({
+        "model": model,
+        "project": project,
+        "user_prompt_id": uuid::Uuid::new_v4().to_string(),
+        "request": generate_content_request(messages, tools),
+    })
+}
+
+/// 裸 GenerateContentRequest（无 v1internal 信封）：Vertex AI 直发这个形态（model 走 URL 路径）。
+pub(crate) fn generate_content_request(messages: &[Message], tools: &[ToolDefinition]) -> Value {
     let mut request = json!({
         "contents": contents_of(messages),
         "generationConfig": {
@@ -23,12 +33,7 @@ pub(super) fn build_request(model: &str, project: &str, messages: &[Message], to
         let declarations: Vec<Value> = tools.iter().map(tool_declaration).collect();
         request["tools"] = json!([{ "functionDeclarations": declarations }]);
     }
-    json!({
-        "model": model,
-        "project": project,
-        "user_prompt_id": uuid::Uuid::new_v4().to_string(),
-        "request": request,
-    })
+    request
 }
 
 fn text_part(text: &str) -> Value {

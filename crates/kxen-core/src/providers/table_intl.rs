@@ -195,6 +195,36 @@ pub const GITHUB_MODELS: ProviderSpec = ProviderSpec {
     static_models: seeds::GITHUB_MODELS,
 };
 
+// AWS Bedrock：wire 由 client.rs 按 key 特判走 Converse Stream + SigV4（非 OpenAI 兼容），
+// protocol/base_url 字段仅作目录与凭证归属占位（同 KIRO 模式）；region 在凭证 JSON 里，非 spec regions
+// Google Vertex AI：wire 由 client.rs 按 key 特判走 Gemini GenerateContent（aiplatform 端点，裸请求/裸帧），
+// 认证是 service account JSON -> OAuth2 token（llm/vertex.rs）；protocol/base_url 仅作目录与凭证归属占位（同 KIRO 模式）
+pub const GOOGLE_VERTEX: ProviderSpec = ProviderSpec {
+    key: "google-vertex",
+    display: "Google Vertex AI",
+    protocol: OpenAiCompat,
+    auth: ApiKey,
+    regions: &[RegionSpec { key: "global", display: GL, base_url: "https://aiplatform.googleapis.com" }],
+    models_endpoint: false,
+    default_model: "gemini-2.5-flash",
+    doc_url: "https://cloud.google.com/vertex-ai/docs",
+    models_dev: None,
+    static_models: seeds::GOOGLE,
+};
+
+pub const BEDROCK: ProviderSpec = ProviderSpec {
+    key: "bedrock",
+    display: "AWS Bedrock",
+    protocol: OpenAiCompat,
+    auth: ApiKey,
+    regions: &[RegionSpec { key: "global", display: GL, base_url: "https://bedrock-runtime.us-east-1.amazonaws.com" }],
+    models_endpoint: false,
+    default_model: "anthropic.claude-sonnet-4-5-20250929-v1:0",
+    doc_url: "https://docs.aws.amazon.com/bedrock/latest/userguide/converse-inference.html",
+    models_dev: None,
+    static_models: seeds::BEDROCK,
+};
+
 pub const NOVITA: ProviderSpec = ProviderSpec {
     key: "novita",
     display: "Novita",

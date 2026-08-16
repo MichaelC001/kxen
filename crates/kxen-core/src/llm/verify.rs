@@ -189,6 +189,7 @@ mod tests {
                 protocol: "openai".into(),
                 models: vec!["workspace-model".into()],
                 capabilities: vec!["text".into()],
+                query_params: Default::default(),
             },
         );
         let mrm = crate::llm::mrm::ModelResourceManager::new(config);

@@ -58,6 +58,8 @@ pub static REGISTRY: &[ProviderSpec] = &[
     table_intl::PERPLEXITY,
     table_intl::COHERE,
     table_intl::GITHUB_MODELS,
+    table_intl::BEDROCK,
+    table_intl::GOOGLE_VERTEX,
     table_intl::NOVITA,
 ];
 

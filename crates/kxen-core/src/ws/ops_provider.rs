@@ -156,7 +156,10 @@ pub(super) async fn handle(method: &str, params: &Value, state: &Arc<AppState>) 
             let api_key = params.get("api_key").and_then(Value::as_str).ok_or("missing api_key")?;
             let protocol = params.get("protocol").and_then(Value::as_str).unwrap_or("openai");
             kxen_core::core::config::validate_custom_provider_auth(protocol, api_key)?;
-            let out = kxen_core::llm::models::probe_custom_models(base_url, api_key, protocol, 15).await;
+            // Azure OpenAI 的 api-version 等 per-request 查询参数；探测与保存走同一套键值校验
+            let query_params = account_store::parse_query_params(params);
+            kxen_core::core::config::validate_query_params(&query_params)?;
+            let out = kxen_core::llm::models::probe_custom_models(base_url, api_key, protocol, &query_params, 15).await;
             Ok(json!({ "models": out.models, "source": out.source, "detail": out.detail }))
         }
         "provider.reprobe" => reprobe(state).await,

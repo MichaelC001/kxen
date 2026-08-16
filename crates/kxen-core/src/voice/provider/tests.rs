@@ -57,6 +57,7 @@ async fn mrm_admission_failure_creates_no_attempt_and_sends_no_request() {
             protocol: "openai".into(),
             models: vec!["audio".into()],
             capabilities: vec!["audio".into()],
+            query_params: Default::default(),
         },
     );
     config.limits.providers.insert(
@@ -105,6 +106,7 @@ async fn started_transcription_records_mrm_failure_and_unknown_usage() {
             protocol: "openai".into(),
             models: vec!["audio".into()],
             capabilities: vec!["audio".into()],
+            query_params: Default::default(),
         },
     );
     config.limits.providers.insert(

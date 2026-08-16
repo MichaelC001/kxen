@@ -101,13 +101,19 @@ export function oauthCancel(session: string): Promise<{ cancelled: boolean }> {
   return client.rpc("provider.oauth_cancel", { session });
 }
 
-/** 探测自定义端点的模型清单（不落盘）。 */
+/** 探测自定义端点的模型清单（不落盘）；queryParams 随请求编码进 query（Azure api-version 等）。 */
 export function probeModels(
   baseUrl: string,
   apiKey: string,
   protocol: "openai" | "anthropic",
+  queryParams?: Record<string, string>,
 ): Promise<{ models: string[] }> {
-  return client.rpc("provider.probe_models", { base_url: baseUrl, api_key: apiKey, protocol });
+  return client.rpc("provider.probe_models", {
+    base_url: baseUrl,
+    api_key: apiKey,
+    protocol,
+    ...(queryParams ? { query_params: queryParams } : {}),
+  });
 }
 
 export interface AccountInfo {
@@ -121,6 +127,8 @@ export interface AccountInfo {
   models?: string[];
   protocol?: string;
   capabilities?: string[];
+  /** 自定义端点的 per-request query 参数（Azure api-version 等；密钥存 auth.json，不在此列）。 */
+  query_params?: Record<string, string>;
 }
 
 export function providerAccounts(): Promise<AccountInfo[]> {
@@ -154,6 +162,7 @@ export function addCustomProvider(
   models: string[],
   protocol: "openai" | "anthropic",
   capabilities: string[],
+  queryParams?: Record<string, string>,
 ): Promise<void> {
   return client.rpc("provider.add_custom", {
     name,
@@ -162,6 +171,7 @@ export function addCustomProvider(
     models,
     protocol,
     capabilities,
+    ...(queryParams ? { query_params: queryParams } : {}),
   });
 }
 

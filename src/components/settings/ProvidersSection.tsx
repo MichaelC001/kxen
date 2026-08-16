@@ -18,7 +18,7 @@ import { flashErr, flashOk } from "../../lib/flash";
 import { formatError } from "../../lib/error-text";
 import AddAccountPanel from "./AddAccountPanel";
 import ProviderCompatibility from "./ProviderCompatibility";
-import { badge, labelOf, type Row } from "./providers-row";
+import { badge, labelOf, querySummary, type Row } from "./providers-row";
 import { errText } from "../err-text";
 export default function ProvidersSection() {
   const [rows, setRows] = createSignal<Row[]>([]);
@@ -222,6 +222,7 @@ export default function ProvidersSection() {
                     </div>
                     <div class="text-xs text-[var(--text-faint)]">
                       {r.id}
+                      {querySummary(r)}
                       <Show when={r.usedBy.length > 0}> · 被 {r.usedBy.join("/")} 使用</Show>
                       <Show when={!r.custom && regionsOf(r).length > 1}>
                         <span>

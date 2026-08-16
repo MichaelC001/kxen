@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 /// 自定义类型提供商：base_url + 模型清单 + 协议（openai|anthropic）+ 能力标记（text/vision/audio）。
-/// api key 存 auth.json（custom:<name>）。
+/// api key 存 auth.json（custom:<name>）。query_params 是 per-request 查询参数（Azure OpenAI 的
+/// api-version 等）：base_url 本身禁止携带 query（见 net_security），参数走这个类型化字段独立编码。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CustomProviderDef {
@@ -9,12 +10,53 @@ pub struct CustomProviderDef {
     pub models: Vec<String>,
     pub protocol: String,
     pub capabilities: Vec<String>,
+    pub query_params: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for CustomProviderDef {
     fn default() -> Self {
-        Self { base_url: String::new(), models: vec![], protocol: "openai".into(), capabilities: vec!["text".into()] }
+        Self {
+            base_url: String::new(),
+            models: vec![],
+            protocol: "openai".into(),
+            capabilities: vec!["text".into()],
+            query_params: Default::default(),
+        }
     }
+}
+
+impl CustomProviderDef {
+    /// 拼 chat/models 等端点：固定路径 + query_params 编码进 query（url crate 负责转义）。
+    pub(crate) fn endpoint_url(&self, suffix: &str) -> Result<String, String> {
+        let joined = crate::core::net_security::join_base_endpoint(&self.base_url, suffix)?;
+        append_query_params(&joined, &self.query_params)
+    }
+}
+
+/// 把 query_params 编码进已 join 好的 endpoint（url crate 负责转义）；空表原样返回。
+pub(crate) fn append_query_params(endpoint: &str, query_params: &std::collections::BTreeMap<String, String>) -> Result<String, String> {
+    if query_params.is_empty() {
+        return Ok(endpoint.to_string());
+    }
+    let mut url = reqwest::Url::parse(endpoint).map_err(|_| "endpoint url 无效".to_string())?;
+    url.query_pairs_mut().extend_pairs(query_params.iter());
+    Ok(url.to_string())
+}
+
+/// query_params 键值规则：键非空且不含空白，值不含控制字符。
+pub(crate) fn validate_query_params(query_params: &std::collections::BTreeMap<String, String>) -> Result<(), String> {
+    for (key, value) in query_params {
+        if key.trim().is_empty() {
+            return Err("query_params 的键不能为空".into());
+        }
+        if key.chars().any(char::is_whitespace) {
+            return Err(format!("query_params 键 {key:?} 不能含空白字符"));
+        }
+        if value.chars().any(|c| c.is_control()) {
+            return Err(format!("query_params[{key}] 的值不能含控制字符"));
+        }
+    }
+    Ok(())
 }
 
 /// base URL 必须能直接交给 reqwest 构造请求。携带 API key 的远程请求只允许
@@ -54,6 +96,7 @@ pub(crate) fn validate_custom_provider_definition(definition: &CustomProviderDef
             return Err(format!("capabilities[{index}] must be text, vision, or audio"));
         }
     }
+    validate_query_params(&definition.query_params)?;
     Ok(())
 }
 
@@ -98,7 +141,7 @@ pub(crate) fn custom_provider_def_checked(name: &str) -> Result<Option<CustomPro
 
 #[cfg(test)]
 mod endpoint_tests {
-    use super::validate_custom_provider_endpoint;
+    use super::{CustomProviderDef, validate_custom_provider_definition, validate_custom_provider_endpoint};
 
     #[test]
     fn rejects_private_ip_even_over_https() {
@@ -106,5 +149,61 @@ mod endpoint_tests {
             let error = validate_custom_provider_endpoint(url).unwrap_err();
             assert!(error.contains("不能指向"), "{url}: {error}");
         }
+    }
+
+    fn azure_def() -> CustomProviderDef {
+        CustomProviderDef {
+            base_url: "https://myres.openai.azure.com/openai/deployments/gpt-4o".into(),
+            models: vec!["gpt-4o".into()],
+            query_params: [("api-version".to_string(), "2025-01-01-preview".to_string())].into_iter().collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn endpoint_url_appends_query_params_after_path_join() {
+        let def = azure_def();
+        assert_eq!(
+            def.endpoint_url("chat/completions").unwrap(),
+            "https://myres.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2025-01-01-preview"
+        );
+        assert_eq!(
+            def.endpoint_url("models").unwrap(),
+            "https://myres.openai.azure.com/openai/deployments/gpt-4o/models?api-version=2025-01-01-preview"
+        );
+    }
+
+    #[test]
+    fn endpoint_url_without_query_params_keeps_legacy_shape() {
+        let def = CustomProviderDef { base_url: "https://api.example.com/v1".into(), ..Default::default() };
+        assert_eq!(def.endpoint_url("chat/completions").unwrap(), "https://api.example.com/v1/chat/completions");
+        // 存量 config（无 query_params 键）反序列化为空表，URL 逐字符不变
+        let legacy: CustomProviderDef =
+            toml::from_str("base_url = \"https://api.example.com/v1\"\nmodels = [\"m\"]\nprotocol = \"openai\"\n").unwrap();
+        assert!(legacy.query_params.is_empty());
+        assert_eq!(legacy.endpoint_url("chat/completions").unwrap(), "https://api.example.com/v1/chat/completions");
+    }
+
+    #[test]
+    fn endpoint_url_encodes_param_values() {
+        let def = CustomProviderDef {
+            base_url: "https://api.example.com/v1".into(),
+            query_params: [("q".to_string(), "a b&c".to_string())].into_iter().collect(),
+            ..Default::default()
+        };
+        assert_eq!(def.endpoint_url("models").unwrap(), "https://api.example.com/v1/models?q=a+b%26c");
+    }
+
+    #[test]
+    fn query_param_validation_rejects_bad_keys_and_control_values() {
+        let mut def = azure_def();
+        validate_custom_provider_definition(&def).expect("azure def valid");
+        def.query_params.insert(" ".into(), "v".into());
+        let error = validate_custom_provider_definition(&def).unwrap_err();
+        assert!(error.contains("query_params"), "{error}");
+        def.query_params.clear();
+        def.query_params.insert("api-version".into(), "x\r\ny".into());
+        let error = validate_custom_provider_definition(&def).unwrap_err();
+        assert!(error.contains("query_params"), "{error}");
     }
 }

@@ -11,6 +11,15 @@ use kxen_core::auth::credential::{AuthStore, CredentialKind};
 
 type SharedStoreMutex = Mutex<Arc<AuthStore>>;
 
+/// 解析 RPC 的 query_params 对象（非字符串值静默丢弃；键值合法性由 validate_query_params 把关）。
+pub(super) fn parse_query_params(params: &Value) -> std::collections::BTreeMap<String, String> {
+    params
+        .get("query_params")
+        .and_then(Value::as_object)
+        .map(|entries| entries.iter().filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.to_string()))).collect())
+        .unwrap_or_default()
+}
+
 fn commit_auth_transaction(
     store: &SharedStoreMutex,
     transaction: impl FnOnce() -> Result<kxen_core::auth::credential::AuthUpdate, String>,
@@ -74,6 +83,7 @@ pub(super) fn accounts(store: &SharedStoreMutex, config_path: &Path) -> Result<V
             "models": definition.models,
             "protocol": definition.protocol,
             "capabilities": definition.capabilities,
+            "query_params": definition.query_params,
         }));
     }
     Ok(json!(out))
@@ -166,6 +176,16 @@ pub(super) fn add_custom_with_runtime(
         .and_then(Value::as_array)
         .map(|values| values.iter().filter_map(|value| value.as_str().map(String::from)).collect())
         .unwrap_or_else(|| vec!["text".into()]);
+    // per-request 查询参数（Azure OpenAI 的 api-version 等）；非法键值走统一定义校验
+    let query_params = parse_query_params(params);
+    let definition = kxen_core::core::config::CustomProviderDef {
+        base_url: base_url.into(),
+        models: models.clone(),
+        protocol: protocol.into(),
+        capabilities: capabilities.clone(),
+        query_params: query_params.clone(),
+    };
+    kxen_core::core::config::validate_custom_provider_definition(&definition)?;
     let provider = format!("custom:{name}");
     commit_custom_transaction(store, || {
         transact_custom_provider_with_runtime(
@@ -181,6 +201,12 @@ pub(super) fn add_custom_with_runtime(
                 definition.insert("models".into(), toml::Value::Array(models.into_iter().map(toml::Value::String).collect()));
                 definition.insert("protocol".into(), toml::Value::String(protocol.into()));
                 definition.insert("capabilities".into(), toml::Value::Array(capabilities.into_iter().map(toml::Value::String).collect()));
+                if !query_params.is_empty() {
+                    definition.insert(
+                        "query_params".into(),
+                        toml::Value::Table(query_params.iter().map(|(k, v)| (k.clone(), toml::Value::String(v.clone()))).collect()),
+                    );
+                }
                 table.insert(name.into(), toml::Value::Table(definition));
                 Ok(())
             },

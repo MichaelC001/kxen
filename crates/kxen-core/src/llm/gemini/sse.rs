@@ -59,21 +59,37 @@ struct UsageMetadata {
     thoughts_token_count: Option<u64>,
 }
 
+/// 帧形态：cloudcode-pa 的 v1internal 包 {"response": {...}} 信封；Vertex AI 直发裸 GenerateContentResponse。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FrameShape {
+    Envelope,
+    Raw,
+}
+
 /// 单帧 -> 0..n 个 Delta；返回 true 表示协议完成（finishReason 或 [DONE]，流可正常结束）。
-fn deltas_of(data: &str, out: &mut VecDeque<Delta>) -> bool {
+fn deltas_of(shape: FrameShape, data: &str, out: &mut VecDeque<Delta>) -> bool {
     if let Some(error) = crate::llm::sse::payload_error("gemini", data) {
         out.push_back(Delta::Error(error));
         return false;
     }
-    let envelope: StreamEnvelope = match serde_json::from_str(data) {
-        Ok(envelope) => envelope,
-        Err(error) => {
-            out.push_back(Delta::Error(format!("gemini invalid SSE payload: {error}")));
-            return false;
-        }
+    let response = match shape {
+        FrameShape::Envelope => match serde_json::from_str::<StreamEnvelope>(data) {
+            Ok(envelope) => envelope.response,
+            Err(error) => {
+                out.push_back(Delta::Error(format!("gemini invalid SSE payload: {error}")));
+                return false;
+            }
+        },
+        FrameShape::Raw => match serde_json::from_str::<StreamResponse>(data) {
+            Ok(response) => Some(response),
+            Err(error) => {
+                out.push_back(Delta::Error(format!("gemini invalid SSE payload: {error}")));
+                return false;
+            }
+        },
     };
     // 心跳帧没有 response/candidates，跳过
-    let Some(response) = envelope.response else { return false };
+    let Some(response) = response else { return false };
     let mut finished = false;
     for candidate in response.candidates {
         finished |= candidate.finish_reason.is_some();
@@ -105,7 +121,7 @@ fn deltas_of(data: &str, out: &mut VecDeque<Delta>) -> bool {
     finished
 }
 
-fn project_frames(frames: Vec<SseFrame>, queued: &mut VecDeque<Delta>, finished: &mut bool) {
+fn project_frames(shape: FrameShape, frames: Vec<SseFrame>, queued: &mut VecDeque<Delta>, finished: &mut bool) {
     for frame in frames {
         match frame {
             SseFrame::Invalid(error) => {
@@ -119,7 +135,7 @@ fn project_frames(frames: Vec<SseFrame>, queued: &mut VecDeque<Delta>, finished:
                 return;
             }
             SseFrame::Data(data) => {
-                if deltas_of(&data, queued) {
+                if deltas_of(shape, &data, queued) {
                     *finished = true;
                     return;
                 }
@@ -128,10 +144,10 @@ fn project_frames(frames: Vec<SseFrame>, queued: &mut VecDeque<Delta>, finished:
     }
 }
 
-pub(super) fn stream_sse(resp: reqwest::Response) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
+pub(crate) fn stream_sse(resp: reqwest::Response, shape: FrameShape) -> Pin<Box<dyn futures::Stream<Item = Delta> + Send>> {
     let bytes = Box::pin(resp.bytes_stream());
     let initial = (bytes, SseParser::new(), VecDeque::new(), false);
-    Box::pin(futures::stream::unfold(initial, |(mut bytes, mut parser, mut queued, mut finished)| async move {
+    Box::pin(futures::stream::unfold(initial, move |(mut bytes, mut parser, mut queued, mut finished)| async move {
         loop {
             if let Some(delta) = queued.pop_front() {
                 return Some((delta, (bytes, parser, queued, finished)));
@@ -140,13 +156,13 @@ pub(super) fn stream_sse(resp: reqwest::Response) -> Pin<Box<dyn futures::Stream
                 return None;
             }
             match bytes.next().await {
-                Some(Ok(chunk)) => project_frames(parser.feed(&chunk), &mut queued, &mut finished),
+                Some(Ok(chunk)) => project_frames(shape, parser.feed(&chunk), &mut queued, &mut finished),
                 Some(Err(error)) => {
                     queued.push_back(Delta::Error(format!("sse read: {error}")));
                     finished = true;
                 }
                 None => {
-                    project_frames(parser.finish(), &mut queued, &mut finished);
+                    project_frames(shape, parser.finish(), &mut queued, &mut finished);
                     if !finished {
                         // 传输 EOF 不算成功：未见 finishReason 的截断响应必须报错
                         queued.push_back(Delta::Error("gemini sse stream ended before protocol completion".into()));
@@ -165,7 +181,7 @@ mod tests {
     fn frame_deltas(frames: &[&str]) -> Vec<Delta> {
         let mut queued = VecDeque::new();
         for frame in frames {
-            deltas_of(frame, &mut queued);
+            deltas_of(FrameShape::Envelope, frame, &mut queued);
         }
         queued.into_iter().collect()
     }
@@ -199,8 +215,8 @@ mod tests {
     #[test]
     fn heartbeat_frames_without_candidates_are_skipped() {
         let mut queued = VecDeque::new();
-        assert!(!deltas_of(r#"{"response":{}}"#, &mut queued));
-        assert!(!deltas_of(r#"{}"#, &mut queued));
+        assert!(!deltas_of(FrameShape::Envelope, r#"{"response":{}}"#, &mut queued));
+        assert!(!deltas_of(FrameShape::Envelope, r#"{}"#, &mut queued));
         assert!(queued.is_empty());
     }
 
@@ -208,6 +224,7 @@ mod tests {
     fn finish_reason_completes_the_stream() {
         let mut queued = VecDeque::new();
         let finished = deltas_of(
+            FrameShape::Envelope,
             r#"{"response":{"candidates":[{"content":{"role":"model","parts":[]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1}}}"#,
             &mut queued,
         );
@@ -236,7 +253,12 @@ mod tests {
     fn invalid_frame_is_terminal_error() {
         let mut queued = VecDeque::new();
         let mut finished = false;
-        project_frames(vec![SseFrame::Invalid("oversized line".into()), SseFrame::Data("ignored".into())], &mut queued, &mut finished);
+        project_frames(
+            FrameShape::Envelope,
+            vec![SseFrame::Invalid("oversized line".into()), SseFrame::Data("ignored".into())],
+            &mut queued,
+            &mut finished,
+        );
         assert!(finished);
         assert_eq!(queued.len(), 1, "Invalid 之后的帧不得再处理");
         assert!(matches!(&queued[0], Delta::Error(e) if e.contains("oversized line")));
@@ -246,7 +268,7 @@ mod tests {
     fn done_frame_completes_without_further_parsing() {
         let mut queued = VecDeque::new();
         let mut finished = false;
-        project_frames(vec![SseFrame::Done, SseFrame::Data("{".into())], &mut queued, &mut finished);
+        project_frames(FrameShape::Envelope, vec![SseFrame::Done, SseFrame::Data("{".into())], &mut queued, &mut finished);
         assert!(finished);
         assert_eq!(queued.len(), 1);
         assert!(matches!(&queued[0], Delta::Done));
@@ -277,7 +299,7 @@ mod tests {
     async fn collect_sse(body: &str) -> Vec<Delta> {
         let url = serve_sse(body);
         let response = reqwest::Client::new().get(&url).send().await.expect("mock response");
-        stream_sse(response).collect().await
+        stream_sse(response, FrameShape::Envelope).collect().await
     }
 
     #[tokio::test]
@@ -321,7 +343,7 @@ mod tests {
             }
         });
         let response = reqwest::Client::new().get(format!("http://{address}")).send().await.expect("mock response");
-        let deltas: Vec<Delta> = stream_sse(response).collect().await;
+        let deltas: Vec<Delta> = stream_sse(response, FrameShape::Envelope).collect().await;
         assert!(matches!(&deltas[0], Delta::Text(t) if t == "前半"), "{deltas:?}");
         assert!(matches!(deltas.last(), Some(Delta::Error(e)) if e.contains("sse read")), "{deltas:?}");
     }

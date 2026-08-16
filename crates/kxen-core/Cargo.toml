@@ -59,6 +59,8 @@ cap-std = "4.0.2"
 chromiumoxide = { version = "0.9", default-features = false }
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.11"
+# Bedrock SigV4 HMAC 与 Vertex service-account RS256 签名（rustls 已传递引入，零新增编译单元）
+ring = "0.17"
 # MCP OAuth 的 PKCE/state 熵源（跨平台 OS 随机，替 /dev/urandom）
 getrandom = "0.4"
 notify-rust = "4"

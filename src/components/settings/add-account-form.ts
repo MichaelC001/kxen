@@ -14,16 +14,57 @@ export const [models, setModels] = createSignal("");
 export const [protocol, setProtocol] = createSignal<"openai" | "anthropic">("openai");
 export const [caps, setCaps] = createSignal<string[]>(["text"]);
 
+/** 自定义端点的 per-request query 参数编辑行（Azure OpenAI 的 api-version 等）。 */
+export interface QueryParamRow {
+  key: string;
+  value: string;
+}
+
+export const [queryParamRows, setQueryParamRows] = createSignal<QueryParamRow[]>([]);
+
+/**
+ * 汇总编辑行为 RPC record：全空行忽略，同名键后者覆盖前者（与后端 BTreeMap 语义一致）。
+ * 键值规则与后端 custom_provider::validate_query_params 一致：键非空无空白、值无控制字符。
+ */
+export function collectQueryParams(): { params?: Record<string, string>; error?: string } {
+  const params: Record<string, string> = {};
+  for (const row of queryParamRows()) {
+    if (!row.key && !row.value) continue;
+    if (!row.key.trim()) return { error: "query 参数的键不能为空" };
+    if (/\s/.test(row.key)) return { error: `query 参数键「${row.key}」不能含空白字符` };
+    // eslint-disable-next-line no-control-regex -- 控制字符正是要拦截的目标
+    if (/[\x00-\x1f\x7f]/.test(row.value))
+      return { error: `query 参数「${row.key}」的值不能含控制字符` };
+    params[row.key] = row.value;
+  }
+  return Object.keys(params).length > 0 ? { params } : {};
+}
+
 export const resetAccountForm = () => {
   setName("");
   setToken("");
   setBaseUrl("");
   setModels("");
   setRegion("");
+  setQueryParamRows([]);
 };
 
 // 名字进凭证键（provider:名）与 custom_providers 表键：冒号撕裂账号键解析，空白不可读
 export const ACCOUNT_NAME_BAD = /[:：\s]/;
+
+/**
+ * 实际提交的凭证形态：anthropic 官方 API key（sk-ant-api…）不是 OAuth 凭证，
+ * 在订阅 tab 手贴时按 api 存储，分发走 x-api-key 直连（OAuth 契约不适用）。
+ */
+export function effectiveSubmitKind(
+  kind: AccountKind,
+  provider: string,
+  token: string,
+): "oauth" | "api" {
+  if (kind === "apikey") return "api";
+  if (provider === "anthropic" && token.trim().startsWith("sk-ant-api")) return "api";
+  return "oauth";
+}
 
 /** OAuth JSON 粘贴 -> 拆出 access/refresh/expires；`{` 开头但 JSON 损坏是明确错误，不静默降级。 */
 export function parseAccountToken(

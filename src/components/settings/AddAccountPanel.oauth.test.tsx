@@ -239,7 +239,12 @@ describe("自定义提供商 probe_models", () => {
     await vi.waitFor(() => expect(btnByText("测试连接并拉取模型").disabled).toBe(false));
     btnByText("测试连接并拉取模型").click();
     await vi.waitFor(() =>
-      expect(h.probe).toHaveBeenCalledWith("https://relay.example.com/v1", "relay-key", "openai"),
+      expect(h.probe).toHaveBeenCalledWith(
+        "https://relay.example.com/v1",
+        "relay-key",
+        "openai",
+        undefined,
+      ),
     );
     const modelsInput = [...document.body.querySelectorAll<HTMLInputElement>("input")].find((i) =>
       i.placeholder.includes("模型清单"),

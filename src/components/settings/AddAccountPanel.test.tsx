@@ -271,6 +271,7 @@ describe("AddAccountPanel 保存", () => {
         ["m1", "m2"],
         "anthropic",
         ["text", "vision", "audio"],
+        undefined,
       ),
     );
     expect(done).toHaveBeenCalledWith("自定义提供商 relay 已添加");

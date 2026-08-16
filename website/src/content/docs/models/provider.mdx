@@ -22,7 +22,7 @@ Provider 描述模型服务的协议、端点、认证方式、区域、能力�
 
 ## 内置 Provider 注册表
 
-注册表共 44 个内置条目，顺序即设置页展示顺序。默认模型来自静态模型目录；目录是种子，不是实时可用性承诺，支持 `/models` 端点的条目可以在账号行拉取实时目录。
+注册表共 46 个内置条目，顺序即设置页展示顺序。默认模型来自静态模型目录；目录是种子，不是实时可用性承诺，支持 `/models` 端点的条目可以在账号行拉取实时目录。
 
 ### 订阅 OAuth
 
@@ -41,6 +41,8 @@ Provider 描述模型服务的协议、端点、认证方式、区域、能力�
 | MiniMax 订阅       | `minimax-oauth`      | 设备码            | 全球   | `MiniMax-M2.7`         |
 | MiniMax 订阅中国版 | `minimax-cn-oauth`   | 设备码            | 中国版 | `MiniMax-M2.7`         |
 | AWS Kiro           | `kiro`               | 设备码（AWS SSO） | 全球   | `claude-sonnet-4.5`    |
+
+Anthropic 除订阅 OAuth 外也接受 API key 直连：在手动粘贴入口填入 `sk-ant-api` 开头的 key 会落为 API key 凭证，以 `x-api-key` 头直连，不携带订阅 OAuth 契约。
 
 ### 聚合、网关与本地
 
@@ -70,6 +72,18 @@ OpenRouter 除 API key 外也支持应用内 OAuth 登录：授权码流换取�
 | Cohere        | `cohere`        | 全球 | `command-a-03-2025`                       |
 | GitHub Models | `github_models` | 全球 | `openai/gpt-4.1-mini`                     |
 | Novita        | `novita`        | 全球 | `deepseek/deepseek-v3.1`                  |
+
+### 云平台托管
+
+| Provider         | key             | 认证方式             | 默认模型                                    |
+| ---------------- | --------------- | -------------------- | ------------------------------------------- |
+| AWS Bedrock      | `bedrock`       | IAM 凭证 JSON        | `anthropic.claude-sonnet-4-5-20250929-v1:0` |
+| Google Vertex AI | `google-vertex` | service account JSON | `gemini-2.5-flash`                          |
+
+两家都把结构化凭证存进 API key 槽，而不是单个 token 字符串：
+
+- AWS Bedrock 的 key 槽填 JSON 对象：`access_key_id` 和 `secret_access_key` 必填，`session_token`、`region` 可选（缺省 `us-east-1`）。请求按 SigV4 签名，走 Converse Stream 协议，模型 ID 是 Bedrock 形态（例如 `anthropic.claude-sonnet-4-5-20250929-v1:0`）。
+- Google Vertex AI 的 key 槽填 service account 导出 JSON（`client_email`、`private_key`、`project_id`），可加 `location` 键（缺省 `us-central1`，`global` 走无前缀端点）。应用内用私钥签 RS256 断言换 OAuth2 access token，token 进程内缓存并在过期前续期。
 
 ### 国内 API key
 
@@ -109,11 +123,13 @@ Coding Plan 和套餐条目使用专属端点，套餐 key 与普通按量 key �
 
 ## 协议差异
 
-大多数条目使用 OpenAI 兼容协议；Anthropic 和 MiniMax 双订阅使用 Anthropic 协议。三个条目按 key 特判走厂商私有 wire 协议：Google Gemini 订阅和 Google Antigravity 走 Gemini Code Assist 协议，AWS Kiro 走 CodeWhisperer eventstream 协议。这些条目的 base URL 只用于目录和凭证归属，不代表可以当作 OpenAI 兼容端点复用。
+大多数条目使用 OpenAI 兼容协议；Anthropic 和 MiniMax 双订阅使用 Anthropic 协议。五个条目按 key 特判走厂商私有 wire 协议：Google Gemini 订阅和 Google Antigravity 走 Gemini Code Assist 协议，Google Vertex AI 走 aiplatform 端点的 Gemini GenerateContent 裸协议（无 v1internal 信封），AWS Kiro 走 CodeWhisperer eventstream 协议，AWS Bedrock 走 SigV4 签名的 Converse Stream eventstream 协议。这些条目的 base URL 只用于目录和凭证归属，不代表可以当作 OpenAI 兼容端点复用。
 
 ## 自定义 Provider
 
-创建自定义 Provider 时需要提供名称、base URL、协议、模型 ID、API key 和能力。能力可以包含 text、vision 和 audio。
+创建自定义 Provider 时需要提供名称、base URL、协议、模型 ID、API key 和能力。能力可以包含 text、vision 和 audio。base URL 不允许携带查询串；需要固定查询参数的端点用 query_params 逐项声明（键不允许空白字符，值不允许控制字符），每个请求都会追加这组参数。
+
+Azure OpenAI 是最典型的 query_params 场景：base URL 填 `https://<resource>.openai.azure.com/openai/deployments/<deployment>`，协议选 OpenAI 兼容，query_params 声明 `api-version`（例如 `2024-10-21`），模型 ID 与部署名对应。
 
 自定义 Provider 的配置和凭证分开保存。配置记录端点和模型，凭证进入本地认证存储，不进入项目仓库。
 

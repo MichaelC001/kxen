@@ -13,10 +13,12 @@ import { createSeqGuard } from "../../lib/async-guard";
 import ProviderRegistryStatus from "./ProviderRegistryStatus";
 import OAuthLogin from "./OAuthLogin";
 import ManualTokenForm from "./ManualTokenForm";
+import QueryParamsEditor from "./QueryParamsEditor";
 import {
   ACCOUNT_NAME_BAD,
   baseUrl,
   caps,
+  collectQueryParams,
   kind,
   models,
   name,
@@ -107,7 +109,12 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
     setProbeMsg(null);
     setError("");
     try {
-      const r = await probeModels(baseUrl().trim(), token().trim(), protocol());
+      const { params, error: paramError } = collectQueryParams();
+      if (paramError) {
+        setProbeMsg({ ok: false, text: paramError });
+        return;
+      }
+      const r = await probeModels(baseUrl().trim(), token().trim(), protocol(), params);
       setModels(r.models.join(", "));
       setProbeMsg({ ok: true, text: `已拉取 ${r.models.length} 个模型` });
     } catch (e) {
@@ -137,6 +144,11 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
         setError("base_url / 模型 / key 均必填");
         return;
       }
+      const { params, error: paramError } = collectQueryParams();
+      if (paramError) {
+        setError(paramError);
+        return;
+      }
       await addCustomProvider(
         name().trim(),
         baseUrl().trim(),
@@ -144,6 +156,7 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
         list,
         protocol(),
         caps(),
+        params,
       );
       resetAccountForm();
       props.onDone(`自定义提供商 ${doneName} 已添加`);
@@ -289,6 +302,7 @@ export default function AddAccountPanel(props: { onDone: (msg: string) => void }
           value={token()}
           onInput={(e) => setToken(e.currentTarget.value)}
         />
+        <QueryParamsEditor />
         <div class="flex items-center gap-2">
           <button
             class="pressable px-3 py-1 rounded-md text-xs border border-[var(--border)] disabled:opacity-40"

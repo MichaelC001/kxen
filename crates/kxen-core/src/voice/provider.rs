@@ -96,7 +96,7 @@ pub async fn transcribe_file(
         let Some(CredentialKind::Api { key, .. }) = store.get(provider) else {
             return Err(format!("{name} 未配置 API key"));
         };
-        let url = crate::core::net_security::join_base_endpoint(&def.base_url, "audio/transcriptions")?;
+        let url = def.endpoint_url("audio/transcriptions")?;
         (name.to_string(), url, key.clone())
     } else {
         let (_, label, url) =

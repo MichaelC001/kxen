@@ -28,3 +28,10 @@ export function badge(r: Row): { text: string; cls: string } {
   if (r.expired) return { text: "已过期", cls: "text-[var(--err)]" };
   return { text: "凭证在位（未实测）", cls: "text-[var(--warn)]" };
 }
+
+/** 自定义端点的 query 参数摘要（如「 · query：api-version=2025-01-01-preview」）；无则空串。 */
+export function querySummary(r: Row): string {
+  const entries = Object.entries(r.query_params ?? {});
+  if (!r.custom || entries.length === 0) return "";
+  return ` · query：${entries.map(([key, value]) => `${key}=${value}`).join("&")}`;
+}

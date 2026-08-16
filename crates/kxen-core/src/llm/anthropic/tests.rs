@@ -1,6 +1,78 @@
 use super::*;
 use crate::llm::types::AssistantToolCall;
 
+/// 一次性 loopback server：记录首个请求的 head+body，回固定 SSE 流。
+fn serve_once(sse_body: &'static str) -> (String, std::sync::mpsc::Receiver<String>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0u8; 4096];
+        // 一次性读满请求（body 长度由 content-length 决定，loopback 上单次 read 通常足够，做保守循环）
+        loop {
+            let n = stream.read(&mut buffer).unwrap();
+            request.extend_from_slice(&buffer[..n]);
+            let text = String::from_utf8_lossy(&request);
+            if let Some((head, body)) = text.split_once("\r\n\r\n") {
+                let lower = head.to_ascii_lowercase();
+                let len: usize = lower
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:").map(str::trim))
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0);
+                if body.len() >= len {
+                    break;
+                }
+            }
+        }
+        let reply = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{sse_body}",
+            sse_body.len()
+        );
+        stream.write_all(reply.as_bytes()).unwrap();
+        tx.send(String::from_utf8_lossy(&request).into_owned()).unwrap();
+    });
+    (format!("http://{address}"), rx)
+}
+
+const PONG_SSE: &str = concat!(
+    "event: message_start\n",
+    "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\n",
+    "event: content_block_delta\n",
+    "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"pong\"}}\n\n",
+    "event: message_delta\n",
+    "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n",
+    "event: message_stop\n",
+    "data: {\"type\":\"message_stop\"}\n\n",
+);
+
+#[tokio::test]
+async fn api_key_direct_sends_x_api_key_without_oauth_contract() {
+    let (base, rx) = serve_once(PONG_SSE);
+    let tool = crate::llm::tool::ToolDefinition::function("exec", "运行命令", serde_json::json!({"type": "object"}));
+    let stream = AnthropicProvider::custom(format!("{base}/v1/messages"), "sk-ant-test-key").stream_chat(
+        "claude-sonnet-4-6",
+        &[Message::system("系统提示"), Message::user("ping")],
+        std::slice::from_ref(&tool),
+    );
+    let deltas: Vec<crate::llm::types::Delta> = futures::StreamExt::collect(stream).await;
+    assert!(deltas.iter().any(|d| matches!(d, crate::llm::types::Delta::Text(t) if t == "pong")), "{deltas:?}");
+    assert!(deltas.iter().any(|d| matches!(d, crate::llm::types::Delta::Done)), "{deltas:?}");
+
+    let request = rx.recv().unwrap();
+    let (head, body) = request.split_once("\r\n\r\n").unwrap();
+    assert!(head.to_ascii_lowercase().contains("x-api-key: sk-ant-test-key"), "{head}");
+    assert!(!head.to_ascii_lowercase().contains("authorization:"), "API key 直连不得带 bearer 头: {head}");
+    assert!(!head.to_ascii_lowercase().contains("anthropic-beta"), "API key 直连不得带 OAuth beta 头: {head}");
+    assert!(!head.to_ascii_lowercase().contains("claude-cli"), "API key 直连不得带 claude-cli UA: {head}");
+    assert!(head.to_ascii_lowercase().contains("anthropic-version: 2023-06-01"), "{head}");
+    assert!(!body.contains(IDENTITY_LINE), "API key 直连不得注入身份行: {body}");
+    assert!(body.contains("系统提示"));
+}
+
 #[test]
 fn tool_remap_roundtrip() {
     assert_eq!(remap_tool_name("exec"), "Bash");
