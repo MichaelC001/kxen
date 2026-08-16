@@ -2,11 +2,15 @@ import { createSignal, For, Show } from "solid-js";
 import { ChevronRight, Search } from "lucide-solid";
 import { statusDot } from "../lib/variants";
 import { expandAllTools, type ToolGroupItem } from "../lib/tool-ui";
+import type { ToolItem } from "../lib/items";
 import ToolCard from "./ToolCard";
 
 /** 探索类工具聚合条：连续只读调用收成一行，
  *  展开后逐卡回看。折叠优先级与 ToolCard 相同：本地手动优先，否则跟随全局开关。 */
-export default function ToolGroupCard(props: { group: ToolGroupItem }) {
+export default function ToolGroupCard(props: {
+  group: ToolGroupItem;
+  onInspectTool?: ((item: ToolItem) => void) | undefined;
+}) {
   const [localOpen, setLocalOpen] = createSignal<boolean | undefined>(undefined);
   const open = () => localOpen() ?? expandAllTools();
   const breakdown = () => {
@@ -41,7 +45,15 @@ export default function ToolGroupCard(props: { group: ToolGroupItem }) {
       <Show when={open()}>
         <div class="px-2 py-2 space-y-2 border-t border-[var(--border)]/60">
           <For each={props.group.tools}>
-            {(t) => <ToolCard name={t.name} call={t.call} args={t.args} result={t.result} />}
+            {(t) => (
+              <ToolCard
+                name={t.name}
+                call={t.call}
+                args={t.args}
+                result={t.result}
+                onInspect={t.messageId !== undefined ? () => props.onInspectTool?.(t) : undefined}
+              />
+            )}
           </For>
         </div>
       </Show>

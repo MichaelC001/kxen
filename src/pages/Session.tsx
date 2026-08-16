@@ -29,6 +29,8 @@ import { createSessionLoader, mountDraftWorkdir } from "../lib/session-loader";
 import { restoreFailedEdit } from "../components/composer/edit-restore";
 import { createSessionExport } from "../lib/session-export";
 import SessionTimeline from "../components/SessionTimeline";
+import SessionViewSwitch from "../components/SessionViewSwitch";
+import { registerChatList, requestInspectTool } from "../lib/session-view";
 
 export default function Session() {
   const [items, setItems] = createSignal<Item[]>([]);
@@ -248,9 +250,8 @@ export default function Session() {
       .catch((error: unknown) => flashErr(`停止失败：${formatError(error)}`));
   };
 
-  const respondApproval = async (id: string, allow: boolean) => {
-    await respondApprovalImpl(setItems, id, allow);
-  };
+  const respondApproval = async (id: string, allow: boolean, remember?: "session" | "workspace") =>
+    void (await respondApprovalImpl(setItems, id, allow, remember));
 
   const sessionExportFlow = createSessionExport(activeSessionId);
   onCleanup(sessionExportFlow.dispose);
@@ -278,26 +279,29 @@ export default function Session() {
         onSwitchSession={(id) => void switchBranch(id)}
       />
 
-      <SessionTimeline
-        items={items}
-        sessionId={activeSessionId}
-        streaming={streaming}
-        pinned={pinned}
-        loadErr={loadErr}
-        timelineLoading={timelineLoading}
-        setListRef={(element) => (listRef = element)}
-        onScroll={onListScroll}
-        scroll={scroll}
-        retryLoad={retryLoad}
-        onForkId={(id) => void forkAt(id)}
-        onEditResend={(index, text) => editResend(send, items(), index, text, restoreFailedEdit)}
-        onRewindId={rewindAt}
-        onRetryItem={(item) => void retrySend(item)}
-        isRetrying={retryingSend}
-        onRerun={(index) => void rerunAt(index)}
-        onContinue={() => void send("继续", [], [])}
-        onRespondApproval={respondApproval}
-      />
+      <SessionViewSwitch sessionId={activeSessionId} streaming={streaming}>
+        <SessionTimeline
+          items={items}
+          sessionId={activeSessionId}
+          streaming={streaming}
+          pinned={pinned}
+          loadErr={loadErr}
+          timelineLoading={timelineLoading}
+          setListRef={(element) => ((listRef = element), registerChatList(element))}
+          onScroll={onListScroll}
+          scroll={scroll}
+          retryLoad={retryLoad}
+          onForkId={(id) => void forkAt(id)}
+          onEditResend={(index, text) => editResend(send, items(), index, text, restoreFailedEdit)}
+          onRewindId={rewindAt}
+          onRetryItem={(item) => void retrySend(item)}
+          isRetrying={retryingSend}
+          onRerun={(index) => void rerunAt(index)}
+          onContinue={() => void send("继续", [], [])}
+          onRespondApproval={respondApproval}
+          onInspectTool={requestInspectTool}
+        />
+      </SessionViewSwitch>
 
       <div class="px-3 pb-3 composer-fade">
         <div class="w-full">

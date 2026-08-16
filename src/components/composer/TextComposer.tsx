@@ -20,13 +20,13 @@ import { createTriggerCheck } from "./trigger-check";
 import { createComposerSubmit, type ComposerSend } from "./composer-submit";
 import AttachMenu from "./AttachMenu";
 import ComposerPopup from "./ComposerPopup";
+import ContextGauge from "./ContextGauge";
 import MicControl from "./MicControl";
 import ModelPicker from "./ModelPicker";
 import RowChips, { type RowChip } from "./RowChips";
 import { sendBtn } from "../../lib/variants";
 import { composerRestoreVersion, takeComposerRestore } from "../../lib/composer-restore";
 import { ComposerAutoSuggestPanel, createComposerAutoSuggest } from "./composer-auto-suggest";
-
 let chipSeq = 0;
 const MAX_HEIGHT = 176; // styles 里 max-h-44 同值
 
@@ -332,6 +332,7 @@ export default function TextComposer(props: {
             onEngine={setVoiceEngine}
           />
           <span class={`text-2xs tabular-nums ml-auto ${estimateCls()}`}>~{estimate()} tok</span>
+          <ContextGauge sessionId={() => activeSessionId()} streaming={props.streaming} />
           <ModelPicker />
           <button
             class={sendBtn({ intent: props.streaming() ? "danger" : "primary" })}

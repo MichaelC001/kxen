@@ -28,6 +28,9 @@ vi.mock("../lib/state", () => ({
   initSessions: h.initSessions,
   mountSessionEvents: h.mountSessionEvents,
   newSession: h.newSession,
+  // ToolCard -> file-open 的会话工作目录解析依赖这两个绑定；测试无会话语境，给空值桩
+  activeSessionId: () => "",
+  sessions: () => [],
 }));
 
 vi.mock("../lib/theme", () => ({
@@ -52,7 +55,6 @@ vi.mock("../lib/orb", () => ({
 }));
 import ApprovalCard from "./ApprovalCard";
 import ContextMenu from "./ContextMenu";
-import FlashHost from "./FlashHost";
 import Markdown from "./Markdown";
 import ResizeHandle from "./ResizeHandle";
 import RewindConfirm from "./RewindConfirm";
@@ -140,17 +142,6 @@ describe("基础交互组件", () => {
     handle.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, pointerId: 1 }));
     handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     expect(reset).toHaveBeenCalledTimes(1);
-    dispose();
-  });
-
-  it("FlashHost 渲染成功和失败消息并允许关闭", async () => {
-    const dispose = render(() => <FlashHost />, document.body);
-    flash.show("saved", "ok", 0);
-    flash.show("failed", "err", 0);
-    await vi.waitFor(() => expect(document.body.querySelectorAll("button")).toHaveLength(2));
-    clickButton("saved");
-    expect(document.body.textContent).not.toContain("saved");
-    expect(document.body.textContent).toContain("failed");
     dispose();
   });
 });

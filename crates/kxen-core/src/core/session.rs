@@ -122,6 +122,11 @@ pub enum Part {
         /// （跨 provider 切换无净化矩阵）。存量 JSONL 无此字段，serde 缺省兼容。
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
+        /// 工具执行起止（ms epoch，execute_calls 实测）；存量 JSONL 缺省 = unknown，UI 不得虚构耗时。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        started_at: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        finished_at: Option<u64>,
     },
     Reasoning {
         text: String,
@@ -141,6 +146,19 @@ pub enum Part {
     },
 }
 
+/// run 终态统计快照（持久化在收尾 Assistant 消息上）；旧 JSONL 缺省 = unknown，
+/// usage_complete=false 时 input/output 是已知下限，UI 必须标注计量不完整。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageRunStats {
+    pub ttft_ms: u64,
+    pub duration_ms: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub tokens_per_sec: u64,
+    #[serde(default)]
+    pub usage_complete: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: String,
@@ -151,6 +169,9 @@ pub struct Message {
     /// 不能用 session 当前配置回推：fallback 或后续切模型都会让历史署名失真。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelRef>,
+    /// 本消息作为 run 收尾消息时的运行统计（TTFT/总耗时/token）；旧 JSONL 缺省为 None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stats: Option<MessageRunStats>,
     pub created_at: u64,
 }
 
@@ -310,7 +331,15 @@ fn finish_commit<T>(id: &str, result: Result<T, CommitFailure>) -> std::io::Resu
 }
 
 pub fn new_message(session_id: &str, role: Role, parts: Vec<Part>) -> Message {
-    Message { id: crate::core::ids::new_id("msg"), session_id: session_id.into(), role, parts, model: None, created_at: now_ms() }
+    Message {
+        id: crate::core::ids::new_id("msg"),
+        session_id: session_id.into(),
+        role,
+        parts,
+        model: None,
+        stats: None,
+        created_at: now_ms(),
+    }
 }
 
 #[cfg(test)]

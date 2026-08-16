@@ -12,6 +12,9 @@ vi.mock("./DiffView", () => ({
 import ToolCard from "./ToolCard";
 import ToolGroupCard from "./ToolGroupCard";
 import { setExpandAllTools, type ToolGroupItem } from "../lib/tool-ui";
+import { openToolPath } from "../lib/file-open";
+
+vi.mock("../lib/file-open", () => ({ openToolPath: vi.fn(async () => {}) }));
 
 const clickSummary = (root: ParentNode = document.body) => {
   const summary = root.querySelector("summary");
@@ -81,6 +84,48 @@ describe("ToolCard 折叠行为", () => {
     );
     expect(document.body.textContent).toContain("2 行");
     expect(document.body.textContent).toContain("+2 -1");
+    dispose();
+  });
+
+  it("dyn__ 前缀工具名显示「动态」徽标，普通工具不显示", () => {
+    const dispose = render(
+      () => (
+        <>
+          <ToolCard name="dyn__echo_ab12cd34" call='{"x":"hi"}' result="echo:hi" />
+          <ToolCard name="exec" call="ls" result="ok" />
+        </>
+      ),
+      document.body,
+    );
+    expect(document.body.textContent).toContain("动态");
+    expect(document.body.querySelectorAll("summary")[1]!.textContent).not.toContain("动态");
+    dispose();
+  });
+
+  it("展开体分 IN/OUT 两区；args 带 path 时 IN 区路径可点击跳转", () => {
+    const dispose = render(
+      () => <ToolCard name="read" call="src/a.ts" args='{"path":"src/a.ts"}' result="内容" />,
+      document.body,
+    );
+    clickSummary();
+    expect(document.body.textContent).toContain("IN");
+    expect(document.body.textContent).toContain("OUT");
+    const chip = document.body.querySelector<HTMLButtonElement>("[data-testid='tool-path']")!;
+    expect(chip.textContent).toBe("src/a.ts");
+    chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(openToolPath).toHaveBeenCalledWith("src/a.ts");
+    dispose();
+  });
+
+  it("args 无 path 字段时不出现路径跳转入口；折叠态无 IN/OUT 区", () => {
+    const dispose = render(
+      () => <ToolCard name="exec" call="ls" args='{"command":"ls"}' result="ok" />,
+      document.body,
+    );
+    expect(document.body.textContent).not.toContain("OUT");
+    clickSummary();
+    expect(document.body.textContent).toContain("OUT");
+    expect(document.body.querySelector("[data-testid='tool-path']")).toBeNull();
     dispose();
   });
 });

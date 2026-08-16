@@ -22,6 +22,8 @@ export interface ToolEvent {
   approvalId?: string | undefined;
   command?: string | undefined;
   reason?: string | undefined;
+  // approval 事件的归属会话（审批规则「本会话放行」按钮的显示前提；全局审批为空）
+  sessionId?: string | undefined;
   // approval_resolved 的了结方式：timeout / cancelled
   outcome?: string | undefined;
   // workflow phase 结构化进度（脚本声明 meta.phases 时才有）
@@ -145,6 +147,7 @@ export function onLlmDelta(
           approvalId: event.approval_id,
           command: event.command,
           reason: event.message,
+          sessionId: event.session_id,
         });
         break;
       case "approval.resolved":

@@ -29,6 +29,9 @@ export interface ToolItem {
   call: string;
   args?: string | undefined;
   result?: string | undefined;
+  /** 落盘来源定位（Chat「Inspect」联动 Trajectory 用）；流式态条目缺省。 */
+  messageId?: string | undefined;
+  partIndex?: number | undefined;
 }
 export interface PhaseItem {
   kind: "phase";
@@ -48,6 +51,8 @@ export interface ApprovalItem {
   approvalId: string;
   command: string;
   reason: string;
+  // 归属会话（实时事件/approval.pending 回填）；空 = 全局审批或落盘历史，不显示建规按钮
+  sessionId?: string | undefined;
   // allowed/denied = 用户决定；timeout/cancelled = 后端了结（approval.resolved）；expired = 迟到应答发现服务端已了结
   resolved?: "allowed" | "denied" | "timeout" | "cancelled" | "expired";
 }
@@ -69,7 +74,41 @@ export function userSource(text: string): string | undefined {
   return undefined;
 }
 
-function toolItem(p: StoredMessage["parts"][number]): ToolItem | undefined {
+/** 剥离来源前缀后的正文（折叠卡标题摘要用）；无前缀原样返回。与 userSource 同口径。 */
+export function userSourceBody(text: string): string {
+  return text.replace(/^\[(?:teammate [^\]]+|task notification)\] ?/, "");
+}
+
+/** 单行摘要：首行截断 120 字符（记录表/折叠卡标题共用）。 */
+export function firstLine(text: string): string {
+  const line = text.split("\n", 1)[0] ?? "";
+  return line.length > 120 ? `${line.slice(0, 120)}…` : line;
+}
+
+/** context 引用的一行来源描述（Chat 折叠卡标题 / Trajectory context 记录摘要共用）。 */
+export function describeContextItem(item: ContextItem): string {
+  switch (item.type) {
+    case "file":
+      return `file ${item.path}`;
+    case "dir":
+      return `dir ${item.path}`;
+    case "web":
+    case "docs":
+      return `${item.type} ${item.url}`;
+    case "note":
+      return "note";
+  }
+}
+
+export function describeContextItems(items: ContextItem[]): string {
+  return items.map(describeContextItem).join("，");
+}
+
+function toolItem(
+  p: StoredMessage["parts"][number],
+  messageId?: string,
+  partIndex?: number,
+): ToolItem | undefined {
   if (p.type !== "tool_call" || !p.name) return undefined;
   return {
     kind: "tool",
@@ -77,6 +116,8 @@ function toolItem(p: StoredMessage["parts"][number]): ToolItem | undefined {
     call: typeof p.input === "string" ? p.input : JSON.stringify(p.input),
     args: p.args == null ? undefined : JSON.stringify(p.args, null, 2),
     result: p.output || undefined,
+    messageId,
+    partIndex,
   };
 }
 
@@ -127,13 +168,13 @@ function flushTurn(items: Item[], turn: TurnAcc | undefined): undefined {
 
 /** 回合内消息的 parts 归置：文本/reasoning/图片攒进回合气泡，tool/approval 按时序直接出条目。 */
 function absorbTurnParts(items: Item[], turn: TurnAcc, m: StoredMessage): void {
-  for (const p of m.parts) {
+  for (const [partIndex, p] of m.parts.entries()) {
     if (p.type === "text" && p.text) turn.texts.push(p.text);
     else if (p.type === "reasoning" && p.text) turn.reasoning += p.text;
     else if (p.type === "image" && p.media_type && p.data !== undefined)
       turn.images.push({ media_type: p.media_type, data: p.data });
     else {
-      const item = toolItem(p) ?? approvalHistoryItem(p);
+      const item = toolItem(p, m.id, partIndex) ?? approvalHistoryItem(p);
       if (item) items.push(item);
     }
   }
@@ -157,10 +198,10 @@ export function toItems(messages: StoredMessage[]): Item[] {
         continue;
       }
       const hasToolCall = m.parts.some((p) => p.type === "tool_call");
-      const inlineOnly = m.parts.every((p) => p.type === "approval");
+      const inlineOnly = m.parts.every((p) => p.type === "approval" || p.type === "context");
       // 收尾消息口径（run_finalize/terminal.rs assemble_parts）：Reasoning + 最终文本，绝无 tool_call，
-      // 直接并入开放回合。纯审批/空 parts 消息是回合内联事件（审批落盘角色固定 Assistant）：
-      // 出卡但不打断、不关闭回合。
+      // 直接并入开放回合。纯审批/纯 context（动态工具定义快照）/空 parts 消息是回合内联事件
+      // （审批与快照落盘角色固定 Assistant）：出卡但不打断、不关闭回合。
       if (turn && !hasToolCall && !inlineOnly) {
         absorbTurnParts(items, turn, m);
         turn = flushTurn(items, turn);
@@ -182,7 +223,7 @@ function appendMessageItems(items: Item[], m: StoredMessage): void {
   if (m.role === "system") return;
   // reasoning 在 parts 里先于正文落盘（reasoning -> tool -> text）：先攒着，消息收尾时挂到本条 assistant 气泡
   let reasoning = "";
-  for (const p of m.parts) {
+  for (const [partIndex, p] of m.parts.entries()) {
     if (p.type === "text" && p.text) {
       const last = items.at(-1);
       if (last?.kind === "msg" && last.role === m.role && last.messageId === m.id) {
@@ -250,7 +291,7 @@ function appendMessageItems(items: Item[], m: StoredMessage): void {
         });
       }
     } else {
-      const item = toolItem(p) ?? approvalHistoryItem(p);
+      const item = toolItem(p, m.id, partIndex) ?? approvalHistoryItem(p);
       if (item) items.push(item);
     }
   }

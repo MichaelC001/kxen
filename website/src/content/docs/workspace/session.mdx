@@ -70,6 +70,21 @@ Sidebar 在 Workspace 项目下按父子层级展示 Session。Session Header �
 
 每个 run 必须结束为完成、取消或错误。界面停止流式更新不代表后端 run 已结束。活动状态、等待队列和 Approval 共同决定 Session 是否仍在运行。
 
+## Trajectory 检视视图
+
+Session 页提供 Chat 和 Trajectory 两个标签。两者读同一份追加写事件流：Chat 负责阅读，Trajectory 负责检视。
+
+- 记录表是三列结构（序号、事件类型、内容），事件类型为封闭集合：system、user、context（上下文注入）、compacted、message、tool、subtool。tool-call 与 tool-result 合并为一行，耗时取执行实测起止之差。
+- 工具栏提供 Duration 列开关、Collapse turns（折叠轮次只保留首行和「N 步骤 · N 工具调用」计数）、Collapse calls（工具行只留名字）和覆盖已加载窗口全部记录的搜索。
+- 记录表上方的 Overview 把有真实计时数据的记录按起止投影为时间条。Assistant 条以首个非空 token 为界区分 TTFT 与解码两段配色；计时不完整的记录退化为单一颜色或不投影，不会虚构耗时。支持左键拖选聚焦（记录表随之只显示与闭区间重叠的记录）、滚轮缩放、右键拖动平移、右键单击清除选区，悬停 500ms 显示精确起止、总耗时和 TTFT/解码拆分。
+- 点击任意记录在侧栏打开检查器。消息类记录给内容、来源和 provider/模型字段；工具类记录给 Summary、Payload、Result、Schema 和 Timing。图片按媒体渲染。
+- 长会话按尾部优先分页并做行虚拟化：打开定位到最新记录，记录表只挂载可视窗附近的行；滚到顶部自动加载更早一页（顶部按钮是同语义的显式入口），加载完成后视口内容原位不动。视图跟随尾部，用户上滚后暂停跟随，新记录到达只增加底部占位，不打断检视。
+- Chat 中每条工具行悬停露出「Inspect」入口，点击切到 Trajectory 并定位展开对应记录；切回 Chat 恢复原阅读位置。工具行展开后分 IN（调用参数）和 OUT（执行结果）两区；参数带文件路径时路径可点击，桌面端直接用系统方式打开，web 端复制路径。
+- Chat 中来源消息（teammate 来信、task notification）和 @/# 上下文注入默认折叠为带来源标题的卡片，展开查看全文；普通用户口信保持气泡直出。
+- Composer 右侧显示上下文占用圆环和估算百分比，点击展开系统提示词、工具定义、对话消息三段组成明细。三段为 chars/4 粗估（标记 ~），与最近一次 run 的 provider 实测输入并列展示但不对账；尚无实测时实测项显示未知。
+
+未持久化的字段（例如调用发生时的 schema 快照、存量会话缺省的工具起止时间）一律显示为未知或留空，不会用当前配置回填历史。token 用量只出现在 run 收尾消息的统计快照里；计量不完整时界面标注 token 数为已知下限。
+
 进入 Session 或手动重试时，界面会把请求开始时的 baseline、后端 snapshot 和加载期间收到的 live 事件按 message ID 与 Approval occurrence 对账。已经落盘的记录接管对应 optimistic 或 live 前缀，但只存在于 live 流中的新记录不会被旧 snapshot 抹掉。切换 Session、存储恢复或新的 queue 更新会使旧加载 generation 失效，迟到结果不能复活上一 Session 的时间线或队列。
 
 时间线和 queue 分别保留错误来源，可以单独重试。存储恢复成功后，界面取消旧 generation、清除旧加载错误并重新读取两者的后端真相。

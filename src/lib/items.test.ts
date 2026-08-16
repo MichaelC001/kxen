@@ -215,6 +215,8 @@ describe("toItems 完整消息还原", () => {
         call: "pwd",
         args: '{\n  "cwd": "/repo"\n}',
         result: "ok",
+        messageId: "m1",
+        partIndex: 0,
       },
       {
         kind: "tool",
@@ -222,6 +224,8 @@ describe("toItems 完整消息还原", () => {
         call: '{"path":"a"}',
         args: undefined,
         result: undefined,
+        messageId: "m1",
+        partIndex: 1,
       },
     ]);
   });
@@ -296,5 +300,32 @@ describe("toItems 完整消息还原", () => {
       },
     ];
     expect(toItems(messages)).toEqual([]);
+  });
+});
+
+describe("toItems 动态工具定义快照（Part context）", () => {
+  it("context-only assistant 消息是回合内联事件：不出条目、不打断回合", () => {
+    const messages: StoredMessage[] = [
+      {
+        id: "run1:t0",
+        session_id: "s1",
+        role: "assistant",
+        created_at: 0,
+        parts: [
+          { type: "tool_call", name: "tool_define", input: "dyn_echo", output: "registered" },
+        ],
+      },
+      {
+        id: "snap1",
+        session_id: "s1",
+        role: "assistant",
+        created_at: 1,
+        parts: [{ type: "context", text: "[kxen:dynamic-tool] {}" }],
+      },
+      stored("assistant", "完成", "final1"),
+    ];
+    const items = toItems(messages);
+    expect(items.map((i) => i.kind)).toEqual(["tool", "msg"]);
+    expect(items[1]).toMatchObject({ role: "assistant", content: "完成", messageId: "final1" });
   });
 });

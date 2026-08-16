@@ -105,6 +105,58 @@ function argsPath(args: string | undefined): string | undefined {
   return typeof p === "string" ? p : undefined;
 }
 
+/** 工具精确 arguments 里的文件路径（read/write/edit 等）；无 path 字段 = undefined。 */
+export function toolArgsPath(args: string | undefined): string | undefined {
+  return argsPath(args);
+}
+
+/** workflow 脚本内一次工具调用的投影（后端 workflow/tools.rs render_block 产出）。 */
+export interface WorkflowSubcall {
+  name: string;
+  status: "ok" | "error";
+  /** 真实执行耗时；journal 缓存回放没有耗时（后端不虚构，前端留空） */
+  ms?: number | undefined;
+  cached?: boolean | undefined;
+}
+
+/** workflow 工具参数里的脚本源码（args.script）。 */
+export function workflowScript(args: string | undefined): string | undefined {
+  const script = argsJson(args)?.script;
+  return typeof script === "string" ? script : undefined;
+}
+
+/** workflow 工具结果尾部 [kxen:tool-calls] 结构化块 -> 子调用列表。
+ *  逐行 JSONL 解析，坏行跳过（结果是模型可见文本，容忍被截断的尾部）。 */
+export function parseWorkflowSubcalls(result: string | undefined): WorkflowSubcall[] {
+  if (!result) return [];
+  const OPEN = "[kxen:tool-calls]";
+  const CLOSE = "[/kxen:tool-calls]";
+  const start = result.indexOf(OPEN);
+  const end = result.indexOf(CLOSE);
+  if (start < 0 || end < 0 || end <= start) return [];
+  const out: WorkflowSubcall[] = [];
+  for (const line of result.slice(start + OPEN.length, end).split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (parsed === null || typeof parsed !== "object") continue;
+      const entry = parsed as Record<string, unknown>;
+      if (typeof entry.name !== "string") continue;
+      if (entry.status !== "ok" && entry.status !== "error") continue;
+      out.push({
+        name: entry.name,
+        status: entry.status,
+        ms: typeof entry.ms === "number" ? entry.ms : undefined,
+        cached: entry.cached === true ? true : undefined,
+      });
+    } catch {
+      // 截断/损坏行跳过
+    }
+  }
+  return out;
+}
+
 /** edit/write 工具结果 -> 可渲染的 old/new 文本对（失败或不可解析返回 undefined，调用方回落原文展示）。
  *  edit 的结果是 `diff_summary\n` + simple_diff（"- "/" + " 前缀行，最多各 5 行，见 crates/kxen-core fs_tool.rs），
  *  据此还原变更片段；write 的结果是 "wrote N bytes"，全文取自 args.content（新建文件口径，old 为空）。 */

@@ -67,7 +67,15 @@ describe("toItems 迭代消息归并为一个视觉回合", () => {
     ]);
 
     expect(items).toEqual([
-      { kind: "tool", name: "read", call: "read", args: undefined, result: "data" },
+      {
+        kind: "tool",
+        name: "read",
+        call: "read",
+        args: undefined,
+        result: "data",
+        messageId: "run-2-0001:t1",
+        partIndex: 0,
+      },
       {
         kind: "msg",
         role: "assistant",
@@ -154,8 +162,24 @@ describe("toItems 存量打包消息渲染不变", () => {
 
     expect(toItems([msg("u1", "user", [{ type: "text", text: "问" }]), packed])).toEqual([
       { kind: "msg", role: "user", content: "问", messageId: "u1", source: undefined },
-      { kind: "tool", name: "shell", call: "pwd", args: '{\n  "cwd": "/repo"\n}', result: "ok" },
-      { kind: "tool", name: "read", call: '{"path":"a"}', args: undefined, result: undefined },
+      {
+        kind: "tool",
+        name: "shell",
+        call: "pwd",
+        args: '{\n  "cwd": "/repo"\n}',
+        result: "ok",
+        messageId: "msg_packed",
+        partIndex: 1,
+      },
+      {
+        kind: "tool",
+        name: "read",
+        call: '{"path":"a"}',
+        args: undefined,
+        result: undefined,
+        messageId: "msg_packed",
+        partIndex: 2,
+      },
       {
         kind: "msg",
         role: "assistant",

@@ -1,7 +1,14 @@
 // tool-ui 纯逻辑：探索类聚合（groupToolEntries）、徽标（toolMetaBadge）、edit/write diff 解析（parseToolDiff）。
 import { describe, expect, it } from "vitest";
 import type { Item, ToolItem } from "./items";
-import { groupToolEntries, isToolGroup, parseToolDiff, toolMetaBadge } from "./tool-ui";
+import {
+  groupToolEntries,
+  isToolGroup,
+  parseToolDiff,
+  parseWorkflowSubcalls,
+  toolMetaBadge,
+  workflowScript,
+} from "./tool-ui";
 
 function tool(over: Partial<ToolItem>): ToolItem {
   return { kind: "tool", name: "read", call: "call", ...over };
@@ -118,5 +125,38 @@ describe("parseToolDiff edit/write 解析", () => {
 
   it("其余工具恒不可解析", () => {
     expect(parseToolDiff("read", undefined, "content")).toBeUndefined();
+  });
+});
+
+describe("workflow 子调用与脚本解析", () => {
+  it("parseWorkflowSubcalls：解析结果尾部的结构化块，坏行跳过", () => {
+    const result = [
+      "脚本正文输出",
+      "",
+      "[kxen:tool-calls]",
+      '{"name":"read","status":"ok","ms":12}',
+      '{"name":"grep","status":"error","ms":3}',
+      '{"name":"read","status":"ok","cached":true}',
+      '{"broken"',
+      "[/kxen:tool-calls]",
+    ].join("\n");
+    expect(parseWorkflowSubcalls(result)).toEqual([
+      { name: "read", status: "ok", ms: 12, cached: undefined },
+      { name: "grep", status: "error", ms: 3, cached: undefined },
+      { name: "read", status: "ok", ms: undefined, cached: true },
+    ]);
+  });
+
+  it("parseWorkflowSubcalls：无块/空结果/乱序标记都返回空", () => {
+    expect(parseWorkflowSubcalls(undefined)).toEqual([]);
+    expect(parseWorkflowSubcalls("plain output")).toEqual([]);
+    expect(parseWorkflowSubcalls("[/kxen:tool-calls]\n[kxen:tool-calls]")).toEqual([]);
+  });
+
+  it("workflowScript：从 args 提取 script 字段", () => {
+    expect(workflowScript(JSON.stringify({ script: "return 1", run_id: "x" }))).toBe("return 1");
+    expect(workflowScript(JSON.stringify({ run_id: "x" }))).toBeUndefined();
+    expect(workflowScript("not json")).toBeUndefined();
+    expect(workflowScript(undefined)).toBeUndefined();
   });
 });

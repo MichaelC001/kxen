@@ -80,6 +80,26 @@ pub(in crate::ws) fn finish_persisted(
     commit_and_publish(state, sessions_dir, &message, stream_id, &terminal, schedule_job_id)
 }
 
+/// run 收尾消息装配：parts + 实际路由模型 + run 统计快照一次组好（stats 仅收尾消息携带）。
+pub(super) fn finalize_message(
+    session_id: &str,
+    parts: Vec<Part>,
+    model: Option<kxen_core::llm::ModelRef>,
+    stats: Option<kxen_core::agent::agent_loop::RunStats>,
+) -> Message {
+    let mut message = session::new_message(session_id, Role::Assistant, parts);
+    message.model = model;
+    message.stats = stats.map(|s| session::MessageRunStats {
+        ttft_ms: s.ttft_ms,
+        duration_ms: s.duration_ms,
+        input_tokens: s.input_tokens,
+        output_tokens: s.output_tokens,
+        tokens_per_sec: s.tokens_per_sec,
+        usage_complete: s.usage_complete,
+    });
+    message
+}
+
 pub(super) fn early_message(session_id: &str, model: Option<&kxen_core::llm::ModelRef>, terminal: &AgentEvent) -> Message {
     let text = match terminal {
         AgentEvent::Error { message } => format!("(错误: {message})"),

@@ -30,8 +30,6 @@ pub(super) struct RunEnd<'a> {
 }
 
 pub(super) async fn finalize_run(end: RunEnd<'_>) {
-    use kxen_core::core::session as ses;
-
     let RunEnd {
         state,
         runtime,
@@ -111,8 +109,7 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
     // transcript 只含 Reasoning；tool 交互已逐迭代落盘（persist_turn），finalize 只组最终消息。
     let transcript_parts = std::mem::take(&mut *kxen_core::core::shared::lock(&transcript));
     let parts = terminal::assemble_parts(transcript_parts, outcome.final_text, outcome.aborted, iterations_persisted > 0);
-    let mut assistant_msg = ses::new_message(&session_id, ses::Role::Assistant, parts);
-    assistant_msg.model = outcome.provider_model.clone();
+    let assistant_msg = terminal::finalize_message(&session_id, parts, outcome.provider_model.clone(), outcome.stats);
     // Assistant -> schedule history -> visible terminal -> queue handoff。任一 durable gate
     // 失败都发布可诊断 Error 并暂停队列，不能把未提交结果宣告为成功。
     if !terminal::commit_and_publish(state, &sessions_dir, &assistant_msg, &stream_id, &outcome.terminal, cron_job_id.as_deref()) {

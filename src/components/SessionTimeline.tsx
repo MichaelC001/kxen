@@ -3,7 +3,7 @@ import { ArrowDown } from "lucide-solid";
 import AgentRunCards from "./AgentRunCards";
 import EmptyHero from "./EmptyHero";
 import SessionItem from "./SessionItem";
-import type { Item, MsgItem } from "../lib/items";
+import type { Item, MsgItem, ToolItem } from "../lib/items";
 import { groupToolEntries, type TimelineEntry } from "../lib/tool-ui";
 
 export default function SessionTimeline(props: {
@@ -24,7 +24,12 @@ export default function SessionTimeline(props: {
   isRetrying: (item: MsgItem) => boolean;
   onRerun: (index: number) => void;
   onContinue: () => void;
-  onRespondApproval: (id: string, allow: boolean) => Promise<void>;
+  onRespondApproval: (
+    id: string,
+    allow: boolean,
+    remember?: "session" | "workspace",
+  ) => Promise<void>;
+  onInspectTool?: ((item: ToolItem) => void) | undefined;
 }) {
   // 展示层聚合（探索类连续调用成团）：只影响渲染，items 原始序不变；
   // live/编辑重发/重跑按原始 items 索引对齐，故用引用回查原始下标而非聚合后下标
@@ -51,6 +56,7 @@ export default function SessionTimeline(props: {
                 onContinue={props.onContinue}
                 onImageLoad={() => props.scroll()}
                 onRespondApproval={props.onRespondApproval}
+                onInspectTool={props.onInspectTool}
               />
             )}
           </For>

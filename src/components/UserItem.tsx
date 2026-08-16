@@ -12,6 +12,7 @@ import {
   messageEditDraft,
   setMessageEditDraft,
 } from "../lib/message-edit-drafts";
+import { describeContextItem, describeContextItems, firstLine, userSourceBody } from "../lib/items";
 
 export default function UserItem(props: {
   item: MsgItem;
@@ -116,9 +117,21 @@ export default function UserItem(props: {
         ]);
       }}
     >
-      {/* 通知类消息的来源小标（teammate 报告 / 后台任务完成），与普通用户口信区分 */}
-      <Show when={props.item.source}>
-        <div class="text-2xs text-[var(--text-faint)]">{props.item.source}</div>
+      {/* 注入类消息（teammate 来信 / task notification）：默认折叠卡，标题 = 来源 + 首行摘要
+          （来源与正文都来自落盘文本前缀，见 items.userSource）；普通用户口信保持气泡 */}
+      <Show when={props.item.source && props.item.content}>
+        <details
+          data-testid="injected-msg"
+          class="selectable w-full max-w-[80%] self-end rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] text-xs"
+        >
+          <summary class="cursor-pointer select-none flex items-center gap-2 px-3 py-1.5 text-[var(--text-dim)]">
+            <span class="text-2xs text-[var(--text-faint)] shrink-0">{props.item.source}</span>
+            <span class="truncate">{firstLine(userSourceBody(props.item.content))}</span>
+          </summary>
+          <div class="px-3 py-2 border-t border-[var(--border)] whitespace-pre-wrap text-[var(--text)]">
+            {props.item.content}
+          </div>
+        </details>
       </Show>
       <Show when={props.item.images?.length}>
         <div class="flex flex-wrap justify-end gap-2">
@@ -134,11 +147,38 @@ export default function UserItem(props: {
           </For>
         </div>
       </Show>
-      {/* 纯图片消息没有正文，空气泡只是一坨无意义底色 */}
-      <Show when={props.item.content}>
+      {/* 纯图片消息没有正文，空气泡只是一坨无意义底色；注入类消息的正文已在折叠卡内 */}
+      <Show when={props.item.content && !props.item.source}>
         <div class="selectable max-w-[80%] rounded-2xl rounded-br-md px-3.5 py-2 text-sm bg-[var(--accent)] text-[var(--accent-contrast)] whitespace-pre-wrap">
           {props.item.content}
         </div>
+      </Show>
+      {/* @/# 引用的上下文注入：默认折叠卡，标题列出引用来源（持久 context_sources 字段）；
+          展开逐项看引用内容（note 注记全文在此可见） */}
+      <Show when={props.item.context?.length}>
+        <details
+          data-testid="injected-context"
+          class="selectable w-full max-w-[80%] self-end rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] text-xs"
+        >
+          <summary class="cursor-pointer select-none flex items-center gap-2 px-3 py-1.5 text-[var(--text-dim)]">
+            <span class="text-2xs text-[var(--text-faint)] shrink-0">上下文注入</span>
+            <span class="truncate">{describeContextItems(props.item.context ?? [])}</span>
+          </summary>
+          <div class="px-3 py-2 border-t border-[var(--border)] space-y-1">
+            <For each={props.item.context}>
+              {(item) => (
+                <div class="text-xs">
+                  <span class="text-2xs text-[var(--text-faint)]">{describeContextItem(item)}</span>
+                  <Show when={item.type === "note" ? item : null}>
+                    {(note) => (
+                      <div class="whitespace-pre-wrap text-[var(--text-dim)]">{note().text}</div>
+                    )}
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
+        </details>
       </Show>
       {/* 发送失败：错误原因 + 点击重发（失败气泡无 messageId，MessageActions 本就不显示） */}
       <Show when={props.item.sendError}>

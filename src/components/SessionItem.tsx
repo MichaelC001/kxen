@@ -6,7 +6,7 @@ import ApprovalCard from "./ApprovalCard";
 import ToolCard from "./ToolCard";
 import ToolGroupCard from "./ToolGroupCard";
 import UserItem from "./UserItem";
-import type { MsgItem } from "../lib/items";
+import type { MsgItem, ToolItem } from "../lib/items";
 import { isToolGroup, type TimelineEntry } from "../lib/tool-ui";
 
 export default function SessionItem(props: {
@@ -22,14 +22,27 @@ export default function SessionItem(props: {
   onRerun: () => void;
   onContinue: () => void;
   onImageLoad: () => void;
-  onRespondApproval: (id: string, allow: boolean) => Promise<void>;
+  onRespondApproval: (
+    id: string,
+    allow: boolean,
+    remember?: "session" | "workspace",
+  ) => Promise<void>;
+  onInspectTool?: ((item: ToolItem) => void) | undefined;
 }) {
   const item = props.item;
   if (isToolGroup(item)) {
-    return <ToolGroupCard group={item} />;
+    return <ToolGroupCard group={item} onInspectTool={props.onInspectTool} />;
   }
   if (item.kind === "tool") {
-    return <ToolCard name={item.name} call={item.call} args={item.args} result={item.result} />;
+    return (
+      <ToolCard
+        name={item.name}
+        call={item.call}
+        args={item.args}
+        result={item.result}
+        onInspect={item.messageId !== undefined ? () => props.onInspectTool?.(item) : undefined}
+      />
+    );
   }
   if (item.kind === "approval") {
     return <ApprovalCard item={item} onRespond={props.onRespondApproval} />;

@@ -100,8 +100,19 @@ export async function sessionAbort(sessionId: string): Promise<boolean> {
 export { onLlmDelta } from "./delta";
 export type { RunStats, ToolEvent } from "./delta";
 
-export async function approvalRespond(id: string, allow: boolean): Promise<{ resolved: boolean }> {
-  return client.rpc("approval.respond", { id, allow });
+export interface ApprovalRespondResult {
+  resolved: boolean;
+  rule_id?: string;
+  rule_error?: string;
+}
+
+/** 审批应答；remember="session"|"workspace" 时放行成功后把命令全文建为前缀规则（B1）。 */
+export async function approvalRespond(
+  id: string,
+  allow: boolean,
+  remember?: "session" | "workspace",
+): Promise<ApprovalRespondResult> {
+  return client.rpc("approval.respond", remember ? { id, allow, remember } : { id, allow });
 }
 
 export interface PendingApproval {
@@ -242,10 +253,23 @@ export interface StoredPart {
   id?: string; // tool_call：provider 下发的 call id（仅供审计配对，前端不消费；存量 JSONL 缺省）
   media_type?: string;
   data?: string; // args=tool 精确 arguments；media_type/data=image 块
+  // tool_call：执行起止 ms epoch（存量 JSONL 缺省 = unknown，不得虚构耗时）
+  started_at?: number;
+  finished_at?: number;
   command?: string; // approval 块：被审批的命令
   reason?: string; // approval 块：审批原因
   decision?: string; // approval 块：allow/deny/timeout/cancel
   items?: ContextItem[]; // context_sources：可逆的原始 typed @ 引用
+}
+
+/** 落盘的 run 终态统计（收尾 Assistant 消息携带；usage_complete=false 时 token 是已知下限）。 */
+export interface MessageRunStats {
+  ttft_ms: number;
+  duration_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  tokens_per_sec: number;
+  usage_complete?: boolean;
 }
 
 export interface StoredMessage {
@@ -255,6 +279,8 @@ export interface StoredMessage {
   parts: StoredPart[];
   /** 生成本条 Assistant 的实际路由模型；旧 JSONL 和非 Assistant 消息缺省。 */
   model?: ModelIdentity | null;
+  /** run 收尾消息的运行统计快照；旧 JSONL 缺省 = unknown。 */
+  stats?: MessageRunStats | null;
   created_at: number;
 }
 
@@ -303,6 +329,11 @@ export async function sessionRewind(
   confirm = false,
 ): Promise<void> {
   return client.rpc("session.rewind", { session_id: sessionId, message_id: messageId, confirm });
+}
+
+/** 撤销最近一次回退：只恢复文件（对话在 rewind 时已截断，不回放）。 */
+export async function sessionRewindUndo(sessionId: string): Promise<void> {
+  return client.rpc("session.rewind_undo", { session_id: sessionId });
 }
 
 export async function sessionExport(sessionId: string): Promise<{ path: string }> {
