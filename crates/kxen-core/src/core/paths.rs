@@ -27,7 +27,7 @@ impl KxenPaths {
         }
         #[cfg(test)]
         {
-            return Self::custom(std::env::temp_dir().join(format!("kxen-unit-{}", std::process::id())).join(PROJECT_STATE_RELATIVE));
+            Self::custom(std::env::temp_dir().join(format!("kxen-unit-{}", std::process::id())).join(PROJECT_STATE_RELATIVE))
         }
         #[cfg(not(test))]
         Self::global()
