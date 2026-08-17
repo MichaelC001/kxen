@@ -3,7 +3,7 @@ title: Web 模式
 description: 用浏览器访问 kxen:桌面托盘开关、kxen 无头 server、token 安全模型和 tailscale 远程访问。
 status: canonical
 sidebar:
-  order: 4
+  order: 5
 ---
 
 kxen 的全部业务能力都在共享核心里。桌面 webview 和浏览器是同一个内嵌服务的两个平等客户端，经同一个 `/ws` 端点通信；Tauri 壳只保留窗口、托盘、原生对话框、OS 通知、更新器和 opener。Web 模式就是用浏览器当客户端，功能与桌面窗口一致。
@@ -23,6 +23,15 @@ kxen 的全部业务能力都在共享核心里。桌面 webview 和浏览器是
 ## kxen 无头 server
 
 `kxen` 是不含 GUI 的独立可执行文件，六个平台都有发布包，适合跑在服务器或常年开机的机器上。macOS 发布包经 Developer ID 签名和 Apple 公证，详见 [代码签名说明](https://kxen.ai/reference/code-signing):
+
+macOS 或 Linux 只安装 server：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSLo install-kxen.sh https://kxen.ai/install.sh
+bash install-kxen.sh --component server
+```
+
+Windows 和自定义版本、目录、PATH 的命令见 [CLI 安装](https://kxen.ai/getting-started/cli-installation)。安装后启动：
 
 ```bash
 kxen --bind 127.0.0.1 --port 7824

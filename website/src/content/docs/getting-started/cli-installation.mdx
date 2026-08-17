@@ -1,0 +1,120 @@
+---
+title: CLI 安装
+description: 自动识别平台和架构，安装或更新 kxen 无头 server 与 kxen-agent。
+status: canonical
+sidebar:
+  order: 2
+---
+
+Kxen 提供两个独立的 headless 命令：`kxen` 是可以通过浏览器访问完整工作台的无头 server，`kxen-agent` 是面向本地终端、CI 和 worker 的 autonomous CLI。安装器默认同时安装两者，也可以通过参数只选择一个。它不安装桌面 App。
+
+## macOS 与 Linux
+
+默认安装 `kxen` 和 `kxen-agent`：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSLo install-kxen.sh https://kxen.ai/install.sh
+bash install-kxen.sh
+```
+
+只安装 agent：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSLo install-kxen.sh https://kxen.ai/install.sh
+bash install-kxen.sh --component agent
+```
+
+只安装 server：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSLo install-kxen.sh https://kxen.ai/install.sh
+bash install-kxen.sh --component server
+```
+
+安装器识别 macOS Apple Silicon、macOS Intel、Linux x86_64 和 Linux ARM64。macOS 需要 14 或更高版本；Rosetta 下仍选择真实的系统架构。Linux Release 使用 glibc，明确检测到 musl 或 Alpine 时安装器会失败并保留现有安装。
+
+## Windows
+
+Windows 使用原生 PowerShell，不要求 Git Bash。默认安装两个命令：
+
+```powershell
+Invoke-WebRequest https://kxen.ai/install.ps1 -OutFile install-kxen.ps1
+.\install-kxen.ps1
+```
+
+等价的 `curl.exe` 下载入口：
+
+```powershell
+curl.exe -fsSLo install-kxen.ps1 https://kxen.ai/install.ps1
+.\install-kxen.ps1
+```
+
+只安装 agent：
+
+```powershell
+Invoke-WebRequest https://kxen.ai/install.ps1 -OutFile install-kxen.ps1
+.\install-kxen.ps1 -Component Agent
+```
+
+只安装 server：
+
+```powershell
+Invoke-WebRequest https://kxen.ai/install.ps1 -OutFile install-kxen.ps1
+.\install-kxen.ps1 -Component Server
+```
+
+安装器根据 Windows OS architecture 选择 x64 或 ARM64 Release，不使用可能受模拟层影响的进程架构。当前 Windows headless 二进制没有 Authenticode 签名，安装器会用同一 immutable GitHub Release 中的 `SHA256SUMS` 校验下载内容。
+
+## 安装参数
+
+| Bash                             | PowerShell                      | 默认值       | 作用                              |
+| -------------------------------- | ------------------------------- | ------------ | --------------------------------- |
+| `--component all\|server\|agent` | `-Component All\|Server\|Agent` | `all`        | 选择本次安装或更新的组件          |
+| `--version latest\|x.y.z`        | `-Version latest\|x.y.z`        | `latest`     | 使用最新稳定版或指定的稳定 SemVer |
+| `--install-dir PATH`             | `-InstallDir PATH`              | 平台默认目录 | 使用自定义的绝对二进制目录        |
+| `--no-modify-path`               | `-NoModifyPath`                 | false        | 不修改用户 PATH                   |
+| `--help`                         | `-Help`                         | -            | 输出完整参数说明                  |
+
+Bash 还提供 `--all`、`--server` 和 `--agent` 简写。指定组件只控制本次安装或更新，不会删除另一个已经存在的命令。重复运行安装命令即可更新。
+
+固定版本适合需要可重复环境的 CI 和 worker：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSLo install-kxen.sh https://kxen.ai/install.sh
+bash install-kxen.sh --version 0.1.15
+```
+
+```powershell
+Invoke-WebRequest https://kxen.ai/install.ps1 -OutFile install-kxen.ps1
+.\install-kxen.ps1 -Version 0.1.15
+```
+
+## 二进制目录
+
+默认安装目录：
+
+- macOS、Linux：`~/.local/bin`
+- Windows：`%LOCALAPPDATA%\Kxen\bin`
+
+安装器不使用 `sudo`，不请求 Administrator 权限。目录不在 PATH 时，默认进行用户级、幂等的 PATH 配置；使用 `--no-modify-path` 或 `-NoModifyPath` 可以关闭。Unix 安装器无法修改父 shell 的当前环境，因此首次安装后需要打开新 shell，或执行安装器打印的 `export PATH=...`。
+
+二进制位置与运行数据相互独立。用户运行数据仍位于 `file:///Users/you/.agents/kxen/` 或 Windows 用户目录对应的 `.agents/kxen`，Workspace 运行数据仍位于项目 `.agents/kxen`；安装和更新不迁移或删除这些数据。
+
+## 完整性与失败行为
+
+从本地文件执行时，安装器会先从 GitHub 仓库的独立交付域名读取 `install.sh.sha256` 或 `install.ps1.sha256`，校验当前脚本后才继续。`https://kxen.ai/install.sh.sha256` 和 `https://kxen.ai/install.ps1.sha256` 也公开提供相同 sidecar，CI 会阻止脚本与 sidecar 不一致的构建。
+
+脚本校验通过后，安装器解析一个精确的稳定 Release，再下载 `SHA256SUMS` 和全部选中资源。只有全部资源通过 SHA-256、压缩包单文件约束以及命令 smoke check 后，才会替换已有二进制；macOS 还会执行 `codesign --verify --strict`。替换期间发生错误会回滚已移动的旧文件并返回非零退出码。
+
+`curl ... | bash` 或 `irm ... | iex` 在执行前没有稳定的本地脚本文件，因此无法完成脚本自检，安装器会输出 `WARN`。上面的默认命令先保存文件再执行，可以执行自检。SHA-256 sidecar 可以发现站点交付篡改或版本漂移，但不是发布者数字签名；如果脚本和校验值来自同一个被攻破的信任源，攻击者仍可能同时替换二者。
+
+`SHA256SUMS` 证明下载文件与同一个 immutable GitHub Release 一致。它不是独立的发布者签名；桌面 updater 的 `.sig` 也不适用于 headless archive。各平台签名状态见 [代码签名说明](https://kxen.ai/reference/code-signing)。
+
+需要先人工审查脚本时，可以在执行前查看已经下载的文件：
+
+```bash
+less install-kxen.sh
+bash install-kxen.sh --component agent
+```
+
+安装 server 后继续阅读 [Web 模式](https://kxen.ai/getting-started/web-mode)。安装 agent 后继续阅读 [kxen-agent](https://kxen.ai/agent-cli/)。

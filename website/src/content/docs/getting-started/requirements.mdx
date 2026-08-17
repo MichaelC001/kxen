@@ -8,9 +8,10 @@ sidebar:
 
 ## 平台
 
-- macOS 14 或更高版本（Apple Silicon 或 Intel）、Windows（x64 或 ARM64）、Linux（x86_64 或 ARM64）。
+- macOS 14 或更高版本（Apple Silicon 或 Intel）、Windows（x64 或 ARM64）、使用 glibc 的 Linux（x86_64 或 ARM64）。当前发布包不支持 musl 或 Alpine。
 - 没有显示器的环境可以使用 kxen 无头 server，经浏览器访问，见 [Web 模式](https://kxen.ai/getting-started/web-mode)。
 - 非交互自动化可以只运行 `kxen-agent`，不需要显示器、桌面应用或 server，见 [kxen-agent](https://kxen.ai/agent-cli/)。
+- Headless 命令可以通过 [CLI 安装器](https://kxen.ai/getting-started/cli-installation) 自动识别系统与架构；它不安装桌面 App。
 - 可用 `zsh`。
 - Google Chrome、Chromium 或 Microsoft Edge 仅在使用 Browser 能力时需要。
 

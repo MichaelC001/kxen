@@ -1,7 +1,8 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
 import Header from "../components/Header.astro";
-import { homeDescription, homeTitle } from "../lib/home-content";
+import Code from "../components/ui/code/Code.astro";
+import { homeDescription, homeTitle, unixInstallCommand, windowsInstallCommand } from "../lib/home-content";
 import { jsonLd } from "../lib/json-ld";
 
 const softwareApplicationLd = jsonLd({
@@ -60,6 +61,30 @@ const dl = (asset: string) => `https://github.com/StringKe/kxen/releases/latest/
           桌面应用内置自动更新。kxen 无头 server 可以在服务器上运行，用浏览器访问全部功能。
         </p>
       </div>
+
+      <section class="mt-16" aria-labelledby="cli-install-heading">
+        <h2 id="cli-install-heading" class="text-lg font-semibold text-foreground">Headless CLI 快速安装</h2>
+        <p class="mt-1.5 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+          自动识别系统与架构，默认同时安装 <code>kxen</code> 无头 server 和 <code>kxen-agent</code>，不安装桌面 App。保存后执行会先校验安装器自身。组件选择、固定版本、自定义目录和完整性边界见{" "}
+          <a href="/getting-started/cli-installation" class="text-foreground underline decoration-border-strong underline-offset-4 hover:text-primary">CLI 安装文档</a>。
+        </p>
+        <div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div class="min-w-0 rounded-xl border border-border bg-card p-5">
+            <div class="font-semibold text-foreground">macOS 与 Linux</div>
+            <div class="mt-1.5 text-xs leading-relaxed text-muted-foreground">支持 Apple Silicon、Intel、Linux x86_64 与 ARM64；Linux Release 需要 glibc。</div>
+            <div class="mt-4 overflow-x-auto rounded-lg">
+              <Code code={unixInstallCommand} lang="bash" />
+            </div>
+          </div>
+          <div class="min-w-0 rounded-xl border border-border bg-card p-5">
+            <div class="font-semibold text-foreground">Windows PowerShell</div>
+            <div class="mt-1.5 text-xs leading-relaxed text-muted-foreground">原生识别 Windows x64 或 ARM64，不要求 Git Bash 或 Administrator 权限。</div>
+            <div class="mt-4 overflow-x-auto rounded-lg">
+              <Code code={windowsInstallCommand} lang="powershell" />
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section class="mt-16" aria-labelledby="download-heading">
         <h2 id="download-heading" class="text-lg font-semibold text-foreground">下载</h2>

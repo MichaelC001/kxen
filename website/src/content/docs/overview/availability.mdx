@@ -24,6 +24,24 @@ kxen 当前是开发预览，安装包已公开发布。
 
 除 deb 外，全部桌面安装介质都进入应用内置自动更新通道；deb 用户经本页下载新版本。每个版本附带 `SHA256SUMS` 和 updater 签名文件，可以校验下载产物。
 
+## Headless CLI 安装
+
+macOS 和 Linux 可以用一个命令自动识别系统与架构，默认同时安装 `kxen` server 和 `kxen-agent`：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSLo install-kxen.sh https://kxen.ai/install.sh
+bash install-kxen.sh
+```
+
+Windows 使用原生 PowerShell：
+
+```powershell
+Invoke-WebRequest https://kxen.ai/install.ps1 -OutFile install-kxen.ps1
+.\install-kxen.ps1
+```
+
+安装器不安装桌面 App。只安装其中一个组件、固定版本、自定义目录、PATH 行为和完整性边界见 [CLI 安装](https://kxen.ai/getting-started/cli-installation)。
+
 ## Web 模式
 
 桌面应用和浏览器是同一内嵌服务的两个平等客户端。系统托盘的「浏览器访问」开关可以直接在本机浏览器中使用全部功能。
@@ -34,7 +52,7 @@ kxen 当前是开发预览，安装包已公开发布。
 
 每个平台在同一个版本中提供两个并列的 headless 资源：`kxen-<platform>.tar.gz|zip` 是 server，`kxen-agent-<platform>.tar.gz|zip` 是 autonomous CLI。`kxen-agent` 不启动 Web 服务，可在本地终端、CI、queue worker、Webhook consumer 和轻量容器中直接执行非交互任务。macOS 的两个二进制都经过 Developer ID 签名和 Apple 公证。
 
-安装、DCPAgent definition、Session recovery 和 automation 示例见 [kxen-agent](https://kxen.ai/agent-cli/)。
+安装见 [CLI 安装](https://kxen.ai/getting-started/cli-installation)；DCPAgent definition、Session recovery 和 automation 示例见 [kxen-agent](https://kxen.ai/agent-cli/)。
 
 ## 不应推断的承诺
 

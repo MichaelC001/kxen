@@ -8,6 +8,22 @@ macOS、Windows 和 Linux 上的 Coding Agent 工作台，也可以用浏览器�
 
 在 [GitHub Releases](https://github.com/StringKe/kxen/releases/latest) 下载最新版本，覆盖 macOS、Windows、Linux 的桌面应用、`kxen-<platform>` server asset 和独立的 `kxen-agent-<platform>` CLI asset；它们参与同一个版本发布。kxen server 还以多架构镜像发布在 `ghcr.io/stringke/kxen`。安装说明、签名状态和验签方法见官网。
 
+macOS 和使用 glibc 的 Linux 自动识别系统与架构，默认同时安装 `kxen` server 和 `kxen-agent`：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSLo install-kxen.sh https://kxen.ai/install.sh
+bash install-kxen.sh
+```
+
+Windows 使用原生 PowerShell：
+
+```powershell
+Invoke-WebRequest https://kxen.ai/install.ps1 -OutFile install-kxen.ps1
+.\install-kxen.ps1
+```
+
+保存到文件执行时，安装器会先用 GitHub 仓库维护的独立 SHA-256 sidecar 校验自身。只安装一个组件、固定版本、自定义目录、PATH 行为和完整性边界见 [CLI 安装文档](https://kxen.ai/getting-started/cli-installation)。安装器不安装桌面 App。
+
 当前为开发预览版本。
 
 ## 主要能力

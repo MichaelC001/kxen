@@ -1,6 +1,10 @@
 export const homeTitle = "kxen";
 export const homeDescription =
   "面向复杂软件工程任务的本地 Coding Agent Harness，桌面覆盖 macOS、Windows、Linux，也可经浏览器访问。";
+export const unixInstallCommand =
+  "curl --proto '=https' --tlsv1.2 -fsSLo install-kxen.sh https://kxen.ai/install.sh\nbash install-kxen.sh";
+export const windowsInstallCommand =
+  "Invoke-WebRequest https://kxen.ai/install.ps1 -OutFile install-kxen.ps1\n.\\install-kxen.ps1";
 
 export const homeBody = `kxen 是一个面向复杂软件工程任务的 Coding Agent Harness。它让用户在一个本地应用或浏览器中组织工作目录、会话、模型、目标、Agent 执行过程和可重复运行的独立 Bot。
 
@@ -9,6 +13,24 @@ export const homeBody = `kxen 是一个面向复杂软件工程任务的 Coding 
 ## 下载
 
 下载链接指向 GitHub Releases 的稳定 asset，始终解析到最新版本。
+
+### Headless CLI 快速安装
+
+安装器自动识别系统与架构，默认同时安装 kxen 无头 server 和 kxen-agent，不安装桌面 App。
+
+macOS 和使用 glibc 的 Linux:
+
+\`\`\`bash
+${unixInstallCommand}
+\`\`\`
+
+Windows PowerShell:
+
+\`\`\`powershell
+${windowsInstallCommand}
+\`\`\`
+
+保存到文件执行时，安装器会先用 GitHub 仓库维护的 SHA-256 sidecar 校验自身。只安装 server 或 agent、固定版本、自定义目录、PATH 和完整性规则见 [CLI 安装](https://kxen.ai/getting-started/cli-installation)。
 
 桌面应用:
 

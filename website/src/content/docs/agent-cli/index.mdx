@@ -16,6 +16,22 @@ sidebar:
 
 每个 GitHub Release 都提供独立的 `kxen-agent-<platform>.tar.gz`，Windows 使用 `.zip`。它与桌面安装包和 `kxen-<platform>` server asset 参与同一个 SemVer 版本发布，但下载与安装互不依赖。
 
+macOS 或 Linux 只安装 agent：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSLo install-kxen.sh https://kxen.ai/install.sh
+bash install-kxen.sh --component agent
+```
+
+Windows 使用原生 PowerShell：
+
+```powershell
+Invoke-WebRequest https://kxen.ai/install.ps1 -OutFile install-kxen.ps1
+.\install-kxen.ps1 -Component Agent
+```
+
+默认同时安装 server 和 agent、固定版本、自定义目录、PATH 与校验规则见 [CLI 安装](https://kxen.ai/getting-started/cli-installation)。
+
 从源码只构建 agent CLI:
 
 ```bash

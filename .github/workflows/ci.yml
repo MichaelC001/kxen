@@ -42,11 +42,13 @@ jobs:
       - name: Test release validation helpers
         run: |
           bash -n scripts/github-release.sh scripts/kxen-agent-issue-workflow.sh scripts/kxen-agent-issue-workflow.test.sh \
+            scripts/installers.test.sh website/public/install.sh \
             scripts/prepare-release-assets.sh scripts/release-lib.sh \
             scripts/release-lib.test.sh scripts/release-manifest.sh scripts/validate-release.sh \
             scripts/verify-macos-release.sh scripts/verify-release-assets.sh
           /bin/bash scripts/release-lib.test.sh
           /bin/bash scripts/kxen-agent-issue-workflow.test.sh
+          /bin/bash scripts/installers.test.sh
           bash scripts/release-manifest.sh json | jq -e '.include | length == 6' > /dev/null
           node --check scripts/verify-updater-signature.mjs
       - name: Install frontend dependencies
@@ -75,6 +77,10 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
+      - name: Test Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/installers.test.ps1
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: stable
@@ -160,5 +166,17 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Check and build website
         run: pnpm check
+      - name: Verify public installer endpoints
+        run: |
+          test -f dist/install.sh
+          test -f dist/install.ps1
+          test -f dist/install.sh.sha256
+          test -f dist/install.ps1.sha256
+          cmp public/install.sh dist/install.sh
+          cmp public/install.ps1 dist/install.ps1
+          cmp public/install.sh.sha256 dist/install.sh.sha256
+          cmp public/install.ps1.sha256 dist/install.ps1.sha256
+          (cd public && sha256sum -c install.sh.sha256)
+          (cd public && sha256sum -c install.ps1.sha256)
       - name: Audit website production dependencies
         run: pnpm audit --prod --audit-level high
