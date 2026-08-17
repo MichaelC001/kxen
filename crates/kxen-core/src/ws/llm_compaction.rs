@@ -66,7 +66,7 @@ pub(super) fn provider_timeout_for_goal(
     cap: Option<std::time::Duration>,
 ) -> Result<Option<std::time::Duration>, String> {
     let budget = match goal_id {
-        Some(goal_id) => kxen_core::core::goal::Goal::load(&kxen_core::core::paths::goals_dir(), goal_id)
+        Some(goal_id) => kxen_core::core::goal::Goal::load(&kxen_core::core::paths::KxenPaths::user().goals_dir(), goal_id)
             .map_err(|error| format!("goal state load failed: {error}"))?
             .runtime_budget(kxen_core::core::shared::now_ms()),
         None => kxen_core::core::goal::RuntimeBudget::Unbounded,

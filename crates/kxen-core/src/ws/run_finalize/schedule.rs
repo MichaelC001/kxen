@@ -26,13 +26,15 @@ pub(in crate::ws) fn record_schedule_terminal(
             return Err(format!("cron history target lookup failed: {error}"));
         }
     };
-    let _lifecycle = match kxen_core::core::session_lifecycle::admit_mutation(&kxen_core::core::paths::sessions_dir(), &bound_session) {
-        Ok(lifecycle) => lifecycle,
-        Err(error) => {
-            tracing::info!(%error, cron_job_id = job_id, "cron history rejected by Session lifecycle");
-            return Err(format!("cron history rejected by Session lifecycle: {error}"));
-        }
-    };
+    let _lifecycle =
+        match kxen_core::core::session_lifecycle::admit_mutation(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), &bound_session)
+        {
+            Ok(lifecycle) => lifecycle,
+            Err(error) => {
+                tracing::info!(%error, cron_job_id = job_id, "cron history rejected by Session lifecycle");
+                return Err(format!("cron history rejected by Session lifecycle: {error}"));
+            }
+        };
     if let Err(error) = kxen_core::core::schedule::record(job_id, ok, error) {
         tracing::error!(%error, cron_job_id = job_id, "cron history save failed");
         state

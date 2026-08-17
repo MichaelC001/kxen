@@ -113,7 +113,8 @@ impl WorkspaceRuntimeRegistry {
 
         let mut workspaces = Vec::with_capacity(runtimes.len());
         for runtime in runtimes {
-            let project = crate::core::trust::is_trusted(runtime.root()).then(|| runtime.root().join(".kxen/config.toml"));
+            let project = crate::core::trust::is_trusted(runtime.root())
+                .then(|| crate::core::paths::KxenPaths::project(runtime.root()).config_file());
             let config = Arc::new(
                 crate::core::config::Config::load_with_user_document(document, &self.user_config, project.as_deref())
                     .map_err(|error| format!("workspace config candidate {}: {error}", runtime.root().display()))?,

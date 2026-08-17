@@ -24,7 +24,7 @@ fn clear(id: &str, state: &AppState) -> Result<Value, String> {
 }
 
 fn inspect(id: &str, state: &AppState) -> Result<Value, String> {
-    let sessions = kxen_core::core::paths::sessions_dir();
+    let sessions = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let session = kxen_core::core::session::inspect_storage(&sessions, id)?;
     let queue = state.pending_messages.inspect_recovery(id)?;
     Ok(json!({ "session": session, "queue": queue }))
@@ -40,7 +40,7 @@ fn repair(id: &str, state: &AppState) -> Result<Value, String> {
     if !session_repairable || !queue_repairable {
         return Err(format!("session {id} recovery is fail closed because at least one store has no provable repair"));
     }
-    let sessions = kxen_core::core::paths::sessions_dir();
+    let sessions = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let session = kxen_core::core::session::repair_storage(&sessions, id)?;
     let queue = state.pending_messages.repair_recovery(id)?;
     Ok(json!({ "session": session, "queue": queue }))

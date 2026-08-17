@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-const EXCLUDES: &[&str] = &[":(exclude)node_modules", ":(exclude)target", ":(exclude).kxen/worktrees"];
+const EXCLUDES: &[&str] = &[":(exclude)node_modules", ":(exclude)target", crate::core::ignore_manager::PROJECT_GIT_PATHSPEC_EXCLUDE];
 
 fn repo_dir(workdir: &Path) -> PathBuf {
     use sha2::Digest;
@@ -13,7 +13,7 @@ fn repo_dir(workdir: &Path) -> PathBuf {
     let path = workdir.canonicalize().unwrap_or_else(|_| workdir.to_path_buf());
     let digest = sha2::Sha256::digest(path.to_string_lossy().as_bytes());
     let hex = crate::core::shared::hex_lower(&digest);
-    crate::core::paths::data_dir().join("shadow").join(format!("{hex}.git"))
+    crate::core::paths::KxenPaths::user().shadow_repo(&hex)
 }
 
 fn git(workdir: &Path, args: &[&str]) -> Result<std::process::Output, String> {
@@ -174,7 +174,7 @@ fn empty_dirs(workdir: &Path) -> Result<Vec<EmptyDir>, String> {
             if !path.is_dir() || [".git", "node_modules", "target"].iter().any(|skip| name == std::ffi::OsStr::new(skip)) {
                 continue;
             }
-            if path.strip_prefix(root).is_ok_and(|relative| relative == Path::new(".kxen/worktrees")) {
+            if path.strip_prefix(root).is_ok_and(|relative| relative == Path::new(crate::core::paths::PROJECT_STATE_RELATIVE)) {
                 continue;
             }
             walk(root, &path, output)?;

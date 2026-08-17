@@ -180,7 +180,7 @@ fn unchanged_edit_no_false_positive() {
     assert_eq!(edit(&path, &spec, &tracker, "/tmp").unwrap().applied, 1);
 }
 
-// ---------------- write 覆盖备份（.kxen/backups/） ----------------
+// ---------------- write 覆盖备份（.agents/kxen/backups/） ----------------
 
 fn temp_workspace(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("kxen-fstool-{tag}-{}-{}", std::process::id(), rand()));
@@ -190,7 +190,7 @@ fn temp_workspace(tag: &str) -> PathBuf {
     std::fs::canonicalize(&dir).unwrap()
 }
 
-/// 外部变更后覆盖：备份落 .kxen/backups/，工作区根目录无 .kxen-bak，.gitignore 含 .kxen/。
+/// 外部变更后覆盖：备份落 .agents/kxen/backups/，工作区根目录无 .kxen-bak。
 #[test]
 fn write_backup_lands_in_kxen_dir() {
     let dir = temp_workspace("backup");
@@ -204,11 +204,11 @@ fn write_backup_lands_in_kxen_dir() {
     std::fs::write(&path, "externally changed\n").unwrap();
     write(&path, "new\n", &tracker, &cwd).unwrap();
 
-    let backup = dir.join(".kxen/backups/test.kxen-bak");
+    let backup = kxen_core::core::paths::KxenPaths::project(&dir).backup_path("test.txt");
     assert_eq!(std::fs::read_to_string(&backup).unwrap(), "externally changed\n", "备份须保留覆盖前内容");
     assert!(!dir.join("test.kxen-bak").exists(), "工作区根目录不得出现 .kxen-bak");
     let gitignore = std::fs::read_to_string(dir.join(".gitignore")).unwrap();
-    assert!(gitignore.lines().any(|l| l.trim() == ".kxen/"), ".gitignore 须含 .kxen/: {gitignore}");
+    assert!(gitignore.lines().any(|l| l.trim() == "/.agents/kxen/"), ".gitignore 须含 /.agents/kxen/: {gitignore}");
 }
 
 /// 同名文件分处不同子目录：按相对路径镜像后两份备份互不覆盖。
@@ -228,8 +228,9 @@ fn write_backup_mirrors_relative_path() {
         write(&path, "new\n", &tracker, &cwd).unwrap();
     }
 
-    let a = std::fs::read_to_string(dir.join(".kxen/backups/a/same.kxen-bak")).unwrap();
-    let b = std::fs::read_to_string(dir.join(".kxen/backups/b/same.kxen-bak")).unwrap();
+    let paths = kxen_core::core::paths::KxenPaths::project(&dir);
+    let a = std::fs::read_to_string(paths.backup_path("a/same.txt")).unwrap();
+    let b = std::fs::read_to_string(paths.backup_path("b/same.txt")).unwrap();
     assert_eq!(a, "a-externally changed\n");
     assert_eq!(b, "b-externally changed\n", "同名备份不得互相覆盖");
 }
@@ -244,7 +245,7 @@ fn write_fresh_file_no_backup() {
     let tracker = FileTracker::default();
     write(&path, "v1\n", &tracker, &cwd).unwrap();
     write(&path, "v2\n", &tracker, &cwd).unwrap();
-    assert!(!dir.join(".kxen").exists(), "无外部变更不得产生备份目录");
+    assert!(!kxen_core::core::paths::KxenPaths::project(&dir).root().exists(), "无外部变更不得产生项目运行态目录");
 }
 
 // ---------------- delete / 大小上限 ----------------

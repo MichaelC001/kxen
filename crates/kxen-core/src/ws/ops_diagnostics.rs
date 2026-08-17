@@ -7,7 +7,7 @@ use crate::AppState;
 pub(super) async fn export(state: &Arc<AppState>) -> Result<Value, String> {
     let store = kxen_core::core::shared::lock(&state.auth_store).clone();
     let report = crate::doctor::doctor_report(&store);
-    let config_path = kxen_core::core::paths::config_dir().join("config.toml");
+    let config_path = kxen_core::core::paths::KxenPaths::user().config_file();
     let config_text = match std::fs::read_to_string(&config_path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -41,7 +41,7 @@ pub(super) async fn export(state: &Arc<AppState>) -> Result<Value, String> {
     write!(&mut markdown, "\n## event bus\n\n- capacity: {}\n- receivers: {}\n", health.bus_capacity, health.bus_receivers)
         .expect("writing to String cannot fail");
     markdown.push_str("\n## storage recovery\n\n");
-    let sessions_dir = kxen_core::core::paths::sessions_dir();
+    let sessions_dir = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let mut recovery_lines = Vec::new();
     for session in kxen_core::core::session::list(&sessions_dir) {
         match kxen_core::core::session::inspect_storage(&sessions_dir, &session.id) {
@@ -69,7 +69,7 @@ pub(super) async fn export(state: &Arc<AppState>) -> Result<Value, String> {
     .expect("writing to String cannot fail");
     let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|duration| duration.as_millis()).unwrap_or(0);
     // 落 data_dir 而非 ~/Downloads：跨平台一致，且不依赖桌面目录约定（Windows/Linux 无 Downloads 保证）
-    let dir = kxen_core::core::paths::data_dir().join("diagnostics");
+    let dir = kxen_core::core::paths::KxenPaths::user().diagnostics_dir();
     std::fs::create_dir_all(&dir).map_err(|error| format!("create diagnostics dir {}: {error}", dir.display()))?;
     let path = dir.join(format!("kxen-diagnostics-{timestamp}.md"));
     std::fs::write(&path, markdown).map_err(|error| error.to_string())?;

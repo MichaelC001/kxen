@@ -30,7 +30,7 @@ pub(crate) fn tool_tokens_estimate() -> u64 {
 
 pub(super) async fn context_stats_report(params: &Value, state: &Arc<AppState>) -> Result<Value, String> {
     let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
-    let sessions_dir = kxen_core::core::paths::sessions_dir();
+    let sessions_dir = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let meta = kxen_core::core::session::load_meta(&sessions_dir, session_id)
         .map_err(|error| format!("context_stats session {session_id} unavailable: {error}"))?;
     let model = super::session_ops::effective_session_model_from_override(Some(session_id), meta.model, state)?;

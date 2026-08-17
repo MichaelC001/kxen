@@ -95,7 +95,7 @@ pub struct WorkspaceOverview {
     pub worktrees: Vec<WorktreeDigest>,
     /// 活态 goal 摘要（绑定到本 workspace 会话的最近更新一个）
     pub goal: Option<GoalDigest>,
-    /// 该 workspace 的看板摘要（采集层同步注入：读 .kxen/kanban 目录，与 worktrees 同模式）
+    /// 该 workspace 的看板摘要（采集层同步注入：读 .agents/kxen/kanban 目录，与 worktrees 同模式）
     pub kanban: Vec<crate::kanban::KanbanDigest>,
     /// 全 workspace 排队消息总数
     pub queued: usize,

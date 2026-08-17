@@ -108,7 +108,7 @@ impl PersistFailure {
 }
 
 pub(super) fn root() -> PathBuf {
-    crate::core::paths::data_dir().join("consolidation-attempts")
+    crate::core::paths::KxenPaths::user().consolidation_attempts_dir()
 }
 
 fn path(root: &Path, session_id: &str) -> Result<PathBuf, String> {

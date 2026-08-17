@@ -62,14 +62,17 @@ pub fn admit_mutation(sessions_dir: &std::path::Path, session_id: &str) -> Resul
 /// 按 Goal 的持久化 Session 归属进入屏障。调用方随后仍须取得 Goal 写锁并重读后再修改。
 pub fn admit_goal_mutation(goals_dir: &std::path::Path, goal_id: &str) -> Result<Option<MutationGuard>, String> {
     let goal = crate::core::goal::Goal::load(goals_dir, goal_id).map_err(|error| error.to_string())?;
-    goal.session_id.as_deref().map(|session_id| admit_mutation(&crate::core::paths::sessions_dir(), session_id)).transpose()
+    goal.session_id
+        .as_deref()
+        .map(|session_id| admit_mutation(&crate::core::paths::KxenPaths::user().sessions_dir(), session_id))
+        .transpose()
 }
 
 /// 按 schedule job 的不可变 Session 归属进入屏障，调用方随后再取得 schedule store 锁并重读目标。
 pub fn admit_schedule_mutation(job_id: &str) -> Result<Option<MutationGuard>, String> {
     crate::core::schedule::job_session(job_id)?
         .as_deref()
-        .map(|session_id| admit_mutation(&crate::core::paths::sessions_dir(), session_id))
+        .map(|session_id| admit_mutation(&crate::core::paths::KxenPaths::user().sessions_dir(), session_id))
         .transpose()
 }
 

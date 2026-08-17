@@ -196,7 +196,7 @@ fn nav_line(prefix: &str, outcome: &NavOutcome) -> String {
 fn screenshot_dir(session_id: Option<&str>) -> Result<PathBuf, String> {
     let sid = session_id.ok_or("browser screenshot needs a session context")?;
     crate::core::ids::validate_id(sid).map_err(|e| format!("invalid session id: {e}"))?;
-    Ok(crate::core::paths::sessions_dir().join(sid).join("browser"))
+    Ok(crate::core::paths::KxenPaths::user().browser_dir(sid))
 }
 
 fn cap(text: &str, max: usize) -> String {

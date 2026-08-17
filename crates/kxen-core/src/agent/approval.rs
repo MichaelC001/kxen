@@ -85,7 +85,7 @@ pub struct ApprovalBroker {
     sessions_dir: Option<std::path::PathBuf>,
     /// session 级审批规则（「本会话放行」）：纯内存，进程重启即失效
     session_rules: Mutex<Vec<crate::agent::approval_rules::ApprovalRule>>,
-    /// workspace 级规则缓存（「总是放行」）：真源是 <workspace>/.kxen/approval-rules.json，惰性加载
+    /// workspace 级规则缓存（「总是放行」）：真源是 <workspace>/.agents/kxen/approval-rules.json，惰性加载
     workspace_rules: Mutex<HashMap<std::path::PathBuf, Vec<crate::agent::approval_rules::ApprovalRule>>>,
 }
 
@@ -320,7 +320,7 @@ impl ApprovalBroker {
 /// 生产装配（main.rs 贴 350 行门禁，broker 构造收口此处）：bus + 决定落盘目录。
 /// 审批窗口取用户配置 approval_timeout_seconds（缺省 300s）。
 pub fn production_broker(bus: crate::core::event::EventBus) -> ApprovalBroker {
-    ApprovalBroker::with_timeout(configured_timeout()).with_bus(bus).with_sessions_dir(crate::core::paths::sessions_dir())
+    ApprovalBroker::with_timeout(configured_timeout()).with_bus(bus).with_sessions_dir(crate::core::paths::KxenPaths::user().sessions_dir())
 }
 
 /// 共享审批请求：登记 + 发事件 + 挂起等用户决定（ApprovalOutcome::Allow = 放行）。

@@ -34,7 +34,7 @@ fn parse_status_line_handles_quoted_and_rename_paths() {
 #[tokio::test]
 async fn create_rejects_leftover_directory_that_is_not_a_worktree() {
     let repo = std::env::temp_dir().join(format!("kxen-wt-{}", uuid::Uuid::new_v4()));
-    let leftover = repo.join(".kxen").join("worktrees").join("demo");
+    let leftover = crate::core::paths::KxenPaths::project(&repo).worktree("demo");
     std::fs::create_dir_all(&leftover).unwrap();
 
     let error = create(&repo, "demo").await.unwrap_err();

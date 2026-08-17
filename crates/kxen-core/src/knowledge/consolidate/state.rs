@@ -18,7 +18,7 @@ pub(super) struct State {
 }
 
 pub(super) fn path() -> PathBuf {
-    crate::core::paths::data_dir().join("consolidate.json")
+    crate::core::paths::KxenPaths::user().consolidate_state_file()
 }
 
 pub(super) fn load(path: &Path) -> Result<State, String> {

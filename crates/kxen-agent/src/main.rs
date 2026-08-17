@@ -39,6 +39,9 @@ fn main() -> ExitCode {
 
 async fn run(command: args::Command) -> ExitCode {
     let output = command.output();
+    if let Err(error) = kxen_core::core::ignore_manager::prepare_user(&kxen_core::core::paths::KxenPaths::user()) {
+        return fail(output, &error);
+    }
     let command = match command {
         args::Command::AgentValidate(command) => {
             return match validate_agent(command, output) {

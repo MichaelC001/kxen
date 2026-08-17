@@ -33,7 +33,7 @@ pub fn spawn_with(state: Arc<AppState>, on_event: impl Fn(&Event) + Send + 'stat
 /// notification hook（全部 Notification 事件的单一收口点；Ask 档走审批）。
 fn dispatch_hook(state: &Arc<AppState>, text: String, session_id: Option<String>) {
     let active = crate::core::shared::read(&state.active_workspace).clone();
-    let runtime = notification_workdir(&crate::core::paths::sessions_dir(), &active, session_id.as_deref())
+    let runtime = notification_workdir(&crate::core::paths::KxenPaths::user().sessions_dir(), &active, session_id.as_deref())
         .and_then(|workdir| state.workspace_runtimes.runtime(&workdir));
     // broker/bus 克隆进任务（借用无法跨 spawn 的 'static 边界）
     let broker = state.approvals.clone();

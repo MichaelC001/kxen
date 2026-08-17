@@ -65,7 +65,7 @@ fn session_history(session_id: &str) -> Result<(Vec<String>, Vec<String>), Strin
     if session_id.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
-    let messages = crate::core::session::load_messages_checked(&crate::core::paths::sessions_dir(), session_id)
+    let messages = crate::core::session::load_messages_checked(&crate::core::paths::KxenPaths::user().sessions_dir(), session_id)
         .map_err(|error| format!("session {session_id}: {error}"))?;
     Ok(crate::composer_suggest::recent_session_context(&messages))
 }

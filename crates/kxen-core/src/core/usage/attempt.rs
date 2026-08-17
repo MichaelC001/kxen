@@ -48,7 +48,7 @@ pub struct ProviderAttemptStore {
 
 impl ProviderAttemptStore {
     pub fn global() -> Self {
-        Self::new(crate::core::paths::data_dir().join("usage-attempts"))
+        Self::new(crate::core::paths::KxenPaths::user().usage_attempts_dir())
     }
 
     pub fn new(root: PathBuf) -> Self {

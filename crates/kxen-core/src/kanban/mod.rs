@@ -1,7 +1,7 @@
 //! Kanban Agent 核心：append-only 事件流 + 确定性投影 + 命令守卫（P1）+
 //! Kanban 列 Agent 定义、执行 driver、触发器 runner 与完成协议（P2a）+ 看板级自主授权（P3）+ 每卡 worktree 隔离（P4）+
 //! 摘要 digest（P5，overview 卡片与 boards RPC 共用口径；RPC handler 在 crate 根 kanban_rpc.rs）。
-//! BoardState 的唯一真源是 `<workspace>/.kxen/kanban/<board_id>/events.jsonl`，快照只是可删缓存。
+//! BoardState 的唯一真源是 `<workspace>/.agents/kxen/kanban/<board_id>/events.jsonl`，快照只是可删缓存。
 
 mod agents;
 mod command;

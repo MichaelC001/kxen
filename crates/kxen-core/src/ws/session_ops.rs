@@ -117,7 +117,7 @@ pub(super) fn session_rewind(params: &Value, state: &crate::AppState) -> Result<
     let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
     let message_id = params.get("message_id").and_then(Value::as_str).ok_or("missing message_id")?;
     let confirm = params.get("confirm").and_then(Value::as_bool).unwrap_or(false);
-    let dir = kxen_core::core::paths::sessions_dir();
+    let dir = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let meta = kxen_core::core::session::load_meta(&dir, session_id).map_err(|e| e.to_string())?;
     let messages = kxen_core::core::session::load_messages_checked(&dir, session_id)
         .map_err(|error| format!("session history unavailable: {error}"))?;
@@ -189,7 +189,7 @@ fn workspace_has_active_run(state: &crate::AppState, sessions_dir: &std::path::P
 /// 前端 toast 与本文档同口径说明。与 rewind 同一道门禁：同 workspace 有活跃 run 拒绝。
 pub(super) fn session_rewind_undo(params: &Value, state: &crate::AppState) -> Result<Value, String> {
     let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
-    let dir = kxen_core::core::paths::sessions_dir();
+    let dir = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let meta = kxen_core::core::session::load_meta(&dir, session_id).map_err(|e| e.to_string())?;
     // 与 rewind 同一把写锁：undo 的 reset --hard 同样不能与运行中的 run 并发
     let Some(_guard) = kxen_core::core::rewind_lock::try_rewind_guard(&meta.directory) else {
@@ -237,7 +237,7 @@ fn session_model_override_at(sessions_dir: &std::path::Path, session_id: Option<
 /// ws 内共用的生效模型解析：session 覆盖 > MRM "chat" 角色 > 硬编码兜底。
 /// 指定 session 时 metadata 是路由契约，不得在缺失或损坏时静默退回全局模型。
 pub(crate) async fn effective_session_model(session_id: Option<&str>, state: &crate::AppState) -> Result<kxen_core::llm::ModelRef, String> {
-    let session_override = session_model_override_at(&kxen_core::core::paths::sessions_dir(), session_id)?;
+    let session_override = session_model_override_at(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), session_id)?;
     effective_session_model_from_override(session_id, session_override, state)
 }
 
@@ -262,7 +262,7 @@ pub(crate) async fn routed_session_model(
     state: &crate::AppState,
     store: &kxen_core::auth::credential::AuthStore,
 ) -> Result<kxen_core::llm::ModelRef, String> {
-    let session_override = session_model_override_at(&kxen_core::core::paths::sessions_dir(), session_id)?;
+    let session_override = session_model_override_at(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), session_id)?;
     let mrm = match session_id {
         Some(session_id) => state.runtime_for_session(session_id)?.mrm(),
         None => state.active_runtime()?.mrm(),
@@ -309,7 +309,8 @@ fn chat_model_or_fallback(binding: Option<kxen_core::core::config::RoleBinding>)
 pub(super) fn session_set_model(params: &Value) -> Result<Value, String> {
     let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
     let over = parse_model_override(params)?;
-    let session = kxen_core::core::session::set_model(&kxen_core::core::paths::sessions_dir(), id, over).map_err(|e| e.to_string())?;
+    let session = kxen_core::core::session::set_model(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), id, over)
+        .map_err(|e| e.to_string())?;
     Ok(json!(session))
 }
 
@@ -333,8 +334,9 @@ pub(super) fn session_update_meta(params: &Value) -> Result<Value, String> {
     let title = params.get("title").and_then(Value::as_str);
     let pinned = params.get("pinned").and_then(Value::as_bool);
     let sort_order = params.get("sort_order").map(|v| v.as_u64());
-    let session = kxen_core::core::session::update_meta(&kxen_core::core::paths::sessions_dir(), id, title, pinned, sort_order)
-        .map_err(|e| e.to_string())?;
+    let session =
+        kxen_core::core::session::update_meta(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), id, title, pinned, sort_order)
+            .map_err(|e| e.to_string())?;
     Ok(json!(session))
 }
 

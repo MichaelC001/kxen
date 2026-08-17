@@ -10,16 +10,17 @@ pub(super) const METHODS: &[&str] = &["workspaces.overview"];
 pub(super) async fn handle(method: &str, _params: &Value, state: &Arc<AppState>) -> Result<Value, String> {
     match method {
         "workspaces.overview" => {
-            let sessions = kxen_core::core::session::list_checked(&kxen_core::core::paths::sessions_dir())
+            let sessions = kxen_core::core::session::list_checked(&kxen_core::core::paths::KxenPaths::user().sessions_dir())
                 .map_err(|error| format!("session catalog unavailable: {error}"))?;
             let running: std::collections::HashSet<String> = kxen_core::core::shared::lock(&state.active_runs).keys().cloned().collect();
-            let workspaces = kxen_core::core::workspace::list(&kxen_core::core::paths::data_dir()).map_err(|error| error.to_string())?;
+            let workspaces =
+                kxen_core::core::workspace::list(&kxen_core::core::paths::KxenPaths::user().root()).map_err(|error| error.to_string())?;
             // queue/cron 都是内存快照，一次锁取出
             let queued = state.pending_messages.counts();
             let cron = kxen_core::core::schedule::list()?;
             // goal 一次全量读盘后按会话归属分配：逐 session focus_for 会把磁盘读放大 N 倍
-            let goals =
-                kxen_core::core::goal::Goal::list_checked(&kxen_core::core::paths::goals_dir()).map_err(|error| error.to_string())?;
+            let goals = kxen_core::core::goal::Goal::list_checked(&kxen_core::core::paths::KxenPaths::user().goals_dir())
+                .map_err(|error| error.to_string())?;
             let worktrees = gather_worktrees(&workspaces).await?;
             // 聚合内 dirty_count 是同步 git spawn（每 workspace 一次）：移出 async worker，不卡运行时
             let cards = tokio::task::spawn_blocking(move || {
@@ -34,7 +35,7 @@ pub(super) async fn handle(method: &str, _params: &Value, state: &Arc<AppState>)
     }
 }
 
-/// 逐 workspace 采集看板摘要（同步读 .kxen/kanban 目录；digest 尽力而为，坏板在 collect 内跳过）。
+/// 逐 workspace 采集看板摘要（同步读 .agents/kxen/kanban 目录；digest 尽力而为，坏板在 collect 内跳过）。
 fn gather_kanban(
     workspaces: &[kxen_core::core::workspace::Workspace],
 ) -> std::collections::HashMap<String, Vec<kxen_core::kanban::KanbanDigest>> {
@@ -42,7 +43,7 @@ fn gather_kanban(
 }
 
 /// 逐 workspace 采集 kxen 隔离树摘要（name/branch/dirty）。
-/// 成本门：先查 `<ws>/.kxen/worktrees` 目录存在再 spawn git——没建过隔离树的 workspace 零进程开销；
+/// 成本门：先查 `<ws>/.agents/kxen/worktrees` 目录存在再 spawn git，没建过隔离树的 workspace 零进程开销；
 /// 多 workspace 并发采集（JoinSet）：最近列表可达 20 项，串行 spawn 会把尾延迟放大到秒级。
 async fn gather_worktrees(
     workspaces: &[kxen_core::core::workspace::Workspace],
@@ -50,7 +51,7 @@ async fn gather_worktrees(
     let mut set = tokio::task::JoinSet::new();
     for w in workspaces {
         let root = std::path::PathBuf::from(&w.path);
-        let worktree_dir = root.join(".kxen").join("worktrees");
+        let worktree_dir = kxen_core::core::paths::KxenPaths::project(&root).worktrees_dir();
         match std::fs::metadata(&worktree_dir) {
             Ok(metadata) if metadata.is_dir() => {}
             Ok(_) => return Err(format!("worktree store is not a directory: {}", worktree_dir.display())),
@@ -93,7 +94,7 @@ mod tests {
     #[tokio::test]
     async fn worktree_list_failure_is_not_reported_as_empty() {
         let root = std::env::temp_dir().join(format!("kxen-workspace-worktree-error-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(root.join(".kxen/worktrees")).unwrap();
+        std::fs::create_dir_all(kxen_core::core::paths::KxenPaths::project(&root).worktrees_dir()).unwrap();
         let workspaces = vec![kxen_core::core::workspace::Workspace { path: root.to_string_lossy().into_owned(), last_used: 0 }];
 
         let error = gather_worktrees(&workspaces).await.expect_err("non-git workspace with a worktree store must return the list error");

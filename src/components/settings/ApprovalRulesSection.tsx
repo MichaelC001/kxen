@@ -1,5 +1,5 @@
 // 审批规则区块（B1）：「本会话放行 / 总是放行」建规后的管理面——列表 + 撤销。
-// session 规则随进程生命周期（内存），workspace 规则持久化在 <workspace>/.kxen/approval-rules.json。
+// session 规则随进程生命周期（内存），workspace 规则持久化在 <workspace>/.agents/kxen/approval-rules.json。
 import { createSignal, For, onMount, Show } from "solid-js";
 import { Trash2 } from "lucide-solid";
 import { flashErr, flashOk } from "../../lib/flash";

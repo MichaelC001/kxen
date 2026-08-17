@@ -65,7 +65,7 @@ impl ColumnDef {
         match self.on_enter.kind {
             OnEnterKind::AgentRun | OnEnterKind::Workflow if self.on_enter.agent.as_deref().is_none_or(str::is_empty) => {
                 return Err(KanbanError::InvalidColumn(format!(
-                    "column {} kind {:?} requires agent (definition file in .kxen/kanban/agents/)",
+                    "column {} kind {:?} requires agent (definition file in .agents/kxen/kanban/agents/)",
                     self.id, self.on_enter.kind
                 )));
             }

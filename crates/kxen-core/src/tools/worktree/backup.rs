@@ -1,5 +1,5 @@
 //! worktree 删除前抢救备份与合回（B4）：dirty worktree 的未提交改动打成 patch 存
-//! `<repo>/.kxen/backups/`，删除成为可恢复操作；apply 把指定 worktree 的全部差异合回主树。
+//! `<repo>/.agents/kxen/backups/`，删除成为可恢复操作；apply 把指定 worktree 的全部差异合回主树。
 
 use std::path::{Path, PathBuf};
 
@@ -23,7 +23,7 @@ pub struct SkippedBackup {
 }
 
 /// 把 worktree 未提交改动（含 untracked，不含 ignored）打成 git apply 可用的 patch，
-/// 存 `<repo>/.kxen/backups/worktree-<name>-<ms>.patch`；skipped 清单落同名 .skipped.txt。
+/// 存 `<repo>/.agents/kxen/backups/worktree-<name>-<ms>.patch`；skipped 清单落同名 .skipped.txt。
 /// 恢复方式：`git apply <patch>`（在目标仓库根执行）。
 pub(super) async fn backup_uncommitted(repo: &Path, name: &str, worktree: &Path) -> Result<RemoveBackup, String> {
     let out = git(worktree, &["status", "--porcelain", "-z"]).await?;
@@ -49,7 +49,7 @@ pub(super) async fn backup_uncommitted(repo: &Path, name: &str, worktree: &Path)
         git(worktree, &args).await?;
     }
     let patch = git(worktree, &["diff", "--binary", "--full-index", "HEAD"]).await?;
-    let backups = repo.join(".kxen").join("backups");
+    let backups = crate::core::paths::KxenPaths::project(repo).backups_dir();
     std::fs::create_dir_all(&backups).map_err(|e| format!("create {}: {e}", backups.display()))?;
     let patch_path = backups.join(format!("worktree-{name}-{}.patch", crate::core::shared::now_ms()));
     std::fs::write(&patch_path, &patch).map_err(|e| format!("write {}: {e}", patch_path.display()))?;
@@ -144,7 +144,7 @@ pub struct ApplyOutcome {
 pub async fn apply(repo: &Path, name: &str) -> Result<ApplyOutcome, String> {
     let repo = &canon(repo);
     validate_name(name)?;
-    let path = repo.join(".kxen").join("worktrees").join(name);
+    let path = crate::core::paths::KxenPaths::project(repo).worktree(name);
     if !path.join(".git").exists() {
         return Err(format!("worktree {name} 不存在"));
     }
@@ -189,13 +189,13 @@ async fn git_stdin(repo: &Path, args: &[&str], input: &str) -> Result<String, St
     }
 }
 
-/// .kxen/backups/ 数量上限：超出清最旧（mtime 升序），覆盖备份不无界增长。
+/// .agents/kxen/backups/ 数量上限：超出清最旧（mtime 升序），覆盖备份不无界增长。
 const BACKUP_KEEP: usize = 50;
-/// .kxen/backups/ 时间上限：默认 30 天，与数量上限并存，先到先清。
+/// .agents/kxen/backups/ 时间上限：默认 30 天，与数量上限并存，先到先清。
 const BACKUP_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 3600);
 
 pub fn prune_backups(root: &Path) {
-    let mut dirs = vec![root.join(".kxen").join("backups")];
+    let mut dirs = vec![crate::core::paths::KxenPaths::project(root).backups_dir()];
     let mut files: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
     while let Some(d) = dirs.pop() {
         if let Ok(rd) = std::fs::read_dir(d) {

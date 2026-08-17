@@ -9,7 +9,7 @@ pub(super) fn load(sessions_dir: &Path, id: &str) -> Result<serde_json::Value, S
 }
 
 pub(super) fn clear_pending(state: &Arc<AppState>, id: &str) -> Result<serde_json::Value, String> {
-    let sessions_dir = kxen_core::core::paths::sessions_dir();
+    let sessions_dir = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let _runs = kxen_core::core::shared::lock(&state.active_runs);
     if kxen_core::core::session_recovery::is_tombstoned(&sessions_dir, id)? {
         return Err(format!("session deletion in progress: {id}"));

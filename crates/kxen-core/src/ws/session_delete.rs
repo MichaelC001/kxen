@@ -6,7 +6,7 @@ use crate::AppState;
 pub(super) async fn delete(params: &Value, state: &Arc<AppState>) -> Result<Value, String> {
     let id = params.get("id").and_then(Value::as_str).ok_or("missing id")?;
     let distill = params.get("distill").and_then(Value::as_bool).unwrap_or(false);
-    let sessions_dir = kxen_core::core::paths::sessions_dir();
+    let sessions_dir = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     if let Some((_, token)) = kxen_core::core::shared::lock(&state.composer_suggestion_requests).remove(id) {
         token.cancel();
     }
@@ -65,7 +65,7 @@ pub(super) async fn delete(params: &Value, state: &Arc<AppState>) -> Result<Valu
         let store = kxen_core::core::shared::lock(&state.auth_store).clone();
         let mrm = state.workspace_runtimes.runtime(std::path::Path::new(&meta.directory))?.mrm();
         let model = super::session_ops::routed_model_from_override(meta.model.clone(), &mrm, &store).await;
-        let goal_id = kxen_core::core::goal::Goal::focus_for_checked(&kxen_core::core::paths::goals_dir(), Some(id))
+        let goal_id = kxen_core::core::goal::Goal::focus_for_checked(&kxen_core::core::paths::KxenPaths::user().goals_dir(), Some(id))
             .map_err(|error| format!("goal state unavailable: {error}"))?
             .map(|goal| goal.id);
         let timeout =
@@ -186,7 +186,7 @@ fn cleanup_references_leased(
     state.pending_messages.clear(id)?;
     state.approvals.cancel_session(id);
     kxen_core::core::schedule::remove_by_session(id)?;
-    kxen_core::core::goal::Goal::remove_for_session_checked(&kxen_core::core::paths::goals_dir(), id)
+    kxen_core::core::goal::Goal::remove_for_session_checked(&kxen_core::core::paths::KxenPaths::user().goals_dir(), id)
         .map_err(|error| format!("remove session goals: {error}"))?;
     state.team.drop_session(id)?;
     state.agents.drop_session(id);

@@ -2,19 +2,17 @@
 // dirty 或删分支先出行内确认条；活跃行禁删；切换成功后才置勾标。
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-const WT1 = { name: "wt1", path: "/repo/.kxen/worktrees/wt1", branch: "kxen/wt1" };
-
+const WT1 = { name: "wt1", path: "/repo/.agents/kxen/worktrees/wt1", branch: "kxen/wt1" };
 const h = vi.hoisted(() => ({
   list: vi.fn(async () => [] as { name: string; path: string; branch: string }[]),
   remove: vi.fn(async (_name: string, _deleteBranch?: boolean, _confirmed?: boolean) => {}),
   create: vi.fn(),
   status: vi.fn(async (_path: string) => [] as { path: string; status: string }[]),
+  apply: vi.fn(async (_name: string) => ({ applied: true, diff: "" })),
   switch: vi.fn(async (_path: string) => {}),
   statusline: vi.fn(async (_id: string) => ({ workdir: "/repo" })),
   nav: vi.fn(),
 }));
-
 vi.mock("../lib/chat", async (importOriginal) => {
   // 铺开真实模块只桩 6 个相关 RPC（全量 mock 会断 state.ts 的传递绑定，同 Dock.test.tsx）
   const orig = await importOriginal<typeof import("../lib/chat")>();
@@ -24,17 +22,15 @@ vi.mock("../lib/chat", async (importOriginal) => {
     worktreeRemove: h.remove,
     worktreeCreate: h.create,
     worktreeStatus: h.status,
+    worktreeApply: h.apply,
     workspaceSwitch: h.switch,
     statusline: h.statusline,
   };
 });
-
 import DockWorktree from "./DockWorktree";
 import { flash } from "../lib/flash";
 import { setActiveSessionId, setNavigator } from "../lib/state";
-
 const flush = () => new Promise((r) => setTimeout(r, 0));
-
 function btn(title: string): HTMLButtonElement {
   const found = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
     (b) => b.title === title,
@@ -42,7 +38,6 @@ function btn(title: string): HTMLButtonElement {
   if (!found) throw new Error(`button not found: ${title}`);
   return found;
 }
-
 function btnByText(text: string): HTMLButtonElement {
   const found = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
     (b) => b.textContent === text,
@@ -50,7 +45,6 @@ function btnByText(text: string): HTMLButtonElement {
   if (!found) throw new Error(`button not found: ${text}`);
   return found;
 }
-
 beforeEach(() => {
   setNavigator(h.nav);
   h.list.mockResolvedValue([WT1]);
@@ -59,14 +53,12 @@ beforeEach(() => {
   h.switch.mockResolvedValue(undefined);
   h.remove.mockResolvedValue(undefined);
 });
-
 afterEach(() => {
   document.body.innerHTML = "";
   setActiveSessionId("");
   for (const m of flash.msgs()) flash.dismiss(m.id);
   vi.clearAllMocks();
 });
-
 describe("DockWorktree 删除三态", () => {
   it("进行中禁用连点，成功后 flashOk 并重拉列表", async () => {
     let release: () => void = () => {};
@@ -85,7 +77,6 @@ describe("DockWorktree 删除三态", () => {
     btn("移除 worktree（分支保留；未提交改动先备份为 patch）").click(); // 连点被拒
     await flush();
     expect(h.remove).toHaveBeenCalledTimes(1);
-
     h.list.mockResolvedValue([]); // 删后重拉为空
     release();
     await flush();
@@ -97,12 +88,10 @@ describe("DockWorktree 删除三态", () => {
     await vi.waitFor(() => expect(document.body.textContent).not.toContain("kxen/wt1"));
     dispose();
   });
-
   it("失败 flashErr 带后端原因，不假装成功", async () => {
     h.remove.mockRejectedValue(new Error("worktree is locked"));
     const dispose = render(() => <DockWorktree />, document.body);
     await vi.waitFor(() => expect(document.body.textContent).toContain("kxen/wt1"));
-
     btn("移除 worktree（分支保留；未提交改动先备份为 patch）").click();
     await flush();
     await flush();
@@ -113,7 +102,6 @@ describe("DockWorktree 删除三态", () => {
     expect(document.body.textContent).toContain("kxen/wt1"); // 行还在
     dispose();
   });
-
   it("dirty 或删分支先出行内确认条，确认后才发 RPC", async () => {
     h.status.mockResolvedValue([{ path: "a.txt", status: "M" }]);
     const dispose = render(() => <DockWorktree />, document.body);
@@ -124,9 +112,8 @@ describe("DockWorktree 删除三态", () => {
     expect(h.remove).not.toHaveBeenCalled(); // 未确认不发 RPC
     expect(document.body.textContent).toContain("分支 kxen/wt1 将被删除（不可恢复）");
     expect(document.body.textContent).toContain(
-      "1 处未提交改动（删除前自动备份为 patch 到 .kxen/backups/）",
+      "1 处未提交改动（删除前自动备份为 patch 到 .agents/kxen/backups/）",
     );
-
     btnByText("取消").click(); // 取消不收 RPC、不留条
     await flush();
     expect(h.remove).not.toHaveBeenCalled();
@@ -217,6 +204,31 @@ describe("DockWorktree 自动刷新", () => {
   });
 });
 
+describe("DockWorktree 主树识别", () => {
+  const applyTitle = "把该树的全部差异（已提交 + 未提交 + 未跟踪）应用到主树；冲突则不落盘";
+
+  it("POSIX 的 .agents/kxen worktree 可以合回当前主树", async () => {
+    const dispose = render(() => <DockWorktree />, document.body);
+    await vi.waitFor(() => expect(document.body.textContent).toContain("kxen/wt1"));
+
+    const apply = btn(applyTitle);
+    expect(apply.disabled).toBe(false);
+    apply.click();
+    await vi.waitFor(() => expect(h.apply).toHaveBeenCalledWith("wt1"));
+    dispose();
+  });
+
+  it("Windows 的 .agents\\kxen worktree 可以合回当前主树", async () => {
+    h.list.mockResolvedValue([{ ...WT1, path: String.raw`C:\repo\.agents\kxen\worktrees\wt1` }]);
+    h.statusline.mockResolvedValue({ workdir: String.raw`C:\repo` });
+    const dispose = render(() => <DockWorktree />, document.body);
+    await vi.waitFor(() => expect(document.body.textContent).toContain("kxen/wt1"));
+
+    expect(btn(applyTitle).disabled).toBe(false);
+    dispose();
+  });
+});
+
 describe("DockWorktree 首载失败", () => {
   it("失败与真空区分：出重试条不出「无隔离树」，重试成功恢复列表", async () => {
     h.list.mockRejectedValueOnce(new Error("ws down"));
@@ -245,7 +257,7 @@ describe("DockWorktree 首载失败", () => {
 });
 
 describe("DockWorktree 创建并进入", () => {
-  const WT2 = { name: "wt2", path: "/repo/.kxen/worktrees/wt2", branch: "kxen/wt2" };
+  const WT2 = { name: "wt2", path: "/repo/.agents/kxen/worktrees/wt2", branch: "kxen/wt2" };
 
   const typeName = (n: string) => {
     const input = document.body.querySelector<HTMLInputElement>(
@@ -271,7 +283,7 @@ describe("DockWorktree 创建并进入", () => {
     typeName("wt2");
     btnByText("创建并进入").click();
     await vi.waitFor(() =>
-      expect(order).toEqual(["create:wt2", "switch:/repo/.kxen/worktrees/wt2", "nav:/"]),
+      expect(order).toEqual(["create:wt2", "switch:/repo/.agents/kxen/worktrees/wt2", "nav:/"]),
     );
     expect(flash.msgs().some((m) => m.kind === "err")).toBe(false);
     expect(flash.msgs().some((m) => m.kind === "ok" && m.text.includes("已进入 kxen/wt2"))).toBe(

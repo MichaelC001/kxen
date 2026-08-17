@@ -33,7 +33,7 @@ pub(in crate::ws) fn approval_pending(params: &Value, state: &crate::AppState) -
 /// approval.history RPC（B7 审计视图）：投影落盘的 Part::Approval + created_at，按时间倒序。
 /// 有 session_id 只读该会话；省略时遍历全部会话（设置页全局视图）。limit 缺省 200，上限 1000。
 pub(in crate::ws) fn approval_history(params: &Value) -> Result<Value, String> {
-    approval_history_in(&kxen_core::core::paths::sessions_dir(), params)
+    approval_history_in(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), params)
 }
 
 pub(in crate::ws) fn approval_history_in(dir: &std::path::Path, params: &Value) -> Result<Value, String> {
@@ -84,7 +84,7 @@ pub(in crate::ws) fn approval_rules_revoke(params: &Value, state: &crate::AppSta
 fn approval_rules_workspace(session_id: Option<&str>, state: &crate::AppState) -> std::path::PathBuf {
     session_id
         .filter(|id| !id.is_empty())
-        .and_then(|id| kxen_core::core::session::load_meta(&kxen_core::core::paths::sessions_dir(), id).ok())
+        .and_then(|id| kxen_core::core::session::load_meta(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), id).ok())
         .map(|meta| std::path::PathBuf::from(meta.directory))
         .unwrap_or_else(|| kxen_core::core::shared::read(&state.active_workspace).clone())
 }

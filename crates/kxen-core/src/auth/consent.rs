@@ -9,7 +9,7 @@ fn store_file() -> PathBuf {
     if let Ok(p) = std::env::var("KXEN_CONSENT_FILE") {
         return PathBuf::from(p);
     }
-    crate::core::paths::data_dir().join("credential-consent.json")
+    crate::core::paths::KxenPaths::user().credential_consent_file()
 }
 
 fn load_from(file: &Path) -> Result<Vec<String>, String> {

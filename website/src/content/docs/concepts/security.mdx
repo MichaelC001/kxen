@@ -59,7 +59,7 @@ Safety 对系统路径、Credential 目录、Git 元数据、磁盘操作和大�
 - 文件和 Session 删除进入系统废纸篓。
 - Checkpoint 使用独立 shadow Git repository，默认保留最近 50 个（`checkpoint_keep` 可配置），超出窗口的旧检查点在提交成功后自动裁剪。
 - Rewind 前的现场挂在独立 ref 上作为补偿点，Rewind 后可在 Session 中撤销；撤销只恢复文件，不回写对话记录。
-- Worktree 隔离并行修改；删除仍有未提交改动的 Worktree 前会自动把改动导出为 patch 备份（`.kxen/backups/`，保留最近 50 个且不超过 30 天），删除后仍可把备份合回主树。
+- Worktree 隔离并行修改；删除仍有未提交改动的 Worktree 前会自动把改动导出为 patch 备份（`.agents/kxen/backups/`，保留最近 50 个且不超过 30 天），删除后仍可把备份合回主树。
 - Session-scoped Approval 结果写入对应 Session；全局审批不伪造 Session 记录。
 - 用户停止 Session 会使未完成审批失效；审批等待窗口默认 300 秒，`approval_timeout_seconds` 可配置。
 - BotRun 的 cancellation、tool journal 和 `UNKNOWN` Recovery 写入独立 durable event stream。

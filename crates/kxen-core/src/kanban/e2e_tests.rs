@@ -142,8 +142,8 @@ async fn two_cards_run_concurrently_in_isolated_worktrees() {
     let card_a = create_card_titled(&mut board, "AlphaCard unique file");
     let card_b = create_card_titled(&mut board, "BetaCard unique file");
     drop(board);
-    let wt_a = workspace.join(".kxen").join("worktrees").join(format!("card-{card_a}"));
-    let wt_b = workspace.join(".kxen").join("worktrees").join(format!("card-{card_b}"));
+    let wt_a = crate::core::paths::KxenPaths::project(&workspace).worktree(&format!("card-{card_a}"));
+    let wt_b = crate::core::paths::KxenPaths::project(&workspace).worktree(&format!("card-{card_b}"));
     assert_ne!(wt_a, wt_b, "两卡 worktree 路径必须按 card_id 派生");
 
     // 隔离违例记入列表而非流内 panic：run 照常落地，断言集中在测试尾部给出完整清单

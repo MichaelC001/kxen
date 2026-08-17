@@ -64,7 +64,7 @@ where
         Ok(_) => {}
         Err(error) => return ConsolidationResult { written: 0, diagnostics: vec![error] },
     }
-    let sessions_dir = crate::core::paths::sessions_dir();
+    let sessions_dir = crate::core::paths::KxenPaths::user().sessions_dir();
     let sessions = match crate::core::session::list_checked(&sessions_dir) {
         Ok(sessions) => sessions,
         Err(error) => {
@@ -193,13 +193,14 @@ where
                         continue;
                     }
                 };
-                let focused_goal = match crate::core::goal::Goal::focus_for_checked(&crate::core::paths::goals_dir(), Some(&meta.id)) {
-                    Ok(goal) => goal,
-                    Err(error) => {
-                        result.diagnostics.push(format!("session {} goal state unavailable: {error}", meta.id));
-                        continue;
-                    }
-                };
+                let focused_goal =
+                    match crate::core::goal::Goal::focus_for_checked(&crate::core::paths::KxenPaths::user().goals_dir(), Some(&meta.id)) {
+                        Ok(goal) => goal,
+                        Err(error) => {
+                            result.diagnostics.push(format!("session {} goal state unavailable: {error}", meta.id));
+                            continue;
+                        }
+                    };
                 let goal_id = focused_goal.as_ref().map(|goal| goal.id.clone());
                 let timeout = match focused_goal
                     .as_ref()

@@ -75,7 +75,7 @@ fn store_file() -> PathBuf {
     if let Ok(path) = std::env::var("KXEN_USAGE_FILE") {
         return PathBuf::from(path);
     }
-    crate::core::paths::data_dir().join("usage.json")
+    crate::core::paths::KxenPaths::user().usage_file()
 }
 
 pub fn load() -> Result<HashMap<String, SessionUsage>, String> {

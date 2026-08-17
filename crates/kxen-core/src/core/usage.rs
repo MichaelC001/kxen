@@ -150,7 +150,7 @@ pub(crate) fn settle_provider_attempt_to(
     if attempt.phase() != ProviderAttemptPhase::Started {
         return Err("cannot settle a Provider attempt that never started".into());
     }
-    let attempt = hydrate_completion_usage_in(store, attempt, &crate::core::paths::goals_dir())?;
+    let attempt = hydrate_completion_usage_in(store, attempt, &crate::core::paths::KxenPaths::user().goals_dir())?;
     let measured = attempt.measured();
     let mut outcome = match ledger {
         Some(ledger) => transaction::apply_metering_transaction_to(
@@ -255,7 +255,7 @@ pub fn compact_closed_metering_receipts_preserving(
         warnings.push(format!("session receipt startup compaction will be retried: {error}"));
     }
 
-    let goals_dir = crate::core::paths::goals_dir();
+    let goals_dir = crate::core::paths::KxenPaths::user().goals_dir();
     for listed in crate::core::goal::Goal::list_checked(&goals_dir).map_err(|error| error.to_string())? {
         let lock = crate::core::goal::write_lock(&listed.id);
         let _guard = crate::core::shared::lock(&lock);

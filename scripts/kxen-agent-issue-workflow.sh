@@ -141,7 +141,7 @@ validate_diff() {
   fi
   for path in "${files[@]}"; do
     case "$path" in
-      .gitattributes | .gitmodules | .lfsconfig | .kxen/* | .github/CODEOWNERS | .github/actions/* | .github/workflows/* | \
+      .gitattributes | .gitmodules | .lfsconfig | .agents/kxen/* | .github/CODEOWNERS | .github/actions/* | .github/workflows/* | \
         examples/kxen-agent/github-issue/* | scripts/kxen-agent-issue-workflow.sh)
         rm -f "$temporary_index"
         fail "candidate diff changes an automation trust boundary: $path"

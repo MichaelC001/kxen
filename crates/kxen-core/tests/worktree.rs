@@ -5,6 +5,10 @@ use kxen_core::tools::exec::ApprovalCtx;
 use kxen_core::tools::worktree::{create, diff_stat, list, remove, remove_with_approval, validate_name};
 use std::path::{Path, PathBuf};
 
+fn project(repo: &Path) -> kxen_core::core::paths::ProjectPaths {
+    kxen_core::core::paths::KxenPaths::project(repo)
+}
+
 /// 建临时 git 仓库（tag 区分并行测试，避免同 pid 撞目录；先清上次失败的残留）
 fn init_repo(tag: &str) -> PathBuf {
     let repo = std::env::temp_dir().join(format!("kxen-wt-{tag}-{}", std::process::id()));
@@ -60,7 +64,7 @@ async fn lifecycle() {
     assert_eq!(info.branch, "kxen/wt1");
     // .gitignore 幂等
     let gi = std::fs::read_to_string(repo.join(".gitignore")).unwrap();
-    assert_eq!(gi.matches(".kxen/").count(), 1);
+    assert_eq!(gi.matches("/.agents/kxen/").count(), 1);
 
     let trees = list(&repo).await.unwrap();
     assert_eq!(trees.len(), 1);
@@ -115,7 +119,7 @@ async fn clean_remove_without_channel_ok() {
     let repo = init_repo("clean");
     create(&repo, "c1").await.unwrap();
     remove(&repo, "c1", false).await.unwrap();
-    assert!(!repo.join(".kxen/worktrees/c1").exists());
+    assert!(!project(&repo).worktree("c1").exists());
     assert!(git_out(&repo, &["branch", "--list", "kxen/c1"]).contains("kxen/c1"));
     std::fs::remove_dir_all(&repo).ok();
 }
@@ -127,14 +131,14 @@ async fn delete_branch_requires_approval() {
     create(&repo, "b1").await.unwrap();
     let err = remove(&repo, "b1", true).await.unwrap_err();
     assert!(err.contains("审批通道"), "{err}");
-    assert!(repo.join(".kxen/worktrees/b1").exists());
+    assert!(project(&repo).worktree("b1").exists());
     assert!(git_out(&repo, &["branch", "--list", "kxen/b1"]).contains("kxen/b1"));
 
     let broker = ApprovalBroker::new();
     let bus = EventBus::default();
     let ctx = ApprovalCtx { broker: &broker, bus: &bus, cancel: None, session_id: "t", auto: None };
     respond_via_bus(&broker, &bus, true, remove_with_approval(&repo, "b1", true, Some(&ctx), false)).await.unwrap();
-    assert!(!repo.join(".kxen/worktrees/b1").exists());
+    assert!(!project(&repo).worktree("b1").exists());
     assert!(git_out(&repo, &["branch", "--list", "kxen/b1"]).trim().is_empty());
     std::fs::remove_dir_all(&repo).ok();
 }
@@ -144,7 +148,7 @@ async fn delete_branch_requires_approval() {
 async fn dirty_remove_guarded_by_approval() {
     let repo = init_repo("dirty");
     create(&repo, "d1").await.unwrap();
-    let wt = repo.join(".kxen/worktrees/d1");
+    let wt = project(&repo).worktree("d1");
     std::fs::write(wt.join("dirty.txt"), "x").unwrap();
 
     let err = remove(&repo, "d1", false).await.unwrap_err();
@@ -169,7 +173,7 @@ async fn dirty_remove_guarded_by_approval() {
 async fn confirmed_skips_approval() {
     let repo = init_repo("conf");
     create(&repo, "cf1").await.unwrap();
-    let wt = repo.join(".kxen/worktrees/cf1");
+    let wt = project(&repo).worktree("cf1");
     std::fs::write(wt.join("dirty.txt"), "x").unwrap();
 
     // 无审批通道 + confirmed：不拒绝、不挂起，直接删（连分支一起）
@@ -179,19 +183,19 @@ async fn confirmed_skips_approval() {
     std::fs::remove_dir_all(&repo).ok();
 }
 
-/// dirty 删除先把未提交改动（含 untracked）打 patch 存 .kxen/backups/，patch 可 git apply 还原
+/// dirty 删除先把未提交改动（含 untracked）打 patch 存 .agents/kxen/backups/，patch 可 git apply 还原
 #[tokio::test]
 async fn dirty_remove_writes_recoverable_patch() {
     let repo = init_repo("bak");
     create(&repo, "bk1").await.unwrap();
-    let wt = repo.join(".kxen/worktrees/bk1");
+    let wt = project(&repo).worktree("bk1");
     std::fs::write(wt.join("a.txt"), "modified").unwrap();
     std::fs::write(wt.join("new.txt"), "brand new").unwrap();
 
     remove_with_approval(&repo, "bk1", false, None, true).await.unwrap();
     assert!(!wt.exists());
 
-    let backups = repo.join(".kxen/backups");
+    let backups = project(&repo).backups_dir();
     let patch = std::fs::read_dir(&backups)
         .unwrap()
         .filter_map(|e| e.ok())
@@ -214,12 +218,12 @@ async fn dirty_remove_writes_recoverable_patch() {
 async fn remove_backup_skips_symlinks() {
     let repo = init_repo("baklink");
     create(&repo, "sl1").await.unwrap();
-    let wt = repo.join(".kxen/worktrees/sl1");
+    let wt = project(&repo).worktree("sl1");
     std::fs::write(wt.join("real.txt"), "data").unwrap();
     std::os::unix::fs::symlink("real.txt", wt.join("link.txt")).unwrap();
 
     remove_with_approval(&repo, "sl1", false, None, true).await.unwrap();
-    let backups = repo.join(".kxen/backups");
+    let backups = project(&repo).backups_dir();
     let names: Vec<String> =
         std::fs::read_dir(&backups).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
     let patch = names.iter().find(|n| n.starts_with("worktree-sl1-") && n.ends_with(".patch")).expect("patch 必须存在");
@@ -236,7 +240,7 @@ async fn clean_remove_writes_no_backup() {
     let repo = init_repo("nobak");
     create(&repo, "nb1").await.unwrap();
     remove(&repo, "nb1", false).await.unwrap();
-    let backups = repo.join(".kxen/backups");
+    let backups = project(&repo).backups_dir();
     let patches = std::fs::read_dir(&backups).map(|rd| rd.filter_map(|e| e.ok()).count()).unwrap_or(0);
     assert_eq!(patches, 0, "clean 删除不得产生备份");
     std::fs::remove_dir_all(&repo).ok();
@@ -248,7 +252,7 @@ async fn apply_merges_worktree_diff_into_main() {
     use kxen_core::tools::worktree::apply;
     let repo = init_repo("ap");
     create(&repo, "ap1").await.unwrap();
-    let wt = repo.join(".kxen/worktrees/ap1");
+    let wt = project(&repo).worktree("ap1");
     std::fs::write(wt.join("a.txt"), "changed").unwrap();
     std::fs::write(wt.join("added.txt"), "new file").unwrap();
 
@@ -265,7 +269,7 @@ async fn apply_conflict_returns_diff_without_writing() {
     use kxen_core::tools::worktree::apply;
     let repo = init_repo("apc");
     create(&repo, "c2").await.unwrap();
-    let wt = repo.join(".kxen/worktrees/c2");
+    let wt = project(&repo).worktree("c2");
     std::fs::write(wt.join("a.txt"), "from worktree").unwrap();
     std::fs::write(repo.join("a.txt"), "main diverged").unwrap();
 
@@ -299,12 +303,12 @@ async fn create_reuses_leftover_branch() {
     std::fs::remove_dir_all(&repo).ok();
 }
 
-/// .kxen/backups 数量上限：超出保留最近 50 份，最旧的被清掉
+/// .agents/kxen/backups 数量上限：超出保留最近 50 份，最旧的被清掉
 #[test]
 fn prune_backups_keeps_newest() {
     use kxen_core::tools::worktree::prune_backups;
     let dir = std::env::temp_dir().join(format!("kxen-wt-prune-{}", std::process::id()));
-    let backups = dir.join(".kxen/backups");
+    let backups = project(&dir).backups_dir();
     std::fs::create_dir_all(&backups).unwrap();
     // f000 最先写且 sleep 隔开：mtime 严格最旧，淘汰必命中它
     std::fs::write(backups.join("f000.kxen-bak"), "x").unwrap();
@@ -322,12 +326,12 @@ fn prune_backups_keeps_newest() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// .kxen/backups 时间上限：超过 30 天的备份即使数量未超限也清掉
+/// .agents/kxen/backups 时间上限：超过 30 天的备份即使数量未超限也清掉
 #[test]
 fn prune_backups_drops_expired() {
     use kxen_core::tools::worktree::prune_backups;
     let dir = std::env::temp_dir().join(format!("kxen-wt-prune-age-{}", std::process::id()));
-    let backups = dir.join(".kxen/backups");
+    let backups = project(&dir).backups_dir();
     std::fs::create_dir_all(&backups).unwrap();
     let old = backups.join("old.kxen-bak");
     let fresh = backups.join("fresh.kxen-bak");

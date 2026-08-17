@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use super::queue_delivery::DeliveryOutcome;
 use super::run_finalize::finish_direct;
-
 mod checkpoint;
 #[path = "llm_task/early.rs"]
 mod early;
@@ -26,7 +25,7 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
     let spawn::RunInput { stream_id, session_id, text, context, images, queue_delivery_id, queue_created_at, schedule_job_id, state } =
         input;
 
-    let sessions_dir = kxen_core::core::paths::sessions_dir();
+    let sessions_dir = kxen_core::core::paths::KxenPaths::user().sessions_dir();
 
     let queue_handoff = preclaimed.is_some();
     let cancel = match preclaimed {
@@ -105,18 +104,19 @@ async fn run_llm_inner(input: spawn::RunInput, preclaimed: Option<kxen_core::age
             return;
         }
     };
-    let bound_goal_id = match kxen_core::core::goal::Goal::focus_for_checked(&kxen_core::core::paths::goals_dir(), Some(&session_id)) {
-        Ok(goal) => goal.map(|goal| goal.id),
-        Err(error) => {
-            let message = format!("goal state unavailable: {error}");
-            tracing::error!(session = session_id, %error, "goal admission failed");
-            let delivery = queue_delivery_id
-                .as_deref()
-                .map_or(DeliveryOutcome::Direct, |delivery_id| super::queue_delivery::release(&state, &session_id, delivery_id));
-            early.finish(delivery, false, None, kxen_core::agent::agent_loop::AgentEvent::Error { message });
-            return;
-        }
-    };
+    let bound_goal_id =
+        match kxen_core::core::goal::Goal::focus_for_checked(&kxen_core::core::paths::KxenPaths::user().goals_dir(), Some(&session_id)) {
+            Ok(goal) => goal.map(|goal| goal.id),
+            Err(error) => {
+                let message = format!("goal state unavailable: {error}");
+                tracing::error!(session = session_id, %error, "goal admission failed");
+                let delivery = queue_delivery_id
+                    .as_deref()
+                    .map_or(DeliveryOutcome::Direct, |delivery_id| super::queue_delivery::release(&state, &session_id, delivery_id));
+                early.finish(delivery, false, None, kxen_core::agent::agent_loop::AgentEvent::Error { message });
+                return;
+            }
+        };
 
     match super::llm_special::handle(
         &text,

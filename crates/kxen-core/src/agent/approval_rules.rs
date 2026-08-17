@@ -1,6 +1,6 @@
 //! 会话/workspace 级审批规则：ApprovalCard 的「本会话放行」「总是放行」落点。
 //! 匹配语义与 kanban PolicySpec 同口径：trim 后前缀 + 词边界 + 禁 shell 元字符 + max_uses + expires_at。
-//! session 规则纯内存（随进程生命周期）；workspace 规则持久化到 `<workspace>/.kxen/approval-rules.json`。
+//! session 规则纯内存（随进程生命周期）；workspace 规则持久化到 `<workspace>/.agents/kxen/approval-rules.json`。
 //! fail-closed 顺序不变：Deny 判定永远先于规则表（safety_gate 内先评估后查表）；
 //! 命中规则先写 durable 审计（Part::Approval decision=rule_allow）再放行，审计失败即不自动放行。
 
@@ -85,10 +85,11 @@ pub fn alive(rule: &ApprovalRule, now_ms: u64) -> bool {
 }
 
 pub fn rules_file(workspace: &Path) -> PathBuf {
-    workspace.join(".kxen").join("approval-rules.json")
+    crate::core::paths::KxenPaths::project(workspace).approval_rules_file()
 }
 
 pub fn load_workspace_rules(workspace: &Path) -> Result<Vec<ApprovalRule>, String> {
+    crate::core::ignore_manager::prepare_project(&crate::core::paths::KxenPaths::project(workspace))?;
     let path = rules_file(workspace);
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
@@ -98,8 +99,9 @@ pub fn load_workspace_rules(workspace: &Path) -> Result<Vec<ApprovalRule>, Strin
     serde_json::from_str(&text).map_err(|error| format!("parse {}: {error}", path.display()))
 }
 
-/// 原子写：tmp + rename（与 ensure_gitignore 同规约），写一半的文件绝不成为真源。
+/// 原子写：tmp + rename，写一半的文件绝不成为真源。
 pub fn save_workspace_rules(workspace: &Path, rules: &[ApprovalRule]) -> Result<(), String> {
+    crate::core::ignore_manager::prepare_project(&crate::core::paths::KxenPaths::project(workspace))?;
     let path = rules_file(workspace);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| format!("create {}: {error}", parent.display()))?;

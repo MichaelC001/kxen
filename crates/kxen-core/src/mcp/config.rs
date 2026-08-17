@@ -1,4 +1,4 @@
-//! .mcp.json 解析：双 scope（项目 <workdir>/.mcp.json 覆盖用户 ~/.config/kxen/mcp.json）。
+//! .mcp.json 解析：双 scope（项目 <workdir>/.mcp.json 覆盖用户 ~/.agents/kxen/mcp.json）。
 //! server 两种形态：stdio（command）与 remote（url + transport http|sse）；
 //! 顶层 toolPolicies 按 "server" 或 "server.tool" 键给 per-tool 放行/询问/拒绝。
 
@@ -307,7 +307,7 @@ fn load_file(path: &Path, scope: &ConfigScope, cwd: &Path) -> Result<ScopedConfi
 /// 同名个人 server 会自然保留，而不是被项目配置一并隐藏。
 pub(super) fn load_scoped(workdir: &Path, project_trusted: bool) -> Result<(ScopedConfig, ScopedConfig), String> {
     let personal_scope = ConfigScope::Personal;
-    let personal = load_file(&crate::core::paths::config_dir().join("mcp.json"), &personal_scope, workdir)?;
+    let personal = load_file(&crate::core::paths::KxenPaths::user().mcp_config_file(), &personal_scope, workdir)?;
     let project = if project_trusted {
         let project_scope = ConfigScope::Project(workdir.to_path_buf());
         load_file(&workdir.join(".mcp.json"), &project_scope, workdir)?

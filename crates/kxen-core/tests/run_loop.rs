@@ -36,7 +36,7 @@ fn scripted(scripts: Vec<Vec<Delta>>, calls: Arc<AtomicUsize>) -> StreamFn {
 
 /// session 绑定的 goal 用量结算过 live Session admission（load_meta 查活），先落真实会话。
 fn create_test_session() -> String {
-    kxen_core::core::session::create(&kxen_core::core::paths::sessions_dir(), "/tmp").expect("create session").id
+    kxen_core::core::session::create(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), "/tmp").expect("create session").id
 }
 
 fn test_ctx(stream: StreamFn, session_id: &str) -> AgentContext {
@@ -164,7 +164,8 @@ async fn explicit_auth_rejection_settles_transactional_zero_without_unknown_usag
     let dir = goals_dir_isolation();
     std::fs::create_dir_all(&dir).expect("mkdir");
     let goal_id = "run-known-zero-goal";
-    let session = kxen_core::core::session::create(&kxen_core::core::paths::sessions_dir(), "/tmp").expect("create session");
+    let session =
+        kxen_core::core::session::create(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), "/tmp").expect("create session");
     let session_id = session.id;
     let mut goal = kxen_core::core::goal::Goal::create(
         kxen_core::core::goal::GoalContract {

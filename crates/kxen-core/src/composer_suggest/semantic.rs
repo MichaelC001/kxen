@@ -47,7 +47,7 @@ fn cache_path(workspace: &Path) -> std::path::PathBuf {
     use sha2::Digest;
     let root = std::fs::canonicalize(workspace).unwrap_or_else(|_| workspace.to_path_buf());
     let digest = sha2::Sha256::digest(root.to_string_lossy().as_bytes());
-    crate::core::paths::data_dir().join("composer-suggestions").join(crate::core::shared::hex_lower(&digest)).join("embedding-cache.json")
+    crate::core::paths::KxenPaths::user().composer_suggestion_cache(&crate::core::shared::hex_lower(&digest))
 }
 
 fn namespaced_hash(prefix: &str, text: &str) -> String {

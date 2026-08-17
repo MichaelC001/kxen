@@ -1,4 +1,4 @@
-//! 配置（~/.config/kxen/config.toml + 项目 .kxen/config.toml，项目级覆盖用户级）。
+//! 配置（~/.agents/kxen/config.toml + 项目 .agents/kxen/config.toml，项目级覆盖用户级）。
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

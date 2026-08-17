@@ -26,7 +26,7 @@ impl GoalWallCache {
             return self.goal.clone();
         }
         self.last_check = Some(std::time::Instant::now());
-        let dir = crate::core::paths::goals_dir();
+        let dir = crate::core::paths::KxenPaths::user().goals_dir();
         let mtime = match goal_store_mtime(&dir) {
             Ok(mtime) => mtime,
             Err(error) => {

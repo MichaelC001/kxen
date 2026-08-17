@@ -80,7 +80,7 @@ pub struct RunTimeoutPayload {
     pub run_id: String,
 }
 
-/// Agent 定义文件本体存 `.kxen/kanban/agents/*.md`（P2），事件只登记元数据，重放不依赖文件内容。
+/// Agent 定义文件本体存 `.agents/kxen/kanban/agents/*.md`（P2），事件只登记元数据，重放不依赖文件内容。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentDefinedPayload {

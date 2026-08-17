@@ -131,7 +131,7 @@ pub fn subagent_prompt(role: &str, role_brief: &str, coding_rules: bool) -> Stri
 
 /// 注入焦点 goal：模型始终看到它正在驱动的 contract。
 fn goal_block(session_id: Option<&str>, bound_goal_id: Option<&str>, binding_frozen: bool) -> Option<String> {
-    let goals_dir = crate::core::paths::goals_dir();
+    let goals_dir = crate::core::paths::KxenPaths::user().goals_dir();
     let goal = if binding_frozen { Goal::load(&goals_dir, bound_goal_id?).ok()? } else { Goal::focus_for(&goals_dir, session_id)? };
     let mut out = String::with_capacity(512);
     let _ = write!(

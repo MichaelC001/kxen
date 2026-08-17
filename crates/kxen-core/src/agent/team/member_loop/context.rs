@@ -134,7 +134,7 @@ pub(super) enum CredentialRefresh {
 }
 
 pub(super) async fn refresh_store_credentials(state: &Arc<TeamState>, model: &ModelRef, cancel: &CancelToken) -> CredentialRefresh {
-    refresh_store_credentials_in(state, model, cancel, &crate::core::paths::goals_dir()).await
+    refresh_store_credentials_in(state, model, cancel, &crate::core::paths::KxenPaths::user().goals_dir()).await
 }
 
 pub(super) async fn refresh_store_credentials_in(

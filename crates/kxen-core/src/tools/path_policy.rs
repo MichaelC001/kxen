@@ -312,19 +312,16 @@ fn sensitive_reason(candidate: &Path) -> Option<String> {
 }
 
 fn build_sensitive_roots() -> Vec<PathBuf> {
-    let mut roots = vec![
-        crate::core::paths::config_dir(),
-        crate::core::paths::data_dir(),
-        crate::core::paths::cache_dir(),
-        crate::core::paths::auth_file(),
-        crate::mcp::oauth_store::store_path(),
-    ];
+    let user = crate::core::paths::KxenPaths::user();
+    let mut roots = vec![user.root(), user.auth_file(), crate::mcp::oauth_store::store_path()];
     if let Some(home) = dirs::home_dir() {
         roots.push(home.join("Library/Keychains"));
         for name in [".ssh", ".gnupg", ".aws", ".kube", ".docker", ".codex", ".claude", ".grok", ".kimi-code"] {
             roots.push(home.join(name));
         }
     }
+    roots.sort_unstable();
+    roots.dedup();
     roots
 }
 

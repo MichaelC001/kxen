@@ -10,8 +10,8 @@ kxen 使用 TOML 保存非敏感配置。
 
 ## 配置层级
 
-- 用户配置： `file:///Users/you/.config/kxen/config.toml`
-- 项目配置： `file:///path/to/workspace/.kxen/config.toml`
+- 用户配置： `file:///Users/you/.agents/kxen/config.toml`
+- 项目配置： `file:///path/to/workspace/.agents/kxen/config.toml`
 
 项目配置只在 Workspace 已信任时加载，并且只能包含以下顶层表项:
 
@@ -114,7 +114,7 @@ close_to_tray = true
 
 ## 项目配置示例
 
-受信任 Workspace 可以在 `.kxen/config.toml` 中提供项目所需的角色、资源策略和 Hook:
+受信任 Workspace 可以在 `.agents/kxen/config.toml` 中提供项目所需的角色、资源策略和 Hook:
 
 ```toml
 [roles.execution]
@@ -169,7 +169,7 @@ Provider、OAuth、Remote MCP、Web Fetch 和 Web Search 使用应用内受保�
 
 ## 沙箱
 
-QuickJS 沙箱（`workflow` 与动态工具 `dyn__*`）的资源上限在 `[sandbox]` 下配置，只读取个人配置，项目 `.kxen/config.toml` 不能放宽沙箱边界：
+QuickJS 沙箱（`workflow` 与动态工具 `dyn__*`）的资源上限在 `[sandbox]` 下配置，只读取个人配置，项目 `.agents/kxen/config.toml` 不能放宽沙箱边界：
 
 ```toml
 [sandbox]
@@ -187,7 +187,7 @@ dynamic_tool_max_implementation_chars = 20000   # 动态工具实现源码上限
 - `browser_automation`: 允许 Agent 驱动本机 Chrome，页面数据可能进入当前 Provider 上下文。
 - `remote_mcp`: 加载 Streamable HTTP 和 SSE server，工具参数会发送给远端 server。
 
-三项默认都是 `false`，只读取个人配置。项目 `.kxen/config.toml` 不能扩大这些能力面。
+三项默认都是 `false`，只读取个人配置。项目 `.agents/kxen/config.toml` 不能扩大这些能力面。
 
 ## 运行中消息
 

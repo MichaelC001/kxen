@@ -42,7 +42,7 @@ impl WorkspaceRuntimeRegistry {
             mcp_approval: Some((broker, bus)),
             mcp_auto: None,
             base_mrm,
-            user_config: Arc::from(crate::core::paths::config_dir().join("config.toml")),
+            user_config: Arc::from(crate::core::paths::KxenPaths::user().config_file()),
             config_update_gate: Arc::new(ConfigUpdateGate::default()),
         }
     }

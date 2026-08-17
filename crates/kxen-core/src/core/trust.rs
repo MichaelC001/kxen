@@ -13,7 +13,7 @@ fn store_file() -> PathBuf {
     if let Ok(p) = std::env::var("KXEN_TRUST_FILE") {
         return PathBuf::from(p);
     }
-    crate::core::paths::data_dir().join("trusted.json")
+    crate::core::paths::KxenPaths::user().trusted_workspaces_file()
 }
 
 fn load_from(file: &Path) -> Result<Vec<String>, String> {
@@ -82,10 +82,10 @@ pub fn is_trusted(workdir: &Path) -> bool {
         if p == &w {
             return true;
         }
-        // 子路径继承仅限 <repo>/.kxen/worktrees/<name>：worktree 是同一项目副本，
+        // 子路径继承仅限 <repo>/.agents/kxen/worktrees/<name>：worktree 是同一项目副本，
         // 精确匹配会让 worktree 会话退回未信任（custom role/skill/command 全失效）；
         // 不收宽到任意子目录——子目录可能是拖进项目的不可信第三方代码
-        workdir.starts_with(Path::new(p).join(".kxen/worktrees"))
+        workdir.starts_with(crate::core::paths::KxenPaths::project(Path::new(p)).worktrees_dir())
     })
 }
 
@@ -136,13 +136,23 @@ thread_local! {
 /// 项目内存在需要信任决策的内容（知识树、项目级 hooks 配置或 MCP 服务器清单）。
 pub fn needs_gate(workdir: &Path) -> bool {
     // .mcp.json 的 server 命令会在信任后由 MCP 加载执行，未信任前同样要过门
-    workdir.join(".agents").is_dir() || workdir.join(".kxen/config.toml").is_file() || workdir.join(".mcp.json").is_file()
+    has_project_knowledge(workdir)
+        || crate::core::paths::KxenPaths::project(workdir).config_file().is_file()
+        || workdir.join(".mcp.json").is_file()
 }
 
-/// 项目 hooks 按信任门换入换出：已信任合并项目 .kxen/config.toml 重载，未信任回用户级。
+fn has_project_knowledge(workdir: &Path) -> bool {
+    let root = workdir.join(crate::core::paths::AGENTS_DIR);
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return false;
+    };
+    entries.flatten().any(|entry| !crate::core::paths::KxenPaths::is_runtime_namespace_entry(&root, &entry.path()))
+}
+
+/// 项目 hooks 按信任门换入换出：已信任合并项目 .agents/kxen/config.toml 重载，未信任回用户级。
 pub fn reload_hooks_for_workspace(workdir: &Path, hooks: &crate::tools::hooks::HookRunner) {
-    let project_cfg = if is_trusted(workdir) { Some(workdir.join(".kxen/config.toml")) } else { None };
-    match crate::core::config::Config::load(&crate::core::paths::config_dir().join("config.toml"), project_cfg.as_deref()) {
+    let project_cfg = if is_trusted(workdir) { Some(crate::core::paths::KxenPaths::project(workdir).config_file()) } else { None };
+    match crate::core::config::Config::load(&crate::core::paths::KxenPaths::user().config_file(), project_cfg.as_deref()) {
         Ok(merged) => hooks.reload(&merged),
         Err(error) => {
             tracing::error!(%error, workspace = %workdir.display(), "hook config reload rejected; keeping current hooks");
@@ -246,8 +256,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("kxen-trust-wt-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         trust(&dir).unwrap();
-        assert!(is_trusted(&dir.join(".kxen/worktrees/feat-x")), "worktree 副本继承项目信任");
-        assert!(is_trusted(&dir.join(".kxen/worktrees/feat-x/src")), "worktree 内更深层同样继承");
+        let worktree = crate::core::paths::KxenPaths::project(&dir).worktree("feat-x");
+        assert!(is_trusted(&worktree), "worktree 副本继承项目信任");
+        assert!(is_trusted(&worktree.join("src")), "worktree 内更深层同样继承");
         assert!(!is_trusted(&dir.join("src")), "普通子目录不继承");
         let other = std::env::temp_dir().join(format!("kxen-trust-wt-other-{}", std::process::id()));
         assert!(!is_trusted(&other), "无关目录不信任");
@@ -272,12 +283,23 @@ mod tests {
 
     #[test]
     fn mcp_json_alone_triggers_gate() {
-        // 仅含 .mcp.json 的项目（无 .agents、无 .kxen/config.toml）也必须触发信任门
+        // 仅含 .mcp.json 的项目（无 .agents 知识和项目配置）也必须触发信任门
         let dir = std::env::temp_dir().join(format!("kxen-trust-mcp-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).unwrap();
         assert!(!needs_gate(&dir));
         std::fs::write(dir.join(".mcp.json"), "{}").unwrap();
+        assert!(needs_gate(&dir));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn kxen_runtime_namespace_alone_does_not_trigger_gate() {
+        let dir = std::env::temp_dir().join(format!("kxen-trust-runtime-only-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        crate::core::paths::KxenPaths::project(&dir).ensure_base_dir().unwrap();
+        assert!(!needs_gate(&dir));
+        std::fs::create_dir_all(dir.join(".agents/rules")).unwrap();
         assert!(needs_gate(&dir));
         std::fs::remove_dir_all(&dir).ok();
     }

@@ -4,10 +4,10 @@ use kxen_core::llm::{Message, ModelRef};
 
 #[tokio::main]
 async fn main() {
-    let auth_path = kxen_core::core::paths::auth_file();
+    let auth_path = kxen_core::core::paths::KxenPaths::user().auth_file();
     let mut store = kxen_core::auth::credential::read_auth_file(&auth_path).expect("read auth store");
     kxen_core::auth::probe_all(&mut store, true);
-    let config_path = kxen_core::core::paths::config_dir().join("config.toml");
+    let config_path = kxen_core::core::paths::KxenPaths::user().config_file();
     let config = match kxen_core::core::config::Config::load(&config_path, None) {
         Ok(config) => config,
         Err(error) => {

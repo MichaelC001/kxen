@@ -43,7 +43,7 @@ pub fn web_access_label(bind_host: &str, port: u16) -> String {
 }
 
 pub fn user_config_path() -> PathBuf {
-    kxen_core::core::paths::config_dir().join("config.toml")
+    kxen_core::core::paths::KxenPaths::user().config_file()
 }
 
 /// 写前整文档校验 + tmp/rename 原子替换。

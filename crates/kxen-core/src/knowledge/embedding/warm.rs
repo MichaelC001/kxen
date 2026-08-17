@@ -172,7 +172,7 @@ async fn request_body(ep: &Endpoint, texts: &[String]) -> Result<String, String>
 
 fn request_timeout(runtime: &EmbeddingRuntime) -> Result<std::time::Duration, String> {
     let Some(goal_id) = runtime.goal_id.as_deref() else { return Ok(REQUEST_TIMEOUT) };
-    let goal = crate::core::goal::Goal::load(&crate::core::paths::goals_dir(), goal_id)
+    let goal = crate::core::goal::Goal::load(&crate::core::paths::KxenPaths::user().goals_dir(), goal_id)
         .map_err(|error| format!("goal {goal_id} cannot be loaded before embedding: {error}"))?;
     match goal.runtime_budget(crate::core::shared::now_ms()) {
         crate::core::goal::RuntimeBudget::Unbounded => Ok(REQUEST_TIMEOUT),

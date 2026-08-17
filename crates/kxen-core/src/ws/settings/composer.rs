@@ -9,7 +9,7 @@ pub(in crate::ws) fn set_composer_suggestions(params: &Value, state: &Arc<AppSta
         return Err("unknown composer suggestion setting".into());
     }
     let enabled = params.get("enabled").and_then(Value::as_bool).ok_or("missing enabled")?;
-    let path = kxen_core::core::paths::config_dir().join("config.toml");
+    let path = kxen_core::core::paths::KxenPaths::user().config_file();
     super::super::ops::update_toml_with_runtime(&path, &state.workspace_runtimes, |doc| {
         let section = doc.entry("composer_suggestions").or_insert_with(|| toml::Value::Table(toml::Table::new()));
         if !section.is_table() {
@@ -28,7 +28,7 @@ pub(in crate::ws) fn set_embedding(params: &Value, state: &Arc<AppState>) -> Res
     }
     let model = params.get("model").and_then(Value::as_str).unwrap_or("");
     let base_url = params.get("base_url").and_then(Value::as_str).unwrap_or("");
-    let path = kxen_core::core::paths::config_dir().join("config.toml");
+    let path = kxen_core::core::paths::KxenPaths::user().config_file();
     super::super::ops::update_toml_with_runtime(&path, &state.workspace_runtimes, |doc| {
         let section = doc.entry("embedding").or_insert_with(|| toml::Value::Table(toml::Table::new()));
         if !section.is_table() {

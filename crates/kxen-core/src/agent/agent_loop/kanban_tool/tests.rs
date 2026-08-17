@@ -149,7 +149,7 @@ fn agent_create_saves_file_and_event_and_validates_first() {
     )
     .expect("agent_create");
     assert!(ok.contains("agent defined: qa-x"), "{ok}");
-    let file = workspace.join(".kxen/kanban/agents/qa-x.md");
+    let file = crate::core::paths::KxenPaths::project(&workspace).kanban_agent("qa-x");
     assert!(file.is_file(), "定义文件必须落盘");
     let board = Board::open(&workspace, "board_t").unwrap();
     assert_eq!(board.state().agents["qa-x"].permission_profile, "readonly+test", "agent_defined 事件登记元数据");
@@ -161,7 +161,7 @@ fn agent_create_saves_file_and_event_and_validates_first() {
     )
     .unwrap_err();
     assert!(error.contains("unknown permission_profile"), "{error}");
-    assert!(!workspace.join(".kxen/kanban/agents/bad.md").exists());
+    assert!(!crate::core::paths::KxenPaths::project(&workspace).kanban_agent("bad").exists());
     assert!(!board.state().agents.contains_key("bad"));
     // 未建板拒绝
     let error = call(
@@ -188,7 +188,7 @@ fn agent_create_custom_profile_tools_roundtrip_and_fail_closed() {
     )
     .expect("custom agent_create");
     assert!(ok.contains("agent defined: go-editor"), "{ok}");
-    let file = workspace.join(".kxen/kanban/agents/go-editor.md");
+    let file = crate::core::paths::KxenPaths::project(&workspace).kanban_agent("go-editor");
     assert!(file.is_file(), "定义文件必须落盘");
     let text = std::fs::read_to_string(&file).unwrap();
     assert!(text.contains("tools: read,glob,grep,edit,write,exec,lsp"), "tools 行必须进 frontmatter: {text}");
@@ -214,8 +214,9 @@ fn agent_create_custom_profile_tools_roundtrip_and_fail_closed() {
     )
     .unwrap_err();
     assert!(error.contains("allowlist"), "{error}");
-    assert!(!workspace.join(".kxen/kanban/agents/bad-a.md").exists());
-    assert!(!workspace.join(".kxen/kanban/agents/bad-b.md").exists());
+    let paths = crate::core::paths::KxenPaths::project(&workspace);
+    assert!(!paths.kanban_agent("bad-a").exists());
+    assert!(!paths.kanban_agent("bad-b").exists());
     let board = Board::open(&workspace, "board_t").unwrap();
     assert!(!board.state().agents.contains_key("bad-a") && !board.state().agents.contains_key("bad-b"));
     assert_eq!(board.state().seq, seq_before, "非法输入不得新增事件");

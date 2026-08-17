@@ -18,7 +18,7 @@ fn column_schema() -> serde_json::Value {
             "title": { "type": "string" },
             "on_enter": {
                 "type": "object",
-                "description": "Entry action. agent_run/workflow require `agent` (a definition in .kxen/kanban/agents/); none/human_gate must not set it",
+                "description": "Entry action. agent_run/workflow require `agent` (a definition in .agents/kxen/kanban/agents/); none/human_gate must not set it",
                 "properties": {
                     "kind": { "type": "string", "enum": ["none", "agent_run", "workflow", "human_gate"] },
                     "agent": { "type": "string" }
@@ -44,7 +44,7 @@ pub fn kanban_tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition::function(
             "kanban_board_create",
-            "Create a kanban board in this workspace (.kxen/kanban/). Omit `columns` for the default software-development template: requirements(human_gate) -> implementing(agent_run) -> testing(agent_run) -> review(human_gate) -> done(terminal). Returns the board id used by all other kanban_* tools.",
+            "Create a kanban board in this workspace (.agents/kxen/kanban/). Omit `columns` for the default software-development template: requirements(human_gate) -> implementing(agent_run) -> testing(agent_run) -> review(human_gate) -> done(terminal). Returns the board id used by all other kanban_* tools.",
             json!({
                 "type": "object",
                 "properties": {
@@ -110,7 +110,7 @@ pub fn kanban_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "kanban_agent_create",
-            "Define a DCP agent for kanban column runs: validates the definition, writes .kxen/kanban/agents/<name>.md and registers it on the board. permission_profile decides the agent's tool set: readonly (read/glob/grep), readonly+test (+ exec), full (all resident tools), custom (exactly the tools you list). custom REQUIRES `tools` (closed allowlist: read, glob, grep, edit, write, delete, exec, lsp, webfetch, websearch, todo, task, goal, knowledge, skill) and the fixed profiles must NOT set it - e.g. a Go editing agent: permission_profile='custom', tools=['read','glob','grep','edit','write','exec','lsp']. model is 'auto' (MRM-routed by role) or 'provider:model'.",
+            "Define a DCP agent for kanban column runs: validates the definition, writes .agents/kxen/kanban/agents/<name>.md and registers it on the board. permission_profile decides the agent's tool set: readonly (read/glob/grep), readonly+test (+ exec), full (all resident tools), custom (exactly the tools you list). custom REQUIRES `tools` (closed allowlist: read, glob, grep, edit, write, delete, exec, lsp, webfetch, websearch, todo, task, goal, knowledge, skill) and the fixed profiles must NOT set it - e.g. a Go editing agent: permission_profile='custom', tools=['read','glob','grep','edit','write','exec','lsp']. model is 'auto' (MRM-routed by role) or 'provider:model'.",
             json!({
                 "type": "object",
                 "properties": {

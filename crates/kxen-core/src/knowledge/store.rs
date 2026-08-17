@@ -1,4 +1,4 @@
-//! 写回路：notes/ 写入（同 slug 覆盖）、启停、双 scope 晋升、回收站删除、.kxen 私址存量迁移。
+//! 写回路：notes/ 写入（同 slug 覆盖）、启停、双 scope 晋升和回收站删除。
 
 use super::scan::scan_all;
 #[cfg(test)]

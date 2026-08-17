@@ -10,7 +10,7 @@ Kanban 是 Workspace 级持久流水线。一张看板由若干列组成，卡�
 
 ## 事件流是唯一真源
 
-看板状态的唯一真源是 append-only 事件流 `.kxen/kanban/<board>/events.jsonl`。同目录的 `snapshot.json` 只是加速加载的缓存，启动校验不符即从事件流全量重建。
+看板状态的唯一真源是 append-only 事件流 `.agents/kxen/kanban/<board>/events.jsonl`。同目录的 `snapshot.json` 只是加速加载的缓存，启动校验不符即从事件流全量重建。
 
 一切状态变化都走 Command -> 守卫 -> Event：非法命令被结构化拒绝且零副作用，模型和人都不能直写状态。界面操作和 Agent 工具走同一条命令路径，事件流因此可以完整回放每一次迁移、执行和裁定。
 
@@ -42,7 +42,7 @@ QuickJS 脚本列复用列 Agent 定义文件，正文即脚本，由 [Workflow]
 
 ## 列 Agent 定义
 
-列引用的 Agent 定义保存在 `.kxen/kanban/agents/<name>.md`，frontmatter 包含 name、role、model 和 permission_profile，正文是 system prompt。permission_profile 决定该列实例能调用哪些工具：
+列引用的 Agent 定义保存在 `.agents/kxen/kanban/agents/<name>.md`，frontmatter 包含 name、role、model 和 permission_profile，正文是 system prompt。permission_profile 决定该列实例能调用哪些工具：
 
 - `readonly`：只读检索。
 - `readonly+test`：只读检索加执行验证命令。
@@ -62,9 +62,9 @@ model 为 `auto` 时按 role 经模型路由选择，也可以显式钉选 `prov
 
 ## 每卡 worktree 隔离
 
-在 git Workspace 中，列执行在卡片专属 worktree（`.kxen/worktrees/card-<id>`，分支 `kxen/card-<id>`）内进行，多张卡并发执行互不踩踏。非 git Workspace 降级为项目根目录执行，并留下审计评论说明本次无隔离。
+在 git Workspace 中，列执行在卡片专属 worktree（`.agents/kxen/worktrees/card-<id>`，分支 `kxen/card-<id>`）内进行，多张卡并发执行互不踩踏。非 git Workspace 降级为项目根目录执行，并留下审计评论说明本次无隔离。
 
-卡片进入终态列后，看板先抢救未提交产物（含被 gitignore 忽略的文件），快照到 `.kxen/kanban/<board>/artifacts/<card>/`，再释放 worktree 目录、保留分支。把分支合回主树是人的工作，通常在待验证列完成。通用 worktree 能力见 [Worktree](https://kxen.ai/recovery/worktree)。
+卡片进入终态列后，看板先抢救未提交产物（含被 gitignore 忽略的文件），快照到 `.agents/kxen/kanban/<board>/artifacts/<card>/`，再释放 worktree 目录、保留分支。把分支合回主树是人的工作，通常在待验证列完成。通用 worktree 能力见 [Worktree](https://kxen.ai/recovery/worktree)。
 
 ## 与 Agent Teams 的边界
 

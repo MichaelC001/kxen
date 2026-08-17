@@ -33,7 +33,7 @@ interface PendingRemove {
 function confirmText(r: PendingRemove): string {
   const parts: string[] = [];
   if (r.dirty > 0)
-    parts.push(`${r.dirty} 处未提交改动（删除前自动备份为 patch 到 .kxen/backups/）`);
+    parts.push(`${r.dirty} 处未提交改动（删除前自动备份为 patch 到 .agents/kxen/backups/）`);
   if (r.withBranch) parts.push(`分支 ${r.branch} 将被删除（不可恢复）`);
   return `确认移除 ${r.name}：${parts.join("，")}。`;
 }
@@ -144,7 +144,8 @@ export default function DockWorktree() {
     });
 
   // 合回只在主树是活跃工作区时有意义：worktree.apply 落到 active_workspace 的当前检出上
-  const mainRoot = (t: Row) => t.path.replace(/[\\/]\.kxen[\\/]worktrees[\\/][^\\/]+$/, "");
+  const mainRoot = (t: Row) =>
+    t.path.replace(/[\\/]\.agents[\\/]kxen[\\/]worktrees[\\/][^\\/]+$/, "");
   const applyable = (t: Row) => t.path !== active() && active() === mainRoot(t);
 
   const applyToMain = (t: Row) =>

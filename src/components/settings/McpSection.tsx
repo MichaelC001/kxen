@@ -136,7 +136,7 @@ export default function McpSection() {
   return (
     <div>
       <div class="mb-1.5 text-xs text-[var(--text)]">
-        MCP servers（.mcp.json / ~/.config/kxen/mcp.json）
+        MCP servers（.mcp.json / ~/.agents/kxen/mcp.json）
       </div>
       <div class="mb-1.5 text-xs text-[var(--text-dim)]">
         Remote MCP 默认不共享 Workspace roots；项目 stdio 需要独立执行审批。

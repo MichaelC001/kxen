@@ -9,7 +9,7 @@ use tauri::Manager;
 
 /// 用户配置加载失败时回退默认，不阻塞启动。
 fn load_user_config() -> kxen_core::core::config::Config {
-    let path = kxen_core::core::paths::config_dir().join("config.toml");
+    let path = kxen_core::core::paths::KxenPaths::user().config_file();
     kxen_core::core::config::Config::load(&path, None).unwrap_or_else(|error| {
         tracing::warn!(%error, "user config load failed, falling back to defaults");
         kxen_core::core::config::Config::default()
@@ -142,9 +142,10 @@ pub fn run() {
                             };
                             if should_notify {
                                 let sid = payload.get("session_id").and_then(|s| s.as_str()).unwrap_or("");
-                                let title = kxen_core::core::session::load_meta(&kxen_core::core::paths::sessions_dir(), sid)
-                                    .map(|m| m.title)
-                                    .unwrap_or_else(|_| sid.to_string());
+                                let title =
+                                    kxen_core::core::session::load_meta(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), sid)
+                                        .map(|m| m.title)
+                                        .unwrap_or_else(|_| sid.to_string());
                                 os_notify::notify_session_done(kxen_core::core::shared::read(&state.notify).clone(), sid, &title);
                             }
                         }
@@ -176,10 +177,13 @@ pub fn run() {
                             tracing::info!(provider, ?outcome, "credential probe");
                         }
                         let mut current = kxen_core::core::shared::lock(&state.auth_store);
-                        match kxen_core::auth::credential::update_auth_file(&kxen_core::core::paths::auth_file(), |disk| {
-                            kxen_core::auth::probe::merge_probe_delta(&baseline, &store, disk);
-                            Ok(())
-                        }) {
+                        match kxen_core::auth::credential::update_auth_file(
+                            &kxen_core::core::paths::KxenPaths::user().auth_file(),
+                            |disk| {
+                                kxen_core::auth::probe::merge_probe_delta(&baseline, &store, disk);
+                                Ok(())
+                            },
+                        ) {
                             Ok(persisted) => *current = std::sync::Arc::new(persisted),
                             Err(error) => tracing::error!(%error, "credential probe persistence failed"),
                         }

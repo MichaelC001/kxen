@@ -226,7 +226,7 @@ describe("Workspaces 隔离树绑定", () => {
           {
             name: "exp",
             branch: "kxen/exp",
-            path: "/a/.kxen/worktrees/exp",
+            path: "/a/.agents/kxen/worktrees/exp",
             dirty: 2,
             sessions: 3,
             running: 1,
@@ -234,7 +234,7 @@ describe("Workspaces 隔离树绑定", () => {
           {
             name: "idle",
             branch: "kxen/idle",
-            path: "/a/.kxen/worktrees/idle",
+            path: "/a/.agents/kxen/worktrees/idle",
             dirty: null,
             sessions: 0,
             running: 0,

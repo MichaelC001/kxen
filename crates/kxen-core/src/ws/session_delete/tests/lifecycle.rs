@@ -34,8 +34,8 @@ async fn lifecycle_barrier_orders_mutations_manifest_and_cleanup() {
     }
 
     let state = std::sync::Arc::new(crate::AppState::new().expect("isolated app state"));
-    let sessions = kxen_core::core::paths::sessions_dir();
-    let goals = kxen_core::core::paths::goals_dir();
+    let sessions = kxen_core::core::paths::KxenPaths::user().sessions_dir();
+    let goals = kxen_core::core::paths::KxenPaths::user().goals_dir();
     let workspace = std::env::temp_dir().join(format!("kxen-lifecycle-workspace-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&workspace).unwrap();
 

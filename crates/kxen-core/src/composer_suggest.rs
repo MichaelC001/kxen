@@ -212,10 +212,10 @@ pub fn merge_diff_summaries(candidates: &mut [LocalCandidate], diffs: &HashMap<S
 pub fn is_sensitive_path(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     let parts: Vec<&str> = lower.split('/').collect();
-    if parts
-        .iter()
-        .any(|part| matches!(*part, ".git" | ".kxen" | ".ssh" | ".aws" | ".gnupg" | "node_modules" | "target" | ".next" | "dist"))
-    {
+    if crate::core::paths::KxenPaths::contains_project_state(&lower) {
+        return true;
+    }
+    if parts.iter().any(|part| matches!(*part, ".git" | ".ssh" | ".aws" | ".gnupg" | "node_modules" | "target" | ".next" | "dist")) {
         return true;
     }
     let name = parts.last().copied().unwrap_or("");

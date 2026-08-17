@@ -27,7 +27,7 @@ RUN OPTIONS:
 
 COMMON OPTIONS:
   --state-dir PATH            Runtime state root; defaults to KXEN_AGENT_STATE_DIR or kxen/agent
-  --config FILE               Provider/MRM config; defaults to ~/.config/kxen/config.toml
+  --config FILE               Provider/MRM config; defaults to ~/.agents/kxen/config.toml
   --auth-file FILE            Credential store; defaults to the kxen auth.json
   --consume-auth-file         Load an explicit private auth file once, then unlink it before execution
   --policy FILE               JSON runtime policy restricting capabilities and budgets
@@ -169,15 +169,15 @@ impl Command {
             .state_dir
             .clone()
             .or_else(|| std::env::var_os("KXEN_AGENT_STATE_DIR").map(PathBuf::from))
-            .unwrap_or_else(|| kxen_core::core::paths::data_dir().join("agent"))
+            .unwrap_or_else(|| kxen_core::core::paths::KxenPaths::user().agent_state_dir())
     }
 
     pub fn config_file(&self) -> PathBuf {
-        self.common().config.clone().unwrap_or_else(|| kxen_core::core::paths::config_dir().join("config.toml"))
+        self.common().config.clone().unwrap_or_else(|| kxen_core::core::paths::KxenPaths::user().config_file())
     }
 
     pub fn auth_file(&self) -> PathBuf {
-        self.common().auth_file.clone().unwrap_or_else(kxen_core::core::paths::auth_file)
+        self.common().auth_file.clone().unwrap_or_else(|| kxen_core::core::paths::KxenPaths::user().auth_file())
     }
 
     pub fn consumes_auth_file(&self) -> bool {

@@ -143,7 +143,7 @@ pub(super) async fn teammate_loop(
         // 与终态事件。结束后重读，避免 pause/resume 恰好跨过旧 deadline 时按过期快照关闭成员。
         let goal_still_stopped = stop_after_run
             && matches!(
-                goal_refresh_budget_in(&crate::core::paths::goals_dir(), &state.session_id),
+                goal_refresh_budget_in(&crate::core::paths::KxenPaths::user().goals_dir(), &state.session_id),
                 crate::core::goal::RuntimeBudget::Stop(_)
             );
         if goal_still_stopped {

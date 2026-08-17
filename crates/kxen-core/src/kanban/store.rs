@@ -1,4 +1,4 @@
-//! Workspace 作用域存储：`<workspace>/.kxen/kanban/<board_id>/events.jsonl`（append-only，唯一真源）
+//! Workspace 作用域存储：`<workspace>/.agents/kxen/kanban/<board_id>/events.jsonl`（append-only，唯一真源）
 //! 与 `snapshot.json`（物化 BoardState，纯缓存，可删；启动校验不符即从事件流重建）。
 //! 追加/读取口径与 session/log.rs 相同：torn 行阻断、幂等去重、fsync 落盘，不发明第二套格式。
 
@@ -15,15 +15,17 @@ use super::projection::{self, BoardState};
 pub fn board_dir(workspace: &Path, board_id: &str) -> Result<PathBuf, KanbanError> {
     // board_id 拼进文件路径，必须先过 id 白名单（杜绝路径穿越）
     ids::validate_id(board_id).map_err(KanbanError::InvalidId)?;
-    Ok(workspace.join(".kxen").join("kanban").join(board_id))
+    let paths = crate::core::paths::KxenPaths::project(workspace);
+    crate::core::ignore_manager::prepare_project(&paths).map_err(KanbanError::Log)?;
+    Ok(paths.kanban_board(board_id))
 }
 
 pub fn events_path(board_dir: &Path) -> PathBuf {
-    board_dir.join("events.jsonl")
+    crate::core::paths::KxenPaths::kanban_events_file(board_dir)
 }
 
 pub fn snapshot_path(board_dir: &Path) -> PathBuf {
-    board_dir.join("snapshot.json")
+    crate::core::paths::KxenPaths::kanban_snapshot_file(board_dir)
 }
 
 fn log_error(error: impl std::fmt::Display) -> KanbanError {
@@ -41,8 +43,13 @@ const LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(300);
 /// 砖化事件流（load_events 连续性检查 fail-closed）。返回的 File 即锁本体（RAII，drop 释放）。
 pub fn lock_events(dir: &Path) -> Result<std::fs::File, KanbanError> {
     std::fs::create_dir_all(dir).map_err(log_error)?;
-    let file =
-        std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(dir.join("events.lock")).map_err(log_error)?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(crate::core::paths::KxenPaths::kanban_lock_file(dir))
+        .map_err(log_error)?;
     let deadline = std::time::Instant::now() + LOCK_TIMEOUT;
     loop {
         match file.try_lock() {

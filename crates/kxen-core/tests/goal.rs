@@ -368,7 +368,7 @@ fn goals_dir_isolation() -> std::path::PathBuf {
 fn create_bound_session() -> String {
     let workspace = goals_dir_isolation().join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
-    kxen_core::core::session::create(&kxen_core::core::paths::sessions_dir(), workspace.to_str().unwrap()).unwrap().id
+    kxen_core::core::session::create(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), workspace.to_str().unwrap()).unwrap().id
 }
 
 #[tokio::test]

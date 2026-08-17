@@ -87,6 +87,9 @@ fn walk(root: &Path, scope: Scope, out: &mut Vec<Entry>, remaining: &mut usize) 
                 continue;
             }
             if metadata.is_dir() {
+                if depth == 0 && crate::core::paths::KxenPaths::is_runtime_namespace_entry(root, &path) {
+                    continue;
+                }
                 // 目录型 skill 由 SKILL.md 内的 type 声明，不依赖所在目录名。
                 let skill_md = path.join("SKILL.md");
                 let before_probe = *remaining;
@@ -232,6 +235,25 @@ mod tests {
         assert_eq!(styles.len(), 2, "管理视图不得隐藏被 project 覆盖的 personal 条目");
         assert!(styles.iter().any(|e| e.scope == Scope::Project));
         assert!(styles.iter().any(|e| e.scope == Scope::Personal));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn runtime_namespace_is_excluded_from_project_and_personal_knowledge() {
+        let dir = fixture("runtime-excluded");
+        let home = dir.join("fake-home");
+        let project_runtime = crate::core::paths::KxenPaths::project(&dir).root();
+        let personal_runtime = crate::core::paths::KxenPaths::global_in(&home).root();
+        std::fs::create_dir_all(&project_runtime).unwrap();
+        std::fs::create_dir_all(&personal_runtime).unwrap();
+        std::fs::write(project_runtime.join("project-secret.md"), "must not scan").unwrap();
+        std::fs::write(personal_runtime.join("personal-secret.md"), "must not scan").unwrap();
+
+        let entries = scan_all_with_home(&dir, &home);
+
+        assert!(!entries.iter().any(|entry| entry.path.contains("project-secret.md")));
+        assert!(!entries.iter().any(|entry| entry.path.contains("personal-secret.md")));
+        assert!(entries.iter().any(|entry| entry.slug == "style"), "normal .agents knowledge must remain visible");
         std::fs::remove_dir_all(&dir).ok();
     }
 

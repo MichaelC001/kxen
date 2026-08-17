@@ -1,7 +1,7 @@
 # local docs and agent tooling
 /docs/
 .grok/
-.kxen/
+/.agents/kxen/
 
 # Rust
 /target/

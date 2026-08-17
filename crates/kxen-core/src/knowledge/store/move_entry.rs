@@ -18,15 +18,15 @@ use std::path::{Path, PathBuf};
 use transfer::execute_claim;
 
 pub fn move_entry(scope: Scope, workdir: &Path, slug: &str, to: Scope) -> Result<String, String> {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/var/empty"));
-    let claim_root = crate::core::paths::data_dir().join("knowledge-moves");
+    let home = dirs::home_dir().unwrap_or_else(std::env::temp_dir);
+    let claim_root = crate::core::paths::KxenPaths::user().knowledge_moves_dir();
     move_entry_with_roots(scope, workdir, &home, slug, to, &claim_root)
 }
 
 #[cfg(test)]
 pub(super) fn move_entry_with_home(scope: Scope, workdir: &Path, home: &Path, slug: &str, to: Scope) -> Result<String, String> {
     std::fs::create_dir_all(home).map_err(|error| format!("create test home {}: {error}", home.display()))?;
-    move_entry_with_roots(scope, workdir, home, slug, to, &home.join(".kxen-private/knowledge-moves"))
+    move_entry_with_roots(scope, workdir, home, slug, to, &crate::core::paths::KxenPaths::global_in(home).knowledge_moves_dir())
 }
 
 fn move_entry_with_roots(scope: Scope, workdir: &Path, home: &Path, slug: &str, to: Scope, claim_root: &Path) -> Result<String, String> {

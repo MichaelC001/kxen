@@ -19,7 +19,7 @@ const ENTRY_TTL_SECS: u64 = 7 * 24 * 3600;
 const JOURNAL_SCHEMA: u64 = 2;
 
 fn journal_file(run_id: &str) -> PathBuf {
-    crate::core::paths::data_dir().join("workflow-journals").join(format!("{run_id}.jsonl"))
+    crate::core::paths::KxenPaths::user().workflow_journal(run_id)
 }
 
 /// 测试断言/清理用：open_scoped 的 session 派生命名空间对应的 journal 文件路径。

@@ -144,7 +144,7 @@ async fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<V
             let prompt = params.get("prompt").and_then(Value::as_str).ok_or("missing prompt")?;
             let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
             let once = params.get("once").and_then(Value::as_bool).unwrap_or(false);
-            let sessions_dir = kxen_core::core::paths::sessions_dir();
+            let sessions_dir = kxen_core::core::paths::KxenPaths::user().sessions_dir();
             let _lifecycle = kxen_core::core::session_lifecycle::admit_mutation(&sessions_dir, session_id)?;
             let job = kxen_core::core::schedule::add(cron, prompt, session_id, once)?;
             Ok(serde_json::to_value(job).map_err(|e| e.to_string())?)
@@ -189,7 +189,7 @@ async fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<V
             let provider = params.get("provider").and_then(Value::as_str).ok_or("missing provider")?;
             let key = params.get("key").and_then(Value::as_str).ok_or("missing key")?;
             let mut store = state.auth_store.lock().map_err(|e| e.to_string())?;
-            let path = kxen_core::core::paths::auth_file();
+            let path = kxen_core::core::paths::KxenPaths::user().auth_file();
             kxen_core::voice::provider::set_key(Arc::make_mut(&mut store), provider, key, &path)?;
             Ok(json!({ "provider": provider, "configured": true }))
         }
@@ -201,7 +201,7 @@ async fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<V
                 .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
                 .unwrap_or_default();
             let locale = params.get("locale").and_then(Value::as_str);
-            let path = kxen_core::core::paths::config_dir().join("config.toml");
+            let path = kxen_core::core::paths::KxenPaths::user().config_file();
             update_toml(&path, |doc| {
                 kxen_core::core::config::merge_voice_engine(doc, engine, &fallback, locale);
                 Ok(())
@@ -213,7 +213,7 @@ async fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<V
             if !matches!(policy, "queue" | "interrupt") {
                 return Err("policy 只支持 queue / interrupt".into());
             }
-            let path = kxen_core::core::paths::config_dir().join("config.toml");
+            let path = kxen_core::core::paths::KxenPaths::user().config_file();
             update_toml(&path, |doc| {
                 doc.insert("send_when_running".into(), toml::Value::String(policy.into()));
                 Ok(())
@@ -257,7 +257,7 @@ async fn handle(method: &str, params: &Value, state: &Arc<AppState>) -> Result<V
 }
 
 fn load_config() -> Result<kxen_core::core::config::Config, String> {
-    kxen_core::core::config::Config::load(&kxen_core::core::paths::config_dir().join("config.toml"), None).map_err(|e| e.to_string())
+    kxen_core::core::config::Config::load(&kxen_core::core::paths::KxenPaths::user().config_file(), None).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

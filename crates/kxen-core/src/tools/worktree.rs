@@ -1,9 +1,8 @@
 //! worktree 隔离：git worktree 并行安全（批量迁移 / 并行修改）。
-//! worktree 放 `<repo>/.kxen/worktrees/<name>`（自动把 .kxen/ 写进 .gitignore），分支 `kxen/<name>`。
+//! worktree 放 `<repo>/.agents/kxen/worktrees/<name>`，运行态根目录由集中式 ignore 管理器维护。
 
 use serde_json::Value;
 use std::fmt::Write as _;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -18,7 +17,7 @@ fn canon(repo: &Path) -> PathBuf {
     repo.canonicalize().unwrap_or_else(|_| repo.to_path_buf())
 }
 
-/// worktree 名白名单校验（与 file-backed id 同规则：杜绝路径穿越进 .kxen/worktrees/<name>）。
+/// worktree 名白名单校验（与 file-backed id 同规则：杜绝路径穿越进运行态目录）。
 pub fn validate_name(name: &str) -> Result<(), String> {
     if crate::core::ids::is_valid_id(name) { Ok(()) } else { Err(format!("invalid worktree name: {name:?}")) }
 }
@@ -27,8 +26,9 @@ pub fn validate_name(name: &str) -> Result<(), String> {
 pub async fn create(repo: &Path, name: &str) -> Result<WorktreeInfo, String> {
     let repo = &canon(repo);
     validate_name(name)?;
-    ensure_gitignore(repo)?;
-    let path = repo.join(".kxen").join("worktrees").join(name);
+    let paths = crate::core::paths::KxenPaths::project(repo);
+    crate::core::ignore_manager::prepare_project(&paths)?;
+    let path = paths.worktree(name);
     let branch = format!("kxen/{name}");
     if path.exists() {
         // 只复用真正的 worktree（worktree 的 .git 是指回主仓库 gitdir 的文件）：
@@ -61,7 +61,7 @@ pub async fn remove(repo: &Path, name: &str, delete_branch: bool) -> Result<(), 
 /// 有审批通道则挂起等用户决定；无通道拒绝。
 /// confirmed 仅用于前端 RPC 路径：行内确认条已显式确认，再挂审批会向主会话时间线推一张
 /// 无 session 归属的第二张卡（双确认，漏看即 300s 超时）。agent 工具路径一律 confirmed=false。
-/// dirty 时先把未提交改动（含 untracked）打 patch 存 .kxen/backups/ 再删——
+/// dirty 时先把未提交改动（含 untracked）打 patch 存 .agents/kxen/backups/ 再删。
 /// 备份失败即拒绝删除（fail-closed），worktree 删除必须是可恢复操作。
 pub async fn remove_with_approval(
     repo: &Path,
@@ -72,7 +72,9 @@ pub async fn remove_with_approval(
 ) -> Result<(), String> {
     let repo = &canon(repo);
     validate_name(name)?;
-    let path = repo.join(".kxen").join("worktrees").join(name);
+    let paths = crate::core::paths::KxenPaths::project(repo);
+    crate::core::ignore_manager::prepare_project(&paths)?;
+    let path = paths.worktree(name);
 
     // dirty 判定：worktree 内的 git status（未跟踪文件也算有改动可丢）；计数进审批理由（用户要知道丢几个文件）
     let dirty_count =
@@ -144,7 +146,8 @@ pub async fn list(repo: &Path) -> Result<Vec<WorktreeInfo>, String> {
         infos.push((p, branch));
     }
     // 前缀过滤按主仓库根算：切进隔离树后入参是 worktree 路径，直接 join 会让过滤全部落空（看板变空）
-    let prefix = main_repo_root(repo).await?.join(".kxen").join("worktrees");
+    let main_root = main_repo_root(repo).await?;
+    let prefix = crate::core::paths::KxenPaths::project(&main_root).worktrees_dir();
     Ok(infos
         .into_iter()
         .filter_map(|(p, branch)| {
@@ -249,52 +252,6 @@ pub async fn diff_file(repo: &Path, path: &str) -> Result<String, String> {
 /// canonicalize 后必须落在 workspace 或会话授权清单内，否则越界读取任意文件被拒。
 pub fn resolve_in_workspace(path: &str, workspace: &Path, grants: &std::collections::HashSet<PathBuf>) -> Result<PathBuf, String> {
     Ok(crate::tools::path_policy::resolve(path, workspace, grants)?.into_path_buf())
-}
-
-/// .kxen/ 进 .gitignore（幂等）。fs_tool 的覆盖备份也落在 .kxen/ 下，共用此入口。
-pub(crate) fn ensure_gitignore(repo: &Path) -> Result<(), String> {
-    static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    static TEMP_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let _guard = crate::core::shared::lock(&WRITE_LOCK);
-    let path = repo.join(".gitignore");
-    let content = match std::fs::read_to_string(&path) {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(format!("read {}: {error}", path.display())),
-    };
-    if content.lines().any(|l| l.trim() == ".kxen/") {
-        return Ok(());
-    }
-    let mut new = content;
-    if !new.is_empty() && !new.ends_with('\n') {
-        new.push('\n');
-    }
-    new.push_str(".kxen/\n");
-    let id = TEMP_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = repo.join(format!(".gitignore.kxen-{}-{id}.tmp", std::process::id()));
-    let result = (|| {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)
-            .map_err(|error| format!("open {}: {error}", tmp.display()))?;
-        if let Ok(metadata) = std::fs::metadata(&path) {
-            std::fs::set_permissions(&tmp, metadata.permissions()).map_err(|error| format!("chmod {}: {error}", tmp.display()))?;
-        }
-        file.write_all(new.as_bytes()).map_err(|error| format!("write {}: {error}", tmp.display()))?;
-        file.sync_all().map_err(|error| format!("sync {}: {error}", tmp.display()))?;
-        drop(file);
-        std::fs::rename(&tmp, &path).map_err(|error| format!("replace {}: {error}", path.display()))?;
-        #[cfg(unix)]
-        std::fs::File::open(repo)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| format!("sync {}: {error}", repo.display()))?;
-        Ok(())
-    })();
-    if result.is_err() {
-        std::fs::remove_file(&tmp).ok();
-    }
-    result
 }
 
 async fn git(repo: &Path, args: &[&str]) -> Result<String, String> {

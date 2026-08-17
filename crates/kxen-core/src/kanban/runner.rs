@@ -177,7 +177,7 @@ pub async fn tick(state: &crate::AppState) {
         Ok(root) => root.clone(),
         Err(_) => return,
     };
-    if !root.join(".kxen").join("kanban").is_dir() {
+    if !crate::core::paths::KxenPaths::project(&root).kanban_dir().is_dir() {
         return;
     }
     let store = crate::core::shared::lock(&state.auth_store).clone();

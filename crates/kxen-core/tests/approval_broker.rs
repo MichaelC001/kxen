@@ -389,7 +389,7 @@ async fn respond_remember_metachar_command_reports_rule_error_but_keeps_allow() 
 fn workspace_rule_persists_used_count_and_revoke_removes() {
     let (broker, dir, workspace, session) = broker_with_session("rule-workspace");
     broker.remember_rule(&session.id, "cargo test", "构建", RuleScope::Workspace).unwrap();
-    let file = workspace.join(".kxen").join("approval-rules.json");
+    let file = kxen_core::core::paths::KxenPaths::project(&workspace).approval_rules_file();
     assert!(file.exists(), "workspace 规则必须落盘");
 
     broker.try_rule_allow(&session.id, "cargo test -p kxen-core", "构建").unwrap();

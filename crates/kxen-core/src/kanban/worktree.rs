@@ -94,7 +94,7 @@ pub struct SkippedEntry {
 /// 终态 detach：先快照抢救产物，再释放 worktree 目录（分支永不删）。
 pub async fn detach(workspace: &Path, board_id: &str, card_id: &str) -> Result<DetachReport, String> {
     let name = worktree_name(card_id)?;
-    let worktree = workspace.join(".kxen").join("worktrees").join(&name);
+    let worktree = crate::core::paths::KxenPaths::project(workspace).worktree(&name);
     let report = snapshot_artifacts(workspace, board_id, card_id, &worktree, MAX_IGNORED_FILE_BYTES, MAX_SNAPSHOT_TOTAL_BYTES).await?;
     // confirmed=true 的 WHY：快照已先抢救、分支保留（delete_branch=false 永不删），终态 detach 的 dirty
     // 是预期内（agent 未提交产物）；人工裁断发生在看板 human_gate 列，不在 git 层重复确认
@@ -117,7 +117,7 @@ pub async fn detach_if_terminal(workspace: &Path, board_id: &str, card_id: &str,
         return;
     }
     // 非 git workspace 的降级 run 没有 worktree 可拆；重复调用幂等（已拆过直接返回）
-    if !workspace.join(".kxen").join("worktrees").join(format!("card-{card_id}")).exists() {
+    if !crate::core::paths::KxenPaths::project(workspace).worktree(&format!("card-{card_id}")).exists() {
         return;
     }
     let note = match detach(workspace, board_id, card_id).await {
@@ -135,7 +135,7 @@ pub async fn detach_if_terminal(workspace: &Path, board_id: &str, card_id: &str,
 }
 
 /// 快照抢救：worktree 内未提交/被 gitignore 的产物镜像到
-/// `<workspace>/.kxen/kanban/<board_id>/artifacts/<card_id>/files/`，并写 manifest.json。
+/// `<workspace>/.agents/kxen/kanban/<board_id>/artifacts/<card_id>/files/`，并写 manifest.json。
 /// porcelain -z 三类行：?? 未跟踪、!! 被忽略、其余 = 已跟踪改动。
 /// ?? 与改动文件全收（?? 目录递归）；!! 目录不递归（node_modules 防爆）记 skipped。
 /// 所有文件条目统一过 collect_file：symlink 拒收（防逃逸与深递归）、单文件与总量超限记
@@ -150,8 +150,12 @@ async fn snapshot_artifacts(
     max_total_bytes: u64,
 ) -> Result<DetachReport, String> {
     let out = git(worktree, &["status", "--porcelain", "-z", "--ignored=traditional"]).await?;
-    let artifact_dir = super::store::board_dir(workspace, board_id).map_err(|e| e.to_string())?.join("artifacts").join(card_id);
-    let files_dir = artifact_dir.join("files");
+    crate::core::ids::validate_id(board_id)?;
+    crate::core::ids::validate_id(card_id)?;
+    let paths = crate::core::paths::KxenPaths::project(workspace);
+    crate::core::ignore_manager::prepare_project(&paths)?;
+    let artifact_dir = paths.kanban_artifact_dir(board_id, card_id);
+    let files_dir = paths.kanban_artifact_files_dir(board_id, card_id);
     let mut collected: Vec<String> = Vec::new();
     let mut skipped: Vec<SkippedEntry> = Vec::new();
     let mut total_bytes: u64 = 0;
@@ -177,7 +181,7 @@ async fn snapshot_artifacts(
     std::fs::create_dir_all(&artifact_dir).map_err(|e| format!("create {}: {e}", artifact_dir.display()))?;
     let manifest = serde_json::json!({ "card_id": card_id, "collected": collected, "skipped": skipped });
     let manifest = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
-    std::fs::write(artifact_dir.join("manifest.json"), manifest).map_err(|e| format!("write manifest: {e}"))?;
+    std::fs::write(paths.kanban_artifact_manifest_file(board_id, card_id), manifest).map_err(|e| format!("write manifest: {e}"))?;
     Ok(DetachReport { collected, skipped, files_dir })
 }
 

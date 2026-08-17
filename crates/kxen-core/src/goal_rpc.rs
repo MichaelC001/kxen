@@ -8,7 +8,7 @@ use kxen_core::core::paths;
 use serde_json::{Value, json};
 
 fn dir() -> std::path::PathBuf {
-    paths::goals_dir()
+    paths::KxenPaths::user().goals_dir()
 }
 
 fn to_json(goal: &Goal) -> Value {
@@ -42,7 +42,7 @@ pub async fn call(method: &str, params: Value, state: &std::sync::Arc<crate::App
             let session_id = params.get("session_id").and_then(Value::as_str).map(String::from);
             let _lifecycle = session_id
                 .as_deref()
-                .map(|id| kxen_core::core::session_lifecycle::admit_mutation(&kxen_core::core::paths::sessions_dir(), id))
+                .map(|id| kxen_core::core::session_lifecycle::admit_mutation(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), id))
                 .transpose()?;
             let contract = GoalContract {
                 objective: params.get("objective").and_then(Value::as_str).ok_or("missing objective")?.to_string(),

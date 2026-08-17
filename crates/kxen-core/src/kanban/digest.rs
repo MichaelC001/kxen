@@ -44,9 +44,9 @@ pub fn collect(workspace: &Path) -> Vec<KanbanDigest> {
     digests
 }
 
-/// 扫描 `<workspace>/.kxen/kanban/` 下的板：含 events.jsonl 的目录即板（agents/ 等附属目录自然排除）。
+/// 扫描 `<workspace>/.agents/kxen/kanban/` 下的板：含 events.jsonl 的目录即板（agents/ 等附属目录自然排除）。
 pub(crate) fn list_boards(workspace: &Path) -> Result<Vec<String>, String> {
-    let root = workspace.join(".kxen").join("kanban");
+    let root = crate::core::paths::KxenPaths::project(workspace).kanban_dir();
     let entries = match std::fs::read_dir(&root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),

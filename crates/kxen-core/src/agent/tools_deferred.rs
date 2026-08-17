@@ -58,7 +58,7 @@ fn build_deferred_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "worktree",
-            "Manage isolated git worktrees under .kxen/worktrees (for parallel or bulk-change isolation). Actions: create (name), remove (name, delete_branch?), list, diff (name -> diff --stat vs main tree).",
+            "Manage isolated git worktrees under .agents/kxen/worktrees (for parallel or bulk-change isolation). Actions: create (name), remove (name, delete_branch?), list, diff (name -> diff --stat vs main tree).",
             json!({
                 "type": "object",
                 "properties": {

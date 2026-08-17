@@ -181,14 +181,16 @@ fn dispatch_schedule_tick(state: Arc<AppState>) {
         }
     };
     for candidate in candidates {
-        let lifecycle =
-            match kxen_core::core::session_lifecycle::admit_mutation(&kxen_core::core::paths::sessions_dir(), &candidate.session_id) {
-                Ok(lifecycle) => lifecycle,
-                Err(error) => {
-                    tracing::info!(session = candidate.session_id, cron_job_id = candidate.id, %error, "schedule claim rejected");
-                    continue;
-                }
-            };
+        let lifecycle = match kxen_core::core::session_lifecycle::admit_mutation(
+            &kxen_core::core::paths::KxenPaths::user().sessions_dir(),
+            &candidate.session_id,
+        ) {
+            Ok(lifecycle) => lifecycle,
+            Err(error) => {
+                tracing::info!(session = candidate.session_id, cron_job_id = candidate.id, %error, "schedule claim rejected");
+                continue;
+            }
+        };
         let job = match kxen_core::core::schedule::claim_due(&candidate.id, now) {
             Ok(Some(job)) if job.session_id == candidate.session_id => job,
             Ok(Some(job)) => {

@@ -12,7 +12,7 @@ const TEXT_CAP: usize = 8 * 1024;
 pub(super) async fn remote(params: &Value, state: &Arc<AppState>) -> Result<Value, String> {
     let session_id = params.get("session_id").and_then(Value::as_str).ok_or("missing session_id")?;
     let request_id = params.get("request_id").and_then(Value::as_str).ok_or("missing request_id")?;
-    let _lifecycle = crate::core::session_lifecycle::admit_mutation(&crate::core::paths::sessions_dir(), session_id)?;
+    let _lifecycle = crate::core::session_lifecycle::admit_mutation(&crate::core::paths::KxenPaths::user().sessions_dir(), session_id)?;
     if crate::core::shared::lock(&state.active_runs).contains_key(session_id) {
         return Err("Composer remote suggestions are disabled while the session is running".into());
     }
@@ -61,7 +61,7 @@ async fn remote_inner(
         return Ok(json!({ "suggestions": [], "warnings": [] }));
     }
     let store = crate::core::shared::lock(&state.auth_store).clone();
-    let goal_id = crate::core::goal::Goal::focus_for_checked(&crate::core::paths::goals_dir(), Some(session_id))
+    let goal_id = crate::core::goal::Goal::focus_for_checked(&crate::core::paths::KxenPaths::user().goals_dir(), Some(session_id))
         .map_err(|error| error.to_string())?
         .map(|goal| goal.id);
     let reporter = crate::agent::agent_loop::UsageReporter::new(session_id.to_string(), state.session_tokens.clone(), state.bus.clone());

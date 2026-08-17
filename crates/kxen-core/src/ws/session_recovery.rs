@@ -22,7 +22,7 @@ fn tombstone_action(local: bool, meta_exists: bool, bundle_exists: bool) -> Tomb
 }
 
 pub(super) fn recover_restored(state: &Arc<AppState>) -> Result<Vec<String>, String> {
-    let sessions_dir = kxen_core::core::paths::sessions_dir();
+    let sessions_dir = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let mut restored = Vec::new();
     for id in kxen_core::core::session_recovery::discover_tombstones(&sessions_dir)? {
         let local = kxen_core::core::session_recovery::is_locally_deleting(&sessions_dir, &id);
@@ -64,7 +64,7 @@ pub(super) fn recover_restored(state: &Arc<AppState>) -> Result<Vec<String>, Str
 }
 
 pub(super) fn restore_bundle(state: &Arc<AppState>, bundle: &std::path::Path) -> Result<String, String> {
-    let sessions_dir = kxen_core::core::paths::sessions_dir();
+    let sessions_dir = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let manifest = kxen_core::core::session_recovery::restore_storage(&sessions_dir, state.team.root(), bundle)?;
     restore_runtime_and_complete(state, bundle, manifest)
 }
@@ -72,7 +72,7 @@ pub(super) fn restore_bundle(state: &Arc<AppState>, bundle: &std::path::Path) ->
 /// 同进程删除失败发生在 cleanup_references 之前：schedule/goal/usage/queue 的内存真相仍在，
 /// 只恢复被 purge 的 Session/Team 存储。把旧 manifest 再灌回运行态会覆盖删除窗口内的合法并发更新。
 pub(super) fn rollback_bundle(state: &Arc<AppState>, bundle: &std::path::Path) -> Result<String, String> {
-    let sessions_dir = kxen_core::core::paths::sessions_dir();
+    let sessions_dir = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let manifest = kxen_core::core::session_recovery::restore_storage_exact(&sessions_dir, state.team.root(), bundle)?;
     let id = manifest.session_id;
     state.team.restore_session(&id)?;
@@ -90,7 +90,7 @@ fn restore_runtime_and_complete(
 
     kxen_core::core::schedule::restore_jobs(manifest.schedules)?;
     for goal in &manifest.goals {
-        goal.save(&kxen_core::core::paths::goals_dir()).map_err(|error| format!("restore goal {}: {error}", goal.id))?;
+        goal.save(&kxen_core::core::paths::KxenPaths::user().goals_dir()).map_err(|error| format!("restore goal {}: {error}", goal.id))?;
     }
     {
         let mut usage = kxen_core::core::shared::lock(&state.session_tokens);
@@ -128,7 +128,7 @@ pub(super) fn stage_manifest(state: &AppState, session_id: &str) -> Result<kxen_
     let mut manifest = kxen_core::core::session_recovery::RecoveryManifest::new(session_id);
     manifest.queue = state.pending_messages.snapshot(session_id)?;
     manifest.schedules = kxen_core::core::schedule::list()?.into_iter().filter(|job| job.session_id == session_id).collect();
-    manifest.goals = kxen_core::core::goal::Goal::list_checked(&kxen_core::core::paths::goals_dir())
+    manifest.goals = kxen_core::core::goal::Goal::list_checked(&kxen_core::core::paths::KxenPaths::user().goals_dir())
         .map_err(|error| error.to_string())?
         .into_iter()
         .filter(|goal| goal.session_id.as_deref() == Some(session_id))

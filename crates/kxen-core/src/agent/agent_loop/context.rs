@@ -168,9 +168,10 @@ impl AgentContext {
         if self.goal_binding_frozen {
             return Ok(());
         }
-        self.bound_goal_id = crate::core::goal::Goal::focus_for_checked(&crate::core::paths::goals_dir(), self.session_id.as_deref())
-            .map_err(|error| error.to_string())?
-            .map(|goal| goal.id);
+        self.bound_goal_id =
+            crate::core::goal::Goal::focus_for_checked(&crate::core::paths::KxenPaths::user().goals_dir(), self.session_id.as_deref())
+                .map_err(|error| error.to_string())?
+                .map(|goal| goal.id);
         self.goal_binding_frozen = true;
         Ok(())
     }

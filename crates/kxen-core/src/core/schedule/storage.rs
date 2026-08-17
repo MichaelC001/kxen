@@ -37,7 +37,7 @@ pub(super) fn store_file() -> PathBuf {
     if let Ok(path) = std::env::var("KXEN_SCHEDULE_FILE") {
         return PathBuf::from(path);
     }
-    crate::core::paths::data_dir().join("schedule.json")
+    crate::core::paths::KxenPaths::user().schedule_file()
 }
 
 pub(super) fn load_from(path: &Path) -> LoadResult {

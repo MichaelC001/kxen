@@ -22,7 +22,8 @@ fn session_usage_report(tokens: kxen_core::core::usage::SessionUsage, completene
 pub(super) async fn statusline_report(session_id: &str, state: &Arc<AppState>) -> Result<Value, String> {
     let items = kxen_core::core::shared::lock(&state.statusline_items).clone();
     let active_workspace = kxen_core::core::shared::read(&state.active_workspace).clone();
-    let (workdir, session_override) = statusline_session(&kxen_core::core::paths::sessions_dir(), session_id, &active_workspace)?;
+    let (workdir, session_override) =
+        statusline_session(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), session_id, &active_workspace)?;
 
     // git 分支（5s 缓存）
     let git_branch = {
@@ -46,7 +47,10 @@ pub(super) async fn statusline_report(session_id: &str, state: &Arc<AppState>) -
     };
 
     // statusline 跟当前 session 的 goal 焦点：多会话并发各看各的，空 id 回落全局
-    let focus = statusline_focus(&kxen_core::core::paths::goals_dir(), if session_id.is_empty() { None } else { Some(session_id) })?;
+    let focus = statusline_focus(
+        &kxen_core::core::paths::KxenPaths::user().goals_dir(),
+        if session_id.is_empty() { None } else { Some(session_id) },
+    )?;
     let tasks_running = if session_id.is_empty() {
         0
     } else {
@@ -114,7 +118,7 @@ pub(super) fn set_role(
     account: Option<&str>,
     state: &Arc<AppState>,
 ) -> Result<Value, String> {
-    let path = kxen_core::core::paths::config_dir().join("config.toml");
+    let path = kxen_core::core::paths::KxenPaths::user().config_file();
     validate_role_update(role, provider, model, fallback, account)?;
     super::ops::update_toml_with_runtime(&path, &state.workspace_runtimes, |document| {
         update_role_document(document, role, provider, model, fallback, account)
@@ -206,7 +210,7 @@ pub(super) fn coding_rules_report() -> Value {
 /// prompt 每轮现读 config，无需热换。
 pub(super) fn set_coding_rules(params: &Value) -> Result<Value, String> {
     let enabled = params.get("enabled").and_then(Value::as_bool).ok_or("missing enabled")?;
-    let path = kxen_core::core::paths::config_dir().join("config.toml");
+    let path = kxen_core::core::paths::KxenPaths::user().config_file();
     super::ops::update_toml(&path, |doc| {
         let entry = doc.entry(String::from("coding_rules")).or_insert_with(|| toml::Value::Table(toml::Table::new()));
         if !entry.is_table() {
@@ -224,7 +228,7 @@ pub(super) async fn set_experimental(params: &Value, state: &Arc<AppState>) -> R
         return Err("unknown experimental setting".into());
     }
     let enabled = params.get("enabled").and_then(Value::as_bool).ok_or("missing enabled")?;
-    let path = kxen_core::core::paths::config_dir().join("config.toml");
+    let path = kxen_core::core::paths::KxenPaths::user().config_file();
     super::ops::update_toml_with_runtime(&path, &state.workspace_runtimes, |doc| {
         let section = doc.entry("experimental").or_insert_with(|| toml::Value::Table(toml::Table::new()));
         if !section.is_table() {
@@ -245,7 +249,7 @@ pub(super) fn set_limits(params: &Value, state: &Arc<AppState>) -> Result<Value,
     if let Some(key) = dropped_provider_scoped_field(params) {
         return Err(format!("{key} requires a provider id: provider-scoped pricing/circuit fields are dropped without one"));
     }
-    let path = kxen_core::core::paths::config_dir().join("config.toml");
+    let path = kxen_core::core::paths::KxenPaths::user().config_file();
     if let Some(provider) = params.get("provider").and_then(Value::as_str)
         && (provider.is_empty() || provider.chars().any(char::is_whitespace))
     {

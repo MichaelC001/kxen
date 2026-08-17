@@ -17,7 +17,7 @@ pub struct Notice {
 }
 
 fn store_file() -> PathBuf {
-    crate::core::paths::data_dir().join("notifications.json")
+    crate::core::paths::KxenPaths::user().notifications_file()
 }
 
 /// 启动恢复：缺失 = 空；损坏或不可读必须显式失败，避免下一条通知覆盖诊断证据。

@@ -12,8 +12,10 @@ const CHILD_ENV: &str = "KXEN_WEB_LOOP_CHILD";
 fn ws_end_to_end_in_isolated_child() {
     if std::env::var_os(CHILD_ENV).is_none() {
         let home = std::env::temp_dir().join(format!("kxen-loop-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
         let status = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "ws_end_to_end_in_isolated_child"])
+            .current_dir(&home)
             .env(CHILD_ENV, "1")
             .env("HOME", &home)
             .env("KXEN_DATA_DIR", home.join("data"))

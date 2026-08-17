@@ -4,7 +4,10 @@ use crate::kanban::error::KanbanError;
 use crate::kanban::events::Outcome;
 
 pub fn turns_path(workspace: &Path, board_id: &str, run_id: &str) -> Result<PathBuf, KanbanError> {
-    Ok(crate::kanban::store::board_dir(workspace, board_id)?.join("runs").join(format!("{run_id}.turns.jsonl")))
+    crate::core::ids::validate_id(board_id).map_err(KanbanError::InvalidId)?;
+    let paths = crate::core::paths::KxenPaths::project(workspace);
+    crate::core::ignore_manager::prepare_project(&paths).map_err(KanbanError::Log)?;
+    Ok(paths.kanban_turns_file(board_id, run_id))
 }
 
 /// 从末轮文本解析显式 verdict：自尾向前取第一条声明（模型可能在前文引用 verdict 字样，以最后声明为准）。

@@ -25,7 +25,7 @@ pub(super) struct GrantParams<'a> {
 
 /// 执行 refresh grant：POST token 端点 -> 解析 -> 持久化 -> 发布内存。
 pub(super) async fn run_grant(store: &mut AuthStore, key: &str, params: GrantParams<'_>) -> Result<(), String> {
-    run_grant_to(store, key, params, &crate::core::paths::auth_file()).await
+    run_grant_to(store, key, params, &crate::core::paths::KxenPaths::user().auth_file()).await
 }
 
 pub(super) async fn run_grant_to(
@@ -77,7 +77,7 @@ pub(super) async fn run_copilot_exchange(store: &mut AuthStore, key: &str, githu
     let (jwt, expires_at) = crate::auth::oauth_login::copilot_exchange_token(github_token).await?;
     let now_secs = crate::core::shared::now_ms() / 1000;
     let parsed = RefreshResponse { access_token: jwt, refresh_token: None, expires_in: Some(expires_at.saturating_sub(now_secs)) };
-    apply_refresh_to(store, key, parsed, github_token, None, &crate::core::paths::auth_file()).map_err(|error| {
+    apply_refresh_to(store, key, parsed, github_token, None, &crate::core::paths::KxenPaths::user().auth_file()).map_err(|error| {
         tracing::error!(%error, "copilot credential persistence failed");
         format!("Copilot refreshed credential could not be persisted: {error}")
     })

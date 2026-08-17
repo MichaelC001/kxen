@@ -9,7 +9,8 @@ pub(super) fn activate(
 ) -> Result<std::path::PathBuf, String> {
     let runtime = state.workspace_runtimes.runtime(path)?;
     let dir = runtime.root().to_path_buf();
-    kxen_core::core::workspace::touch(&kxen_core::core::paths::data_dir(), &dir.to_string_lossy()).map_err(|error| error.to_string())?;
+    kxen_core::core::workspace::touch(&kxen_core::core::paths::KxenPaths::user().root(), &dir.to_string_lossy())
+        .map_err(|error| error.to_string())?;
     // workspace.switch 传 None 会同时清空 foreground，避免旧 Session 继续抑制系统通知。
     super::super::active_context::commit(&state.active_workspace, &state.foreground_session, &dir, foreground_session)?;
 

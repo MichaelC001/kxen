@@ -1,6 +1,7 @@
 #[tokio::main]
 async fn main() {
-    let store = kxen_core::auth::credential::read_auth_file(&kxen_core::core::paths::auth_file()).expect("read auth store");
+    let store =
+        kxen_core::auth::credential::read_auth_file(&kxen_core::core::paths::KxenPaths::user().auth_file()).expect("read auth store");
     let Some(kxen_core::auth::credential::CredentialKind::Api { key, .. }) = store.get("kimi-for-coding") else {
         panic!("no kimi key");
     };

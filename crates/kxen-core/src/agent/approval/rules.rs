@@ -7,7 +7,7 @@ use crate::agent::approval_rules::{self, ApprovalRule, RuleScope};
 
 impl ApprovalBroker {
     /// 建规入口（ApprovalCard「本会话放行/总是放行」）：命令全文 trim 后作为前缀。
-    /// session 规则纯内存随进程失效；workspace 规则写 <workspace>/.kxen/approval-rules.json。
+    /// session 规则纯内存随进程失效；workspace 规则写 <workspace>/.agents/kxen/approval-rules.json。
     pub fn remember_rule(&self, session_id: &str, command: &str, reason: &str, scope: RuleScope) -> Result<ApprovalRule, String> {
         let prefix = approval_rules::validate_prefix(command)?;
         let rule = ApprovalRule {

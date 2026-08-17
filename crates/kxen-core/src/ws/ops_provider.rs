@@ -95,22 +95,28 @@ pub(super) async fn handle(method: &str, params: &Value, state: &Arc<AppState>) 
             Ok(json!({ "models": out.models, "source": out.source, "detail": out.detail }))
         }
         "models.catalog" => serde_json::to_value(&*kxen_core::llm::catalog::catalog()).map_err(|error| error.to_string()),
-        "provider.accounts" => account_store::accounts(&state.auth_store, &kxen_core::core::paths::config_dir().join("config.toml")),
-        "provider.import_account" => account_store::import_account(params, &state.auth_store, &kxen_core::core::paths::auth_file()),
-        "provider.remove_account" => account_store::remove_account(params, &state.auth_store, &kxen_core::core::paths::auth_file()),
-        "provider.set_region" => account_store::update_region(params, &state.auth_store, &kxen_core::core::paths::auth_file()),
+        "provider.accounts" => account_store::accounts(&state.auth_store, &kxen_core::core::paths::KxenPaths::user().config_file()),
+        "provider.import_account" => {
+            account_store::import_account(params, &state.auth_store, &kxen_core::core::paths::KxenPaths::user().auth_file())
+        }
+        "provider.remove_account" => {
+            account_store::remove_account(params, &state.auth_store, &kxen_core::core::paths::KxenPaths::user().auth_file())
+        }
+        "provider.set_region" => {
+            account_store::update_region(params, &state.auth_store, &kxen_core::core::paths::KxenPaths::user().auth_file())
+        }
         "provider.add_custom" => account_store::add_custom_with_runtime(
             params,
             &state.auth_store,
-            &kxen_core::core::paths::config_dir().join("config.toml"),
-            &kxen_core::core::paths::auth_file(),
+            &kxen_core::core::paths::KxenPaths::user().config_file(),
+            &kxen_core::core::paths::KxenPaths::user().auth_file(),
             &state.workspace_runtimes,
         ),
         "provider.remove_custom" => account_store::remove_custom_with_runtime(
             params,
             &state.auth_store,
-            &kxen_core::core::paths::config_dir().join("config.toml"),
-            &kxen_core::core::paths::auth_file(),
+            &kxen_core::core::paths::KxenPaths::user().config_file(),
+            &kxen_core::core::paths::KxenPaths::user().auth_file(),
             &state.workspace_runtimes,
         ),
         "provider.oauth_begin" => {
@@ -119,10 +125,13 @@ pub(super) async fn handle(method: &str, params: &Value, state: &Arc<AppState>) 
             let auth_store = Arc::clone(&state.auth_store);
             let on_success: kxen_core::auth::oauth_login::OnSuccess = Arc::new(move |provider, account, credential| {
                 let key = kxen_core::auth::credential::account_id(provider, account);
-                let update = kxen_core::auth::credential::update_auth_file_committed(&kxen_core::core::paths::auth_file(), |disk| {
-                    disk.insert(key.clone(), credential.clone());
-                    Ok(())
-                })
+                let update = kxen_core::auth::credential::update_auth_file_committed(
+                    &kxen_core::core::paths::KxenPaths::user().auth_file(),
+                    |disk| {
+                        disk.insert(key.clone(), credential.clone());
+                        Ok(())
+                    },
+                )
                 .map_err(|error| error.to_string())?;
                 let (persisted, warning) = update.into_snapshot_and_warning();
                 *auth_store.lock().map_err(|error| error.to_string())? = Arc::new(persisted);
@@ -177,7 +186,8 @@ async fn reprobe(state: &Arc<AppState>) -> Result<Value, String> {
     })
     .await
     .map_err(|error| error.to_string())?;
-    let current = account_store::commit_reprobe(&state.auth_store, &kxen_core::core::paths::auth_file(), &baseline, &probed)?;
+    let current =
+        account_store::commit_reprobe(&state.auth_store, &kxen_core::core::paths::KxenPaths::user().auth_file(), &baseline, &probed)?;
     let report = crate::doctor::doctor_report(&current);
     let (lines, issues) = account_store::summarize_reprobe(&outcomes);
     Ok(json!({ "report": report, "outcomes": lines, "issues": issues }))

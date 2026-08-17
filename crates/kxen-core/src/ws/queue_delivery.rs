@@ -121,7 +121,7 @@ mod tests {
         }
 
         let state = Arc::new(crate::AppState::new().unwrap());
-        let sessions = kxen_core::core::paths::sessions_dir();
+        let sessions = kxen_core::core::paths::KxenPaths::user().sessions_dir();
         let session = kxen_core::core::session::create(&sessions, std::env::temp_dir().to_str().unwrap()).unwrap();
         let id = session.id.as_str();
 

@@ -30,11 +30,11 @@ fn git_repo(tag: &str, gitignore: &str) -> PathBuf {
 }
 
 fn worktree_dir(workspace: &Path, card_id: &str) -> PathBuf {
-    workspace.join(".kxen").join("worktrees").join(format!("card-{card_id}"))
+    crate::core::paths::KxenPaths::project(workspace).worktree(&format!("card-{card_id}"))
 }
 
 fn artifact_dir(workspace: &Path, card_id: &str) -> PathBuf {
-    workspace.join(".kxen").join("kanban").join("board_t").join("artifacts").join(card_id)
+    crate::core::paths::KxenPaths::project(workspace).kanban_artifact_dir("board_t", card_id)
 }
 
 /// run 中往 worktree 写产物的假流：write 闭包在 LLM 请求时执行（此时 worktree 已分配）。
@@ -117,7 +117,7 @@ async fn non_git_workspace_runs_at_root_with_degrade_comment() {
     drop(board);
     let landing = execute(&workspace, "board_t", &card_id, &deps(&workspace, text_stream("done\nVERDICT: success")), None).await.unwrap();
     assert_eq!(landing.kind, LandingKind::Finished(Outcome::Success));
-    assert!(!workspace.join(".kxen").join("worktrees").exists(), "非 git workspace 不得创建 worktree");
+    assert!(!crate::core::paths::KxenPaths::project(&workspace).worktrees_dir().exists(), "非 git workspace 不得创建 worktree");
     let board = Board::open(&workspace, "board_t").unwrap();
     let card = &board.state().cards[&card_id];
     assert_eq!(card.column_id, "done", "降级 run 正常流转");
@@ -228,7 +228,7 @@ async fn ensure_degrades_when_workspace_is_subdir_of_parent_repo() {
     let sub = parent.join("sub");
     std::fs::create_dir_all(&sub).unwrap();
     assert!(matches!(ensure_card_worktree(&sub, "c1").await.unwrap(), CardWorkdir::WorkspaceRoot), "父仓库子目录不得建 worktree");
-    assert!(!parent.join(".kxen").join("worktrees").exists(), "父仓库不得被建 worktree");
+    assert!(!crate::core::paths::KxenPaths::project(&parent).worktrees_dir().exists(), "父仓库不得被建 worktree");
     std::fs::remove_dir_all(parent).ok();
 }
 

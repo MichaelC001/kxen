@@ -24,11 +24,11 @@ fn recovery_manifest_captures_blocked_knowledge_usage_before_cleanup() {
     }
 
     let state = Arc::new(crate::AppState::new().expect("isolated app state"));
-    let sessions = kxen_core::core::paths::sessions_dir();
+    let sessions = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let workspace = std::env::temp_dir().join(format!("kxen-delete-knowledge-workspace-{}", uuid::Uuid::new_v4()));
     let session = kxen_core::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
     let operation_id = "meter_delete_knowledge_unknown";
-    let attempt_root = kxen_core::core::paths::data_dir().join("consolidation-attempts");
+    let attempt_root = kxen_core::core::paths::KxenPaths::user().consolidation_attempts_dir();
     std::fs::create_dir_all(&attempt_root).unwrap();
     std::fs::write(
         attempt_root.join(format!("{}.json", session.id)),
@@ -75,7 +75,7 @@ async fn delete_transaction_commits_storage_and_reference_cleanup() {
     }
 
     let state = Arc::new(crate::AppState::new().expect("isolated app state"));
-    let sessions = kxen_core::core::paths::sessions_dir();
+    let sessions = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let workspace = std::env::temp_dir().join(format!("kxen-delete-workspace-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&workspace).unwrap();
     let session = kxen_core::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
@@ -100,7 +100,7 @@ async fn delete_transaction_commits_storage_and_reference_cleanup() {
     .unwrap();
     goal.session_id = Some(session.id.clone());
     goal.activate().unwrap();
-    goal.save(&kxen_core::core::paths::goals_dir()).unwrap();
+    goal.save(&kxen_core::core::paths::KxenPaths::user().goals_dir()).unwrap();
     let attempts = kxen_core::core::usage::ProviderAttemptStore::global();
     attempts.begin_with_id("meter_delete_pending", &session.id, Some(&goal.id)).unwrap();
     attempts.begin_with_id("meter_other_pending", "ses_other", None).unwrap();
@@ -137,7 +137,7 @@ async fn delete_stops_before_goal_and_usage_removal_when_pending_metering_cannot
     }
 
     let state = Arc::new(crate::AppState::new().expect("isolated app state"));
-    let sessions = kxen_core::core::paths::sessions_dir();
+    let sessions = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let workspace = std::env::temp_dir().join(format!("kxen-delete-failure-workspace-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&workspace).unwrap();
     let session = kxen_core::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
@@ -153,7 +153,7 @@ async fn delete_stops_before_goal_and_usage_removal_when_pending_metering_cannot
     )
     .unwrap();
     goal.session_id = Some(session.id.clone());
-    goal.save(&kxen_core::core::paths::goals_dir()).unwrap();
+    goal.save(&kxen_core::core::paths::KxenPaths::user().goals_dir()).unwrap();
     let attempts = kxen_core::core::usage::ProviderAttemptStore::global();
     let mut blocked = attempts.begin_with_id("meter_delete_blocked", &session.id, Some("goal_missing")).unwrap();
     // Prepared 但未 Started 的 claim 未跨网络边界，reconcile 会直接丢弃；
@@ -162,7 +162,7 @@ async fn delete_stops_before_goal_and_usage_removal_when_pending_metering_cannot
 
     let error = delete(&json!({ "id": session.id, "distill": false }), &state).await.unwrap_err();
     assert!(error.contains("settle pending Provider usage"), "unexpected delete error: {error}");
-    assert!(kxen_core::core::goal::Goal::load(&kxen_core::core::paths::goals_dir(), &goal.id).is_ok());
+    assert!(kxen_core::core::goal::Goal::load(&kxen_core::core::paths::KxenPaths::user().goals_dir(), &goal.id).is_ok());
     assert!(kxen_core::core::shared::lock(&state.session_tokens).contains_key(&session.id));
     assert_eq!(attempts.load_all().unwrap().len(), 1);
     assert!(!kxen_core::core::session_recovery::is_tombstoned(&sessions, &session.id).unwrap());
@@ -187,7 +187,7 @@ async fn delete_establishes_tombstone_then_waits_for_active_consolidation_lease(
     }
 
     let state = Arc::new(crate::AppState::new().expect("isolated app state"));
-    let sessions = kxen_core::core::paths::sessions_dir();
+    let sessions = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     let workspace = std::env::temp_dir().join(format!("kxen-delete-lease-workspace-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&workspace).unwrap();
     let session = kxen_core::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();

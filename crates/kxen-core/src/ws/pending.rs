@@ -15,8 +15,10 @@ pub fn restore_queues(state: Arc<AppState>) {
         // 补投返回的 sid 定点合并进续跑清单，不再二次全量 restore：restore 对盘上非空队列无条件
         // insert，启动窗口内并发 enqueue（已落盘+更新内存）会被旧盘内容覆盖，消息躺到下次重启；
         // 补投本身已同步更新内存态与盘，返回值即差异全集。
-        let recovered =
-            kxen_core::agent::background::recover_interrupted_all(&state.pending_messages, &kxen_core::core::paths::sessions_dir());
+        let recovered = kxen_core::agent::background::recover_interrupted_all(
+            &state.pending_messages,
+            &kxen_core::core::paths::KxenPaths::user().sessions_dir(),
+        );
         if !recovered.is_empty() {
             tracing::info!(recovered = recovered.len(), "interrupted background notifications recovered");
             let mut known: std::collections::HashSet<String> = ready.iter().cloned().collect();
@@ -37,7 +39,7 @@ pub fn restore_queues(state: Arc<AppState>) {
         report_session_recovery(&state);
         for sid in ready {
             // 会话已删（队列文件残留）：清盘不续跑
-            match kxen_core::core::session::load_meta(&kxen_core::core::paths::sessions_dir(), &sid) {
+            match kxen_core::core::session::load_meta(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), &sid) {
                 Ok(_) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     if let Err(error) = state.pending_messages.clear(&sid) {
@@ -54,18 +56,20 @@ pub fn restore_queues(state: Arc<AppState>) {
                     continue;
                 }
             }
-            let (q, cancel) =
-                match super::run_slot::claim_queued_run(&state.active_runs, &kxen_core::core::paths::sessions_dir(), &sid, || {
-                    state.pending_messages.claim(&sid)
-                }) {
-                    Ok(Some(claimed)) => claimed,
-                    Ok(None) => continue,
-                    Err(error) => {
-                        tracing::error!(session = sid, %error, "pending queue run claim failed during restore");
-                        super::queue_retry::schedule_retry(state.clone(), sid.clone());
-                        continue;
-                    }
-                };
+            let (q, cancel) = match super::run_slot::claim_queued_run(
+                &state.active_runs,
+                &kxen_core::core::paths::KxenPaths::user().sessions_dir(),
+                &sid,
+                || state.pending_messages.claim(&sid),
+            ) {
+                Ok(Some(claimed)) => claimed,
+                Ok(None) => continue,
+                Err(error) => {
+                    tracing::error!(session = sid, %error, "pending queue run claim failed during restore");
+                    super::queue_retry::schedule_retry(state.clone(), sid.clone());
+                    continue;
+                }
+            };
             let stream_id = super::protocol::stream_id("run");
             super::llm_task::spawn_claimed_run(
                 super::llm_task::RunInput {
@@ -86,7 +90,7 @@ pub fn restore_queues(state: Arc<AppState>) {
 }
 
 fn report_session_recovery(state: &AppState) {
-    let sessions = kxen_core::core::paths::sessions_dir();
+    let sessions = kxen_core::core::paths::KxenPaths::user().sessions_dir();
     for session in kxen_core::core::session::list(&sessions) {
         let diagnostic = match kxen_core::core::session::inspect_storage(&sessions, &session.id) {
             Ok(report)
@@ -108,9 +112,12 @@ fn report_session_recovery(state: &AppState) {
 /// 续跑触发：delivery claim 与 run lease 原子完成；落败 kick 不接触 in_flight。
 pub(crate) fn kick_session(state: Arc<AppState>, sid: String) {
     tokio::spawn(async move {
-        let (q, cancel) = match super::run_slot::claim_queued_run(&state.active_runs, &kxen_core::core::paths::sessions_dir(), &sid, || {
-            state.pending_messages.claim(&sid)
-        }) {
+        let (q, cancel) = match super::run_slot::claim_queued_run(
+            &state.active_runs,
+            &kxen_core::core::paths::KxenPaths::user().sessions_dir(),
+            &sid,
+            || state.pending_messages.claim(&sid),
+        ) {
             Ok(Some(claimed)) => claimed,
             Ok(None) => {
                 let active = kxen_core::core::shared::lock(&state.active_runs).contains_key(&sid);

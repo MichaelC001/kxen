@@ -6,6 +6,10 @@ fn temp_workspace(tag: &str) -> PathBuf {
     dir
 }
 
+fn project_config(workspace: &Path) -> PathBuf {
+    crate::core::paths::KxenPaths::project(workspace).config_file()
+}
+
 #[test]
 fn registry_reuses_only_the_same_canonical_workspace() {
     let a = temp_workspace("a");
@@ -105,23 +109,17 @@ async fn workspace_mrm_views_isolate_policy_and_share_capacity() {
     let user = root.join("user.toml");
     let a = root.join("a");
     let b = root.join("b");
-    std::fs::create_dir_all(a.join(".kxen")).unwrap();
-    std::fs::create_dir_all(b.join(".kxen")).unwrap();
+    std::fs::create_dir_all(crate::core::paths::KxenPaths::project(&a).root()).unwrap();
+    std::fs::create_dir_all(crate::core::paths::KxenPaths::project(&b).root()).unwrap();
     std::fs::write(
         &user,
         "[limits]\nglobal_concurrent = 8\n[custom_providers.lab]\nbase_url='https://lab.example/v1'\nprotocol='openai'\nmodels=['lab']\n",
     )
     .unwrap();
-    std::fs::write(
-        a.join(".kxen/config.toml"),
-        "[roles.execution]\nprovider='xai'\nmodel='a-model'\n[limits.providers.xai]\nconcurrent=1\n",
-    )
-    .unwrap();
-    std::fs::write(
-        b.join(".kxen/config.toml"),
-        "[roles.execution]\nprovider='xai'\nmodel='b-model'\n[limits.providers.xai]\nconcurrent=2\n",
-    )
-    .unwrap();
+    std::fs::write(project_config(&a), "[roles.execution]\nprovider='xai'\nmodel='a-model'\n[limits.providers.xai]\nconcurrent=1\n")
+        .unwrap();
+    std::fs::write(project_config(&b), "[roles.execution]\nprovider='xai'\nmodel='b-model'\n[limits.providers.xai]\nconcurrent=2\n")
+        .unwrap();
     let base = crate::llm::mrm::ModelResourceManager::new(crate::core::config::Config::load(&user, None).unwrap());
     let view_a = base.scoped(workspace_scope(&a), workspace_config_from(&a, &user, true).unwrap());
     let view_b = base.scoped(workspace_scope(&b), workspace_config_from(&b, &user, true).unwrap());
@@ -215,11 +213,11 @@ fn candidate_preload_failure_keeps_every_cached_runtime_unchanged() {
     let user = root.join("user.toml");
     let workspace_a = root.join("a");
     let workspace_b = root.join("b");
-    std::fs::create_dir_all(workspace_a.join(".kxen")).unwrap();
-    std::fs::create_dir_all(workspace_b.join(".kxen")).unwrap();
+    std::fs::create_dir_all(crate::core::paths::KxenPaths::project(&workspace_a).root()).unwrap();
+    std::fs::create_dir_all(crate::core::paths::KxenPaths::project(&workspace_b).root()).unwrap();
     std::fs::write(&user, "[limits]\nglobal_concurrent = 8\n").unwrap();
-    std::fs::write(workspace_a.join(".kxen/config.toml"), "[roles.execution]\nprovider = 'xai'\nmodel = 'workspace-a'\n").unwrap();
-    std::fs::write(workspace_b.join(".kxen/config.toml"), "[roles.execution]\nprovider = 'xai'\nmodel = 'workspace-b'\n").unwrap();
+    std::fs::write(project_config(&workspace_a), "[roles.execution]\nprovider = 'xai'\nmodel = 'workspace-a'\n").unwrap();
+    std::fs::write(project_config(&workspace_b), "[roles.execution]\nprovider = 'xai'\nmodel = 'workspace-b'\n").unwrap();
     crate::core::trust::trust(&std::fs::canonicalize(&workspace_a).unwrap()).unwrap();
     crate::core::trust::trust(&std::fs::canonicalize(&workspace_b).unwrap()).unwrap();
     let registry = WorkspaceRuntimeRegistry::with_user_config(user).unwrap();
@@ -232,15 +230,11 @@ fn candidate_preload_failure_keeps_every_cached_runtime_unchanged() {
     let old_a_hooks = runtime_a.hooks();
     let old_b_hooks = runtime_b.hooks();
 
-    std::fs::write(workspace_b.join(".kxen/config.toml"), "[experimental]\nremote_mcp = true\n").unwrap();
+    std::fs::write(project_config(&workspace_b), "[experimental]\nremote_mcp = true\n").unwrap();
     let candidate: toml::Table = toml::from_str("[limits]\nglobal_concurrent = 12\n").unwrap();
     assert!(
-        crate::core::config::Config::load_with_user_document(
-            &candidate,
-            &registry.user_config,
-            Some(&workspace_b.join(".kxen/config.toml")),
-        )
-        .is_err()
+        crate::core::config::Config::load_with_user_document(&candidate, &registry.user_config, Some(&project_config(&workspace_b)),)
+            .is_err()
     );
 
     let error = registry.prepare_config_update(&candidate).err().expect("invalid second workspace candidate must reject the batch");

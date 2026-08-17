@@ -96,8 +96,8 @@ pub fn doctor_report(store: &AuthStore) -> DoctorReport {
     }
     DoctorReport {
         runtime: env!("CARGO_PKG_VERSION").to_string(),
-        data_dir: paths::data_dir().display().to_string(),
-        config_dir: paths::config_dir().display().to_string(),
+        data_dir: paths::KxenPaths::user().root().display().to_string(),
+        config_dir: paths::KxenPaths::user().root().display().to_string(),
         entries,
         system: None,
     }

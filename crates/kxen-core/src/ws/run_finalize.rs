@@ -122,10 +122,13 @@ pub(super) async fn finalize_run(end: RunEnd<'_>) {
 }
 
 pub(super) fn handoff_pending(state: &Arc<AppState>, session_id: String, cancel: &kxen_core::agent::cancel::CancelToken) {
-    let handoff =
-        super::run_slot::claim_queued_handoff(&state.active_runs, &kxen_core::core::paths::sessions_dir(), &session_id, cancel, || {
-            state.pending_messages.claim(&session_id)
-        });
+    let handoff = super::run_slot::claim_queued_handoff(
+        &state.active_runs,
+        &kxen_core::core::paths::KxenPaths::user().sessions_dir(),
+        &session_id,
+        cancel,
+        || state.pending_messages.claim(&session_id),
+    );
     let (q, next_cancel) = match handoff {
         Ok(Some(handoff)) => handoff,
         Ok(None) => {

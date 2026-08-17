@@ -39,7 +39,7 @@ pub async fn execute_goal_tool(
     run_cancel: Option<&crate::agent::cancel::CancelToken>,
 ) -> Result<String, String> {
     let action = args.get("action").and_then(Value::as_str).ok_or("missing action")?;
-    let dir = crate::core::paths::goals_dir();
+    let dir = crate::core::paths::KxenPaths::user().goals_dir();
     match action {
         "list" => {
             let goals = crate::core::goal::Goal::list_checked(&dir).map_err(|error| error.to_string())?;
@@ -56,8 +56,9 @@ pub async fn execute_goal_tool(
             Ok(output)
         }
         "create" => {
-            let _lifecycle =
-                session_id.map(|id| crate::core::session_lifecycle::admit_mutation(&crate::core::paths::sessions_dir(), id)).transpose()?;
+            let _lifecycle = session_id
+                .map(|id| crate::core::session_lifecycle::admit_mutation(&crate::core::paths::KxenPaths::user().sessions_dir(), id))
+                .transpose()?;
             let contract = crate::core::goal::GoalContract {
                 objective: args.get("objective").and_then(Value::as_str).ok_or("missing objective")?.to_string(),
                 completion_criteria: args

@@ -17,7 +17,7 @@ pub struct UsageReporter {
 
 impl UsageReporter {
     pub fn new(session_id: String, session_usage: Arc<Mutex<HashMap<String, SessionUsage>>>, bus: crate::core::event::EventBus) -> Self {
-        Self::new_in(session_id, session_usage, bus, crate::core::paths::data_dir().join("usage-attempts"))
+        Self::new_in(session_id, session_usage, bus, crate::core::paths::KxenPaths::user().usage_attempts_dir())
     }
 
     #[doc(hidden)]
@@ -47,7 +47,7 @@ impl UsageReporter {
             session_id: scope_id.into(),
             session_usage,
             bus,
-            attempts: ProviderAttemptStore::new(crate::core::paths::data_dir().join("usage-attempts")),
+            attempts: ProviderAttemptStore::new(crate::core::paths::KxenPaths::user().usage_attempts_dir()),
             require_live_session: false,
             usage_ledger: None,
         }
@@ -91,7 +91,9 @@ impl UsageReporter {
     pub fn settle(&self, attempt: &ProviderAttempt) -> Result<MeteringOutcome, String> {
         let _lifecycle = self
             .require_live_session
-            .then(|| crate::core::session_lifecycle::admit_mutation(&crate::core::paths::sessions_dir(), &self.session_id))
+            .then(|| {
+                crate::core::session_lifecycle::admit_mutation(&crate::core::paths::KxenPaths::user().sessions_dir(), &self.session_id)
+            })
             .transpose()?;
         self.attempts.checkpoint(attempt)?;
         let mut map = crate::core::shared::lock(&self.session_usage);

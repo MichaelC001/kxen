@@ -20,7 +20,7 @@ async fn automatic_pass_never_retries_a_blocked_provider_attempt() {
         return;
     }
 
-    let sessions = crate::core::paths::sessions_dir();
+    let sessions = crate::core::paths::KxenPaths::user().sessions_dir();
     let workspace = std::env::temp_dir().join(format!("kxen-blocked-pass-workspace-{}", uuid::Uuid::new_v4()));
     let session = crate::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
     for text in ["first", "second"] {
@@ -65,7 +65,7 @@ async fn discard_settlement_is_durable_and_restart_idempotent_without_provider_r
         return;
     }
 
-    let sessions = crate::core::paths::sessions_dir();
+    let sessions = crate::core::paths::KxenPaths::user().sessions_dir();
     let workspace = std::env::temp_dir().join(format!("kxen-discard-settle-workspace-{}", uuid::Uuid::new_v4()));
     let session = crate::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
     for text in ["first", "second"] {
@@ -109,7 +109,7 @@ async fn checkpointed_cleanup_settles_unknown_before_removing_attempt() {
         return;
     }
 
-    let sessions = crate::core::paths::sessions_dir();
+    let sessions = crate::core::paths::KxenPaths::user().sessions_dir();
     let workspace = std::env::temp_dir().join(format!("kxen-checkpoint-cleanup-workspace-{}", uuid::Uuid::new_v4()));
     let session = crate::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
     for text in ["first", "second"] {
@@ -154,7 +154,7 @@ async fn startup_compaction_preserves_a_knowledge_receipt_until_attempt_ack() {
         return;
     }
 
-    let sessions = crate::core::paths::sessions_dir();
+    let sessions = crate::core::paths::KxenPaths::user().sessions_dir();
     let workspace = std::env::temp_dir().join(format!("kxen-receipt-restart-workspace-{}", uuid::Uuid::new_v4()));
     let session = crate::core::session::create(&sessions, workspace.to_str().unwrap()).unwrap();
     let prepared = prepare_new_attempt(&session, Vec::new(), "cursor".into()).unwrap();

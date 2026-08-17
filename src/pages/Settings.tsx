@@ -321,7 +321,7 @@ export default function Settings() {
               </div>
               <div class="pt-2 border-t border-[var(--border)]">
                 <div>
-                  hooks：`~/.config/kxen/config.toml` 的 [hooks]（默认全关，pre_tool_use 可阻断）
+                  hooks：`~/.agents/kxen/config.toml` 的 [hooks]（默认全关，pre_tool_use 可阻断）
                 </div>
                 <div>statusline：同文件 [statusline] items 白名单控制显隐</div>
               </div>

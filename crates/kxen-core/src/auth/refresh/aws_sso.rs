@@ -8,7 +8,16 @@ use super::{AuthStore, RefreshResponse};
 use crate::auth::aws_sso::{self, Registration};
 
 pub(super) async fn run_aws_sso_refresh(store: &mut AuthStore, key: &str, refresh: &str, acc_id: &Option<String>) -> Result<(), String> {
-    run_with_endpoints(store, key, refresh, acc_id, aws_sso::TOKEN_URL, aws_sso::REGISTER_URL, &crate::core::paths::auth_file()).await
+    run_with_endpoints(
+        store,
+        key,
+        refresh,
+        acc_id,
+        aws_sso::TOKEN_URL,
+        aws_sso::REGISTER_URL,
+        &crate::core::paths::KxenPaths::user().auth_file(),
+    )
+    .await
 }
 
 async fn run_with_endpoints(

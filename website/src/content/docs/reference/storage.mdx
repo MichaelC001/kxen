@@ -10,18 +10,20 @@ kxen 采用本地优先存储，当前没有 kxen 云同步服务。
 
 ## 目录
 
-| 数据       | 位置                                                                                                     |
-| ---------- | -------------------------------------------------------------------------------------------------------- |
-| 用户配置   | `~/.config/kxen/`（全部平台一致）                                                                        |
-| 应用数据   | macOS： `~/Library/Application Support/kxen/`;Linux： `~/.local/share/kxen/`;Windows： `%APPDATA%/kxen/` |
-| 保留缓存根 | macOS： `~/Library/Caches/kxen/`;Linux： `~/.cache/kxen/`;Windows： `%LOCALAPPDATA%/kxen/`               |
-| 项目配置   | `file:///path/to/workspace/.kxen/`                                                                       |
-| 项目知识   | `file:///path/to/workspace/.agents/`                                                                     |
-| 个人知识   | `file:///Users/you/.agents/`                                                                             |
+| 数据               | 位置                                                          |
+| ------------------ | ------------------------------------------------------------- |
+| 用户级 Kxen 根目录 | `~/.agents/kxen/`                                             |
+| 用户配置           | `~/.agents/kxen/config.toml`                                  |
+| 用户缓存           | `~/.agents/kxen/cache/`                                       |
+| 项目级 Kxen 根目录 | `file:///path/to/workspace/.agents/kxen/`                     |
+| 项目知识           | `file:///path/to/workspace/.agents/`，不含 `kxen/` 运行态子树 |
+| 个人知识           | `~/.agents/`，不含 `kxen/` 运行态子树                         |
 
-`kxen` 可以用环境变量 `KXEN_DATA_DIR` 覆盖应用数据目录。当前命名缓存不一定写入缓存根。模型目录和 embedding cache 位于应用数据目录，不能把缓存根当成清理它们的唯一入口。
+`~` 由操作系统解析为当前用户主目录，macOS、Linux 和 Windows 使用相同的 `.agents/kxen` 相对布局。`KXEN_DATA_DIR` 可以显式选择 custom 用户根目录；配置、数据和缓存会一起切换，不会再分散到平台专用目录。
 
-`kxen-agent` 默认使用应用数据目录下的 `agent/` 作为独立 state root，可以用 `KXEN_AGENT_STATE_DIR` 或每次调用的 `--state-dir` 覆盖。它复用用户配置和 auth store 的默认位置，但不会把 provider credential 复制到 agent state。
+Kxen 不会自动读取、移动或删除旧目录中的数据。升级后从新的统一目录开始读写；旧目录的保留、备份或清理由用户显式决定。
+
+`kxen-agent` 默认使用 `~/.agents/kxen/agent/` 作为独立 state root，可以用 `KXEN_AGENT_STATE_DIR` 或每次调用的 `--state-dir` 覆盖。它复用用户配置和 auth store 的默认位置，但不会把 provider credential 复制到 agent state。
 
 ## 用户配置
 
@@ -29,7 +31,7 @@ kxen 采用本地优先存储，当前没有 kxen 云同步服务。
 - `mcp.json`: 用户级 MCP server 配置。
 - `custom-provider.transaction.json`: 只在 custom Provider 的配置和凭证跨文件提交尚未完成时存在的恢复 journal。
 
-项目可以提供 `.kxen/config.toml` 和 `.mcp.json`。只有受信任 Workspace 的项目配置和项目 MCP 才会加载。
+项目可以提供 `.agents/kxen/config.toml` 和 `.mcp.json`。只有受信任 Workspace 的项目配置和项目 MCP 才会加载。
 
 ## 应用数据
 
@@ -106,7 +108,9 @@ Provider 认证数据保存在权限受限的 `auth.json`，MCP OAuth 数据保�
 
 Checkpoint 使用独立 shadow Git repository，不写入 Workspace 自身的 `.git`。
 
-Workspace 中的 `.kxen/worktrees/` 保存隔离 Worktree，`.kxen/backups/` 保存覆盖前的有限数量恢复副本。项目 `.agents/` 保存共享知识，用户 `file:///Users/you/.agents/` 保存个人知识。跨 scope 移动先在应用私有目录建立 claim，再通过 staging、文件 fsync、rename 和父目录 fsync 提交；跨文件系统时不依赖单次 rename。
+Workspace 中的 `.agents/kxen/worktrees/` 保存隔离 Worktree，`.agents/kxen/backups/` 保存覆盖前的有限数量恢复副本。项目 `.agents/` 保存共享知识，用户 `~/.agents/` 保存个人知识；Knowledge 扫描会明确排除两个 scope 的 `kxen/` 子树。跨 scope 移动先在用户级 Kxen 根目录建立 claim，再通过 staging、文件 fsync、rename 和父目录 fsync 提交；跨文件系统时不依赖单次 rename。
+
+Kxen 会在 `~/.agents/.gitignore` 中幂等维护 `/kxen/`，并在 Git Workspace 的 `.gitignore` 中幂等维护 `/.agents/kxen/`。Checkpoint、Composer 索引和 Knowledge 扫描也使用同一运行态边界，避免把私有状态加入 Git、检查点或模型上下文。显式 custom root 不会改写其父目录的 ignore 文件。
 
 Knowledge 的 UNKNOWN 确认先把 usage receipt 写入 `usage.json`，再把可证明的被跳过 cursor 写入 `consolidate.json`，最后删除 `consolidation-attempts/<session_id>.json`。启动时的 receipt compaction 会保留仍被任一 Knowledge attempt 引用的 operation ID，因此在 usage 已提交、attempt acknowledgement 尚未提交的 crash window 中重启也不会重复计量。缺少精确 cursor 的 legacy attempt 不推进 watermark。保留 attempt 是故障恢复依据；不要手工删除它来绕过结算。
 

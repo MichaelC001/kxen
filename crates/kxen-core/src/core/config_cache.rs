@@ -61,11 +61,11 @@ fn config_stamp(path: &Path) -> Result<crate::core::shared::FileStamp, String> {
 }
 
 pub(crate) fn cached_user_config() -> Option<Arc<Config>> {
-    CACHE.get(&super::paths::config_dir().join("config.toml"))
+    CACHE.get(&super::paths::KxenPaths::user().config_file())
 }
 
 pub(crate) fn cached_user_config_result() -> Result<Arc<Config>, String> {
-    CACHE.get_result(&super::paths::config_dir().join("config.toml"))
+    CACHE.get_result(&super::paths::KxenPaths::user().config_file())
 }
 
 #[cfg(test)]

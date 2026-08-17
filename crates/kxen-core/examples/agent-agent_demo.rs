@@ -12,7 +12,7 @@ async fn main() {
     std::fs::create_dir_all(&workdir).unwrap();
     std::fs::write(workdir.join("note.txt"), "hello\n").unwrap();
 
-    let auth_path = kxen_core::core::paths::auth_file();
+    let auth_path = kxen_core::core::paths::KxenPaths::user().auth_file();
     let mut store = kxen_core::auth::credential::read_auth_file(&auth_path).expect("read auth store");
     kxen_core::auth::probe_all(&mut store, true);
 

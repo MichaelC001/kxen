@@ -121,7 +121,7 @@ fn overview_board_fields() {
         vec![WorktreeDigest {
             name: "exp".into(),
             branch: "kxen/exp".into(),
-            path: "/a/.kxen/worktrees/exp".into(),
+            path: "/a/.agents/kxen/worktrees/exp".into(),
             dirty: Some(3),
             sessions: 0,
             running: 0,
@@ -171,12 +171,12 @@ fn overview_board_fields() {
 #[test]
 fn overview_worktree_binding() {
     let ws = vec![Workspace { path: "/a".into(), last_used: 100 }];
-    let tree = "/a/.kxen/worktrees/exp";
+    let tree = "/a/.agents/kxen/worktrees/exp";
     let sessions = vec![
-        session("s1", tree, 500),                         // 根部精确匹配
-        session("s2", "/a/.kxen/worktrees/exp/sub", 600), // 子目录前缀匹配
-        session("s3", "/a/.kxen/worktrees/exp2", 700),    // 同前缀不同树：不算绑定
-        session("s4", "/a", 800),                         // 主仓会话：不算绑定
+        session("s1", tree, 500),                                // 根部精确匹配
+        session("s2", "/a/.agents/kxen/worktrees/exp/sub", 600), // 子目录前缀匹配
+        session("s3", "/a/.agents/kxen/worktrees/exp2", 700),    // 同前缀不同树：不算绑定
+        session("s4", "/a", 800),                                // 主仓会话：不算绑定
     ];
     let running: HashSet<String> = ["s2".to_string()].into_iter().collect();
     let mut worktrees: HashMap<String, Vec<WorktreeDigest>> = HashMap::new();

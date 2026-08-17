@@ -106,7 +106,7 @@ fn apply_refresh_keeps_old_refresh_when_absent() {
         RefreshResponse { access_token: "a2".into(), refresh_token: None, expires_in: None },
         "r1",
         None,
-        &crate::core::paths::auth_file(),
+        &crate::core::paths::KxenPaths::user().auth_file(),
     )
     .unwrap();
     let Some(CredentialKind::Oauth { access, refresh, .. }) = store.get(&key) else { panic!("oauth") };
@@ -150,7 +150,7 @@ fn grant_success_updates_store_and_file() {
     assert_eq!(access, "new-access");
     assert_eq!(refresh, "new-refresh");
     // 落盘同步发生（进程外与其他 clone 经读盘收敛）
-    let on_disk = crate::auth::credential::read_auth_file(&crate::core::paths::auth_file()).unwrap();
+    let on_disk = crate::auth::credential::read_auth_file(&crate::core::paths::KxenPaths::user().auth_file()).unwrap();
     assert!(matches!(on_disk.get(&key), Some(CredentialKind::Oauth { access, .. }) if access == "new-access"));
     recent().lock().expect("recent").remove(&key);
 }

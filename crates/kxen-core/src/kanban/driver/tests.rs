@@ -214,7 +214,7 @@ async fn workflow_kind_derives_journal_run_id() {
     let card_id = create_card(&mut board, "building");
     drop(board);
     let run_id = format!("board_t:{card_id}:building:1");
-    let journal = crate::core::paths::data_dir().join("workflow-journals").join(format!("{}.jsonl", scoped_journal_id(&run_id)));
+    let journal = crate::core::paths::KxenPaths::user().workflow_journal(&scoped_journal_id(&run_id));
     let _ = std::fs::remove_file(&journal);
     let _ = std::fs::remove_file(journal.with_extension("jsonl.lock"));
     let landing = execute(&workspace, "board_t", &card_id, &deps(&workspace, text_stream("PONG")), None).await.unwrap();

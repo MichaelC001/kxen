@@ -37,7 +37,7 @@ fn picker_grants_file_or_directory_but_never_credentials() {
 
     let dir_grants = HashSet::from([outside.canonicalize().unwrap()]);
     assert!(resolve(outside.join("new.txt").to_str().unwrap(), &work, &dir_grants).is_ok());
-    let auth = crate::core::paths::auth_file();
+    let auth = crate::core::paths::KxenPaths::user().auth_file();
     let auth_grants = HashSet::from([auth.clone()]);
     assert!(resolve(auth.to_str().unwrap(), &work, &auth_grants).unwrap_err().contains("protected"));
     std::fs::remove_dir_all(&work).ok();

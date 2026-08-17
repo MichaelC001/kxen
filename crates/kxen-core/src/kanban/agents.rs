@@ -1,5 +1,5 @@
 //! Kanban 列 Agent 定义：Markdown + 行式 frontmatter 数据文件，
-//! 存 `<workspace>/.kxen/kanban/agents/<name>.md`。主线程经 kanban_agent_create（P2b 工具面）写入，
+//! 存 `<workspace>/.agents/kxen/kanban/agents/<name>.md`。主线程经 kanban_agent_create（P2b 工具面）写入，
 //! 列触发器（driver.rs）按 on_enter.agent 引用加载。
 //!
 //! frontmatter 与 subagent/knowledge 同规约（`---` 包围的 key: value 头，不引入 YAML 依赖），
@@ -36,7 +36,7 @@ pub struct AgentDefinition {
 }
 
 pub fn agents_dir(workspace: &Path) -> PathBuf {
-    workspace.join(".kxen").join("kanban").join("agents")
+    crate::core::paths::KxenPaths::project(workspace).kanban_agents_dir()
 }
 
 const KEYS: [&str; 5] = ["name", "role", "model", "permission_profile", "tools"];
@@ -151,14 +151,14 @@ pub fn save(workspace: &Path, definition: &AgentDefinition) -> Result<(), Kanban
     // 与 parse 同一套校验：写路径不得比读路径宽，否则垃圾定义能落盘但加载即拒
     let markdown = to_markdown(definition);
     parse(&markdown)?;
-    let path = agents_dir(workspace).join(format!("{}.md", definition.name));
+    let path = crate::core::paths::KxenPaths::project(workspace).kanban_agent(&definition.name);
     storage::atomic_replace(&path, markdown.as_bytes()).map_err(|failure| KanbanError::Log(failure.to_string()))
 }
 
 pub fn load(workspace: &Path, name: &str) -> Result<AgentDefinition, KanbanError> {
     // name 来自列配置（BoardCreate/ColumnAdd 已校验列 id，但 agent 名只查非空），此处收口路径安全
     ids::validate_id(name).map_err(KanbanError::InvalidId)?;
-    let path = agents_dir(workspace).join(format!("{name}.md"));
+    let path = crate::core::paths::KxenPaths::project(workspace).kanban_agent(name);
     let text = std::fs::read_to_string(&path).map_err(|error| KanbanError::Log(format!("read {}: {error}", path.display())))?;
     let definition = parse(&text)?;
     // 文件名与 frontmatter name 不一致 = 引用面自相矛盾，fail-closed 不猜哪个是真的

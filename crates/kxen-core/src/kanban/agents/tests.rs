@@ -60,7 +60,7 @@ fn save_load_roundtrip_and_name_mismatch_rejected() {
     // 文件名与 frontmatter name 不一致：fail-closed
     let mut renamed = sample();
     renamed.name = "other-name".into();
-    std::fs::write(agents_dir(&workspace).join("qa-verifier.md"), to_markdown(&renamed)).unwrap();
+    std::fs::write(crate::core::paths::KxenPaths::project(&workspace).kanban_agent("qa-verifier"), to_markdown(&renamed)).unwrap();
     assert!(matches!(load(&workspace, "qa-verifier"), Err(KanbanError::InvalidAgentDef(_))));
     // 穿越名与缺失文件
     assert!(matches!(load(&workspace, "../escape"), Err(KanbanError::InvalidId(_))));
@@ -138,6 +138,6 @@ fn custom_tools_closed_set_fail_closed() {
     let mut bad = custom_sample();
     bad.tools = Some(vec!["read".into(), "kanban_agent_create".into()]);
     assert!(save(&workspace, &bad).is_err());
-    assert!(!agents_dir(&workspace).join("go-editor.md").exists(), "非法定义不得落盘");
+    assert!(!crate::core::paths::KxenPaths::project(&workspace).kanban_agent("go-editor").exists(), "非法定义不得落盘");
     std::fs::remove_dir_all(workspace).ok();
 }

@@ -265,22 +265,23 @@ pub fn write(path: &Path, content: &str, tracker: &FileTracker, cwd: &str) -> Re
     Ok(())
 }
 
-/// 覆盖备份：落到 <cwd>/.kxen/backups/ 并按 workspace 相对路径镜像（同名文件互不覆盖），
+/// 覆盖备份：落到 <cwd>/.agents/kxen/backups/ 并按 workspace 相对路径镜像（同名文件互不覆盖），
 /// 散放的 <name>.kxen-bak 会污染工作区根目录且无清理。best-effort：失败不阻断写。
 fn backup(path: &Path, cwd: &str) {
     let root = Path::new(cwd);
-    if let Err(error) = crate::tools::worktree::ensure_gitignore(root) {
-        tracing::warn!(%error, "skip overwrite backup because .kxen cannot be ignored safely");
+    let paths = crate::core::paths::KxenPaths::project(root);
+    if let Err(error) = paths.ensure_base_dir().and_then(|()| crate::core::ignore_manager::ensure_gitignore(root)) {
+        tracing::warn!(%error, "skip overwrite backup because project storage cannot be prepared safely");
         return;
     }
     let fallback = Path::new(path.file_name().unwrap_or_default());
     let rel = path.strip_prefix(root).unwrap_or(fallback);
-    let backup = root.join(".kxen").join("backups").join(rel).with_extension("kxen-bak");
+    let backup = crate::core::paths::KxenPaths::project(root).backup_path(rel);
     if backup.parent().is_some_and(|p| std::fs::create_dir_all(p).is_err()) {
         return;
     }
     if std::fs::copy(path, &backup).is_ok() {
-        // 数量上限：超出清最旧，.kxen/backups 不无界增长
+        // 数量上限：超出清最旧，.agents/kxen/backups 不无界增长
         crate::tools::worktree::prune_backups(root);
     }
 }

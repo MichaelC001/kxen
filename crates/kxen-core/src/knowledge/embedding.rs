@@ -80,7 +80,7 @@ pub fn resolve_endpoint_with(cfg: &EmbeddingConfig, store: &AuthStore) -> Option
     }
 }
 
-/// 读盘装配：config 只读用户级（~/.config/kxen/config.toml），与 llm client 读
+/// 读盘装配：config 只读用户级（~/.agents/kxen/config.toml），与 llm client 读
 /// custom_providers 同路径；召回偏好跟人走，项目级 config 入 git 不放这个。
 pub fn resolve_endpoint() -> Option<Endpoint> {
     let config = match crate::core::config_cache::cached_user_config_result() {
@@ -93,7 +93,7 @@ pub fn resolve_endpoint() -> Option<Endpoint> {
     if config.embedding.provider.is_empty() {
         return None;
     }
-    let store = match crate::auth::credential::read_auth_file(&crate::core::paths::auth_file()) {
+    let store = match crate::auth::credential::read_auth_file(&crate::core::paths::KxenPaths::user().auth_file()) {
         Ok(store) => store,
         Err(error) => {
             tracing::error!(%error, "embedding credential store unavailable");
@@ -137,7 +137,7 @@ pub(super) fn cache_key(endpoint: &Endpoint, text: &str) -> String {
 }
 
 pub fn cache_path() -> std::path::PathBuf {
-    crate::core::paths::data_dir().join("embedding-cache.json")
+    crate::core::paths::KxenPaths::user().embedding_cache_file()
 }
 
 /// 请求构造（OpenAI 及兼容协议共用）：{"model": ..., "input": [...]}

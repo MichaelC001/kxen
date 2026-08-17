@@ -72,11 +72,11 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Result<Self, String> {
-        let data_dir = kxen_core::core::paths::data_dir();
-        ensure_private_data_dir(&data_dir)?;
-        let instance_lock = acquire_instance_lock(&data_dir)?;
-        let path = kxen_core::core::paths::auth_file();
-        let config_path = kxen_core::core::paths::config_dir().join("config.toml");
+        let user_paths = kxen_core::core::paths::KxenPaths::user();
+        kxen_core::core::ignore_manager::prepare_user(&user_paths)?;
+        let instance_lock = acquire_instance_lock(&user_paths)?;
+        let path = user_paths.auth_file();
+        let config_path = user_paths.config_file();
         crate::ws::recover_custom_provider_transaction(&config_path, &path)?;
         // 共享句柄：与 TeamManager SpawnDeps 同一把锁，后台探测写入的凭证两边即时可见；
         // 登记回写后 run 内刷新（ctx.store 是克隆快照）也即时收敛到各克隆点（auth::shared_store）
@@ -87,14 +87,16 @@ impl AppState {
         let config = load_app_config(&config_path)?;
         let statusline_items = config.statusline.items.clone();
         // 任务日志（DCP）落盘根目录与 pending queue 同一 sessions 根：崩溃恢复按 session 归目录扫描
-        let registry = std::sync::Arc::new(kxen_core::tools::task::TaskRegistry::with_sessions_dir(kxen_core::core::paths::sessions_dir()));
+        let registry = std::sync::Arc::new(kxen_core::tools::task::TaskRegistry::with_sessions_dir(
+            kxen_core::core::paths::KxenPaths::user().sessions_dir(),
+        ));
         let extras = std::sync::Arc::new(kxen_core::agent::agent_loop::SessionExtrasRegistry::default());
         let mrm = std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(kxen_core::llm::mrm::ModelResourceManager::new(config))));
-        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
+        let cwd = startup_workdir();
         let workdir: std::sync::Arc<std::path::Path> = std::sync::Arc::from(initial_workdir(&cwd, dirs::home_dir()));
         let bus = kxen_core::core::event::EventBus::default();
         let agents = std::sync::Arc::new(kxen_core::agent::activity::AgentRegistry::default());
-        agents.set_agents_root(kxen_core::core::paths::sessions_dir());
+        agents.set_agents_root(kxen_core::core::paths::KxenPaths::user().sessions_dir());
         let approvals = std::sync::Arc::new(kxen_core::agent::approval::production_broker(bus.clone()));
         let workspace_runtimes = std::sync::Arc::new(kxen_core::workspace_runtime::WorkspaceRuntimeRegistry::with_mcp_execution_approval(
             approvals.clone(),
@@ -102,8 +104,9 @@ impl AppState {
             mrm.clone(),
         ));
         workspace_runtimes.runtime(&workdir)?;
-        let pending_messages =
-            std::sync::Arc::new(kxen_core::core::pending_queue::PendingQueues::new(kxen_core::core::paths::sessions_dir()));
+        let pending_messages = std::sync::Arc::new(kxen_core::core::pending_queue::PendingQueues::new(
+            kxen_core::core::paths::KxenPaths::user().sessions_dir(),
+        ));
         let mut loaded_usage = kxen_core::core::usage::load().map_err(|error| format!("session usage load failed: {error}"))?;
         for warning in kxen_core::core::usage::reconcile_pending_goal_charges(&mut loaded_usage)
             .map_err(|error| format!("pending usage reconciliation failed: {error}"))?
@@ -115,7 +118,7 @@ impl AppState {
         {
             tracing::warn!(%warning, "Provider attempt durability repaired during startup");
         }
-        for warning in kxen_core::core::goal::Goal::reconcile_completion_attempts(&kxen_core::core::paths::goals_dir())
+        for warning in kxen_core::core::goal::Goal::reconcile_completion_attempts(&kxen_core::core::paths::KxenPaths::user().goals_dir())
             .map_err(|error| format!("completion attempt reconciliation failed: {error}"))?
         {
             tracing::warn!(%warning, "completion attempt recovered during startup");
@@ -130,7 +133,7 @@ impl AppState {
         }
         let session_tokens = Arc::new(std::sync::Mutex::new(loaded_usage));
         let team = kxen_core::agent::team::TeamManager::new(
-            kxen_core::core::paths::data_dir().join("teams"),
+            kxen_core::core::paths::KxenPaths::user().teams_dir(),
             kxen_core::agent::team::SpawnDeps {
                 registry: registry.clone(),
                 fallback_workdir: workdir.clone(),
@@ -143,11 +146,12 @@ impl AppState {
                 session_usage: session_tokens.clone(),
             },
             bus.clone(),
-            kxen_core::core::paths::sessions_dir(),
+            kxen_core::core::paths::KxenPaths::user().sessions_dir(),
             Some(pending_messages.clone()),
         );
         let bots = std::sync::Arc::new(
-            kxen_core::bot::system::BotSystem::new(kxen_core::core::paths::bots_dir()).map_err(|error| error.to_string())?,
+            kxen_core::bot::system::BotSystem::new(kxen_core::core::paths::KxenPaths::user().bots_dir())
+                .map_err(|error| error.to_string())?,
         );
         let bot_executor = std::sync::Arc::new(kxen_core::bot::executor::BotExecutor::new(
             bots.clone(),
@@ -218,7 +222,7 @@ impl AppState {
     }
 
     pub fn runtime_for_session(&self, session_id: &str) -> Result<std::sync::Arc<kxen_core::workspace_runtime::WorkspaceRuntime>, String> {
-        let meta = kxen_core::core::session::load_meta(&kxen_core::core::paths::sessions_dir(), session_id)
+        let meta = kxen_core::core::session::load_meta(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), session_id)
             .map_err(|e| format!("session {session_id}: {e}"))?;
         self.workspace_runtimes.runtime(std::path::Path::new(&meta.directory))
     }
@@ -227,25 +231,27 @@ impl AppState {
         &self,
         session_id: &str,
     ) -> Result<std::sync::Arc<kxen_core::workspace_runtime::WorkspaceRuntime>, String> {
-        let meta = kxen_core::core::session::load_meta(&kxen_core::core::paths::sessions_dir(), session_id)
+        let meta = kxen_core::core::session::load_meta(&kxen_core::core::paths::KxenPaths::user().sessions_dir(), session_id)
             .map_err(|e| format!("session {session_id}: {e}"))?;
         self.workspace_runtimes.ready(std::path::Path::new(&meta.directory)).await
     }
 }
 
-fn ensure_private_data_dir(path: &std::path::Path) -> Result<(), String> {
-    std::fs::create_dir_all(path).map_err(|error| format!("create app data directory {}: {error}", path.display()))?;
-    #[cfg(unix)]
+fn startup_workdir() -> std::path::PathBuf {
+    #[cfg(test)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
-            .map_err(|error| format!("secure app data directory {}: {error}", path.display()))?;
+        let path = std::env::temp_dir().join(format!("kxen-unit-workspace-{}", std::process::id()));
+        std::fs::create_dir_all(&path).expect("create isolated unit-test workspace");
+        path
     }
-    Ok(())
+    #[cfg(not(test))]
+    {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
+    }
 }
 
-fn acquire_instance_lock(data_dir: &std::path::Path) -> Result<std::fs::File, String> {
-    let path = data_dir.join("instance.lock");
+fn acquire_instance_lock(paths: &kxen_core::core::paths::UserPaths) -> Result<std::fs::File, String> {
+    let path = paths.instance_lock_file();
     let file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -253,14 +259,13 @@ fn acquire_instance_lock(data_dir: &std::path::Path) -> Result<std::fs::File, St
         .truncate(false)
         .open(&path)
         .map_err(|error| format!("open app instance lock {}: {error}", path.display()))?;
-    file.try_lock().map_err(|error| format!("another kxen instance is using {}: {error}", data_dir.display()))?;
+    file.try_lock().map_err(|error| format!("another kxen instance is using {}: {error}", paths.root().display()))?;
     Ok(file)
 }
 
 fn load_app_config(path: &std::path::Path) -> Result<kxen_core::core::config::Config, String> {
     kxen_core::core::config::Config::load(path, None).map_err(|error| format!("app config {}: {error}", path.display()))
 }
-
 /// 初始 workspace 根（纯函数，直接可测）：Finder 启动 .app 时进程 cwd 恒为 `/`，
 /// 以之为 workspace 根会让 path_policy 的 starts_with(workspace) 边界全盘失效。
 /// cwd 为根目录或不可写时回退 home；home 不可得（极端环境）兜底保留 cwd，不引入第三选择。
@@ -279,13 +284,11 @@ fn dir_writable(path: &std::path::Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     fn tmp_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("kxen-workdir-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
-
     #[test]
     fn initial_workdir_prefers_writable_cwd() {
         let dir = tmp_dir("ok");
@@ -293,7 +296,6 @@ mod tests {
         assert_eq!(initial_workdir(&dir, Some(home)), dir);
         std::fs::remove_dir_all(&dir).ok();
     }
-
     #[test]
     fn initial_workdir_root_falls_back_to_home() {
         let home = std::path::PathBuf::from("/home/fallback");
@@ -301,7 +303,6 @@ mod tests {
         // home 不可得时保留 cwd（最差兜底）
         assert_eq!(initial_workdir(std::path::Path::new("/"), None), std::path::PathBuf::from("/"));
     }
-
     #[cfg(unix)]
     #[test]
     fn initial_workdir_unwritable_falls_back_to_home() {
@@ -314,7 +315,6 @@ mod tests {
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         std::fs::remove_dir_all(&dir).ok();
     }
-
     #[test]
     fn invalid_app_config_fails_closed_with_path() {
         let dir = std::env::temp_dir().join(format!("kxen-gui-config-invalid-{}", uuid::Uuid::new_v4()));
@@ -326,25 +326,25 @@ mod tests {
         assert!(error.contains(&path.display().to_string()), "startup error must identify config path: {error}");
         std::fs::remove_dir_all(dir).ok();
     }
-
     #[cfg(unix)]
     #[test]
     fn app_data_directory_is_owner_only() {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("kxen-private-data-{}", uuid::Uuid::new_v4()));
-        ensure_private_data_dir(&dir).unwrap();
+        let paths = kxen_core::core::paths::KxenPaths::custom(&dir);
+        paths.ensure_base_dirs().unwrap();
         assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
         std::fs::remove_dir_all(dir).ok();
     }
-
     #[test]
     fn app_instance_lock_is_exclusive_and_released_on_drop() {
         let dir = std::env::temp_dir().join(format!("kxen-instance-lock-{}", uuid::Uuid::new_v4()));
-        ensure_private_data_dir(&dir).unwrap();
-        let first = acquire_instance_lock(&dir).unwrap();
-        assert!(acquire_instance_lock(&dir).is_err());
+        let paths = kxen_core::core::paths::KxenPaths::custom(&dir);
+        paths.ensure_base_dirs().unwrap();
+        let first = acquire_instance_lock(&paths).unwrap();
+        assert!(acquire_instance_lock(&paths).is_err());
         drop(first);
-        assert!(acquire_instance_lock(&dir).is_ok());
+        assert!(acquire_instance_lock(&paths).is_ok());
         std::fs::remove_dir_all(dir).ok();
     }
 }

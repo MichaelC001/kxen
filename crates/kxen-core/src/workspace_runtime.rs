@@ -158,7 +158,7 @@ impl Default for WorkspaceRuntimeRegistry {
             mcp_approval: None,
             mcp_auto: None,
             base_mrm: Arc::new(std::sync::RwLock::new(Arc::new(mrm))),
-            user_config: Arc::from(crate::core::paths::config_dir().join("config.toml")),
+            user_config: Arc::from(crate::core::paths::KxenPaths::user().config_file()),
             config_update_gate: Arc::new(ConfigUpdateGate::default()),
         }
     }
@@ -179,6 +179,7 @@ impl WorkspaceRuntimeRegistry {
             return Ok(runtime);
         }
         let root = normalize(root)?;
+        crate::core::ignore_manager::prepare_project(&crate::core::paths::KxenPaths::project(&root))?;
         #[cfg(unix)]
         let identity = WorkspaceIdentity::from(&workspace_metadata(&root)?);
         #[cfg(unix)]
@@ -321,7 +322,7 @@ fn read_user_document(path: &Path) -> Result<toml::Table, String> {
 }
 
 fn workspace_config_from(root: &Path, user: &Path, trusted: bool) -> Result<crate::core::config::Config, String> {
-    let project = trusted.then(|| root.join(".kxen/config.toml"));
+    let project = trusted.then(|| crate::core::paths::KxenPaths::project(root).config_file());
     crate::core::config::Config::load(user, project.as_deref()).map_err(|e| format!("workspace config {}: {e}", root.display()))
 }
 

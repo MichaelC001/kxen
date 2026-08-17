@@ -158,7 +158,7 @@ fn persist_notice(dir: &Path, session_id: &str, notice: &RoutedNotice) -> Result
 }
 
 pub fn drain_to_session(router: &NotifyRouter, session_id: Option<&str>) -> Option<crate::llm::Message> {
-    drain_to_session_in(router, &crate::core::paths::sessions_dir(), session_id)
+    drain_to_session_in(router, &crate::core::paths::KxenPaths::user().sessions_dir(), session_id)
 }
 
 pub fn drain_to_session_in(router: &NotifyRouter, dir: &Path, session_id: Option<&str>) -> Option<crate::llm::Message> {

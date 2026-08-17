@@ -13,6 +13,7 @@ pub mod event_store;
 pub mod goal;
 pub mod identity;
 pub mod ids;
+pub mod ignore_manager;
 pub mod journal;
 pub mod net_security;
 pub mod notifications;

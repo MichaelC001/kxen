@@ -123,7 +123,7 @@ pub fn charge_goal_usage(
     tokens: Option<u64>,
     bus: Option<&crate::core::event::EventBus>,
 ) -> Result<Option<String>, String> {
-    let dir = crate::core::paths::goals_dir();
+    let dir = crate::core::paths::KxenPaths::user().goals_dir();
     let Some(goal_id) =
         crate::core::goal::Goal::focus_for_checked(&dir, session_id).map_err(|error| error.to_string())?.map(|goal| goal.id)
     else {
@@ -161,7 +161,7 @@ pub fn charge_goal_usage_for_operation(
     tokens: Option<u64>,
     bus: Option<&crate::core::event::EventBus>,
 ) -> Result<GoalMeteringResult, String> {
-    let dir = crate::core::paths::goals_dir();
+    let dir = crate::core::paths::KxenPaths::user().goals_dir();
     let _lifecycle = crate::core::session_lifecycle::admit_goal_mutation(&dir, goal_id)?;
     charge_goal_usage_for_operation_in(&dir, goal_id, operation_id, tokens, bus)
 }
@@ -173,7 +173,7 @@ pub(crate) fn charge_goal_usage_for_operation_unchecked(
     tokens: Option<u64>,
     bus: Option<&crate::core::event::EventBus>,
 ) -> Result<GoalMeteringResult, String> {
-    charge_goal_usage_for_operation_in(&crate::core::paths::goals_dir(), goal_id, operation_id, tokens, bus)
+    charge_goal_usage_for_operation_in(&crate::core::paths::KxenPaths::user().goals_dir(), goal_id, operation_id, tokens, bus)
 }
 
 fn charge_goal_usage_for_operation_in(
@@ -211,7 +211,7 @@ fn charge_goal_usage_for_operation_in(
 }
 
 fn forget_goal_metering_receipt(goal_id: &str, operation_id: &str) -> Option<String> {
-    let dir = crate::core::paths::goals_dir();
+    let dir = crate::core::paths::KxenPaths::user().goals_dir();
     let _lifecycle = match crate::core::session_lifecycle::admit_goal_mutation(&dir, goal_id) {
         Ok(guard) => guard,
         Err(error) => return Some(error),
@@ -220,7 +220,7 @@ fn forget_goal_metering_receipt(goal_id: &str, operation_id: &str) -> Option<Str
 }
 
 pub(crate) fn forget_goal_metering_receipt_unchecked(goal_id: &str, operation_id: &str) -> Option<String> {
-    forget_goal_metering_receipt_in(&crate::core::paths::goals_dir(), goal_id, operation_id)
+    forget_goal_metering_receipt_in(&crate::core::paths::KxenPaths::user().goals_dir(), goal_id, operation_id)
 }
 
 fn forget_goal_metering_receipt_in(dir: &std::path::Path, goal_id: &str, operation_id: &str) -> Option<String> {
@@ -266,7 +266,7 @@ fn stop_message(goal: &crate::core::goal::Goal) -> Option<String> {
 /// 返回终态消息（BudgetLimited/Blocked）时调用方必须落终态文本并停。
 pub(super) fn record_goal_turn(ctx: &mut AgentContext, acc: &mut UsageAcc, blocked_reason: Option<String>) -> Option<String> {
     // session 粒度：只推进本会话 goal，多会话并发不误伤
-    let dir = crate::core::paths::goals_dir();
+    let dir = crate::core::paths::KxenPaths::user().goals_dir();
     // 锁外 focus 定位、锁内重读入账：并发会话的 load-modify-save 由 per-id 锁串行化
     if let Err(error) = ctx.freeze_goal_binding() {
         return Some(format!("goal state unavailable: {error}"));

@@ -159,7 +159,8 @@ pub async fn dispatch_tool<'a>(name: &'a str, args: &'a Value, cwd: &'a str, ctx
                 let prompt = args.get("prompt").and_then(Value::as_str).ok_or("missing prompt")?;
                 let once = args.get("once").and_then(Value::as_bool).unwrap_or(false);
                 let session_id = ctx.session_id.as_deref().ok_or("schedule mutation requires a durable session")?;
-                let _lifecycle = crate::core::session_lifecycle::admit_mutation(&crate::core::paths::sessions_dir(), session_id)?;
+                let _lifecycle =
+                    crate::core::session_lifecycle::admit_mutation(&crate::core::paths::KxenPaths::user().sessions_dir(), session_id)?;
                 let job = crate::core::schedule::add(cron, prompt, session_id, once)?;
                 Ok(format!("scheduled {} (next fire at {})", job.id, job.next_fire))
             }

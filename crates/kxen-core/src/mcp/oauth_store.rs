@@ -114,7 +114,7 @@ pub fn store_path() -> PathBuf {
     if let Some(p) = std::env::var_os("KXEN_MCP_OAUTH_STORE") {
         return PathBuf::from(p);
     }
-    crate::core::paths::data_dir().join("mcp-oauth.json")
+    crate::core::paths::KxenPaths::user().mcp_oauth_file()
 }
 
 pub struct TokenStore {

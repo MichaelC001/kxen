@@ -58,7 +58,7 @@ fn cache_file() -> std::path::PathBuf {
     if let Ok(p) = std::env::var("KXEN_CATALOG_FILE") {
         return std::path::PathBuf::from(p);
     }
-    crate::core::paths::data_dir().join("models-catalog.json")
+    crate::core::paths::KxenPaths::user().models_catalog_file()
 }
 
 /// 目录读取：内存 -> 磁盘 -> 静态兜底；磁盘过期/缺失时后台刷新（不阻塞调用方）。

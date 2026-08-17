@@ -191,7 +191,7 @@ pub fn execute_kanban_tool(name: &str, args: &Value, ctx: &AgentContext) -> Resu
             )?;
             publish(ctx, &parsed.board);
             Ok(format!(
-                "agent defined: {} (role {}, model {}, profile {}, {})\ndefinition: .kxen/kanban/agents/{}.md",
+                "agent defined: {} (role {}, model {}, profile {}, {})\ndefinition: .agents/kxen/kanban/agents/{}.md",
                 definition.name,
                 definition.role,
                 definition.model,

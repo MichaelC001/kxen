@@ -1,6 +1,6 @@
 //! kanban RPC 方法（kanban.{boards,snapshot,board_create,card_create,card_move,card_comment,run_start,policy_set}）。
 //! 变更方法先落事件流再 publish KanbanUpdate（commit_and_publish，同 goal_rpc 口径）。
-//! workspace 校验 fail-closed：路径必须逐字命中注册列表，RPC 不能读写任意目录的 .kxen。
+//! workspace 校验 fail-closed：路径必须逐字命中注册列表，RPC 不能读写任意目录的 .agents/kxen。
 
 use std::path::{Path, PathBuf};
 
@@ -116,7 +116,7 @@ fn with_board<T>(params: &Value, f: impl FnOnce(&Path, &str) -> Result<T, String
 
 fn checked_workspace(params: &Value) -> Result<PathBuf, String> {
     let workspace = params.get("workspace").and_then(Value::as_str).ok_or("missing workspace")?;
-    checked_workspace_in(&kxen_core::core::paths::data_dir(), workspace)
+    checked_workspace_in(&kxen_core::core::paths::KxenPaths::user().root(), workspace)
 }
 
 /// 逐字命中才算注册：尾随斜杠、相对写法、前缀相似路径一律拒绝（不 canonicalize 猜测）。

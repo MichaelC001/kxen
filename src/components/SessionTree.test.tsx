@@ -137,7 +137,7 @@ describe("SessionTree 分组命名", () => {
   });
 
   it("worktree 目录组标题显示「树名 (worktree)」而不是完整路径", async () => {
-    setSessions([{ ...S1, directory: "/repo/.kxen/worktrees/exp" }]);
+    setSessions([{ ...S1, directory: "/repo/.agents/kxen/worktrees/exp" }]);
     const dispose = render(() => <SessionTree />, document.body);
     await flush();
     expect(byText("exp (worktree)")).toBeTruthy();
@@ -147,8 +147,8 @@ describe("SessionTree 分组命名", () => {
 
   it("两仓同树名撞名：上提为「仓库/树名 (worktree)」可区分", async () => {
     setSessions([
-      { ...S1, id: "s1", title: "一", directory: "/repoA/.kxen/worktrees/exp" },
-      { ...S1, id: "s2", title: "二", directory: "/repoB/.kxen/worktrees/exp" },
+      { ...S1, id: "s1", title: "一", directory: "/repoA/.agents/kxen/worktrees/exp" },
+      { ...S1, id: "s2", title: "二", directory: "/repoB/.agents/kxen/worktrees/exp" },
     ]);
     const dispose = render(() => <SessionTree />, document.body);
     await flush();

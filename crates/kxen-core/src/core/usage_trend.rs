@@ -66,7 +66,7 @@ fn store_file() -> PathBuf {
     if let Ok(path) = std::env::var("KXEN_USAGE_TREND_FILE") {
         return PathBuf::from(path);
     }
-    crate::core::paths::data_dir().join("usage-trend.json")
+    crate::core::paths::KxenPaths::user().usage_trend_file()
 }
 
 fn states() -> &'static Mutex<HashMap<PathBuf, LedgerState>> {
