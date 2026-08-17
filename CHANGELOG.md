@@ -2,6 +2,18 @@
 
 此文件由 [git-cliff](https://github.com/orhun/git-cliff) 根据 Git tag 和 Conventional Commits 自动生成，请勿手动编辑。
 
+## [0.1.15] - 2026-08-17
+
+> **版本主题:** Unified Agent Storage
+
+### 本次更新
+
+- Kxen now stores user state under ~/.agents/kxen and project runtime state under .agents/kxen, with managed ignore rules and cross-platform path handling; legacy data is not migrated automatically. ([8c5e375](https://github.com/StringKe/kxen/commit/8c5e37596aff4a803b30c87529f07962ea0e51e3))
+
+### 新增功能
+
+- **core:** Unify runtime paths and ignore rules ([72ad579](https://github.com/StringKe/kxen/commit/72ad5799a2efd894638122193e57c821956321cc))
+
 ## [0.1.14] - 2026-08-16
 
 > **版本主题:** CI Gate Compliance
