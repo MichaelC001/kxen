@@ -2555,7 +2555,7 @@ dependencies = [
 
 [[package]]
 name = "kxen-agent"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "kxen-core",
  "serde",
@@ -2567,7 +2567,7 @@ dependencies = [
 
 [[package]]
 name = "kxen-cli"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "futures",
  "kxen-core",
@@ -2580,7 +2580,7 @@ dependencies = [
 
 [[package]]
 name = "kxen-core"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -2623,7 +2623,7 @@ dependencies = [
 
 [[package]]
 name = "kxen-gui"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "arboard",
  "kxen-core",
