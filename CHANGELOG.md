@@ -14,6 +14,10 @@
 
 - **core:** Unify runtime paths and ignore rules ([72ad579](https://github.com/StringKe/kxen/commit/72ad5799a2efd894638122193e57c821956321cc))
 
+### 问题修复
+
+- **core:** Satisfy clippy for test path selection ([15d4716](https://github.com/StringKe/kxen/commit/15d47169da81a41fd2e6661df7daf32cc2821510))
+
 ## [0.1.14] - 2026-08-16
 
 > **版本主题:** CI Gate Compliance
